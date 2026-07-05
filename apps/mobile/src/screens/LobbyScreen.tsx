@@ -8,6 +8,7 @@ import { useEffect } from "react";
 import { Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../components/Button";
+import { AvatarGlyph } from "../components/Avatar";
 import { useOnlineStore } from "../store/onlineStore";
 import { setBackInterceptor } from "../store/navStore";
 import { seatColors } from "../lib/seating";
@@ -27,6 +28,7 @@ export function LobbyScreen() {
 
   const roomCode = useOnlineStore((s) => s.roomCode);
   const lobby = useOnlineStore((s) => s.lobby);
+  const profiles = useOnlineStore((s) => s.profiles);
   const isHost = useOnlineStore((s) => s.isHost);
   const userId = useOnlineStore((s) => s.userId);
   const starting = useOnlineStore((s) => s.starting);
@@ -66,13 +68,25 @@ export function LobbyScreen() {
           </Text>
           {lobby.map((p, i) => {
             const color = previewColors[i] ?? p.color;
+            const profile = profiles[p.user_id];
             return (
               <View
                 key={p.id}
                 style={{ flexDirection: "row", alignItems: "center", gap: space.md, padding: space.md, borderRadius: radius.md, backgroundColor: palette.raisedSlate }}
               >
-                <View style={{ width: 18, height: 18, borderRadius: radius.pill, backgroundColor: teamColor[color] }} />
-                <Text style={{ fontFamily: font.semibold, fontSize: 16, color: palette.porcelain, flex: 1 }}>{COLOR_LABEL[color]}</Text>
+                {profile ? (
+                  <AvatarGlyph id={profile.avatar_id} size={32} />
+                ) : (
+                  <View style={{ width: 18, height: 18, borderRadius: radius.pill, backgroundColor: teamColor[color] }} />
+                )}
+                <View style={{ flex: 1, gap: 1 }}>
+                  <Text numberOfLines={1} style={{ fontFamily: font.semibold, fontSize: 16, color: palette.porcelain }}>
+                    {profile?.display_name ?? COLOR_LABEL[color]}
+                  </Text>
+                  {profile ? (
+                    <Text style={{ fontFamily: font.regular, fontSize: 12, color: palette.mutedSteel }}>{COLOR_LABEL[color]}</Text>
+                  ) : null}
+                </View>
                 {p.user_id === userId ? <Tag label="You" /> : null}
                 {p.is_host ? <Tag label="Host" /> : null}
               </View>

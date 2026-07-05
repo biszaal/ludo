@@ -7,7 +7,7 @@
  * service-role key (auto-injected) to write past RLS, but authorizes each call
  * against the caller's JWT.
  *
- * Body: { op: "create" | "join" | "start" | "roll" | "move" | "pass", ... }
+ * Body: { op: "create" | "join" | "start" | "roll" | "move" | "pass" | "rematch", ... }
  * Always responds 200 with either a payload or `{ error }`.
  */
 
@@ -79,6 +79,8 @@ Deno.serve(async (req: Request) => {
         return await opTurn(admin, userId, String(body.gameId), "move", String(body.tokenId));
       case "pass":
         return await opTurn(admin, userId, String(body.gameId), "pass");
+      case "rematch":
+        return await opRematch(admin, userId, String(body.gameId));
       default:
         return json({ error: "Unknown op." });
     }
@@ -148,6 +150,29 @@ async function opStart(admin: SupabaseClient, userId: string, gameId: string): P
   if (error) return json({ error: error.message });
 
   return json({ state });
+}
+
+/** Host-only: reset a finished game to a fresh state with the same seats/colors. */
+async function opRematch(admin: SupabaseClient, userId: string, gameId: string): Promise<Response> {
+  const { data: game } = await admin.from("games").select("id, host_user_id, status, state").eq("id", gameId).single();
+  if (!game || !game.state) return json({ error: "Game not found." });
+  if (game.host_user_id !== userId) return json({ error: "Only the host can start a rematch." });
+  if (game.status !== "finished") return json({ error: "The game is still in progress." });
+
+  const prev = game.state as GameState;
+  const players = prev.players.map((p) => ({ id: p.id, userId: p.userId, color: p.color }));
+  const next = engineCreateGame(players, { gameId });
+
+  const { error } = await admin
+    .from("games")
+    .update({ state: next, status: "active", current_turn_player_id: next.currentTurnPlayerId })
+    .eq("id", gameId);
+  if (error) return json({ error: error.message });
+
+  const me = prev.players.find((p) => p.userId === userId);
+  await admin.from("moves").insert({ game_id: gameId, player_id: me?.id ?? null, action: { action: "rematch" } });
+
+  return json({ state: next });
 }
 
 async function opTurn(

@@ -14,6 +14,7 @@ import { ScreenStack } from "./src/components/ScreenStack";
 import { useOnlineStore } from "./src/store/onlineStore";
 import { initSound, setMusicActive } from "./src/lib/sound";
 import { initFeedback } from "./src/lib/feedback";
+import { initProfileSync } from "./src/net/profileSync";
 import { palette } from "./src/theme";
 
 export default function App() {
@@ -26,7 +27,12 @@ export default function App() {
   });
   useEffect(() => {
     void initSound();
-    return initFeedback();
+    const stopFeedback = initFeedback();
+    const stopProfileSync = initProfileSync();
+    return () => {
+      stopFeedback();
+      stopProfileSync();
+    };
   }, []);
 
   // On returning to the foreground, resync an in-progress online game to recover

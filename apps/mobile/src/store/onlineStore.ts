@@ -17,6 +17,7 @@ import {
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import * as api from "../net/api";
 import { useNav } from "./navStore";
+import { useProfile } from "./profileStore";
 
 const COLOR_LABEL: Record<PlayerColor, string> = { red: "Red", green: "Green", yellow: "Yellow", blue: "Blue" };
 const AUTO_DELAY = 700;
@@ -33,6 +34,8 @@ interface OnlineStore {
   isHost: boolean;
   starting: boolean;
   lobby: api.LobbyPlayer[];
+  /** Display profiles keyed by auth user_id (cosmetic; color labels fall back). */
+  profiles: Record<string, api.Profile>;
 
   state: GameState | null;
   validMoves: Move[];
@@ -46,6 +49,8 @@ interface OnlineStore {
   roll: () => Promise<void>;
   selectToken: (tokenId: string) => Promise<void>;
   pass: () => Promise<void>;
+  /** Host-only: reset the finished game for everyone (guests follow via realtime). */
+  rematch: () => Promise<void>;
   leave: () => void;
   resync: () => Promise<void>;
 
@@ -62,6 +67,7 @@ const INITIAL = {
   isHost: false,
   starting: false,
   lobby: [] as api.LobbyPlayer[],
+  profiles: {} as Record<string, api.Profile>,
   state: null,
   validMoves: [] as Move[],
   lastRoll: null,
@@ -76,9 +82,11 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
     set({ status: "connecting", error: null });
     try {
       const m = await api.createGame();
+      syncMyProfile();
       subscribe(m.gameId);
       const lobby = await api.getLobby(m.gameId);
       set({ gameId: m.gameId, roomCode: m.roomCode, userId: m.userId, myPlayerId: m.myPlayerId, isHost: true, lobby, status: "lobby" });
+      void fetchProfiles(lobby);
       useNav.getState().push("lobby");
     } catch (e) {
       set({ status: "error", error: errorText(e) });
@@ -89,10 +97,12 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
     set({ status: "connecting", error: null });
     try {
       const m = await api.joinGame(code);
+      syncMyProfile();
       subscribe(m.gameId);
       const lobby = await api.getLobby(m.gameId);
       const me = lobby.find((p) => p.user_id === m.userId);
       set({ gameId: m.gameId, roomCode: m.roomCode, userId: m.userId, myPlayerId: m.myPlayerId, isHost: me?.is_host ?? false, lobby });
+      void fetchProfiles(lobby);
       const row = await api.fetchGame(m.gameId);
       if (row.status === "active" && row.state) {
         applyGameRow(row);
@@ -165,6 +175,17 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
     }
   },
 
+  rematch: async () => {
+    const { gameId, isHost, state } = get();
+    if (!gameId || !isHost || state?.status !== "finished") return;
+    try {
+      const next = await api.rematchAction(gameId);
+      applyState(next, false);
+    } catch (e) {
+      set({ error: errorText(e) });
+    }
+  },
+
   leave: () => {
     clearAuto();
     const { gameId, userId } = get();
@@ -209,12 +230,32 @@ async function refreshLobby(): Promise<void> {
   try {
     const lobby = await api.getLobby(gameId);
     useOnlineStore.setState({ lobby });
+    void fetchProfiles(lobby);
     if (isHost && status === "lobby" && lobby.length === 4 && !useOnlineStore.getState().starting) {
       void useOnlineStore.getState().start();
     }
   } catch {
     // ignore transient lobby refresh failures
   }
+}
+
+/** Merge profiles for these players into the store (best-effort, cosmetic). */
+async function fetchProfiles(lobby: api.LobbyPlayer[]): Promise<void> {
+  try {
+    const rows = await api.getProfiles(lobby.map((p) => p.user_id));
+    if (rows.length === 0) return;
+    const profiles = { ...useOnlineStore.getState().profiles };
+    for (const r of rows) profiles[r.user_id] = r;
+    useOnlineStore.setState({ profiles });
+  } catch {
+    // color labels remain the fallback
+  }
+}
+
+/** Push the local profile to the server once a session exists (create/join). */
+function syncMyProfile(): void {
+  const { displayName, avatarId } = useProfile.getState();
+  void api.upsertMyProfile(displayName, avatarId).catch(() => {});
 }
 
 /** Apply an authoritative GameState into the view and navigate when active. */
@@ -256,6 +297,7 @@ async function resyncGame(gameId: string): Promise<void> {
     if (userId) void api.setConnected(gameId, userId, true).catch(() => {});
     const lobby = await api.getLobby(gameId);
     useOnlineStore.setState({ lobby });
+    void fetchProfiles(lobby);
     const row = await api.fetchGame(gameId);
     applyGameRow(row);
   } catch {

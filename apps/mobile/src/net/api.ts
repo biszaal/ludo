@@ -98,6 +98,40 @@ export async function passAction(gameId: string): Promise<GameState> {
   return (await callGame<{ state: GameState }>("pass", { gameId })).state;
 }
 
+/** Host-only: reset a finished game to a fresh one with the same players. */
+export async function rematchAction(gameId: string): Promise<GameState> {
+  return (await callGame<{ state: GameState }>("rematch", { gameId })).state;
+}
+
+export interface Profile {
+  user_id: string;
+  display_name: string;
+  avatar_id: string;
+}
+
+/** Fetch profiles for a set of users; missing rows simply aren't returned. */
+export async function getProfiles(userIds: string[]): Promise<Profile[]> {
+  if (userIds.length === 0) return [];
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("user_id, display_name, avatar_id")
+    .in("user_id", userIds);
+  if (error) return []; // profiles are cosmetic — never block on them
+  return (data ?? []) as Profile[];
+}
+
+/** Upsert the caller's own profile row (RLS: self-write only). Best-effort. */
+export async function upsertMyProfile(displayName: string, avatarId: string): Promise<void> {
+  const supabase = getSupabase();
+  const { data: sessionData } = await supabase.auth.getSession();
+  const userId = sessionData.session?.user.id;
+  if (!userId) return; // not signed in yet — create/join will sync it
+  await supabase
+    .from("profiles")
+    .upsert({ user_id: userId, display_name: displayName.slice(0, 20), avatar_id: avatarId }, { onConflict: "user_id" });
+}
+
 export async function getLobby(gameId: string): Promise<LobbyPlayer[]> {
   const supabase = getSupabase();
   const { data, error } = await supabase

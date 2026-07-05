@@ -22,6 +22,7 @@ const COLOR_LABEL: Record<Color, string> = { red: "Red", green: "Green", yellow:
 function diffAndFire(prev: GameState | null, next: GameState | null, myPlayerId: string | null): void {
   if (!prev || !next || prev === next) return;
   if (prev.gameId !== next.gameId) return; // fresh game — no transition to sound
+  if (prev.status !== "active") return; // finished→active is a rematch reset, not captures
 
   let captured = false;
   let finished = false;
