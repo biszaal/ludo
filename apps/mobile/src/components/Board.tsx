@@ -277,11 +277,24 @@ function AnimatedPawn({ waypoints, posKey, r, color, stroke, movable, delay }: A
   const transform = useDerivedValue(() => [{ translateX: tx.value }, { translateY: ty.value }]);
   const ringR = useDerivedValue(() => r * 1.18 + pulse.value * 3);
 
+  return (
+    <Group transform={transform}>
+      <PawnShape r={r} color={color} stroke={stroke} />
+      {movable && <Circle cx={0} cy={0} r={ringR} color="#FFFFFF" style="stroke" strokeWidth={2.5} />}
+    </Group>
+  );
+}
+
+/**
+ * The glossy 3D pawn drawn at the origin (exported for static uses like
+ * how-to-play diagrams — wrap in a translated Group to place it).
+ */
+export function PawnShape({ r, color, stroke }: { r: number; color: string; stroke: string }) {
   const bodyGrad = [shade(color, 0.55), color, shade(color, -0.42)];
   const headGrad = [shade(color, 0.72), shade(color, 0.12), shade(color, -0.3)];
 
   return (
-    <Group transform={transform}>
+    <Group>
       {/* Ground shadow (flattened circle) */}
       <Group transform={[{ translateY: r * 0.74 }, { scaleY: 0.42 }]}>
         <Circle cx={0} cy={0} r={r * 0.92} color="rgba(0,0,0,0.22)" />
@@ -301,8 +314,6 @@ function AnimatedPawn({ waypoints, posKey, r, color, stroke, movable, delay }: A
 
       {/* Gloss highlight */}
       <Circle cx={-r * 0.16} cy={-r * 0.72} r={r * 0.16} color="rgba(255,255,255,0.65)" />
-
-      {movable && <Circle cx={0} cy={0} r={ringR} color="#FFFFFF" style="stroke" strokeWidth={2.5} />}
     </Group>
   );
 }

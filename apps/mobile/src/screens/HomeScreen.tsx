@@ -9,6 +9,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../components/Button";
 import { Logo } from "../components/Logo";
 import { useGameStore } from "../store/gameStore";
+import { useNav } from "../store/navStore";
 import { useOnlineStore } from "../store/onlineStore";
 import { font, palette, radius, space, teamColor } from "../theme";
 
@@ -39,6 +40,9 @@ export function HomeScreen() {
           <Logo />
           <Text style={{ fontFamily: font.regular, fontSize: 15, color: palette.mutedSteel }}>The classic board game.</Text>
         </View>
+
+        {/* Temporary entry until the M4 hub revamp adds the header gear. */}
+        <Button label="Settings" variant="ghost" onPress={() => useNav.getState().push("settings")} />
 
         {/* Local play */}
         <View style={{ gap: space.md }}>
