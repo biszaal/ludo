@@ -12,7 +12,8 @@ import {
 import { JetBrainsMono_500Medium } from "@expo-google-fonts/jetbrains-mono";
 import { ScreenStack } from "./src/components/ScreenStack";
 import { useOnlineStore } from "./src/store/onlineStore";
-import { initSound } from "./src/lib/sound";
+import { initSound, setMusicActive } from "./src/lib/sound";
+import { initFeedback } from "./src/lib/feedback";
 import { palette } from "./src/theme";
 
 export default function App() {
@@ -25,12 +26,15 @@ export default function App() {
   });
   useEffect(() => {
     void initSound();
+    return initFeedback();
   }, []);
 
   // On returning to the foreground, resync an in-progress online game to recover
-  // any updates missed while the realtime socket was asleep.
+  // any updates missed while the realtime socket was asleep. Music pauses in the
+  // background and resumes in front.
   useEffect(() => {
     const sub = AppState.addEventListener("change", (next) => {
+      setMusicActive(next === "active");
       if (next === "active") void useOnlineStore.getState().resync();
     });
     return () => sub.remove();

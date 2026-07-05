@@ -1,23 +1,35 @@
 /**
- * Tiny sound-effects layer. Each effect has a small pool of audio players that
- * round-robins so rapid, overlapping plays all sound. All calls are best-effort:
- * audio never blocks gameplay, and failures (e.g. simulator) are ignored.
+ * Sound layer. Effects round-robin small player pools so rapid overlapping
+ * plays all sound; a separate looping player carries the ambient music. All
+ * calls are best-effort — audio never blocks gameplay, and failures (e.g.
+ * simulator quirks) are ignored. Effects respect settings.soundOn, music
+ * respects settings.musicOn plus the app's foreground state.
  */
 
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from "expo-audio";
+import { useSettings } from "../store/settingsStore";
 
-type SoundName = "hop" | "dice";
+export type SoundName = "hop" | "dice" | "capture" | "finish" | "win" | "tap" | "turn" | "ding";
 
 const SPECS: Record<SoundName, { source: number; pool: number; volume: number }> = {
   hop: { source: require("../../assets/hop.wav"), pool: 4, volume: 0.5 },
   dice: { source: require("../../assets/dice.wav"), pool: 2, volume: 0.6 },
+  capture: { source: require("../../assets/capture.wav"), pool: 2, volume: 0.55 },
+  finish: { source: require("../../assets/finish.wav"), pool: 2, volume: 0.5 },
+  win: { source: require("../../assets/win.wav"), pool: 1, volume: 0.6 },
+  tap: { source: require("../../assets/tap.wav"), pool: 2, volume: 0.35 },
+  turn: { source: require("../../assets/turn.wav"), pool: 2, volume: 0.4 },
+  ding: { source: require("../../assets/ding.wav"), pool: 2, volume: 0.5 },
 };
 
-const pools: Record<SoundName, AudioPlayer[]> = { hop: [], dice: [] };
-const cursors: Record<SoundName, number> = { hop: 0, dice: 0 };
+const pools = {} as Record<SoundName, AudioPlayer[]>;
+const cursors = {} as Record<SoundName, number>;
 let ready = false;
 
-/** Load all sounds and allow playback in silent mode. Call once at startup. */
+let music: AudioPlayer | null = null;
+let appActive = true;
+
+/** Load all sounds, start music (if enabled) and allow playback in silent mode. */
 export async function initSound(): Promise<void> {
   if (ready) return;
   try {
@@ -33,17 +45,25 @@ export async function initSound(): Promise<void> {
         player.volume = spec.volume;
         return player;
       });
+      cursors[name] = 0;
     }
+    music = createAudioPlayer(require("../../assets/music.wav"));
+    music.loop = true;
+    music.volume = 0.25;
     ready = true;
   } catch {
     ready = false;
   }
+  // React to the music toggle; effects check soundOn per play.
+  useSettings.subscribe(() => syncMusic());
+  syncMusic();
 }
 
-function play(name: SoundName): void {
-  if (!ready) return;
+/** Play a one-shot effect (no-op when sound is off or audio failed to load). */
+export function playSound(name: SoundName): void {
+  if (!ready || !useSettings.getState().soundOn) return;
   const pool = pools[name];
-  if (pool.length === 0) return;
+  if (!pool || pool.length === 0) return;
   const player = pool[cursors[name] % pool.length]!;
   cursors[name] += 1;
   try {
@@ -55,7 +75,26 @@ function play(name: SoundName): void {
 }
 
 /** A single hop "boing" — call once per cell a token steps through. */
-export const playHop = (): void => play("hop");
+export const playHop = (): void => playSound("hop");
 
 /** The dice rattle — call when a roll begins. */
-export const playDiceRoll = (): void => play("dice");
+export const playDiceRoll = (): void => playSound("dice");
+
+/** Called from the AppState listener: pause music in background, resume in front. */
+export function setMusicActive(active: boolean): void {
+  appActive = active;
+  syncMusic();
+}
+
+function syncMusic(): void {
+  if (!music) return;
+  try {
+    if (useSettings.getState().musicOn && appActive) {
+      if (!music.playing) music.play();
+    } else if (music.playing) {
+      music.pause();
+    }
+  } catch {
+    // ignore
+  }
+}

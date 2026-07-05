@@ -2,6 +2,8 @@
 
 import { Pressable, Text } from "react-native";
 import { font, palette, radius, space } from "../theme";
+import { playSound } from "../lib/sound";
+import { tapLight } from "../lib/haptics";
 
 interface ButtonProps {
   label: string;
@@ -25,6 +27,10 @@ export function Button({
   return (
     <Pressable
       onPress={onPress}
+      onPressIn={() => {
+        playSound("tap");
+        tapLight();
+      }}
       disabled={disabled}
       style={({ pressed }) => ({
         minHeight: 52,

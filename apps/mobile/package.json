@@ -14,6 +14,7 @@
     "expo-audio": "~56.0.12",
     "expo-dev-client": "~56.0.20",
     "expo-font": "~56.0.7",
+    "expo-haptics": "~56.0.3",
     "expo-status-bar": "~56.0.4",
     "react": "19.2.3",
     "react-native": "0.85.3",
@@ -34,7 +35,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "gen:icons": "node scripts/gen-app-icon.mjs",
-    "gen:sounds": "node scripts/gen-hop-sound.mjs && node scripts/gen-dice-sound.mjs"
+    "gen:sounds": "node scripts/gen-hop-sound.mjs && node scripts/gen-dice-sound.mjs && node scripts/gen-sfx.mjs && node scripts/gen-music.mjs"
   },
   "private": true
 }

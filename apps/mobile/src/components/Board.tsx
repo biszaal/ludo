@@ -29,6 +29,7 @@ import {
   type TokenPosition,
 } from "@ludo/engine";
 import { playHop } from "../lib/sound";
+import { hopTick } from "../lib/haptics";
 import type { BoardTheme } from "../render/boardThemes";
 import {
   HOME_CELLS,
@@ -245,7 +246,12 @@ function AnimatedPawn({ waypoints, posKey, r, color, stroke, movable, delay }: A
       if (wps.length <= 1) {
         tx.value = withDelay(delay, withTiming(last.x, { duration: 240, easing: Easing.out(Easing.cubic) }));
         ty.value = withDelay(delay, withTiming(last.y, { duration: 240, easing: Easing.out(Easing.cubic) }));
-        soundTimers.current.push(setTimeout(playHop, delay));
+        soundTimers.current.push(
+          setTimeout(() => {
+            playHop();
+            hopTick();
+          }, delay),
+        );
       } else {
         const HOP = r * 0.95;
         tx.value = withDelay(delay, withSequence(...wps.map((p) => withTiming(p.x, { duration: HOP_STEP_MS, easing: Easing.linear }))));
@@ -259,7 +265,12 @@ function AnimatedPawn({ waypoints, posKey, r, color, stroke, movable, delay }: A
           ),
         );
         for (let i = 0; i < wps.length; i++) {
-          soundTimers.current.push(setTimeout(playHop, delay + i * HOP_STEP_MS));
+          soundTimers.current.push(
+            setTimeout(() => {
+              playHop();
+              hopTick();
+            }, delay + i * HOP_STEP_MS),
+          );
         }
       }
     } else {

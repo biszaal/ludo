@@ -15,6 +15,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { palette, radius } from "../theme";
 import { playDiceRoll } from "../lib/sound";
+import { diceSettle } from "../lib/haptics";
 import type { BoardTheme } from "../render/boardThemes";
 
 const PIPS: Record<number, number[]> = {
@@ -52,6 +53,9 @@ export function Dice({ value, size = 64, muted = false, accent, spinSeq = 0, the
       withTiming(1.16, { duration: 150, easing: Easing.out(Easing.quad) }),
       withTiming(1, { duration: 260, easing: Easing.out(Easing.cubic) }),
     );
+    // Haptic lands as the tumble settles (DESIGN.md §6: tap on settle).
+    const settle = setTimeout(diceSettle, 450);
+    return () => clearTimeout(settle);
   }, [spinSeq, rotate, scale]);
 
   const animatedStyle = useAnimatedStyle(() => ({
