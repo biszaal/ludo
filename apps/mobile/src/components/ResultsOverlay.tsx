@@ -6,11 +6,12 @@
  */
 
 import { Text, View, useWindowDimensions } from "react-native";
-import Animated, { FadeIn, FadeInDown } from "react-native-reanimated";
+import Animated, { Easing, FadeIn, FadeInDown } from "react-native-reanimated";
 import type { GameState } from "@ludo/engine";
 import { Button } from "./Button";
 import { Confetti } from "./Confetti";
 import { AvatarGlyph } from "./Avatar";
+import { Surface3D } from "./Surface3D";
 import { computeStandings } from "../lib/standings";
 import { font, palette, radius, space, teamColor, teamTint } from "../theme";
 
@@ -59,7 +60,7 @@ export function ResultsOverlay({ state, nameFor, avatarFor, onRematch, footnote,
       />
 
       {/* Winner block */}
-      <Animated.View entering={FadeInDown.delay(1050).springify().stiffness(100).damping(18)} style={{ alignItems: "center", marginTop: height * 0.14, gap: space.md }}>
+      <Animated.View entering={FadeInDown.delay(1050).duration(320).easing(Easing.out(Easing.cubic))} style={{ alignItems: "center", marginTop: height * 0.14, gap: space.md }}>
         {winnerAvatar ? (
           <AvatarGlyph id={winnerAvatar} size={72} />
         ) : (
@@ -81,18 +82,15 @@ export function ResultsOverlay({ state, nameFor, avatarFor, onRematch, footnote,
       {/* Ranked rows (2nd onward) */}
       <View style={{ gap: space.sm }}>
         {standings.slice(1).map((s) => (
-          <View
+          <Surface3D
             key={s.playerId}
-            style={{
+            edge={2}
+            faceStyle={{
               flexDirection: "row",
               alignItems: "center",
               gap: space.md,
               paddingVertical: space.sm,
               paddingHorizontal: space.md,
-              borderRadius: radius.md,
-              backgroundColor: palette.raisedSlate,
-              borderWidth: 1,
-              borderColor: palette.hairline,
             }}
           >
             <Text style={{ fontFamily: font.mono, fontSize: 14, color: palette.mutedSteel, width: 22 }}>{s.rank}</Text>
@@ -101,7 +99,7 @@ export function ResultsOverlay({ state, nameFor, avatarFor, onRematch, footnote,
               {nameFor?.(s.playerId) ?? COLOR_LABEL[s.color]}
             </Text>
             <Text style={{ fontFamily: font.mono, fontSize: 13, color: palette.mutedSteel }}>{s.finished}/4</Text>
-          </View>
+          </Surface3D>
         ))}
       </View>
 

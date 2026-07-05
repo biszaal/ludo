@@ -9,6 +9,7 @@ import { Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../components/Button";
 import { AvatarGlyph } from "../components/Avatar";
+import { Surface3D } from "../components/Surface3D";
 import { useOnlineStore } from "../store/onlineStore";
 import { setBackInterceptor } from "../store/navStore";
 import { seatColors } from "../lib/seating";
@@ -53,9 +54,9 @@ export function LobbyScreen() {
         {/* Share code */}
         <View style={{ alignItems: "center", gap: space.sm, marginTop: space.lg }}>
           <Text style={{ fontFamily: font.medium, fontSize: 13, color: palette.mutedSteel }}>SHARE THIS CODE</Text>
-          <View style={{ paddingHorizontal: space.xl, paddingVertical: space.md, borderRadius: radius.lg, backgroundColor: palette.liftedSlate, borderWidth: 1, borderColor: palette.hairline }}>
+          <Surface3D rad={radius.lg} faceColor={palette.liftedSlate} faceStyle={{ paddingHorizontal: space.xl, paddingVertical: space.md }}>
             <Text style={{ fontFamily: font.mono, fontSize: 48, color: palette.porcelain, letterSpacing: 10 }}>{roomCode ?? "----"}</Text>
-          </View>
+          </Surface3D>
           <Text style={{ fontFamily: font.regular, fontSize: 14, color: palette.mutedSteel }}>
             Friends enter this code on their device to join.
           </Text>
@@ -70,9 +71,10 @@ export function LobbyScreen() {
             const color = previewColors[i] ?? p.color;
             const profile = profiles[p.user_id];
             return (
-              <View
+              <Surface3D
                 key={p.id}
-                style={{ flexDirection: "row", alignItems: "center", gap: space.md, padding: space.md, borderRadius: radius.md, backgroundColor: palette.raisedSlate }}
+                edge={2}
+                faceStyle={{ flexDirection: "row", alignItems: "center", gap: space.md, padding: space.md }}
               >
                 {profile ? (
                   <AvatarGlyph id={profile.avatar_id} size={32} />
@@ -89,7 +91,7 @@ export function LobbyScreen() {
                 </View>
                 {p.user_id === userId ? <Tag label="You" /> : null}
                 {p.is_host ? <Tag label="Host" /> : null}
-              </View>
+              </Surface3D>
             );
           })}
           {Array.from({ length: emptySlots }, (_unused, i) => (

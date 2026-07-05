@@ -6,12 +6,12 @@
 
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
-import Animated, { FadeIn, FadeOut, SlideInDown, SlideOutDown } from "react-native-reanimated";
+import Animated, { Easing, FadeIn, FadeOut, SlideInDown, SlideOutDown } from "react-native-reanimated";
 import { Button } from "./Button";
 import { SettingRow } from "./SettingRow";
 import { useNav } from "../store/navStore";
 import { useSettings } from "../store/settingsStore";
-import { font, palette, radius, space, teamColor } from "../theme";
+import { depth, font, palette, radius, space, teamColor } from "../theme";
 
 interface PauseMenuProps {
   onResume: () => void;
@@ -36,7 +36,7 @@ export function PauseMenu({ onResume, onLeave, confirmLeave = false }: PauseMenu
       </Animated.View>
 
       <Animated.View
-        entering={SlideInDown.springify().stiffness(120).damping(20)}
+        entering={SlideInDown.duration(260).easing(Easing.out(Easing.cubic))}
         exiting={SlideOutDown.duration(180)}
         style={{
           position: "absolute",
@@ -48,6 +48,12 @@ export function PauseMenu({ onResume, onLeave, confirmLeave = false }: PauseMenu
           borderTopRightRadius: radius.lg,
           borderWidth: 1,
           borderColor: palette.hairline,
+          borderTopColor: depth.highlight,
+          shadowColor: "#000",
+          shadowOpacity: 0.4,
+          shadowRadius: 16,
+          shadowOffset: { width: 0, height: -6 },
+          elevation: 12,
           paddingHorizontal: space.xl,
           paddingTop: space.lg,
           paddingBottom: space.xxl,

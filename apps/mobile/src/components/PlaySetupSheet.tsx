@@ -6,14 +6,14 @@
 
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
-import Animated, { FadeIn, FadeOut, SlideInDown, SlideOutDown } from "react-native-reanimated";
+import Animated, { Easing, FadeIn, FadeOut, SlideInDown, SlideOutDown } from "react-native-reanimated";
 import { DEFAULT_RULES, type RuleConfig } from "@ludo/engine";
 import { Button } from "./Button";
 import { SelectTile } from "./SelectTile";
 import { SettingRow } from "./SettingRow";
 import { EXPOSED_RULES } from "../lib/exposedRules";
 import { seatColors } from "../lib/seating";
-import { font, palette, radius, space, teamColor } from "../theme";
+import { depth, font, palette, radius, space, teamColor } from "../theme";
 
 const COUNTS = [2, 3, 4] as const;
 
@@ -39,7 +39,7 @@ export function PlaySetupSheet({ mode, onStart, onClose }: PlaySetupSheetProps) 
       </Animated.View>
 
       <Animated.View
-        entering={SlideInDown.springify().stiffness(120).damping(20)}
+        entering={SlideInDown.duration(260).easing(Easing.out(Easing.cubic))}
         exiting={SlideOutDown.duration(180)}
         style={{
           position: "absolute",
@@ -51,6 +51,12 @@ export function PlaySetupSheet({ mode, onStart, onClose }: PlaySetupSheetProps) 
           borderTopRightRadius: radius.lg,
           borderWidth: 1,
           borderColor: palette.hairline,
+          borderTopColor: depth.highlight,
+          shadowColor: "#000",
+          shadowOpacity: 0.4,
+          shadowRadius: 16,
+          shadowOffset: { width: 0, height: -6 },
+          elevation: 12,
           paddingHorizontal: space.xl,
           paddingTop: space.lg,
           paddingBottom: space.xxl,

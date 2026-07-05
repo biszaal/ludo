@@ -61,3 +61,32 @@ export const radius = {
   lg: 20,
   pill: 999,
 } as const;
+
+/** Mix a hex color toward white (amt > 0) or black (amt < 0). 0..1 strength. */
+export function shade(hex: string, amt: number): string {
+  const n = parseInt(hex.replace("#", ""), 16);
+  const target = amt >= 0 ? 255 : 0;
+  const p = Math.abs(amt);
+  const mix = (c: number) => Math.round((target - c) * p + c);
+  return `rgb(${mix((n >> 16) & 255)}, ${mix((n >> 8) & 255)}, ${mix(n & 255)})`;
+}
+
+/**
+ * Depth language: raised pieces on the felt table. A piece shows a darker
+ * under-edge below its face, catches light along its top, and drops a soft
+ * shadow onto the felt. Pressing seats it into the table (edge collapses).
+ */
+export const depth = {
+  /** Height (px) of the visible under-edge on raised interactive pieces. */
+  edge: 4,
+  /** Thin light-catch along a raised face's top. */
+  highlight: "rgba(255,255,255,0.10)",
+  /** Soft drop onto the felt (spread into a style object). */
+  shadow: {
+    shadowColor: "#000",
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
+  },
+} as const;

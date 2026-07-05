@@ -30,6 +30,7 @@ import {
 } from "@ludo/engine";
 import { playHop } from "../lib/sound";
 import { hopTick } from "../lib/haptics";
+import { shade } from "../theme";
 import type { BoardTheme } from "../render/boardThemes";
 import {
   HOME_CELLS,
@@ -424,14 +425,6 @@ function startColor(idx: number, theme: BoardTheme): string {
 }
 
 /** Lighten (amt > 0) or darken (amt < 0) a #RRGGBB color toward white/black. */
-function shade(hex: string, amt: number): string {
-  const n = parseInt(hex.replace("#", ""), 16);
-  const target = amt >= 0 ? 255 : 0;
-  const p = Math.abs(amt);
-  const mix = (c: number) => Math.round((target - c) * p + c);
-  return `rgb(${mix((n >> 16) & 255)}, ${mix((n >> 8) & 255)}, ${mix(n & 255)})`;
-}
-
 function triangle(a: number[], b: number[], c: number[], cell: number) {
   const p = Skia.Path.Make();
   p.moveTo(a[0]! * cell, a[1]! * cell);

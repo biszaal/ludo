@@ -83,18 +83,58 @@ export function Dice({ value, size = 64, muted = false, accent, spinSeq = 0, the
           justifyContent: "space-between",
           alignContent: "space-between",
           shadowColor: "#000",
-          shadowOpacity: 0.3,
-          shadowRadius: 6,
-          shadowOffset: { width: 0, height: 3 },
-          elevation: 5,
+          shadowOpacity: 0.35,
+          shadowRadius: 8,
+          shadowOffset: { width: 0, height: 4 },
+          elevation: 6,
         },
         animatedStyle,
       ]}
     >
+      {/* Bevel: light catches the top edge, the bottom edge falls into shadow. */}
+      <View
+        pointerEvents="none"
+        style={{
+          position: "absolute",
+          left: 0,
+          right: 0,
+          top: 0,
+          bottom: 0,
+          borderRadius: radius.md - 2,
+          borderTopWidth: 1.5,
+          borderTopColor: "rgba(255,255,255,0.16)",
+          borderBottomWidth: 2.5,
+          borderBottomColor: "rgba(0,0,0,0.30)",
+        }}
+      />
+      {/* Sheen across the upper half of the face. */}
+      <View
+        pointerEvents="none"
+        style={{
+          position: "absolute",
+          left: 0,
+          right: 0,
+          top: 0,
+          height: "48%",
+          borderTopLeftRadius: radius.md - 2,
+          borderTopRightRadius: radius.md - 2,
+          backgroundColor: "rgba(255,255,255,0.05)",
+        }}
+      />
       {Array.from({ length: 9 }, (_unused, i) => (
         <View key={i} style={{ width: pip, height: pip, alignItems: "center", justifyContent: "center" }}>
           {filled.has(i) && (
-            <View style={{ width: pip, height: pip, borderRadius: pip / 2, backgroundColor: theme?.dice.pip ?? palette.porcelain }} />
+            <View
+              style={{
+                width: pip,
+                height: pip,
+                borderRadius: pip / 2,
+                backgroundColor: theme?.dice.pip ?? palette.porcelain,
+                // A dark ring reads as a drilled pip, not a printed dot.
+                borderWidth: 1,
+                borderColor: "rgba(0,0,0,0.25)",
+              }}
+            />
           )}
         </View>
       ))}

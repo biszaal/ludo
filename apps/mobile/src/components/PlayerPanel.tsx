@@ -14,7 +14,7 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { TOKENS_PER_PLAYER, type GameState, type PlayerState } from "@ludo/engine";
-import { font, palette, radius, space, teamColor } from "../theme";
+import { depth, font, palette, radius, space, teamColor } from "../theme";
 
 const COLOR_LABEL: Record<PlayerState["color"], string> = {
   red: "Red",
@@ -45,6 +45,9 @@ export function PlayerPanel({ player, state, active, label }: PlayerPanelProps) 
         backgroundColor: active ? palette.liftedSlate : "transparent",
         borderWidth: 1,
         borderColor: active ? "transparent" : palette.hairline,
+        // The active panel lifts off the felt; inactive panels stay flush.
+        borderTopColor: active ? depth.highlight : palette.hairline,
+        ...(active ? depth.shadow : {}),
       }}
     >
       {active && <PulseRing color={teamColor[player.color]} />}
