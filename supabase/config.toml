@@ -1,0 +1,16 @@
+# Supabase local config. `npx supabase link --project-ref qosoinftcnkfwoaixkae`
+# associates this with the hosted project; `npx supabase db push` applies
+# migrations/ to it.
+project_id = "ludo"
+
+[db]
+major_version = 15
+
+[realtime]
+enabled = true
+
+[auth]
+enabled = true
+# Anonymous sign-in must also be enabled in the dashboard
+# (Authentication → Sign In / Providers → Anonymous).
+enable_anonymous_sign_ins = true

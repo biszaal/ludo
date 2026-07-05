@@ -1,0 +1,25 @@
+{
+  "name": "ludo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Real-time multiplayer Ludo game (React Native + Supabase). The game engine is the source of truth; everything else is a projection of state.",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "test": "npm test --workspace packages/engine && npm test --workspace packages/bot && npm test --workspace mobile",
+    "test:engine": "npm test --workspace packages/engine",
+    "test:bot": "npm test --workspace packages/bot",
+    "test:app": "npm test --workspace mobile",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "build:engine": "npm run build --workspace packages/engine",
+    "build:edge": "npm run build:engine && node scripts/build-edge.mjs",
+    "mobile": "npm start --workspace mobile",
+    "ios": "npm run run:ios --workspace mobile",
+    "android": "npm run run:android --workspace mobile"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,50 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Environment & secrets (NEVER commit)
+.env
+.env.*
+!.env.example
+
+# Expo / React Native
+apps/mobile/.expo/
+apps/mobile/web-build/
+apps/mobile/ios/
+apps/mobile/android/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+
+# Supabase
+supabase/.branches/
+supabase/.temp/
+# Generated: engine copied for Deno (run `npm run build:edge`)
+supabase/functions/_shared/engine/
+
+# Logs
+*.log
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# Test / coverage
+coverage/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Qodo (unused)
+.qodo/
