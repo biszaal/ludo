@@ -9,7 +9,7 @@
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from "expo-audio";
 import { useSettings } from "../store/settingsStore";
 
-export type SoundName = "hop" | "dice" | "capture" | "finish" | "win" | "tap" | "turn" | "ding";
+export type SoundName = "hop" | "dice" | "capture" | "finish" | "win" | "tap" | "turn" | "ding" | "pop" | "msg";
 
 const SPECS: Record<SoundName, { source: number; pool: number; volume: number }> = {
   hop: { source: require("../../assets/hop.wav"), pool: 4, volume: 0.5 },
@@ -20,6 +20,8 @@ const SPECS: Record<SoundName, { source: number; pool: number; volume: number }>
   tap: { source: require("../../assets/tap.wav"), pool: 2, volume: 0.35 },
   turn: { source: require("../../assets/turn.wav"), pool: 2, volume: 0.4 },
   ding: { source: require("../../assets/ding.wav"), pool: 2, volume: 0.5 },
+  pop: { source: require("../../assets/pop.wav"), pool: 2, volume: 0.5 },
+  msg: { source: require("../../assets/msg.wav"), pool: 2, volume: 0.45 },
 };
 
 const pools = {} as Record<SoundName, AudioPlayer[]>;
@@ -33,7 +35,7 @@ let appActive = true;
 export async function initSound(): Promise<void> {
   if (ready) return;
   try {
-    await setAudioModeAsync({ playsInSilentMode: true });
+    await setAudioModeAsync({ playsInSilentMode: true, interruptionMode: "mixWithOthers", shouldPlayInBackground: false });
   } catch {
     // non-fatal
   }
@@ -43,6 +45,15 @@ export async function initSound(): Promise<void> {
       pools[name] = Array.from({ length: spec.pool }, () => {
         const player = createAudioPlayer(spec.source);
         player.volume = spec.volume;
+        // Park finished players back at 0. A player left at the end of its clip
+        // makes the next play() silently no-op (seekTo is async and loses the
+        // race) — this priming is what keeps rapid one-shots reliable.
+        player.addListener("playbackStatusUpdate", (status) => {
+          if (status.didJustFinish) {
+            player.pause();
+            void player.seekTo(0).catch(() => {});
+          }
+        });
         return player;
       });
       cursors[name] = 0;
@@ -67,8 +78,15 @@ export function playSound(name: SoundName): void {
   const player = pool[cursors[name] % pool.length]!;
   cursors[name] += 1;
   try {
-    player.seekTo(0);
-    player.play();
+    if (player.playing || player.currentTime > 0.01) {
+      // Mid-clip (pool wrapped) or not yet re-parked — restart once the seek lands.
+      void player
+        .seekTo(0)
+        .then(() => player.play())
+        .catch(() => {});
+    } else {
+      player.play(); // parked at 0 — instant start
+    }
   } catch {
     // ignore
   }

@@ -6,6 +6,8 @@
  *   tap.wav     — tiny soft click for button presses
  *   turn.wav    — muted wood-block tick on turn hand-off
  *   ding.wav    — warm bell: it's your turn (online)
+ *   pop.wav     — bubbly up-blip: a reaction emoji arrived
+ *   msg.wav     — soft two-tone: a chat message arrived
  * Run: node scripts/gen-sfx.mjs
  */
 import { writeFileSync, mkdirSync } from "node:fs";
@@ -114,4 +116,26 @@ function tone(out, at, freq, amp, decay, durationS = 0.6) {
   tone(out, 0, 880, 0.34, 6);
   tone(out, 0, 1760, 0.12, 9);
   writeWav("ding.wav", out);
+}
+
+// pop.wav — bubbly rising blip (reaction emoji).
+{
+  const out = buffer(0.14);
+  let phase = 0;
+  for (let i = 0; i < out.length; i++) {
+    const t = i / SR;
+    const freq = 420 * Math.pow(1180 / 420, t / 0.12); // glide up
+    phase += (2 * Math.PI * freq) / SR;
+    const env = Math.exp(-t * 26) * Math.min(1, t / 0.004);
+    out[i] += Math.sin(phase) * 0.42 * env;
+  }
+  writeWav("pop.wav", out);
+}
+
+// msg.wav — soft two-tone notification (chat message).
+{
+  const out = buffer(0.28);
+  tone(out, 0, 620, 0.26, 22, 0.14);
+  tone(out, 0.09, 830, 0.28, 18, 0.18);
+  writeWav("msg.wav", out);
 }
