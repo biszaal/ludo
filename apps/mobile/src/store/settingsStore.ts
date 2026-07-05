@@ -7,9 +7,7 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { kvStorage } from "../lib/storage";
-
-/** Board skin ids — themes themselves live in src/render/boardThemes.ts. */
-export type BoardThemeId = "classic" | "night" | "walnut" | "sand";
+import type { BoardThemeId } from "../render/boardThemes";
 
 interface SettingsState {
   soundOn: boolean;

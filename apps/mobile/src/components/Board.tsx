@@ -1,9 +1,9 @@
 /**
- * Skia-rendered Ludo board — a bright, white Ludo Club–style board on the dark
- * felt table. Pure projection of the engine GameState. The static board is
- * memoized (depends only on size); tokens are glossy 3D pawns that hop cell-by-
- * cell along their path and fan out when several share a cell. Taps are captured
- * by transparent RN overlays.
+ * Skia-rendered Ludo board on the dark felt table, skinned by a BoardTheme
+ * (classic = the bright Ludo Club look). Pure projection of the engine
+ * GameState. The static surface is memoized (size + theme); tokens are glossy
+ * 3D pawns that hop cell-by-cell along their path and fan out when several
+ * share a cell. Taps are captured by transparent RN overlays.
  */
 
 import { useEffect, useMemo, useRef } from "react";
@@ -28,8 +28,8 @@ import {
   type Token,
   type TokenPosition,
 } from "@ludo/engine";
-import { teamColor } from "../theme";
 import { playHop } from "../lib/sound";
+import type { BoardTheme } from "../render/boardThemes";
 import {
   HOME_CELLS,
   START_CELL_INDEX,
@@ -46,15 +46,10 @@ const SAFE = new Set(SAFE_SQUARES);
 /** Per-cell hop duration (ms). Slower = more playful, child's-game pacing. */
 const HOP_STEP_MS = 175;
 
-const BOARD_BASE = "#FDFDFB";
-const BOARD_EDGE = "#B9B2A0";
-const CELL_FILL = "#FFFFFF";
-const CELL_BORDER = "#D2D2D2";
-const STAR_COLOR = "#AEB4BD";
-
 interface BoardProps {
   size: number;
   state: GameState;
+  theme: BoardTheme;
   isMovable: (tokenId: string) => boolean;
   onSelectToken: (tokenId: string) => void;
 }
@@ -65,9 +60,10 @@ interface Spot {
   r: number;
 }
 
-export function Board({ size, state, isMovable, onSelectToken }: BoardProps) {
+export function Board({ size, state, theme, isMovable, onSelectToken }: BoardProps) {
   const cell = cellSize(size);
-  const staticBoard = useMemo(() => <StaticBoard size={size} cell={cell} />, [size, cell]);
+  // Theme objects are module constants, so reference equality keeps this memo effective.
+  const staticBoard = useMemo(() => <BoardSurface size={size} theme={theme} />, [size, theme]);
   const layout = useMemo(() => computeLayout(state.tokens, cell), [state.tokens, cell]);
 
   // Remember each token's last position so a move can be animated cell-by-cell.
@@ -103,7 +99,8 @@ export function Board({ size, state, isMovable, onSelectToken }: BoardProps) {
             waypoints={waypoints}
             posKey={positionKey(token.position)}
             r={spot.r}
-            color={teamColor[token.color]}
+            color={theme.team[token.color]}
+            stroke={theme.pawnStroke}
             movable={isMovable(token.id)}
             delay={capturedDelay(token, prev, moverHopMs)}
           />
@@ -138,27 +135,30 @@ export function Board({ size, state, isMovable, onSelectToken }: BoardProps) {
   );
 }
 
-// --- Static board -----------------------------------------------------------
+// --- Static board surface -----------------------------------------------------
+// Exported so previews (theme swatches, how-to-play art) can draw a board with
+// no GameState. Pure Skia; safe inside any Canvas.
 
-function StaticBoard({ size, cell }: { size: number; cell: number }) {
+export function BoardSurface({ size, theme }: { size: number; theme: BoardTheme }) {
+  const cell = cellSize(size);
   const startIndices = new Set(Object.values(START_CELL_INDEX));
   return (
     <Group>
-      <RoundedRect x={0} y={0} width={size} height={size} r={18} color={BOARD_BASE} />
-      <RoundedRect x={1.5} y={1.5} width={size - 3} height={size - 3} r={16} color={BOARD_EDGE} style="stroke" strokeWidth={2.5} />
+      <RoundedRect x={0} y={0} width={size} height={size} r={18} color={theme.boardBase} />
+      <RoundedRect x={1.5} y={1.5} width={size - 3} height={size - 3} r={16} color={theme.boardEdge} style="stroke" strokeWidth={2.5} />
 
-      {/* Yards: solid color corner, white inner, color-ringed slots */}
+      {/* Yards: solid color corner, plate-colored inner, color-ringed slots */}
       {COLORS.map((color) => {
         const b = YARD_BLOCKS[color];
         const pad = cell * 0.12;
         return (
           <Group key={`yard-${color}`}>
-            <RoundedRect x={b.col * cell + pad} y={b.row * cell + pad} width={b.size * cell - pad * 2} height={b.size * cell - pad * 2} r={16} color={teamColor[color]} />
-            <RoundedRect x={b.col * cell + cell * 0.9} y={b.row * cell + cell * 0.9} width={b.size * cell - cell * 1.8} height={b.size * cell - cell * 1.8} r={12} color={CELL_FILL} />
+            <RoundedRect x={b.col * cell + pad} y={b.row * cell + pad} width={b.size * cell - pad * 2} height={b.size * cell - pad * 2} r={16} color={theme.team[color]} />
+            <RoundedRect x={b.col * cell + cell * 0.9} y={b.row * cell + cell * 0.9} width={b.size * cell - cell * 1.8} height={b.size * cell - cell * 1.8} r={12} color={theme.cellFill} />
             {YARD_SLOTS[color].map(([gx, gy], i) => (
               <Group key={`slot-${color}-${i}`}>
-                <Circle cx={gx * cell} cy={gy * cell} r={cell * 0.46} color={teamColor[color]} />
-                <Circle cx={gx * cell} cy={gy * cell} r={cell * 0.4} color={CELL_FILL} />
+                <Circle cx={gx * cell} cy={gy * cell} r={cell * 0.46} color={theme.team[color]} />
+                <Circle cx={gx * cell} cy={gy * cell} r={cell * 0.4} color={theme.cellFill} />
               </Group>
             ))}
           </Group>
@@ -168,7 +168,7 @@ function StaticBoard({ size, cell }: { size: number; cell: number }) {
       {/* Home-column runs */}
       {COLORS.map((color) =>
         HOME_CELLS[color].map(([col, row], i) => (
-          <RoundedRect key={`home-${color}-${i}`} x={col * cell + 0.5} y={row * cell + 0.5} width={cell - 1} height={cell - 1} r={2} color={teamColor[color]} />
+          <RoundedRect key={`home-${color}-${i}`} x={col * cell + 0.5} y={row * cell + 0.5} width={cell - 1} height={cell - 1} r={2} color={theme.team[color]} />
         )),
       )}
 
@@ -179,19 +179,19 @@ function StaticBoard({ size, cell }: { size: number; cell: number }) {
         const cy = (row + 0.5) * cell;
         return (
           <Group key={`track-${idx}`}>
-            <RoundedRect x={col * cell + 0.5} y={row * cell + 0.5} width={cell - 1} height={cell - 1} r={2} color={isStart ? startColor(idx) : CELL_FILL} />
-            <RoundedRect x={col * cell + 0.5} y={row * cell + 0.5} width={cell - 1} height={cell - 1} r={2} color={CELL_BORDER} style="stroke" strokeWidth={1} />
-            {SAFE.has(idx) && !isStart && <Path path={starPath(cx, cy, cell * 0.28, cell * 0.12)} color={STAR_COLOR} />}
+            <RoundedRect x={col * cell + 0.5} y={row * cell + 0.5} width={cell - 1} height={cell - 1} r={2} color={isStart ? startColor(idx, theme) : theme.cellFill} />
+            <RoundedRect x={col * cell + 0.5} y={row * cell + 0.5} width={cell - 1} height={cell - 1} r={2} color={theme.cellBorder} style="stroke" strokeWidth={1} />
+            {SAFE.has(idx) && !isStart && <Path path={starPath(cx, cy, cell * 0.28, cell * 0.12)} color={theme.starColor} />}
           </Group>
         );
       })}
 
       {/* Center finishing triangles */}
-      <Path path={triangle([6, 6], [9, 6], [7.5, 7.5], cell)} color={teamColor.green} />
-      <Path path={triangle([9, 6], [9, 9], [7.5, 7.5], cell)} color={teamColor.yellow} />
-      <Path path={triangle([9, 9], [6, 9], [7.5, 7.5], cell)} color={teamColor.blue} />
-      <Path path={triangle([6, 9], [6, 6], [7.5, 7.5], cell)} color={teamColor.red} />
-      <RoundedRect x={6 * cell} y={6 * cell} width={3 * cell} height={3 * cell} r={3} color={BOARD_EDGE} style="stroke" strokeWidth={1.5} />
+      <Path path={triangle([6, 6], [9, 6], [7.5, 7.5], cell)} color={theme.team.green} />
+      <Path path={triangle([9, 6], [9, 9], [7.5, 7.5], cell)} color={theme.team.yellow} />
+      <Path path={triangle([9, 9], [6, 9], [7.5, 7.5], cell)} color={theme.team.blue} />
+      <Path path={triangle([6, 9], [6, 6], [7.5, 7.5], cell)} color={theme.team.red} />
+      <RoundedRect x={6 * cell} y={6 * cell} width={3 * cell} height={3 * cell} r={3} color={theme.boardEdge} style="stroke" strokeWidth={1.5} />
     </Group>
   );
 }
@@ -203,6 +203,7 @@ interface AnimatedPawnProps {
   posKey: string;
   r: number;
   color: string;
+  stroke: string;
   movable: boolean;
   /** Wait this many ms before animating — captured tokens wait for the mover. */
   delay: number;
@@ -213,7 +214,7 @@ interface Spot2 {
   y: number;
 }
 
-function AnimatedPawn({ waypoints, posKey, r, color, movable, delay }: AnimatedPawnProps) {
+function AnimatedPawn({ waypoints, posKey, r, color, stroke, movable, delay }: AnimatedPawnProps) {
   const last = waypoints[waypoints.length - 1]!;
   const tx = useSharedValue(last.x);
   const ty = useSharedValue(last.y);
@@ -290,13 +291,13 @@ function AnimatedPawn({ waypoints, posKey, r, color, movable, delay }: AnimatedP
       <Circle cx={0} cy={r * 0.3} r={r * 0.8}>
         <RadialGradient c={vec(-r * 0.3, 0)} r={r * 1.25} colors={bodyGrad} />
       </Circle>
-      <Circle cx={0} cy={r * 0.3} r={r * 0.8} color="rgba(0,0,0,0.32)" style="stroke" strokeWidth={1.2} />
+      <Circle cx={0} cy={r * 0.3} r={r * 0.8} color={stroke} style="stroke" strokeWidth={1.2} />
 
       {/* Head */}
       <Circle cx={0} cy={-r * 0.55} r={r * 0.52}>
         <RadialGradient c={vec(-r * 0.2, -r * 0.75)} r={r * 0.9} colors={headGrad} />
       </Circle>
-      <Circle cx={0} cy={-r * 0.55} r={r * 0.52} color="rgba(0,0,0,0.3)" style="stroke" strokeWidth={1.2} />
+      <Circle cx={0} cy={-r * 0.55} r={r * 0.52} color={stroke} style="stroke" strokeWidth={1.2} />
 
       {/* Gloss highlight */}
       <Circle cx={-r * 0.16} cy={-r * 0.72} r={r * 0.16} color="rgba(255,255,255,0.65)" />
@@ -394,9 +395,9 @@ function tokenIndex(tokenId: string): number {
   return Number(tokenId.split("-")[1] ?? 0);
 }
 
-function startColor(idx: number): string {
+function startColor(idx: number, theme: BoardTheme): string {
   const entry = (Object.entries(START_CELL_INDEX) as [PlayerColor, number][]).find(([, v]) => v === idx);
-  return entry ? teamColor[entry[0]] : CELL_FILL;
+  return entry ? theme.team[entry[0]] : theme.cellFill;
 }
 
 /** Lighten (amt > 0) or darken (amt < 0) a #RRGGBB color toward white/black. */

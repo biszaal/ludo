@@ -13,6 +13,8 @@ import { Button } from "./Button";
 import { Dice } from "./Dice";
 import { PlayerPanel } from "./PlayerPanel";
 import { font, onTeamColor, palette, radius, space, teamColor } from "../theme";
+import { BOARD_THEMES } from "../render/boardThemes";
+import { useSettings } from "../store/settingsStore";
 
 interface GameViewProps {
   state: GameState;
@@ -47,6 +49,7 @@ export function GameView({
   roomCode,
 }: GameViewProps) {
   const { width, height } = useWindowDimensions();
+  const theme = BOARD_THEMES[useSettings((s) => s.boardThemeId)];
   const boardSize = Math.floor(Math.min(width - space.xl * 2, height * 0.46));
   const active = state.players.find((p) => p.id === state.currentTurnPlayerId)!;
   const accent = teamColor[active.color];
@@ -79,13 +82,13 @@ export function GameView({
         </View>
 
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-          <Board size={boardSize} state={state} isMovable={movable} onSelectToken={canAct ? onSelectToken : noop} />
+          <Board size={boardSize} state={state} theme={theme} isMovable={movable} onSelectToken={canAct ? onSelectToken : noop} />
         </View>
 
         <View style={{ gap: space.md, marginBottom: space.sm }}>
           <Text style={{ fontFamily: font.medium, fontSize: 16, color: palette.porcelain, textAlign: "center" }}>{message}</Text>
           <View style={{ flexDirection: "row", alignItems: "center", gap: space.lg }}>
-            <Dice value={state.diceValue ?? lastRoll} muted={state.phase === "awaiting-roll"} accent={accent} spinSeq={rollSeq} />
+            <Dice value={state.diceValue ?? lastRoll} muted={state.phase === "awaiting-roll"} accent={accent} spinSeq={rollSeq} theme={theme} />
             <View style={{ flex: 1 }}>
               {finished ? (
                 <Button label={finishedLabel} onPress={onLeave} />

@@ -15,6 +15,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { palette, radius } from "../theme";
 import { playDiceRoll } from "../lib/sound";
+import type { BoardTheme } from "../render/boardThemes";
 
 const PIPS: Record<number, number[]> = {
   1: [4],
@@ -34,9 +35,11 @@ interface DiceProps {
   accent?: string;
   /** Bump this to replay the tumble animation. */
   spinSeq?: number;
+  /** Board theme supplying the die's face/pip colors (defaults to chrome). */
+  theme?: BoardTheme;
 }
 
-export function Dice({ value, size = 64, muted = false, accent, spinSeq = 0 }: DiceProps) {
+export function Dice({ value, size = 64, muted = false, accent, spinSeq = 0, theme }: DiceProps) {
   const rotate = useSharedValue(0);
   const scale = useSharedValue(1);
 
@@ -65,7 +68,7 @@ export function Dice({ value, size = 64, muted = false, accent, spinSeq = 0 }: D
           width: size,
           height: size,
           borderRadius: radius.md,
-          backgroundColor: palette.liftedSlate,
+          backgroundColor: theme?.dice.face ?? palette.liftedSlate,
           borderWidth: 2,
           borderColor: accent ?? palette.hairline,
           padding: size * 0.17,
@@ -86,7 +89,7 @@ export function Dice({ value, size = 64, muted = false, accent, spinSeq = 0 }: D
       {Array.from({ length: 9 }, (_unused, i) => (
         <View key={i} style={{ width: pip, height: pip, alignItems: "center", justifyContent: "center" }}>
           {filled.has(i) && (
-            <View style={{ width: pip, height: pip, borderRadius: pip / 2, backgroundColor: palette.porcelain }} />
+            <View style={{ width: pip, height: pip, borderRadius: pip / 2, backgroundColor: theme?.dice.pip ?? palette.porcelain }} />
           )}
         </View>
       ))}
