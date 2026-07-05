@@ -22,8 +22,7 @@ import {
 } from "@ludo/engine";
 import { chooseMove } from "@ludo/bot";
 import { seatColors } from "../lib/seating";
-
-type Screen = "home" | "game";
+import { useNav } from "./navStore";
 
 const COLOR_LABEL: Record<PlayerColor, string> = {
   red: "Red",
@@ -38,7 +37,6 @@ const BOT_DELAY = 650;
 const AUTO_DELAY = 650;
 
 interface GameStore {
-  screen: Screen;
   state: GameState | null;
   validMoves: Move[];
   lastRoll: number | null;
@@ -60,7 +58,6 @@ interface GameStore {
 }
 
 export const useGameStore = create<GameStore>((set, get) => ({
-  screen: "home",
   state: null,
   validMoves: [],
   lastRoll: null,
@@ -78,7 +75,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const state = createGame(players);
     const botIds = players.slice(numPlayers - numBots).map((p) => p.id);
     set({
-      screen: "game",
       state,
       validMoves: [],
       lastRoll: null,
@@ -86,6 +82,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       botIds,
       message: `${COLOR_LABEL[colors[0]!]} to roll`,
     });
+    useNav.getState().push("localGame");
     kickBots();
   },
 
@@ -159,7 +156,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
   leaveGame: () => {
     stopBots();
     clearAutoTimer();
-    set({ screen: "home", state: null, validMoves: [], lastRoll: null, botIds: [], message: "" });
+    set({ state: null, validMoves: [], lastRoll: null, botIds: [], message: "" });
+    useNav.getState().popTo("home");
   },
 
   currentColor: () => {

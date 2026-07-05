@@ -3,10 +3,21 @@
  * Input is disabled during a bot's turn (the bot plays on its own timer).
  */
 
+import { useEffect } from "react";
 import { GameView } from "../components/GameView";
 import { useGameStore } from "../store/gameStore";
+import { setBackInterceptor } from "../store/navStore";
 
 export function GameScreen() {
+  // Android back = leave the game (with bot/timer cleanup), not a bare pop.
+  useEffect(() => {
+    setBackInterceptor(() => {
+      useGameStore.getState().leaveGame();
+      return true;
+    });
+    return () => setBackInterceptor(null);
+  }, []);
+
   const state = useGameStore((s) => s.state);
   const validMoves = useGameStore((s) => s.validMoves);
   const lastRoll = useGameStore((s) => s.lastRoll);

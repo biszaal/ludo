@@ -3,12 +3,23 @@
  * enabled only on the local player's turn; otherwise it shows whose turn it is.
  */
 
+import { useEffect } from "react";
 import { GameView } from "../components/GameView";
 import { useOnlineStore } from "../store/onlineStore";
+import { setBackInterceptor } from "../store/navStore";
 
 const COLOR_LABEL = { red: "Red", green: "Green", yellow: "Yellow", blue: "Blue" } as const;
 
 export function OnlineGameScreen() {
+  // Android back = leave the match (same as the Leave button), not a bare pop.
+  useEffect(() => {
+    setBackInterceptor(() => {
+      useOnlineStore.getState().leave();
+      return true;
+    });
+    return () => setBackInterceptor(null);
+  }, []);
+
   const state = useOnlineStore((s) => s.state);
   const validMoves = useOnlineStore((s) => s.validMoves);
   const lastRoll = useOnlineStore((s) => s.lastRoll);

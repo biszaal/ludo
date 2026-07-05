@@ -79,7 +79,7 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
       subscribe(m.gameId);
       const lobby = await api.getLobby(m.gameId);
       set({ gameId: m.gameId, roomCode: m.roomCode, userId: m.userId, myPlayerId: m.myPlayerId, isHost: true, lobby, status: "lobby" });
-      useNav.getState().go("lobby");
+      useNav.getState().push("lobby");
     } catch (e) {
       set({ status: "error", error: errorText(e) });
     }
@@ -98,7 +98,7 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
         applyGameRow(row);
       } else {
         set({ status: "lobby" });
-        useNav.getState().go("lobby");
+        useNav.getState().push("lobby");
       }
     } catch (e) {
       set({ status: "error", error: errorText(e) });
@@ -174,7 +174,7 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
     }
     if (gameId && userId) void api.setConnected(gameId, userId, false).catch(() => {});
     set({ ...INITIAL });
-    useNav.getState().go("none");
+    useNav.getState().popTo("home");
   },
 
   resync: async () => {
@@ -229,7 +229,13 @@ function applyState(state: GameState, rolled: boolean): void {
     status: proj.status,
     rollSeq: st.rollSeq + (rolled ? 1 : 0),
   });
-  if (proj.status !== "lobby" && useNav.getState().route !== "onlineGame") useNav.getState().go("onlineGame");
+  if (proj.status !== "lobby") {
+    // Enter the game screen; replace a lobby entry so back never returns to a dead lobby.
+    const nav = useNav.getState();
+    const top = nav.stack[nav.stack.length - 1]!.name;
+    if (top === "lobby") nav.replace("onlineGame");
+    else if (top !== "onlineGame") nav.push("onlineGame");
+  }
 }
 
 function applyGameRow(row: api.GameRow): void {

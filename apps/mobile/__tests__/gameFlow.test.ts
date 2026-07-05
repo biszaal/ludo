@@ -10,6 +10,7 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { createSeededRng } from "@ludo/engine";
 import { useGameStore } from "../src/store/gameStore";
+import { useNav } from "../src/store/navStore";
 
 const store = useGameStore;
 
@@ -44,9 +45,15 @@ describe("client store — full hot-seat game", () => {
   it("starts a 2-player game and routes to the game screen", () => {
     store.getState().newLocalGame(2);
     const s = store.getState();
-    expect(s.screen).toBe("game");
+    expect(useNav.getState().stack.at(-1)?.name).toBe("localGame");
     expect(s.state?.players).toHaveLength(2);
     expect(s.message).toContain("Red");
+  });
+
+  it("returns to home when leaving", () => {
+    store.getState().newLocalGame(2);
+    store.getState().leaveGame();
+    expect(useNav.getState().stack.map((e) => e.name)).toEqual(["home"]);
   });
 
   it("seats 2 players on a diagonal (red + yellow)", () => {

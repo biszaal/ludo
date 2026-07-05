@@ -4,16 +4,27 @@
  * when a 4th joins. A host cannot start alone.
  */
 
+import { useEffect } from "react";
 import { Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../components/Button";
 import { useOnlineStore } from "../store/onlineStore";
+import { setBackInterceptor } from "../store/navStore";
 import { seatColors } from "../lib/seating";
 import { font, palette, radius, space, teamColor } from "../theme";
 
 const COLOR_LABEL = { red: "Red", green: "Green", yellow: "Yellow", blue: "Blue" } as const;
 
 export function LobbyScreen() {
+  // Android back = leave the room (clears presence + subscription), not a bare pop.
+  useEffect(() => {
+    setBackInterceptor(() => {
+      useOnlineStore.getState().leave();
+      return true;
+    });
+    return () => setBackInterceptor(null);
+  }, []);
+
   const roomCode = useOnlineStore((s) => s.roomCode);
   const lobby = useOnlineStore((s) => s.lobby);
   const isHost = useOnlineStore((s) => s.isHost);

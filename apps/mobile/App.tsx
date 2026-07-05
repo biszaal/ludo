@@ -10,12 +10,7 @@ import {
   Outfit_700Bold,
 } from "@expo-google-fonts/outfit";
 import { JetBrainsMono_500Medium } from "@expo-google-fonts/jetbrains-mono";
-import { HomeScreen } from "./src/screens/HomeScreen";
-import { GameScreen } from "./src/screens/GameScreen";
-import { LobbyScreen } from "./src/screens/LobbyScreen";
-import { OnlineGameScreen } from "./src/screens/OnlineGameScreen";
-import { useGameStore } from "./src/store/gameStore";
-import { useNav } from "./src/store/navStore";
+import { ScreenStack } from "./src/components/ScreenStack";
 import { useOnlineStore } from "./src/store/onlineStore";
 import { initSound } from "./src/lib/sound";
 import { palette } from "./src/theme";
@@ -28,9 +23,6 @@ export default function App() {
     Outfit_700Bold,
     JetBrainsMono_500Medium,
   });
-  const screen = useGameStore((s) => s.screen);
-  const route = useNav((s) => s.route);
-
   useEffect(() => {
     void initSound();
   }, []);
@@ -53,15 +45,7 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <StatusBar style="light" />
-      {route === "lobby" ? (
-        <LobbyScreen />
-      ) : route === "onlineGame" ? (
-        <OnlineGameScreen />
-      ) : screen === "home" ? (
-        <HomeScreen />
-      ) : (
-        <GameScreen />
-      )}
+      <ScreenStack />
     </SafeAreaProvider>
   );
 }
