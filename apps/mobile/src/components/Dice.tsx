@@ -48,9 +48,9 @@ export function Dice({ value, size = 64, muted = false, accent, spinSeq = 0, the
     if (!spinSeq) return;
     playDiceRoll();
     rotate.value = 0;
-    rotate.value = withTiming(540, { duration: 520, easing: Easing.out(Easing.cubic) });
+    rotate.value = withTiming(360, { duration: 520, easing: Easing.out(Easing.cubic) });
     scale.value = withSequence(
-      withTiming(1.16, { duration: 150, easing: Easing.out(Easing.quad) }),
+      withTiming(1.08, { duration: 150, easing: Easing.out(Easing.quad) }),
       withTiming(1, { duration: 260, easing: Easing.out(Easing.cubic) }),
     );
     // Haptic lands as the tumble settles (DESIGN.md §6: tap on settle).

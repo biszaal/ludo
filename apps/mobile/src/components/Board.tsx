@@ -254,7 +254,7 @@ function AnimatedPawn({ waypoints, posKey, r, color, stroke, movable, delay }: A
           }, delay),
         );
       } else {
-        const HOP = r * 0.95;
+        const HOP = r * 0.5;
         tx.value = withDelay(delay, withSequence(...wps.map((p) => withTiming(p.x, { duration: HOP_STEP_MS, easing: Easing.linear }))));
         ty.value = withDelay(
           delay,
@@ -283,11 +283,11 @@ function AnimatedPawn({ waypoints, posKey, r, color, stroke, movable, delay }: A
   }, [posKey, last.x, last.y, r, delay, tx, ty]);
 
   useEffect(() => {
-    pulse.value = movable ? withRepeat(withTiming(1, { duration: 750 }), -1, true) : 0;
+    pulse.value = movable ? withRepeat(withTiming(1, { duration: 1100 }), -1, true) : 0;
   }, [movable, pulse]);
 
   const transform = useDerivedValue(() => [{ translateX: tx.value }, { translateY: ty.value }]);
-  const ringR = useDerivedValue(() => r * 1.18 + pulse.value * 3);
+  const ringR = useDerivedValue(() => r * 1.18 + pulse.value * 2);
 
   return (
     <Group transform={transform}>

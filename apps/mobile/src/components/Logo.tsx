@@ -35,7 +35,7 @@ interface LogoProps {
 export function Logo({ tile = 56 }: LogoProps) {
   const wave = useSharedValue(0);
   useEffect(() => {
-    wave.value = withRepeat(withTiming(1, { duration: 2800, easing: Easing.linear }), -1, false);
+    wave.value = withRepeat(withTiming(1, { duration: 4000, easing: Easing.linear }), -1, false);
     return () => cancelAnimation(wave);
   }, [wave]);
 
@@ -65,7 +65,7 @@ function LetterTile({
     const phase = index * 0.16;
     const angle = (wave.value + phase) * Math.PI * 2;
     return {
-      transform: [{ translateY: Math.sin(angle) * 5 }, { rotate: `${BASE_TILT[index]! + Math.sin(angle) * 2.5}deg` }],
+      transform: [{ translateY: Math.sin(angle) * 2 }, { rotate: `${BASE_TILT[index]! + Math.sin(angle) * 1}deg` }],
     };
   });
 

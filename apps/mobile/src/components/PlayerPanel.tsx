@@ -74,12 +74,12 @@ function PulseRing({ color }: { color: string }) {
   const pulse = useSharedValue(0);
 
   useEffect(() => {
-    pulse.value = withRepeat(withTiming(1, { duration: 1100 }), -1, true);
+    pulse.value = withRepeat(withTiming(1, { duration: 1600 }), -1, true);
     return () => cancelAnimation(pulse);
   }, [pulse]);
 
   const style = useAnimatedStyle(() => ({
-    opacity: 0.45 + pulse.value * 0.55,
+    opacity: 0.7 + pulse.value * 0.3,
   }));
 
   return (
