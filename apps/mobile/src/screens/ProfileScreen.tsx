@@ -40,6 +40,7 @@ export function ProfileScreen() {
         <View style={{ gap: space.sm }}>
           <Text style={{ fontFamily: font.medium, fontSize: 13, color: palette.mutedSteel, letterSpacing: 0.5 }}>DISPLAY NAME</Text>
           <TextInput
+            accessibilityLabel="Display name"
             defaultValue={displayName}
             onChangeText={setName}
             onFocus={() => setFocused(true)}

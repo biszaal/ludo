@@ -67,6 +67,7 @@ export function Dice({ value, size = 64, muted = false, accent, spinSeq = 0, the
 
   return (
     <Animated.View
+      accessibilityLabel={value ? `Dice showing ${value}` : "Dice"}
       style={[
         {
           width: size,

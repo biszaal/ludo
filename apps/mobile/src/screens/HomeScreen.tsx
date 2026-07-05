@@ -62,6 +62,7 @@ export function HomeScreen() {
           <Button label={connecting ? "Creating…" : "Create a room"} onPress={() => void createOnline()} />
           <View style={{ flexDirection: "row", gap: space.sm, alignItems: "center" }}>
             <TextInput
+              accessibilityLabel="Room code"
               value={code}
               onChangeText={(t) => setCode(t.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4))}
               placeholder="CODE"

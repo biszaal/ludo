@@ -113,6 +113,7 @@ export function Board({ size, state, theme, isMovable, onSelectToken }: BoardPro
           boxes stealing the touch). */}
       {renderData.some(({ token }) => isMovable(token.id)) && (
         <Pressable
+          accessibilityLabel="Board — tap a highlighted token to move it"
           style={{ position: "absolute", left: 0, top: 0, width: size, height: size }}
           onPress={(e) => {
             const { locationX, locationY } = e.nativeEvent;
