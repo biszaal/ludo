@@ -8,11 +8,16 @@
  * animations in Dice.tsx/Board.tsx; this module handles event sounds.
  */
 
-import type { GameState } from "@ludo/engine";
+import type { Color, GameState } from "@ludo/engine";
 import { useGameStore } from "../store/gameStore";
 import { useOnlineStore } from "../store/onlineStore";
+import { useProfile } from "../store/profileStore";
+import { useStats } from "../store/statsStore";
+import { computeStandings } from "./standings";
 import { playSound } from "./sound";
 import * as haptics from "./haptics";
+
+const COLOR_LABEL: Record<Color, string> = { red: "Red", green: "Green", yellow: "Yellow", blue: "Blue" };
 
 function diffAndFire(prev: GameState | null, next: GameState | null, myPlayerId: string | null): void {
   if (!prev || !next || prev === next) return;
@@ -52,10 +57,51 @@ function diffAndFire(prev: GameState | null, next: GameState | null, myPlayerId:
   }
 }
 
+// A match records exactly once, on the active→finished edge (resyncs of an
+// already-finished game never cross that edge again).
+function justFinished(prev: GameState | null, next: GameState | null): next is GameState {
+  return !!prev && !!next && prev.gameId === next.gameId && prev.status === "active" && next.status === "finished";
+}
+
+function recordLocal(state: GameState, botIds: string[]): void {
+  const winner = computeStandings(state)[0]!;
+  const vsAI = botIds.length > 0;
+  const humanWon = vsAI && !botIds.includes(winner.playerId);
+  useStats.getState().record({
+    id: `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    mode: vsAI ? "ai" : "pass",
+    finishedAt: Date.now(),
+    players: state.players.length,
+    winnerLabel: humanWon ? useProfile.getState().displayName : COLOR_LABEL[winner.color],
+    winnerColor: winner.color,
+    didWin: vsAI ? humanWon : null,
+  });
+}
+
+function recordOnline(state: GameState, myPlayerId: string | null): void {
+  const winner = computeStandings(state)[0]!;
+  const didWin = winner.playerId === myPlayerId;
+  useStats.getState().record({
+    id: `online-${state.gameId}-${Date.now()}`,
+    mode: "online",
+    finishedAt: Date.now(),
+    players: state.players.length,
+    winnerLabel: didWin ? useProfile.getState().displayName : COLOR_LABEL[winner.color],
+    winnerColor: winner.color,
+    didWin,
+  });
+}
+
 /** Subscribe to both stores. Call once from App.tsx; returns an unsubscribe. */
 export function initFeedback(): () => void {
-  const unLocal = useGameStore.subscribe((s, prevS) => diffAndFire(prevS.state, s.state, null));
-  const unOnline = useOnlineStore.subscribe((s, prevS) => diffAndFire(prevS.state, s.state, s.myPlayerId));
+  const unLocal = useGameStore.subscribe((s, prevS) => {
+    diffAndFire(prevS.state, s.state, null);
+    if (justFinished(prevS.state, s.state)) recordLocal(s.state, s.botIds);
+  });
+  const unOnline = useOnlineStore.subscribe((s, prevS) => {
+    diffAndFire(prevS.state, s.state, s.myPlayerId);
+    if (justFinished(prevS.state, s.state)) recordOnline(s.state, s.myPlayerId);
+  });
   return () => {
     unLocal();
     unOnline();

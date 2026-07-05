@@ -55,6 +55,8 @@ export function SettingsScreen() {
 
         <Section title="YOU">
           <LinkRow onPress={() => push("profile")} label={displayName} left={<AvatarGlyph id={avatarId} size={36} />} />
+          <Hairline />
+          <LinkRow onPress={() => push("stats")} label="Stats" />
         </Section>
 
         <Section title="LEARN">

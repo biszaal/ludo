@@ -18,9 +18,11 @@ interface PlayerPanelProps {
   player: PlayerState;
   state: GameState;
   active: boolean;
+  /** Display name override (profiles, "You", bot labels); defaults to the color. */
+  label?: string;
 }
 
-export function PlayerPanel({ player, state, active }: PlayerPanelProps) {
+export function PlayerPanel({ player, state, active, label }: PlayerPanelProps) {
   const finished = state.tokens.filter((t) => t.playerId === player.id && t.position === "finished").length;
   return (
     <View
@@ -44,8 +46,11 @@ export function PlayerPanel({ player, state, active }: PlayerPanelProps) {
           backgroundColor: teamColor[player.color],
         }}
       />
-      <Text style={{ fontFamily: font.semibold, fontSize: 15, color: active ? palette.porcelain : palette.mutedSteel }}>
-        {COLOR_LABEL[player.color]}
+      <Text
+        numberOfLines={1}
+        style={{ flexShrink: 1, fontFamily: font.semibold, fontSize: 15, color: active ? palette.porcelain : palette.mutedSteel }}
+      >
+        {label ?? COLOR_LABEL[player.color]}
       </Text>
       <Text style={{ marginLeft: "auto", fontFamily: font.mono, fontSize: 13, color: palette.mutedSteel }}>
         {finished}/{TOKENS_PER_PLAYER}
