@@ -4,8 +4,8 @@
  * when a 4th joins. A host cannot start alone.
  */
 
-import { useEffect } from "react";
-import { Text, View } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { Pressable, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../components/Button";
 import { AvatarGlyph } from "../components/Avatar";
@@ -13,6 +13,7 @@ import { Surface3D } from "../components/Surface3D";
 import { useOnlineStore } from "../store/onlineStore";
 import { setBackInterceptor } from "../store/navStore";
 import { seatColors } from "../lib/seating";
+import { copyCode, shareInvite } from "../lib/invite";
 import { font, palette, radius, space, teamColor } from "../theme";
 
 const COLOR_LABEL = { red: "Red", green: "Green", yellow: "Yellow", blue: "Blue" } as const;
@@ -37,6 +38,18 @@ export function LobbyScreen() {
   const start = useOnlineStore((s) => s.start);
   const leave = useOnlineStore((s) => s.leave);
 
+  const [copied, setCopied] = useState(false);
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (copiedTimer.current) clearTimeout(copiedTimer.current);
+  }, []);
+  const handleCopy = async (code: string) => {
+    await copyCode(code);
+    setCopied(true);
+    if (copiedTimer.current) clearTimeout(copiedTimer.current);
+    copiedTimer.current = setTimeout(() => setCopied(false), 1800);
+  };
+
   const full = lobby.length >= 4;
   const canStart = isHost && lobby.length >= 2 && !starting;
   const emptySlots = Math.max(0, 4 - lobby.length);
@@ -54,12 +67,28 @@ export function LobbyScreen() {
         {/* Share code */}
         <View style={{ alignItems: "center", gap: space.sm, marginTop: space.lg }}>
           <Text style={{ fontFamily: font.medium, fontSize: 13, color: palette.mutedSteel }}>SHARE THIS CODE</Text>
-          <Surface3D rad={radius.lg} faceColor={palette.liftedSlate} faceStyle={{ paddingHorizontal: space.xl, paddingVertical: space.md }}>
-            <Text style={{ fontFamily: font.mono, fontSize: 48, color: palette.porcelain, letterSpacing: 10 }}>{roomCode ?? "----"}</Text>
-          </Surface3D>
-          <Text style={{ fontFamily: font.regular, fontSize: 14, color: palette.mutedSteel }}>
-            Friends enter this code on their device to join.
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Copy room code"
+            disabled={!roomCode}
+            onPress={() => {
+              if (roomCode) void handleCopy(roomCode);
+            }}
+          >
+            {({ pressed }) => (
+              <Surface3D rad={radius.lg} faceColor={palette.liftedSlate} pressed={pressed} faceStyle={{ paddingHorizontal: space.xl, paddingVertical: space.md }}>
+                <Text style={{ fontFamily: font.mono, fontSize: 48, color: palette.porcelain, letterSpacing: 10 }}>{roomCode ?? "----"}</Text>
+              </Surface3D>
+            )}
+          </Pressable>
+          <Text style={{ fontFamily: font.regular, fontSize: 14, color: copied ? palette.porcelain : palette.mutedSteel }}>
+            {copied ? "Copied to clipboard" : "Tap the code to copy it."}
           </Text>
+          {roomCode ? (
+            <View style={{ alignSelf: "stretch" }}>
+              <Button label="Invite friends" onPress={() => void shareInvite(roomCode)} />
+            </View>
+          ) : null}
         </View>
 
         {/* Players */}

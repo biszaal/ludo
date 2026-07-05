@@ -23,6 +23,7 @@ import { font, onTeamColor, palette, radius, space, teamColor } from "../theme";
 import { BOARD_THEMES } from "../render/boardThemes";
 import { setBackInterceptor } from "../store/navStore";
 import { useSettings } from "../store/settingsStore";
+import { shareInvite } from "../lib/invite";
 
 interface GameViewProps {
   state: GameState;
@@ -95,9 +96,27 @@ export function GameView({
           <Text style={{ fontFamily: font.display, fontSize: 22, color: palette.porcelain }}>Ludo</Text>
           <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
             {roomCode ? (
-              <View style={{ paddingHorizontal: space.sm, paddingVertical: 4, borderRadius: radius.sm, backgroundColor: palette.liftedSlate }}>
+              // Tapping the code opens the share sheet — invite a friend mid-room.
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Share room code ${roomCode}`}
+                onPress={() => void shareInvite(roomCode)}
+                style={({ pressed }) => ({
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 6,
+                  paddingHorizontal: space.sm,
+                  paddingVertical: 4,
+                  borderRadius: radius.sm,
+                  backgroundColor: palette.liftedSlate,
+                  borderTopWidth: 1,
+                  borderTopColor: "rgba(255,255,255,0.10)",
+                  opacity: pressed ? 0.8 : 1,
+                })}
+              >
                 <Text style={{ fontFamily: font.mono, fontSize: 14, color: palette.porcelain, letterSpacing: 2 }}>{roomCode}</Text>
-              </View>
+                <Text style={{ fontFamily: font.semibold, fontSize: 12, color: palette.mutedSteel }}>SHARE</Text>
+              </Pressable>
             ) : null}
             <MenuButton onPress={() => setPaused(true)} />
           </View>

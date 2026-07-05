@@ -14,6 +14,7 @@ import { ScreenStack } from "./src/components/ScreenStack";
 import { useOnlineStore } from "./src/store/onlineStore";
 import { initSound, setMusicActive } from "./src/lib/sound";
 import { initFeedback } from "./src/lib/feedback";
+import { initDeepLinks } from "./src/lib/invite";
 import { initProfileSync } from "./src/net/profileSync";
 import { palette } from "./src/theme";
 
@@ -29,9 +30,11 @@ export default function App() {
     void initSound();
     const stopFeedback = initFeedback();
     const stopProfileSync = initProfileSync();
+    const stopDeepLinks = initDeepLinks();
     return () => {
       stopFeedback();
       stopProfileSync();
+      stopDeepLinks();
     };
   }, []);
 
