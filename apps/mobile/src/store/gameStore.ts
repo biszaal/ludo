@@ -19,6 +19,7 @@ import {
   type Color as PlayerColor,
   type GameState,
   type Move,
+  type RuleConfig,
 } from "@ludo/engine";
 import { chooseMove } from "@ludo/bot";
 import { seatColors } from "../lib/seating";
@@ -36,6 +37,15 @@ const BOT_DELAY = 650;
 /** Pause before a human's forced action (auto-pass / lone move) so the dice reads. */
 const AUTO_DELAY = 650;
 
+export interface LocalGameConfig {
+  /** Seats at the table, 2–4. */
+  players: number;
+  /** Bot-driven trailing seats: 0 for pass-and-play, players−1 for "vs AI". */
+  bots?: number;
+  /** House-rule overrides; omitted keys fall back to DEFAULT_RULES. */
+  rules?: Partial<RuleConfig>;
+}
+
 interface GameStore {
   state: GameState | null;
   validMoves: Move[];
@@ -45,8 +55,10 @@ interface GameStore {
   message: string;
   /** Player ids controlled by the bot (the trailing seats in "vs AI" mode). */
   botIds: string[];
+  /** The last game's setup, so Results can offer an instant rematch. */
+  lastConfig: LocalGameConfig | null;
 
-  newLocalGame: (numPlayers: number, numBots?: number) => void;
+  newLocalGame: (config: LocalGameConfig) => void;
   roll: () => void;
   pass: () => void;
   selectToken: (tokenId: string) => void;
@@ -64,15 +76,17 @@ export const useGameStore = create<GameStore>((set, get) => ({
   rollSeq: 0,
   message: "",
   botIds: [],
+  lastConfig: null,
 
-  newLocalGame: (numPlayers, numBots = 0) => {
+  newLocalGame: (config) => {
+    const { players: numPlayers, bots: numBots = 0 } = config;
     const colors = seatColors(numPlayers);
     const players = Array.from({ length: numPlayers }, (_unused, i) => ({
       id: `p${i + 1}`,
       userId: `local-${i + 1}`,
       color: colors[i]!,
     }));
-    const state = createGame(players);
+    const state = createGame(players, { rules: config.rules });
     const botIds = players.slice(numPlayers - numBots).map((p) => p.id);
     set({
       state,
@@ -80,6 +94,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       lastRoll: null,
       rollSeq: 0,
       botIds,
+      lastConfig: config,
       message: `${COLOR_LABEL[colors[0]!]} to roll`,
     });
     useNav.getState().push("localGame");

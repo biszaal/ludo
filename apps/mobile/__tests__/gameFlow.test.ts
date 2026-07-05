@@ -18,7 +18,7 @@ function playFullGame(seed: number, numPlayers: number) {
   const rng = createSeededRng(seed);
   vi.spyOn(Math, "random").mockImplementation(() => rng());
 
-  store.getState().newLocalGame(numPlayers);
+  store.getState().newLocalGame({ players: numPlayers });
 
   for (let steps = 0; steps < 200_000; steps++) {
     const s = store.getState();
@@ -43,7 +43,7 @@ afterEach(() => {
 
 describe("client store — full hot-seat game", () => {
   it("starts a 2-player game and routes to the game screen", () => {
-    store.getState().newLocalGame(2);
+    store.getState().newLocalGame({ players: 2 });
     const s = store.getState();
     expect(useNav.getState().stack.at(-1)?.name).toBe("localGame");
     expect(s.state?.players).toHaveLength(2);
@@ -51,14 +51,25 @@ describe("client store — full hot-seat game", () => {
   });
 
   it("returns to home when leaving", () => {
-    store.getState().newLocalGame(2);
+    store.getState().newLocalGame({ players: 2 });
     store.getState().leaveGame();
     expect(useNav.getState().stack.map((e) => e.name)).toEqual(["home"]);
   });
 
   it("seats 2 players on a diagonal (red + yellow)", () => {
-    store.getState().newLocalGame(2);
+    store.getState().newLocalGame({ players: 2 });
     expect(store.getState().state?.players.map((p) => p.color)).toEqual(["red", "yellow"]);
+  });
+
+  it("applies house-rule overrides (yard tokens movable without a six)", () => {
+    vi.spyOn(Math, "random").mockReturnValue(0); // die = 1
+    store.getState().newLocalGame({ players: 2, rules: { leaveYardOnSix: false } });
+    store.getState().roll();
+    const s = store.getState();
+    expect(s.state?.rules.leaveYardOnSix).toBe(false);
+    expect(s.lastRoll).toBe(1);
+    expect(s.validMoves.length).toBeGreaterThan(0); // default rules would give zero moves on a 1
+    expect(s.lastConfig).toEqual({ players: 2, rules: { leaveYardOnSix: false } });
   });
 
   it.each([1, 7, 42])("plays a 2-player game to a winner via store intents (seed %i)", (seed) => {
@@ -77,7 +88,7 @@ describe("client store — full hot-seat game", () => {
   it("only ever exposes movable tokens that belong to the current player", () => {
     const rng = createSeededRng(5);
     vi.spyOn(Math, "random").mockImplementation(() => rng());
-    store.getState().newLocalGame(2);
+    store.getState().newLocalGame({ players: 2 });
 
     for (let steps = 0; steps < 5_000; steps++) {
       const s = store.getState();

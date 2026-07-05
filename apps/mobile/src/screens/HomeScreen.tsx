@@ -1,31 +1,28 @@
 /**
- * Home — the Ludo wordmark up top, then two ways to play: local (pass-and-play
- * or vs AI) and online (create a room to get a share code, or join with a code).
+ * Home hub — identity + settings up top (left-aligned wordmark, per DESIGN.md
+ * no centered hero), play-mode cards bottom-weighted with deliberately unequal
+ * heights, then the online section. Local modes open the PlaySetupSheet.
  */
 
 import { useState } from "react";
-import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { ScrollView, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../components/Button";
 import { Logo } from "../components/Logo";
+import { ModeCard } from "../components/ModeCard";
+import { PlaySetupSheet, type PlayMode } from "../components/PlaySetupSheet";
+import { ProfileChip } from "../components/ProfileChip";
+import { BOARD_THEMES } from "../render/boardThemes";
 import { useGameStore } from "../store/gameStore";
-import { useNav } from "../store/navStore";
 import { useOnlineStore } from "../store/onlineStore";
+import { useSettings } from "../store/settingsStore";
 import { font, palette, radius, space, teamColor } from "../theme";
 
-const COUNTS = [2, 3, 4] as const;
-const SEAT_COLORS = ["red", "green", "yellow", "blue"] as const;
-const MODES = [
-  { key: "local", label: "Pass & play" },
-  { key: "ai", label: "vs AI" },
-] as const;
-type Mode = (typeof MODES)[number]["key"];
-
 export function HomeScreen() {
-  const [count, setCount] = useState<number>(2);
-  const [mode, setMode] = useState<Mode>("local");
+  const [sheetMode, setSheetMode] = useState<PlayMode | null>(null);
   const [code, setCode] = useState<string>("");
   const newLocalGame = useGameStore((s) => s.newLocalGame);
+  const boardTheme = BOARD_THEMES[useSettings((s) => s.boardThemeId)];
 
   const createOnline = useOnlineStore((s) => s.create);
   const joinOnline = useOnlineStore((s) => s.join);
@@ -35,34 +32,28 @@ export function HomeScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: palette.feltCharcoal }}>
-      <ScrollView contentContainerStyle={{ paddingHorizontal: space.xl, paddingTop: space.xxl, paddingBottom: space.xl, gap: space.xl }}>
-        <View style={{ alignItems: "center", gap: space.sm }}>
-          <Logo />
-          <Text style={{ fontFamily: font.regular, fontSize: 15, color: palette.mutedSteel }}>The classic board game.</Text>
-        </View>
+      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: space.xl, paddingTop: space.sm }}>
+        <Logo tile={36} />
+        <ProfileChip />
+      </View>
 
-        {/* Temporary entry until the M4 hub revamp adds the header gear. */}
-        <Button label="Settings" variant="ghost" onPress={() => useNav.getState().push("settings")} />
+      <ScrollView contentContainerStyle={{ flexGrow: 1, paddingHorizontal: space.xl, paddingTop: space.xl, paddingBottom: space.xl, gap: space.xl }}>
+        <Text style={{ fontFamily: font.regular, fontSize: 15, color: palette.mutedSteel }}>The classic board game.</Text>
+
+        {/* Spacer pushes play actions into the thumb zone. */}
+        <View style={{ flex: 1 }} />
 
         {/* Local play */}
         <View style={{ gap: space.md }}>
           <Text style={{ fontFamily: font.medium, fontSize: 13, color: palette.mutedSteel }}>PLAY ON THIS DEVICE</Text>
-          <View style={{ flexDirection: "row", gap: space.sm }}>
-            {COUNTS.map((n) => (
-              <SelectTile key={n} label={`${n}`} mono selected={n === count} onPress={() => setCount(n)} />
-            ))}
-          </View>
-          <View style={{ flexDirection: "row", gap: space.sm, paddingLeft: space.xs }}>
-            {SEAT_COLORS.slice(0, count).map((c) => (
-              <View key={c} style={{ width: 12, height: 12, borderRadius: radius.pill, backgroundColor: teamColor[c] }} />
-            ))}
-          </View>
-          <View style={{ flexDirection: "row", gap: space.sm }}>
-            {MODES.map((m) => (
-              <SelectTile key={m.key} label={m.label} selected={m.key === mode} onPress={() => setMode(m.key)} />
-            ))}
-          </View>
-          <Button label="Start game" onPress={() => newLocalGame(count, mode === "ai" ? count - 1 : 0)} />
+          <ModeCard
+            title="Play vs AI"
+            subtitle="You against 1–3 bots"
+            minHeight={112}
+            boardArt={boardTheme}
+            onPress={() => setSheetMode("ai")}
+          />
+          <ModeCard title="Pass & play" subtitle="Share this phone around the table" onPress={() => setSheetMode("pass")} />
         </View>
 
         {/* Online play */}
@@ -106,27 +97,17 @@ export function HomeScreen() {
           ) : null}
         </View>
       </ScrollView>
-    </SafeAreaView>
-  );
-}
 
-function SelectTile({ label, selected, onPress, mono }: { label: string; selected: boolean; onPress: () => void; mono?: boolean }) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => ({
-        flex: 1,
-        minHeight: 54,
-        borderRadius: radius.md,
-        alignItems: "center",
-        justifyContent: "center",
-        backgroundColor: selected ? palette.liftedSlate : "transparent",
-        borderWidth: selected ? 1.5 : 1,
-        borderColor: selected ? palette.porcelain : palette.hairline,
-        transform: [{ scale: pressed ? 0.97 : 1 }],
-      })}
-    >
-      <Text style={{ fontFamily: mono ? font.mono : font.semibold, fontSize: mono ? 20 : 15, color: palette.porcelain }}>{label}</Text>
-    </Pressable>
+      {sheetMode && (
+        <PlaySetupSheet
+          mode={sheetMode}
+          onClose={() => setSheetMode(null)}
+          onStart={(players, bots, rules) => {
+            setSheetMode(null);
+            newLocalGame({ players, bots, rules });
+          }}
+        />
+      )}
+    </SafeAreaView>
   );
 }

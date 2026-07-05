@@ -21,7 +21,7 @@ describe("bot auto-play loop", () => {
     vi.spyOn(Math, "random").mockImplementation(() => rng());
     vi.useFakeTimers();
 
-    store.getState().newLocalGame(2, 2); // both seats are bots
+    store.getState().newLocalGame({ players: 2, bots: 2 }); // both seats are bots
 
     for (let i = 0; i < 200_000 && store.getState().state!.status === "active"; i++) {
       vi.advanceTimersByTime(700);
@@ -33,7 +33,7 @@ describe("bot auto-play loop", () => {
 
   it("stops the loop and clears timers when leaving", () => {
     vi.useFakeTimers();
-    store.getState().newLocalGame(2, 2);
+    store.getState().newLocalGame({ players: 2, bots: 2 });
     store.getState().leaveGame();
     // No pending bot work should remain to run.
     expect(vi.getTimerCount()).toBe(0);
@@ -42,7 +42,7 @@ describe("bot auto-play loop", () => {
 
   it("does not start a bot loop in pure pass-and-play", () => {
     vi.useFakeTimers();
-    store.getState().newLocalGame(2, 0);
+    store.getState().newLocalGame({ players: 2, bots: 0 });
     expect(vi.getTimerCount()).toBe(0);
   });
 });
