@@ -24,6 +24,13 @@ export function OnlineGameScreen() {
   const selectToken = useOnlineStore((s) => s.selectToken);
   const rematch = useOnlineStore((s) => s.rematch);
   const leave = useOnlineStore((s) => s.leave);
+  const userId = useOnlineStore((s) => s.userId);
+  const chat = useOnlineStore((s) => s.chat);
+  const chatUnread = useOnlineStore((s) => s.chatUnread);
+  const latestReactions = useOnlineStore((s) => s.latestReactions);
+  const sendReaction = useOnlineStore((s) => s.sendReaction);
+  const sendMessage = useOnlineStore((s) => s.sendMessage);
+  const markChatRead = useOnlineStore((s) => s.markChatRead);
 
   if (!state) return null;
 
@@ -53,6 +60,15 @@ export function OnlineGameScreen() {
       nameFor={(playerId) => profileOf(playerId)?.display_name ?? (playerId === myPlayerId ? "You" : null)}
       avatarFor={(playerId) => profileOf(playerId)?.avatar_id ?? null}
       roomCode={roomCode}
+      chat={{
+        events: chat,
+        unread: chatUnread,
+        latestReactions,
+        myUserId: userId,
+        onSendReaction: sendReaction,
+        onSendMessage: sendMessage,
+        onOpened: markChatRead,
+      }}
     />
   );
 }

@@ -159,12 +159,20 @@ export async function setConnected(gameId: string, userId: string, connected: bo
   await supabase.from("players").update({ is_connected: connected }).eq("game_id", gameId).eq("user_id", userId);
 }
 
+/** Ephemeral in-room chatter carried on the realtime channel (never stored). */
+export interface ChatPayload {
+  kind: "reaction" | "text";
+  value: string;
+  fromUserId: string;
+}
+
 export interface GameSubscription {
   onGame: (row: GameRow) => void;
   onLobby: () => void;
+  onChat?: (payload: ChatPayload) => void;
 }
 
-/** Subscribe to a game's row changes (state sync) and its players (lobby). */
+/** Subscribe to a game's row changes (state sync), its players (lobby), and chat. */
 export function subscribeGame(gameId: string, handlers: GameSubscription): RealtimeChannel {
   const supabase = getSupabase();
   return supabase
@@ -179,7 +187,13 @@ export function subscribeGame(gameId: string, handlers: GameSubscription): Realt
       { event: "*", schema: "public", table: "players", filter: `game_id=eq.${gameId}` },
       () => handlers.onLobby(),
     )
+    .on("broadcast", { event: "chat" }, (msg) => handlers.onChat?.(msg.payload as ChatPayload))
     .subscribe();
+}
+
+/** Broadcast a reaction/message to the room (senders don't receive their own). */
+export function sendChat(channel: RealtimeChannel, payload: ChatPayload): void {
+  void channel.send({ type: "broadcast", event: "chat", payload }).catch(() => {});
 }
 
 export function unsubscribe(channel: RealtimeChannel): void {

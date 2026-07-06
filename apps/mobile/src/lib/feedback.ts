@@ -102,6 +102,14 @@ export function initFeedback(): () => void {
   const unOnline = useOnlineStore.subscribe((s, prevS) => {
     diffAndFire(prevS.state, s.state, s.myPlayerId);
     if (justFinished(prevS.state, s.state)) recordOnline(s.state, s.myPlayerId);
+    // Incoming chatter: a soft cue per received event (own sends stay silent).
+    if (s.chatSeq !== prevS.chatSeq) {
+      const ev = s.chat[s.chat.length - 1];
+      if (ev && ev.fromUserId !== s.userId) {
+        playSound(ev.kind === "reaction" ? "pop" : "msg");
+        haptics.tapLight();
+      }
+    }
   });
   return () => {
     unLocal();

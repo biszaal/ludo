@@ -15,10 +15,14 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import type { GameState, Move } from "@ludo/engine";
 import { Board } from "./Board";
 import { Button } from "./Button";
+import { ChatSheet } from "./ChatSheet";
 import { Dice } from "./Dice";
 import { PauseMenu } from "./PauseMenu";
 import { PlayerPanel } from "./PlayerPanel";
+import { ReactionBar } from "./ReactionBar";
+import { ReactionBubble } from "./ReactionBubble";
 import { ResultsOverlay } from "./ResultsOverlay";
+import type { ChatEvent } from "../store/onlineStore";
 import { font, onTeamColor, palette, radius, space, teamColor } from "../theme";
 import { BOARD_THEMES } from "../render/boardThemes";
 import { setBackInterceptor } from "../store/navStore";
@@ -49,7 +53,22 @@ interface GameViewProps {
   resultsFootnote?: string | null;
   /** Online room code, shown in the top bar. */
   roomCode?: string | null;
+  /** In-room reactions + chat (online only; local play omits it). */
+  chat?: GameChat;
 }
+
+export interface GameChat {
+  events: ChatEvent[];
+  unread: number;
+  latestReactions: Record<string, { value: string; seq: number }>;
+  myUserId: string | null;
+  onSendReaction: (value: string) => void;
+  onSendMessage: (text: string) => void;
+  /** Called when the sheet opens — clears the unread badge. */
+  onOpened: () => void;
+}
+
+const COLOR_LABEL = { red: "Red", green: "Green", yellow: "Yellow", blue: "Blue" } as const;
 
 export function GameView({
   state,
@@ -68,10 +87,13 @@ export function GameView({
   avatarFor,
   resultsFootnote,
   roomCode,
+  chat,
 }: GameViewProps) {
   const { width, height } = useWindowDimensions();
   const theme = BOARD_THEMES[useSettings((s) => s.boardThemeId)];
   const [paused, setPaused] = useState(false);
+  const [reactionsOpen, setReactionsOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
   const boardSize = Math.floor(Math.min(width - space.xl * 2, height * 0.46));
   const active = state.players.find((p) => p.id === state.currentTurnPlayerId)!;
   const accent = teamColor[active.color];
@@ -88,6 +110,13 @@ export function GameView({
 
   const movable = (id: string) => canAct && validMoves.some((m) => m.tokenId === id);
   const noop = () => {};
+
+  const nameForUser = (userId: string): string => {
+    if (chat && userId === chat.myUserId) return "You";
+    const pl = state.players.find((p) => p.userId === userId);
+    if (!pl) return "Player";
+    return nameFor?.(pl.id) ?? COLOR_LABEL[pl.color];
+  };
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: palette.feltCharcoal }}>
@@ -118,21 +147,39 @@ export function GameView({
                 <Text style={{ fontFamily: font.semibold, fontSize: 12, color: palette.mutedSteel }}>SHARE</Text>
               </Pressable>
             ) : null}
+            {chat ? (
+              <>
+                <IconButton label="Reactions" glyph="🙂" onPress={() => setReactionsOpen((v) => !v)} />
+                <IconButton
+                  label="Chat"
+                  glyph="💬"
+                  showDot={chat.unread > 0}
+                  onPress={() => {
+                    chat.onOpened();
+                    setChatOpen(true);
+                  }}
+                />
+              </>
+            ) : null}
             <MenuButton onPress={() => setPaused(true)} />
           </View>
         </View>
 
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm, marginTop: space.md }}>
-          {state.players.map((p) => (
-            <View key={p.id} style={{ width: "48%" }}>
-              <PlayerPanel
-                player={p}
-                state={state}
-                active={p.id === state.currentTurnPlayerId && !finished}
-                label={nameFor?.(p.id) ?? undefined}
-              />
-            </View>
-          ))}
+          {state.players.map((p) => {
+            const reaction = chat?.latestReactions[p.userId];
+            return (
+              <View key={p.id} style={{ width: "48%" }}>
+                <PlayerPanel
+                  player={p}
+                  state={state}
+                  active={p.id === state.currentTurnPlayerId && !finished}
+                  label={nameFor?.(p.id) ?? undefined}
+                />
+                {reaction ? <ReactionBubble value={reaction.value} seq={reaction.seq} /> : null}
+              </View>
+            );
+          })}
         </View>
 
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
@@ -174,7 +221,59 @@ export function GameView({
           confirmLeave={confirmLeave}
         />
       )}
+
+      {reactionsOpen && chat && !finished && (
+        <ReactionBar onSend={chat.onSendReaction} onClose={() => setReactionsOpen(false)} />
+      )}
+
+      {chatOpen && chat && (
+        <ChatSheet
+          events={chat.events}
+          nameForUser={nameForUser}
+          myUserId={chat.myUserId}
+          onSend={chat.onSendMessage}
+          onClose={() => setChatOpen(false)}
+        />
+      )}
     </SafeAreaView>
+  );
+}
+
+/** Round emoji-glyph button in the game top bar (reactions, chat). */
+function IconButton({ label, glyph, onPress, showDot = false }: { label: string; glyph: string; onPress: () => void; showDot?: boolean }) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={onPress}
+      style={({ pressed }) => ({
+        width: 44,
+        height: 44,
+        borderRadius: radius.md,
+        backgroundColor: palette.raisedSlate,
+        borderWidth: 1,
+        borderColor: palette.hairline,
+        borderTopColor: "rgba(255,255,255,0.10)",
+        alignItems: "center",
+        justifyContent: "center",
+        transform: [{ scale: pressed ? 0.94 : 1 }],
+      })}
+    >
+      <Text style={{ fontSize: 20 }}>{glyph}</Text>
+      {showDot ? (
+        <View
+          style={{
+            position: "absolute",
+            top: 6,
+            right: 6,
+            width: 9,
+            height: 9,
+            borderRadius: radius.pill,
+            backgroundColor: teamColor.red,
+          }}
+        />
+      ) : null}
+    </Pressable>
   );
 }
 

@@ -16,13 +16,17 @@ import {
 } from "@ludo/engine";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import * as api from "../net/api";
+import { applyChatEvent, type ChatEvent } from "../lib/chat";
 import { useNav } from "./navStore";
 import { useProfile } from "./profileStore";
 
 const COLOR_LABEL: Record<PlayerColor, string> = { red: "Red", green: "Green", yellow: "Yellow", blue: "Blue" };
 const AUTO_DELAY = 700;
+const CHAT_MIN_INTERVAL_MS = 500;
 
 type Status = "idle" | "connecting" | "lobby" | "active" | "finished" | "error";
+
+export type { ChatEvent } from "../lib/chat";
 
 interface OnlineStore {
   status: Status;
@@ -42,6 +46,19 @@ interface OnlineStore {
   lastRoll: number | null;
   rollSeq: number;
   message: string;
+
+  /** In-room chatter (broadcast-only; cleared on leave). */
+  chat: ChatEvent[];
+  /** Bumps once per appended chat event — feedback/UI retrigger key. */
+  chatSeq: number;
+  /** Text messages received since the chat sheet was last opened. */
+  chatUnread: number;
+  /** Latest reaction per sender user_id (drives the floating bubbles). */
+  latestReactions: Record<string, { value: string; seq: number }>;
+
+  sendReaction: (value: string) => void;
+  sendMessage: (text: string) => void;
+  markChatRead: () => void;
 
   create: () => Promise<void>;
   join: (code: string) => Promise<void>;
@@ -73,6 +90,10 @@ const INITIAL = {
   lastRoll: null,
   rollSeq: 0,
   message: "",
+  chat: [] as ChatEvent[],
+  chatSeq: 0,
+  chatUnread: 0,
+  latestReactions: {} as Record<string, { value: string; seq: number }>,
 };
 
 export const useOnlineStore = create<OnlineStore>((set, get) => ({
@@ -207,6 +228,15 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
     const { state, myPlayerId } = get();
     return !!state && state.status === "active" && state.currentTurnPlayerId === myPlayerId;
   },
+
+  sendReaction: (value) => sendChatEvent("reaction", value),
+
+  sendMessage: (text) => {
+    const trimmed = text.trim().slice(0, 80);
+    if (trimmed.length > 0) sendChatEvent("text", trimmed);
+  },
+
+  markChatRead: () => set({ chatUnread: 0 }),
 }));
 
 // --- Realtime + helpers -----------------------------------------------------
@@ -221,7 +251,35 @@ function clearAuto(): void {
 
 function subscribe(gameId: string): void {
   if (channel) api.unsubscribe(channel);
-  channel = api.subscribeGame(gameId, { onGame: applyGameRow, onLobby: refreshLobby });
+  channel = api.subscribeGame(gameId, { onGame: applyGameRow, onLobby: refreshLobby, onChat: receiveChat });
+}
+
+// --- Chat (ephemeral broadcast) ----------------------------------------------
+
+let lastChatSentAt = 0;
+
+/** Send own reaction/message: broadcast to the room and append locally
+ *  (broadcast doesn't echo to the sender). Light rate limit against spam. */
+function sendChatEvent(kind: ChatEvent["kind"], value: string): void {
+  const { userId, status } = useOnlineStore.getState();
+  if (!channel || !userId || status === "idle" || status === "error") return;
+  const now = Date.now();
+  if (now - lastChatSentAt < CHAT_MIN_INTERVAL_MS) return;
+  lastChatSentAt = now;
+  api.sendChat(channel, { kind, value, fromUserId: userId });
+  appendChat({ kind, value, fromUserId: userId });
+}
+
+function receiveChat(payload: api.ChatPayload): void {
+  const { userId } = useOnlineStore.getState();
+  if (!payload?.value || payload.fromUserId === userId) return;
+  if (payload.kind !== "reaction" && payload.kind !== "text") return;
+  appendChat({ kind: payload.kind, value: String(payload.value).slice(0, 80), fromUserId: payload.fromUserId });
+}
+
+function appendChat(p: Omit<ChatEvent, "id" | "at">): void {
+  const st = useOnlineStore.getState();
+  useOnlineStore.setState(applyChatEvent(st, p));
 }
 
 async function refreshLobby(): Promise<void> {
