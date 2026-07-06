@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Ludo",
-    "slug": "mobile",
+    "slug": "ludo",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -33,6 +33,12 @@
       "expo-font",
       "expo-audio"
     ],
-    "scheme": "ludo"
+    "scheme": "ludo",
+    "extra": {
+      "eas": {
+        "projectId": "aa506900-7563-476a-a26b-899cf733621a"
+      }
+    },
+    "owner": "biszaaltech"
   }
 }
