@@ -23,6 +23,11 @@ import { useProfile } from "./profileStore";
 const COLOR_LABEL: Record<PlayerColor, string> = { red: "Red", green: "Green", yellow: "Yellow", blue: "Blue" };
 const AUTO_DELAY = 700;
 const CHAT_MIN_INTERVAL_MS = 500;
+/** Seconds a turn may sit idle before any client asks the server to skip it.
+ *  Matches TURN_SECONDS in the edge function; drives the on-screen countdown. */
+export const TURN_SECONDS = 30;
+/** Grace past the deadline before firing the skip (server is the real clock). */
+const TIMEOUT_GRACE_MS = 3000;
 
 type Status = "idle" | "connecting" | "lobby" | "active" | "finished" | "error";
 
@@ -55,6 +60,11 @@ interface OnlineStore {
   chatUnread: number;
   /** Latest reaction per sender user_id (drives the floating bubbles). */
   latestReactions: Record<string, { value: string; seq: number }>;
+
+  /** Local receipt time of the current turn (drives the countdown; display only). */
+  turnStartedAt: number | null;
+  /** Bumps each time the turn clock resets — re-keys the countdown animation. */
+  turnSeq: number;
 
   sendReaction: (value: string) => void;
   sendMessage: (text: string) => void;
@@ -96,6 +106,8 @@ const INITIAL = {
   chatSeq: 0,
   chatUnread: 0,
   latestReactions: {} as Record<string, { value: string; seq: number }>,
+  turnStartedAt: null,
+  turnSeq: 0,
 };
 
 export const useOnlineStore = create<OnlineStore>((set, get) => ({
@@ -211,6 +223,7 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
 
   leave: () => {
     clearAuto();
+    clearTimeoutTimer();
     const { gameId, userId } = get();
     if (channel) {
       api.unsubscribe(channel);
@@ -250,10 +263,40 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
 
 let channel: RealtimeChannel | null = null;
 let autoTimer: ReturnType<typeof setTimeout> | null = null;
+let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
 
 function clearAuto(): void {
   if (autoTimer) clearTimeout(autoTimer);
   autoTimer = null;
+}
+
+function clearTimeoutTimer(): void {
+  if (timeoutTimer) clearTimeout(timeoutTimer);
+  timeoutTimer = null;
+}
+
+/**
+ * Every client arms a skip for the active turn (including the current player's —
+ * an AFK player's own app may be asleep). Fires a few seconds past the deadline
+ * with per-client jitter so racers don't all pile on; the server dedupes. Any
+ * fresh state reschedules this, so only a genuinely stalled turn ever fires.
+ */
+function scheduleTimeout(active: boolean): void {
+  clearTimeoutTimer();
+  if (!active) return;
+  const delay = TURN_SECONDS * 1000 + TIMEOUT_GRACE_MS + Math.random() * 2000;
+  timeoutTimer = setTimeout(() => void requestTimeout(), delay);
+}
+
+async function requestTimeout(): Promise<void> {
+  const { gameId, state } = useOnlineStore.getState();
+  if (!gameId || state?.status !== "active") return;
+  try {
+    const next = await api.timeoutAction(gameId);
+    applyState(next, false);
+  } catch {
+    // transient — realtime or the next resync will correct us
+  }
 }
 
 function subscribe(gameId: string): void {
@@ -327,6 +370,9 @@ function syncMyProfile(): void {
 function applyState(state: GameState, rolled: boolean): void {
   const st = useOnlineStore.getState();
   const proj = project(state, st.myPlayerId);
+  // Reset the per-turn countdown on every active write (mirrors the server, which
+  // refreshes turn_deadline on every write). Idle turns keep the same clock.
+  const active = proj.status === "active";
   useOnlineStore.setState({
     state,
     validMoves: proj.validMoves,
@@ -334,7 +380,10 @@ function applyState(state: GameState, rolled: boolean): void {
     message: proj.message,
     status: proj.status,
     rollSeq: st.rollSeq + (rolled ? 1 : 0),
+    turnStartedAt: active ? Date.now() : null,
+    turnSeq: active ? st.turnSeq + 1 : st.turnSeq,
   });
+  scheduleTimeout(active);
   if (proj.status !== "lobby") {
     // Enter the game screen; replace a lobby entry so back never returns to a dead lobby.
     const nav = useNav.getState();

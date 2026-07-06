@@ -18,6 +18,7 @@ import {
   endTurn,
   getValidMoves,
   rollDice,
+  skipTurn,
   validateMove,
   type Color,
   type GameState,
@@ -26,6 +27,14 @@ import {
 import { corsHeaders } from "../_shared/cors.ts";
 
 const FULL_ORDER: Color[] = ["red", "green", "yellow", "blue"];
+
+/** How long a player has to act before any peer may skip their turn. */
+const TURN_SECONDS = 30;
+
+/** A fresh deadline for an active turn, or null once the game is over. */
+function turnDeadline(state: GameState): string | null {
+  return state.status === "active" ? new Date(Date.now() + TURN_SECONDS * 1000).toISOString() : null;
+}
 
 /** 2 players sit diagonally (red/yellow); otherwise clockwise. Mirrors the client. */
 function seatColors(count: number): Color[] {
@@ -79,6 +88,8 @@ Deno.serve(async (req: Request) => {
         return await opTurn(admin, userId, String(body.gameId), "move", String(body.tokenId));
       case "pass":
         return await opTurn(admin, userId, String(body.gameId), "pass");
+      case "timeout":
+        return await opTimeout(admin, userId, String(body.gameId));
       case "rematch":
         return await opRematch(admin, userId, String(body.gameId));
       default:
@@ -145,7 +156,7 @@ async function opStart(admin: SupabaseClient, userId: string, gameId: string): P
 
   const { error } = await admin
     .from("games")
-    .update({ state, status: "active", current_turn_player_id: state.currentTurnPlayerId })
+    .update({ state, status: "active", current_turn_player_id: state.currentTurnPlayerId, turn_deadline: turnDeadline(state) })
     .eq("id", gameId);
   if (error) return json({ error: error.message });
 
@@ -165,7 +176,7 @@ async function opRematch(admin: SupabaseClient, userId: string, gameId: string):
 
   const { error } = await admin
     .from("games")
-    .update({ state: next, status: "active", current_turn_player_id: next.currentTurnPlayerId })
+    .update({ state: next, status: "active", current_turn_player_id: next.currentTurnPlayerId, turn_deadline: turnDeadline(next) })
     .eq("id", gameId);
   if (error) return json({ error: error.message });
 
@@ -209,11 +220,58 @@ async function opTurn(
 
   const { error } = await admin
     .from("games")
-    .update({ state: next, status: next.status, current_turn_player_id: next.currentTurnPlayerId })
+    .update({ state: next, status: next.status, current_turn_player_id: next.currentTurnPlayerId, turn_deadline: turnDeadline(next) })
     .eq("id", gameId);
   if (error) return json({ error: error.message });
 
   await admin.from("moves").insert({ game_id: gameId, player_id: me.id, action: { action, tokenId: tokenId ?? null, dice: next.diceValue } });
+
+  return json({ state: next });
+}
+
+/**
+ * Skip the current player's turn once its deadline has passed. Any participant
+ * may call this (the idle player rarely will); the server re-checks the clock,
+ * so a client can't skip early. Idempotent enough: if the turn already moved
+ * on, the deadline check simply fails and we return the current state.
+ */
+async function opTimeout(admin: SupabaseClient, userId: string, gameId: string): Promise<Response> {
+  const { data: game } = await admin.from("games").select("id, state, turn_deadline").eq("id", gameId).single();
+  if (!game || !game.state) return json({ error: "Game not found." });
+
+  const state = game.state as GameState;
+  if (state.status !== "active") return json({ error: "Game is not active." });
+
+  // Only participants can drive the room's clock.
+  if (!state.players.some((p) => p.userId === userId)) return json({ error: "You are not in this game." });
+
+  // Re-check the deadline server-side — the source of truth, not the caller.
+  const deadline = game.turn_deadline ? Date.parse(game.turn_deadline) : NaN;
+  if (!Number.isFinite(deadline) || Date.now() < deadline) {
+    return json({ state }); // not actually expired (or already advanced) — no-op
+  }
+
+  const skippedPlayerId = state.currentTurnPlayerId;
+  const next = skipTurn(state);
+
+  // Optimistic guard: only skip if the turn is still on the same player. If two
+  // clients race, the first write flips current_turn_player_id and the second
+  // matches zero rows — we then return whatever actually won.
+  const { data: updated, error } = await admin
+    .from("games")
+    .update({ state: next, status: next.status, current_turn_player_id: next.currentTurnPlayerId, turn_deadline: turnDeadline(next) })
+    .eq("id", gameId)
+    .eq("current_turn_player_id", skippedPlayerId)
+    .select("state")
+    .maybeSingle();
+  if (error) return json({ error: error.message });
+  if (!updated) {
+    // Lost the race — return the current authoritative state.
+    const { data: fresh } = await admin.from("games").select("state").eq("id", gameId).single();
+    return json({ state: (fresh?.state as GameState) ?? next });
+  }
+
+  await admin.from("moves").insert({ game_id: gameId, player_id: skippedPlayerId, action: { action: "timeout" } });
 
   return json({ state: next });
 }

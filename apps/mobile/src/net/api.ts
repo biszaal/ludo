@@ -98,6 +98,11 @@ export async function passAction(gameId: string): Promise<GameState> {
   return (await callGame<{ state: GameState }>("pass", { gameId })).state;
 }
 
+/** Skip the current turn once its server deadline has passed (any participant). */
+export async function timeoutAction(gameId: string): Promise<GameState> {
+  return (await callGame<{ state: GameState }>("timeout", { gameId })).state;
+}
+
 /** Host-only: reset a finished game to a fresh one with the same players. */
 export async function rematchAction(gameId: string): Promise<GameState> {
   return (await callGame<{ state: GameState }>("rematch", { gameId })).state;

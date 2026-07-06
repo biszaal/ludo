@@ -6,7 +6,7 @@
  */
 
 import { GameView } from "../components/GameView";
-import { useOnlineStore } from "../store/onlineStore";
+import { TURN_SECONDS, useOnlineStore } from "../store/onlineStore";
 
 const COLOR_LABEL = { red: "Red", green: "Green", yellow: "Yellow", blue: "Blue" } as const;
 
@@ -32,6 +32,7 @@ export function OnlineGameScreen() {
   const sendReaction = useOnlineStore((s) => s.sendReaction);
   const sendMessage = useOnlineStore((s) => s.sendMessage);
   const markChatRead = useOnlineStore((s) => s.markChatRead);
+  const turnSeq = useOnlineStore((s) => s.turnSeq);
 
   if (!state) return null;
 
@@ -70,6 +71,7 @@ export function OnlineGameScreen() {
       nameFor={(playerId) => profileOf(playerId)?.display_name ?? (playerId === myPlayerId ? "You" : null)}
       avatarFor={(playerId) => profileOf(playerId)?.avatar_id ?? null}
       offlineFor={offlineOf}
+      turnTimer={state.status === "active" ? { seq: turnSeq, seconds: TURN_SECONDS } : null}
       roomCode={roomCode}
       chat={{
         events: chat,

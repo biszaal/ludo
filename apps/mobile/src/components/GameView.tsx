@@ -51,6 +51,8 @@ interface GameViewProps {
   avatarFor?: (playerId: string) => string | null;
   /** Online: has this seat's player dropped? (shows an "Away" badge). */
   offlineFor?: (playerId: string) => boolean;
+  /** Online: active-turn countdown shown on the current player's panel. */
+  turnTimer?: { seq: number; seconds: number } | null;
   /** Small line under the results buttons (e.g. "Waiting for the host…"). */
   resultsFootnote?: string | null;
   /** Online room code, shown in the top bar. */
@@ -88,6 +90,7 @@ export function GameView({
   nameFor,
   avatarFor,
   offlineFor,
+  turnTimer,
   resultsFootnote,
   roomCode,
   chat,
@@ -171,14 +174,16 @@ export function GameView({
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm, marginTop: space.md }}>
           {state.players.map((p) => {
             const reaction = chat?.latestReactions[p.userId];
+            const isActive = p.id === state.currentTurnPlayerId && !finished;
             return (
               <View key={p.id} style={{ width: "48%" }}>
                 <PlayerPanel
                   player={p}
                   state={state}
-                  active={p.id === state.currentTurnPlayerId && !finished}
+                  active={isActive}
                   label={nameFor?.(p.id) ?? undefined}
                   offline={offlineFor?.(p.id) ?? false}
+                  timer={isActive ? turnTimer : null}
                 />
                 {reaction ? <ReactionBubble value={reaction.value} seq={reaction.seq} /> : null}
               </View>

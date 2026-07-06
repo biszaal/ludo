@@ -8,6 +8,7 @@ import { useEffect } from "react";
 import { Text, View } from "react-native";
 import Animated, {
   cancelAnimation,
+  Easing,
   useAnimatedStyle,
   useSharedValue,
   withRepeat,
@@ -31,9 +32,11 @@ interface PlayerPanelProps {
   label?: string;
   /** Online: the seat's player has dropped (dims the row, shows a badge). */
   offline?: boolean;
+  /** Online: countdown for the active turn. `seq` re-keys the depletion. */
+  timer?: { seq: number; seconds: number } | null;
 }
 
-export function PlayerPanel({ player, state, active, label, offline = false }: PlayerPanelProps) {
+export function PlayerPanel({ player, state, active, label, offline = false, timer = null }: PlayerPanelProps) {
   const finished = state.tokens.filter((t) => t.playerId === player.id && t.position === "finished").length;
   return (
     <View
@@ -71,6 +74,43 @@ export function PlayerPanel({ player, state, active, label, offline = false }: P
       <Text style={{ marginLeft: "auto", fontFamily: font.mono, fontSize: 13, color: palette.mutedSteel }}>
         {finished}/{TOKENS_PER_PLAYER}
       </Text>
+      {active && timer ? <TurnTimerBar seq={timer.seq} seconds={timer.seconds} color={teamColor[player.color]} /> : null}
+    </View>
+  );
+}
+
+/** A thin bar under the active panel that depletes over the turn's time limit. */
+function TurnTimerBar({ seq, seconds, color }: { seq: number; seconds: number; color: string }) {
+  const progress = useSharedValue(1);
+
+  useEffect(() => {
+    progress.value = 1;
+    progress.value = withTiming(0, { duration: seconds * 1000, easing: Easing.linear });
+    return () => cancelAnimation(progress);
+  }, [seq, seconds, progress]);
+
+  const style = useAnimatedStyle(() => ({
+    width: `${Math.max(0, progress.value) * 100}%`,
+    // Warm to red as time runs low.
+    backgroundColor: progress.value > 0.35 ? color : teamColor.red,
+    opacity: 0.5 + Math.min(progress.value, 0.35) * (0.5 / 0.35),
+  }));
+
+  return (
+    <View
+      pointerEvents="none"
+      style={{
+        position: "absolute",
+        left: space.sm,
+        right: space.sm,
+        bottom: 3,
+        height: 2.5,
+        borderRadius: radius.pill,
+        backgroundColor: palette.hairline,
+        overflow: "hidden",
+      }}
+    >
+      <Animated.View style={[{ height: "100%", borderRadius: radius.pill }, style]} />
     </View>
   );
 }
