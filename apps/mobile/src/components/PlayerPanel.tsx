@@ -29,9 +29,11 @@ interface PlayerPanelProps {
   active: boolean;
   /** Display name override (profiles, "You", bot labels); defaults to the color. */
   label?: string;
+  /** Online: the seat's player has dropped (dims the row, shows a badge). */
+  offline?: boolean;
 }
 
-export function PlayerPanel({ player, state, active, label }: PlayerPanelProps) {
+export function PlayerPanel({ player, state, active, label, offline = false }: PlayerPanelProps) {
   const finished = state.tokens.filter((t) => t.playerId === player.id && t.position === "finished").length;
   return (
     <View
@@ -65,9 +67,32 @@ export function PlayerPanel({ player, state, active, label }: PlayerPanelProps) 
       >
         {label ?? COLOR_LABEL[player.color]}
       </Text>
+      {offline ? <OfflineBadge /> : null}
       <Text style={{ marginLeft: "auto", fontFamily: font.mono, fontSize: 13, color: palette.mutedSteel }}>
         {finished}/{TOKENS_PER_PLAYER}
       </Text>
+    </View>
+  );
+}
+
+/** A small "away" chip when an online player has dropped. */
+function OfflineBadge() {
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 4,
+        paddingHorizontal: space.sm,
+        paddingVertical: 2,
+        borderRadius: radius.pill,
+        backgroundColor: palette.raisedSlate,
+        borderWidth: 1,
+        borderColor: palette.hairline,
+      }}
+    >
+      <View style={{ width: 6, height: 6, borderRadius: radius.pill, backgroundColor: palette.mutedSteel }} />
+      <Text style={{ fontFamily: font.medium, fontSize: 11, color: palette.mutedSteel }}>Away</Text>
     </View>
   );
 }

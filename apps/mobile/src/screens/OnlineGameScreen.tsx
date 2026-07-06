@@ -12,6 +12,7 @@ const COLOR_LABEL = { red: "Red", green: "Green", yellow: "Yellow", blue: "Blue"
 
 export function OnlineGameScreen() {
   const state = useOnlineStore((s) => s.state);
+  const lobby = useOnlineStore((s) => s.lobby);
   const validMoves = useOnlineStore((s) => s.validMoves);
   const lastRoll = useOnlineStore((s) => s.lastRoll);
   const rollSeq = useOnlineStore((s) => s.rollSeq);
@@ -42,6 +43,15 @@ export function OnlineGameScreen() {
     return player ? profiles[player.userId] : undefined;
   };
 
+  // Presence comes from the live players table (fresh via realtime), not the
+  // game-state snapshot. Never flag my own seat.
+  const offlineOf = (playerId: string): boolean => {
+    const player = state.players.find((p) => p.id === playerId);
+    if (!player || player.id === myPlayerId) return false;
+    const row = lobby.find((l) => l.user_id === player.userId);
+    return row ? !row.is_connected : false;
+  };
+
   return (
     <GameView
       state={state}
@@ -59,6 +69,7 @@ export function OnlineGameScreen() {
       resultsFootnote={isHost ? null : "Waiting for the host to start a rematch…"}
       nameFor={(playerId) => profileOf(playerId)?.display_name ?? (playerId === myPlayerId ? "You" : null)}
       avatarFor={(playerId) => profileOf(playerId)?.avatar_id ?? null}
+      offlineFor={offlineOf}
       roomCode={roomCode}
       chat={{
         events: chat,

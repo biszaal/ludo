@@ -70,6 +70,8 @@ interface OnlineStore {
   rematch: () => Promise<void>;
   leave: () => void;
   resync: () => Promise<void>;
+  /** Flag own presence when the app backgrounds/foregrounds (best-effort). */
+  setAway: (away: boolean) => void;
 
   isMyTurn: () => boolean;
 }
@@ -222,6 +224,11 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
   resync: async () => {
     const { gameId } = get();
     if (gameId) await resyncGame(gameId);
+  },
+
+  setAway: (away) => {
+    const { gameId, userId } = get();
+    if (gameId && userId) void api.setConnected(gameId, userId, !away).catch(() => {});
   },
 
   isMyTurn: () => {

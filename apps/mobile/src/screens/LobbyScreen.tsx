@@ -118,6 +118,7 @@ export function LobbyScreen() {
                     <Text style={{ fontFamily: font.regular, fontSize: 12, color: palette.mutedSteel }}>{COLOR_LABEL[color]}</Text>
                   ) : null}
                 </View>
+                {!p.is_connected && p.user_id !== userId ? <Tag label="Away" /> : null}
                 {p.user_id === userId ? <Tag label="You" /> : null}
                 {p.is_host ? <Tag label="Host" /> : null}
               </Surface3D>

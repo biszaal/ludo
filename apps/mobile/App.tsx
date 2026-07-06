@@ -44,7 +44,13 @@ export default function App() {
   useEffect(() => {
     const sub = AppState.addEventListener("change", (next) => {
       setMusicActive(next === "active");
-      if (next === "active") void useOnlineStore.getState().resync();
+      const online = useOnlineStore.getState();
+      if (next === "active") {
+        online.setAway(false);
+        void online.resync();
+      } else {
+        online.setAway(true); // opponents see an "Away" badge while I'm out
+      }
     });
     return () => sub.remove();
   }, []);

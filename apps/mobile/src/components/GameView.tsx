@@ -49,6 +49,8 @@ interface GameViewProps {
   /** Seat display names/avatars; fall back to color labels/chips. */
   nameFor?: (playerId: string) => string | null;
   avatarFor?: (playerId: string) => string | null;
+  /** Online: has this seat's player dropped? (shows an "Away" badge). */
+  offlineFor?: (playerId: string) => boolean;
   /** Small line under the results buttons (e.g. "Waiting for the host…"). */
   resultsFootnote?: string | null;
   /** Online room code, shown in the top bar. */
@@ -85,6 +87,7 @@ export function GameView({
   confirmLeave,
   nameFor,
   avatarFor,
+  offlineFor,
   resultsFootnote,
   roomCode,
   chat,
@@ -175,6 +178,7 @@ export function GameView({
                   state={state}
                   active={p.id === state.currentTurnPlayerId && !finished}
                   label={nameFor?.(p.id) ?? undefined}
+                  offline={offlineFor?.(p.id) ?? false}
                 />
                 {reaction ? <ReactionBubble value={reaction.value} seq={reaction.seq} /> : null}
               </View>
