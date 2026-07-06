@@ -11,6 +11,7 @@
       "bundleIdentifier": "com.biszaal.mobile"
     },
     "android": {
+      "package": "com.biszaal.mobile",
       "adaptiveIcon": {
         "backgroundColor": "#14171C",
         "foregroundImage": "./assets/android-icon-foreground.png",
