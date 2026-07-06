@@ -19,6 +19,7 @@ import { SettingsScreen } from "../screens/SettingsScreen";
 import { ProfileScreen } from "../screens/ProfileScreen";
 import { HowToPlayScreen } from "../screens/HowToPlayScreen";
 import { StatsScreen } from "../screens/StatsScreen";
+import { FriendsScreen } from "../screens/FriendsScreen";
 import { getBackInterceptor, useNav, type ScreenName } from "../store/navStore";
 
 const SCREENS: Partial<Record<ScreenName, ComponentType>> = {
@@ -30,6 +31,7 @@ const SCREENS: Partial<Record<ScreenName, ComponentType>> = {
   profile: ProfileScreen,
   howToPlay: HowToPlayScreen,
   stats: StatsScreen,
+  friends: FriendsScreen,
 };
 
 export function ScreenStack() {

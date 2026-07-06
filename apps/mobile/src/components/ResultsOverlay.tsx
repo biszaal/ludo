@@ -11,6 +11,7 @@ import type { GameState } from "@ludo/engine";
 import { Button } from "./Button";
 import { Confetti } from "./Confetti";
 import { AvatarGlyph } from "./Avatar";
+import { AddFriendButton } from "./AddFriendButton";
 import { Surface3D } from "./Surface3D";
 import { computeStandings } from "../lib/standings";
 import { font, palette, radius, space, teamColor, teamTint } from "../theme";
@@ -27,10 +28,13 @@ interface ResultsOverlayProps {
   onRematch?: () => void;
   /** Shown under the buttons (e.g. "Waiting for the host…"). */
   footnote?: string | null;
+  /** Online only: offer "Add friend" on other players (real auth users). */
+  canAddFriends?: boolean;
   onHome: () => void;
 }
 
-export function ResultsOverlay({ state, nameFor, avatarFor, onRematch, footnote, onHome }: ResultsOverlayProps) {
+export function ResultsOverlay({ state, nameFor, avatarFor, onRematch, footnote, canAddFriends = false, onHome }: ResultsOverlayProps) {
+  const userIdOf = (playerId: string) => state.players.find((p) => p.id === playerId)?.userId ?? null;
   const { width, height } = useWindowDimensions();
   const standings = computeStandings(state);
   const winner = standings[0]!;
@@ -98,6 +102,7 @@ export function ResultsOverlay({ state, nameFor, avatarFor, onRematch, footnote,
             <Text style={{ flex: 1, fontFamily: font.semibold, fontSize: 15, color: palette.porcelain }}>
               {nameFor?.(s.playerId) ?? COLOR_LABEL[s.color]}
             </Text>
+            {canAddFriends && userIdOf(s.playerId) ? <AddFriendButton userId={userIdOf(s.playerId)!} /> : null}
             <Text style={{ fontFamily: font.mono, fontSize: 13, color: palette.mutedSteel }}>{s.finished}/4</Text>
           </Surface3D>
         ))}

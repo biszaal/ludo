@@ -5,7 +5,7 @@
  */
 
 import { useState } from "react";
-import { ScrollView, Text, TextInput, View } from "react-native";
+import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../components/Button";
 import { Logo } from "../components/Logo";
@@ -15,7 +15,10 @@ import { ProfileChip } from "../components/ProfileChip";
 import { BOARD_THEMES } from "../render/boardThemes";
 import { useGameStore } from "../store/gameStore";
 import { useOnlineStore } from "../store/onlineStore";
+import { useFriends } from "../store/friendsStore";
+import { useNav } from "../store/navStore";
 import { useSettings } from "../store/settingsStore";
+import { incomingRequests } from "../lib/friendship";
 import { font, palette, radius, space, teamColor } from "../theme";
 
 export function HomeScreen() {
@@ -29,6 +32,11 @@ export function HomeScreen() {
   const onlineStatus = useOnlineStore((s) => s.status);
   const onlineError = useOnlineStore((s) => s.error);
   const connecting = onlineStatus === "connecting";
+
+  const push = useNav((s) => s.push);
+  const friendships = useFriends((s) => s.friendships);
+  const myUserId = useFriends((s) => s.userId);
+  const requestCount = incomingRequests(friendships, myUserId).length;
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: palette.feltCharcoal }}>
@@ -58,7 +66,22 @@ export function HomeScreen() {
 
         {/* Online play */}
         <View style={{ gap: space.md }}>
-          <Text style={{ fontFamily: font.medium, fontSize: 13, color: palette.mutedSteel }}>PLAY WITH FRIENDS</Text>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+            <Text style={{ fontFamily: font.medium, fontSize: 13, color: palette.mutedSteel }}>PLAY WITH FRIENDS</Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={requestCount > 0 ? `Friends, ${requestCount} requests` : "Friends"}
+              onPress={() => push("friends")}
+              style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 6, opacity: pressed ? 0.7 : 1 })}
+            >
+              <Text style={{ fontFamily: font.semibold, fontSize: 14, color: palette.porcelain }}>Friends</Text>
+              {requestCount > 0 ? (
+                <View style={{ minWidth: 18, height: 18, paddingHorizontal: 5, borderRadius: radius.pill, backgroundColor: teamColor.red, alignItems: "center", justifyContent: "center" }}>
+                  <Text style={{ fontFamily: font.semibold, fontSize: 11, color: palette.porcelain }}>{requestCount}</Text>
+                </View>
+              ) : null}
+            </Pressable>
+          </View>
           <Button label={connecting ? "Creating…" : "Create a room"} onPress={() => void createOnline()} />
           <View style={{ flexDirection: "row", gap: space.sm, alignItems: "center" }}>
             <TextInput

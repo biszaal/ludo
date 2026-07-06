@@ -11,10 +11,12 @@ import {
 } from "@expo-google-fonts/outfit";
 import { JetBrainsMono_500Medium } from "@expo-google-fonts/jetbrains-mono";
 import { ScreenStack } from "./src/components/ScreenStack";
+import { InviteBanner } from "./src/components/InviteBanner";
 import { useOnlineStore } from "./src/store/onlineStore";
 import { initSound, setMusicActive } from "./src/lib/sound";
 import { initFeedback } from "./src/lib/feedback";
 import { initDeepLinks } from "./src/lib/invite";
+import { initFriends } from "./src/store/friendsStore";
 import { initProfileSync } from "./src/net/profileSync";
 import { palette } from "./src/theme";
 
@@ -31,10 +33,12 @@ export default function App() {
     const stopFeedback = initFeedback();
     const stopProfileSync = initProfileSync();
     const stopDeepLinks = initDeepLinks();
+    const stopFriends = initFriends();
     return () => {
       stopFeedback();
       stopProfileSync();
       stopDeepLinks();
+      stopFriends();
     };
   }, []);
 
@@ -65,6 +69,7 @@ export default function App() {
     <SafeAreaProvider>
       <StatusBar style="light" />
       <ScreenStack />
+      <InviteBanner />
     </SafeAreaProvider>
   );
 }

@@ -9,6 +9,7 @@ import { Pressable, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../components/Button";
 import { AvatarGlyph } from "../components/Avatar";
+import { AddFriendButton } from "../components/AddFriendButton";
 import { Surface3D } from "../components/Surface3D";
 import { useOnlineStore } from "../store/onlineStore";
 import { setBackInterceptor } from "../store/navStore";
@@ -121,6 +122,7 @@ export function LobbyScreen() {
                 {!p.is_connected && p.user_id !== userId ? <Tag label="Away" /> : null}
                 {p.user_id === userId ? <Tag label="You" /> : null}
                 {p.is_host ? <Tag label="Host" /> : null}
+                {p.user_id !== userId ? <AddFriendButton userId={p.user_id} /> : null}
               </Surface3D>
             );
           })}

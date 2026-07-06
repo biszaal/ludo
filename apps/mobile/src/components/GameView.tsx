@@ -217,7 +217,7 @@ export function GameView({
       </View>
 
       {finished && (
-        <ResultsOverlay state={state} nameFor={nameFor} avatarFor={avatarFor} onRematch={onRematch} footnote={resultsFootnote} onHome={onLeave} />
+        <ResultsOverlay state={state} nameFor={nameFor} avatarFor={avatarFor} onRematch={onRematch} footnote={resultsFootnote} canAddFriends={!!chat} onHome={onLeave} />
       )}
 
       {paused && !finished && (
