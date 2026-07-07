@@ -1,0 +1,1 @@
+{"version":3,"file":"rng.d.ts","sourceRoot":"","sources":["../src/rng.ts"],"names":[],"mappings":"AAAA;;;;GAIG;AAEH,qDAAqD;AACrD,MAAM,MAAM,GAAG,GAAG,MAAM,MAAM,CAAC;AAE/B;;;GAGG;AACH,wBAAgB,eAAe,CAAC,IAAI,EAAE,MAAM,GAAG,GAAG,CASjD;AAED,mEAAmE;AACnE,wBAAgB,OAAO,CAAC,GAAG,EAAE,GAAG,GAAG,MAAM,CAExC;AAED;+BAC+B;AAC/B,eAAO,MAAM,aAAa,EAAE,GAAyB,CAAC"}

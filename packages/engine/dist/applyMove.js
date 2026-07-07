@@ -1,0 +1,51 @@
+import { validateMove } from "./validateMove.js";
+import { advanceTurn, cloneState, hasPlayerWon, makeAction } from "./internal.js";
+/**
+ * Apply a legal move and resolve the consequences: token advance, captures,
+ * win check, and either a bonus roll or hand-off to the next player.
+ *
+ * The move is re-validated and re-resolved from `tokenId` against the engine's
+ * own rules, so callers cannot smuggle in an illegal destination. Throws if the
+ * move is not legal in `state`. Pure: returns a new state, never mutates input.
+ */
+export function applyMove(state, move, options = {}) {
+    const validation = validateMove(state, move);
+    if (!validation.valid || !validation.resolved) {
+        throw new Error(`Illegal move: ${validation.reason ?? "unknown reason"}`);
+    }
+    const resolved = validation.resolved;
+    const next = cloneState(state);
+    const dice = state.diceValue;
+    // 1. Advance the moving token.
+    const token = next.tokens.find((t) => t.id === resolved.tokenId);
+    token.position = resolved.to;
+    // 2. Send captured opponents back to their yard.
+    for (const capturedId of resolved.captures) {
+        const captured = next.tokens.find((t) => t.id === capturedId);
+        captured.position = "home";
+    }
+    next.lastAction = makeAction("move", { tokenId: resolved.tokenId, to: resolved.to, captures: resolved.captures, dice }, options.now);
+    // 3. Win check — a completed game grants no further turns.
+    if (hasPlayerWon(next, state.currentTurnPlayerId)) {
+        next.status = "finished";
+        next.winnerPlayerId = state.currentTurnPlayerId;
+        next.phase = "awaiting-roll";
+        next.diceValue = null;
+        return next;
+    }
+    // 4. Bonus turn vs. hand-off.
+    const earnedBonus = (dice === 6 && next.rules.extraTurnOnSix) ||
+        (resolved.captures.length > 0 && next.rules.extraTurnOnCapture) ||
+        (resolved.finishes && next.rules.extraTurnOnFinish);
+    if (earnedBonus) {
+        next.phase = "awaiting-roll";
+        next.diceValue = null;
+        // Preserve the six-streak only if this roll was itself a six.
+        next.consecutiveSixes = dice === 6 ? next.consecutiveSixes : 0;
+    }
+    else {
+        advanceTurn(next);
+    }
+    return next;
+}
+//# sourceMappingURL=applyMove.js.map

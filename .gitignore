@@ -7,6 +7,12 @@ node_modules/
 dist/
 build/
 *.tsbuildinfo
+# ...except the shared packages' compiled output, which the mobile app imports
+# at runtime. EAS clones a clean tree (no local build), so this must be present
+# for the Metro bundle to resolve @ludo/engine + @ludo/bot. The eas-build-post-
+# install hook also rebuilds it, but committing keeps the build self-contained.
+!packages/engine/dist/
+!packages/bot/dist/
 
 # Environment & secrets (NEVER commit)
 .env
@@ -44,6 +50,7 @@ coverage/
 .DS_Store
 .idea/
 .vscode/
+.history/
 *.swp
 
 # Qodo (unused)

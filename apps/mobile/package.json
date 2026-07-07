@@ -37,7 +37,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "gen:icons": "node scripts/gen-app-icon.mjs",
-    "gen:sounds": "node scripts/gen-hop-sound.mjs && node scripts/gen-dice-sound.mjs && node scripts/gen-sfx.mjs && node scripts/gen-music.mjs"
+    "gen:sounds": "node scripts/gen-hop-sound.mjs && node scripts/gen-dice-sound.mjs && node scripts/gen-sfx.mjs && node scripts/gen-music.mjs",
+    "eas-build-post-install": "cd ../.. && npm run build:packages"
   },
   "private": true
 }

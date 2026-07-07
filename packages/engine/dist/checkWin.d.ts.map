@@ -1,0 +1,1 @@
+{"version":3,"file":"checkWin.d.ts","sourceRoot":"","sources":["../src/checkWin.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,SAAS,EAAE,MAAM,YAAY,CAAC;AAG5C,MAAM,WAAW,SAAS;IACxB,QAAQ,EAAE,OAAO,CAAC;IAClB,cAAc,CAAC,EAAE,MAAM,CAAC;CACzB;AAED;;;;GAIG;AACH,wBAAgB,QAAQ,CAAC,KAAK,EAAE,SAAS,GAAG,SAAS,CAUpD"}
