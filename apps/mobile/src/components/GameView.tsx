@@ -18,7 +18,7 @@ import { Button } from "./Button";
 import { ChatSheet } from "./ChatSheet";
 import { Dice } from "./Dice";
 import { PauseMenu } from "./PauseMenu";
-import { PlayerPanel } from "./PlayerPanel";
+import { PlayerChip } from "./PlayerChip";
 import { ReactionBar } from "./ReactionBar";
 import { ReactionBubble } from "./ReactionBubble";
 import { ResultsOverlay } from "./ResultsOverlay";
@@ -101,10 +101,12 @@ export function GameView({
   const [paused, setPaused] = useState(false);
   const [reactionsOpen, setReactionsOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
-  const boardSize = Math.floor(Math.min(width - space.xl * 2, height * 0.46));
+  const boardSize = Math.floor(Math.min(width - space.xl * 2, height * 0.44));
   const active = state.players.find((p) => p.id === state.currentTurnPlayerId)!;
   const accent = teamColor[active.color];
   const finished = state.status === "finished";
+  // Seat each player's profile at the board corner nearest their yard.
+  const byColor = new Map(state.players.map((p) => [p.color, p] as const));
 
   // Android back: toggle the pause sheet instead of abandoning the game.
   useEffect(() => {
@@ -123,6 +125,30 @@ export function GameView({
     const pl = state.players.find((p) => p.userId === userId);
     if (!pl) return "Player";
     return nameFor?.(pl.id) ?? COLOR_LABEL[pl.color];
+  };
+
+  // A corner profile for the player of a given color (empty spacer if that seat
+  // isn't in play, e.g. 2-player diagonal). Reaction bubbles float over it.
+  const cornerChip = (color: "red" | "green" | "yellow" | "blue", align: "left" | "right") => {
+    const p = byColor.get(color);
+    if (!p) return <View style={{ width: 92 }} />;
+    const isActive = p.id === state.currentTurnPlayerId && !finished;
+    const reaction = chat?.latestReactions[p.userId];
+    return (
+      <View>
+        <PlayerChip
+          player={p}
+          state={state}
+          active={isActive}
+          label={nameFor?.(p.id) ?? undefined}
+          avatarId={avatarFor?.(p.id) ?? null}
+          offline={offlineFor?.(p.id) ?? false}
+          timer={isActive ? turnTimer : null}
+          align={align}
+        />
+        {reaction ? <ReactionBubble value={reaction.value} seq={reaction.seq} /> : null}
+      </View>
+    );
   };
 
   return (
@@ -173,28 +199,22 @@ export function GameView({
           </View>
         </View>
 
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm, marginTop: space.md }}>
-          {state.players.map((p) => {
-            const reaction = chat?.latestReactions[p.userId];
-            const isActive = p.id === state.currentTurnPlayerId && !finished;
-            return (
-              <View key={p.id} style={{ width: "48%" }}>
-                <PlayerPanel
-                  player={p}
-                  state={state}
-                  active={isActive}
-                  label={nameFor?.(p.id) ?? undefined}
-                  offline={offlineFor?.(p.id) ?? false}
-                  timer={isActive ? turnTimer : null}
-                />
-                {reaction ? <ReactionBubble value={reaction.value} seq={reaction.seq} /> : null}
-              </View>
-            );
-          })}
-        </View>
+        <View style={{ flex: 1, justifyContent: "center" }}>
+          {/* Top profiles sit above their yards: red (top-left), green (top-right). */}
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end", marginBottom: space.sm }}>
+            {cornerChip("red", "left")}
+            {cornerChip("green", "right")}
+          </View>
 
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-          <Board size={boardSize} state={state} theme={theme} isMovable={movable} onSelectToken={canAct && !paused ? onSelectToken : noop} />
+          <View style={{ alignItems: "center" }}>
+            <Board size={boardSize} state={state} theme={theme} isMovable={movable} onSelectToken={canAct && !paused ? onSelectToken : noop} />
+          </View>
+
+          {/* Bottom profiles sit below their yards: blue (bottom-left), yellow (bottom-right). */}
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginTop: space.sm }}>
+            {cornerChip("blue", "left")}
+            {cornerChip("yellow", "right")}
+          </View>
         </View>
 
         <View style={{ gap: space.md, marginBottom: space.sm }}>
