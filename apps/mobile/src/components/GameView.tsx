@@ -22,6 +22,7 @@ import { PlayerPanel } from "./PlayerPanel";
 import { ReactionBar } from "./ReactionBar";
 import { ReactionBubble } from "./ReactionBubble";
 import { ResultsOverlay } from "./ResultsOverlay";
+import { TableBackground } from "./TableBackground";
 import type { ChatEvent } from "../store/onlineStore";
 import { font, onTeamColor, palette, radius, space, teamColor } from "../theme";
 import { BOARD_THEMES } from "../render/boardThemes";
@@ -125,7 +126,8 @@ export function GameView({
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: palette.feltCharcoal }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: palette.tableBlue }}>
+      <TableBackground width={width} height={height} />
       <View style={{ flex: 1, paddingHorizontal: space.xl, paddingTop: space.sm }}>
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
           <Text style={{ fontFamily: font.display, fontSize: 22, color: palette.porcelain }}>Ludo</Text>

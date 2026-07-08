@@ -14,6 +14,11 @@ export const palette = {
   porcelain: "#F4F6F8",
   mutedSteel: "#9BA3AF",
   ivoryCell: "#ECE9DF",
+  // Deep-blue game table (the Ludo Club look): the board floats on this, over a
+  // faint dotted texture. `tableBlueDeep` is the vignette edge for the gradient.
+  tableBlue: "#2B3D74",
+  tableBlueDeep: "#1B2748",
+  tableDot: "rgba(255,255,255,0.05)",
 } as const;
 
 /** Functional team palette — board-only. Keyed by engine player color. */

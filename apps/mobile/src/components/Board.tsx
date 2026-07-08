@@ -11,6 +11,7 @@ import { Pressable, View } from "react-native";
 import { Canvas, Circle, Group, Path, RadialGradient, RoundedRect, Skia, vec } from "@shopify/react-native-skia";
 import {
   Easing,
+  runOnJS,
   useDerivedValue,
   useSharedValue,
   withDelay,
@@ -47,6 +48,23 @@ const SAFE = new Set(SAFE_SQUARES);
 
 /** Per-cell hop duration (ms). Slower = more playful, child's-game pacing. */
 const HOP_STEP_MS = 175;
+
+/**
+ * One hop's sound + haptic, throttled globally. Driven from the animation's
+ * landing callback (not a setTimeout), so it stays locked to the visible hop
+ * regardless of JS-thread load. The throttle collapses the case where several
+ * pawns land on the same frame — e.g. a move that also sends a captured pawn
+ * home — into a single thock instead of a smeared overlap. HOP_STEP_MS (175) is
+ * well above the gate, so genuine per-cell hops are never dropped.
+ */
+let lastHopAt = 0;
+function hopFeedback(): void {
+  const now = Date.now();
+  if (now - lastHopAt < 70) return;
+  lastHopAt = now;
+  playHop();
+  hopTick();
+}
 
 interface BoardProps {
   size: number;
@@ -92,7 +110,20 @@ export function Board({ size, state, theme, isMovable, onSelectToken }: BoardPro
   }
 
   return (
-    <View style={{ width: size, height: size }}>
+    <View
+      style={{
+        width: size,
+        height: size,
+        borderRadius: 18,
+        backgroundColor: theme.boardBase,
+        // Lifts the board off the blue table (Ludo Club look).
+        shadowColor: "#000",
+        shadowOpacity: 0.4,
+        shadowRadius: 18,
+        shadowOffset: { width: 0, height: 10 },
+        elevation: 14,
+      }}
+    >
       <Canvas style={{ width: size, height: size }}>
         {staticBoard}
         {renderData.map(({ token, spot, prev, waypoints }) => (
@@ -160,8 +191,9 @@ export function BoardSurface({ size, theme }: { size: number; theme: BoardTheme 
             <RoundedRect x={b.col * cell + cell * 0.9} y={b.row * cell + cell * 0.9} width={b.size * cell - cell * 1.8} height={b.size * cell - cell * 1.8} r={12} color={theme.cellFill} />
             {YARD_SLOTS[color].map(([gx, gy], i) => (
               <Group key={`slot-${color}-${i}`}>
-                <Circle cx={gx * cell} cy={gy * cell} r={cell * 0.46} color={theme.team[color]} />
-                <Circle cx={gx * cell} cy={gy * cell} r={cell * 0.4} color={theme.cellFill} />
+                {/* Recessed gray disc: darker rim + gray fill (empty slot look). */}
+                <Circle cx={gx * cell} cy={gy * cell} r={cell * 0.44} color={shade(theme.slotEmpty, -0.16)} />
+                <Circle cx={gx * cell} cy={gy * cell} r={cell * 0.38} color={theme.slotEmpty} />
               </Group>
             ))}
           </Group>
@@ -226,14 +258,9 @@ function AnimatedPawn({ waypoints, posKey, r, color, stroke, movable, delay }: A
   const prevKey = useRef(posKey);
   const wpRef = useRef(waypoints);
   wpRef.current = waypoints;
-  const soundTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   // Re-run only on a real position/spot change (not when `movable` toggles).
   useEffect(() => {
-    const clearSounds = () => {
-      soundTimers.current.forEach(clearTimeout);
-      soundTimers.current = [];
-    };
     if (!mounted.current) {
       mounted.current = true;
       prevKey.current = posKey;
@@ -244,16 +271,16 @@ function AnimatedPawn({ waypoints, posKey, r, color, stroke, movable, delay }: A
     const wps = wpRef.current;
     if (posKey !== prevKey.current) {
       prevKey.current = posKey;
-      clearSounds();
+      // The hop sound fires from each landing's completion callback, so it is
+      // locked to the animation itself — no setTimeout drift when several pawns
+      // move at once. `finished` guards against interrupted moves.
+      const onLand = (finished?: boolean) => {
+        "worklet";
+        if (finished) runOnJS(hopFeedback)();
+      };
       if (wps.length <= 1) {
         tx.value = withDelay(delay, withTiming(last.x, { duration: 240, easing: Easing.out(Easing.cubic) }));
-        ty.value = withDelay(delay, withTiming(last.y, { duration: 240, easing: Easing.out(Easing.cubic) }));
-        soundTimers.current.push(
-          setTimeout(() => {
-            playHop();
-            hopTick();
-          }, delay),
-        );
+        ty.value = withDelay(delay, withTiming(last.y, { duration: 240, easing: Easing.out(Easing.cubic) }, onLand));
       } else {
         const HOP = r * 0.5;
         tx.value = withDelay(delay, withSequence(...wps.map((p) => withTiming(p.x, { duration: HOP_STEP_MS, easing: Easing.linear }))));
@@ -262,25 +289,16 @@ function AnimatedPawn({ waypoints, posKey, r, color, stroke, movable, delay }: A
           withSequence(
             ...wps.flatMap((p) => [
               withTiming(p.y - HOP, { duration: HOP_STEP_MS / 2, easing: Easing.out(Easing.quad) }),
-              withTiming(p.y, { duration: HOP_STEP_MS / 2, easing: Easing.in(Easing.quad) }),
+              withTiming(p.y, { duration: HOP_STEP_MS / 2, easing: Easing.in(Easing.quad) }, onLand),
             ]),
           ),
         );
-        for (let i = 0; i < wps.length; i++) {
-          soundTimers.current.push(
-            setTimeout(() => {
-              playHop();
-              hopTick();
-            }, delay + i * HOP_STEP_MS),
-          );
-        }
       }
     } else {
       // Same cell, fan offset shifted (a co-located token came or went).
       tx.value = withTiming(last.x, { duration: 200 });
       ty.value = withTiming(last.y, { duration: 200 });
     }
-    return clearSounds;
   }, [posKey, last.x, last.y, r, delay, tx, ty]);
 
   useEffect(() => {
@@ -308,9 +326,9 @@ export function PawnShape({ r, color, stroke }: { r: number; color: string; stro
 
   return (
     <Group>
-      {/* Ground shadow (flattened circle) */}
-      <Group transform={[{ translateY: r * 0.74 }, { scaleY: 0.42 }]}>
-        <Circle cx={0} cy={0} r={r * 0.92} color="rgba(0,0,0,0.22)" />
+      {/* Ground shadow (flattened circle) — a touch stronger for a 3D lift */}
+      <Group transform={[{ translateY: r * 0.78 }, { scaleY: 0.4 }]}>
+        <Circle cx={0} cy={0} r={r * 0.95} color="rgba(0,0,0,0.3)" />
       </Group>
 
       {/* Body */}

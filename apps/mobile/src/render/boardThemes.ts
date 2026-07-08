@@ -18,6 +18,8 @@ export interface BoardTheme {
   boardEdge: string;
   /** Track cells, yard inner plate, yard slot inner. */
   cellFill: string;
+  /** Empty yard-slot disc (gray recess a pawn sits in). */
+  slotEmpty: string;
   /** 1px stroke around track cells. */
   cellBorder: string;
   /** Safe-square star glyph. */
@@ -38,10 +40,11 @@ export const BOARD_THEMES: Record<BoardThemeId, BoardTheme> = {
     boardBase: "#FDFDFB",
     boardEdge: "#B9B2A0",
     cellFill: "#FFFFFF",
+    slotEmpty: "#C6CBD1",
     cellBorder: "#D2D2D2",
     starColor: "#AEB4BD",
     team: teamColor,
-    dice: { face: palette.liftedSlate, pip: palette.porcelain },
+    dice: { face: "#FFFFFF", pip: "#17181C" },
     pawnStroke: "rgba(0,0,0,0.32)",
   },
   // Slate plate with ivory track — the board joins the dark table.
@@ -51,6 +54,7 @@ export const BOARD_THEMES: Record<BoardThemeId, BoardTheme> = {
     boardBase: "#232830",
     boardEdge: "#3E4550",
     cellFill: "#ECE9DF",
+    slotEmpty: "#C2BFB4",
     cellBorder: "#1A1E24",
     starColor: "#8B93A1",
     team: { red: "#C9403F", green: "#27915A", yellow: "#D9A422", blue: "#3B58C4" },
@@ -64,6 +68,7 @@ export const BOARD_THEMES: Record<BoardThemeId, BoardTheme> = {
     boardBase: "#8B6844",
     boardEdge: "#5E4426",
     cellFill: "#F3E9D7",
+    slotEmpty: "#D8C9AE",
     cellBorder: "#C9B694",
     starColor: "#A08454",
     team: teamColor,
@@ -77,6 +82,7 @@ export const BOARD_THEMES: Record<BoardThemeId, BoardTheme> = {
     boardBase: "#F0E9DC",
     boardEdge: "#C9A183",
     cellFill: "#FAF6EE",
+    slotEmpty: "#DED3BF",
     cellBorder: "#DDD2BE",
     starColor: "#B5A88E",
     team: teamColor,

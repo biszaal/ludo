@@ -6,7 +6,7 @@
 
 import { describe, it, expect } from "vitest";
 import { BOARD_THEMES, DEFAULT_THEME } from "../src/render/boardThemes";
-import { palette, teamColor } from "../src/theme";
+import { teamColor } from "../src/theme";
 
 describe("board themes", () => {
   it("classic matches the original board literals exactly", () => {
@@ -14,10 +14,11 @@ describe("board themes", () => {
     expect(c.boardBase).toBe("#FDFDFB");
     expect(c.boardEdge).toBe("#B9B2A0");
     expect(c.cellFill).toBe("#FFFFFF");
+    expect(c.slotEmpty).toBe("#C6CBD1");
     expect(c.cellBorder).toBe("#D2D2D2");
     expect(c.starColor).toBe("#AEB4BD");
     expect(c.team).toEqual(teamColor);
-    expect(c.dice).toEqual({ face: palette.liftedSlate, pip: palette.porcelain });
+    expect(c.dice).toEqual({ face: "#FFFFFF", pip: "#17181C" });
     expect(c.pawnStroke).toBe("rgba(0,0,0,0.32)");
   });
 
