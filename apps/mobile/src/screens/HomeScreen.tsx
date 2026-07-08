@@ -7,6 +7,7 @@
 import { useState } from "react";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { TableBackground } from "../components/TableBackground";
 import { Button } from "../components/Button";
 import { Logo } from "../components/Logo";
 import { ModeCard } from "../components/ModeCard";
@@ -39,7 +40,8 @@ export function HomeScreen() {
   const requestCount = incomingRequests(friendships, myUserId).length;
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: palette.feltCharcoal }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: palette.tableBlue }}>
+      <TableBackground />
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: space.xl, paddingTop: space.sm }}>
         <Logo tile={36} />
         <ProfileChip />

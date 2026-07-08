@@ -8,6 +8,7 @@
 import { useEffect } from "react";
 import { ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { TableBackground } from "../components/TableBackground";
 import { Button } from "../components/Button";
 import { Surface3D } from "../components/Surface3D";
 import { AvatarGlyph } from "../components/Avatar";
@@ -51,7 +52,8 @@ export function FriendsScreen() {
     )?.id;
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: palette.feltCharcoal }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: palette.tableBlue }}>
+      <TableBackground />
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: space.xl, paddingTop: space.sm }}>
         <Text style={{ fontFamily: font.display, fontSize: 22, color: palette.porcelain }}>Friends</Text>
         <Button label="Back" onPress={pop} variant="ghost" />

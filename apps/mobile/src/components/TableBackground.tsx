@@ -5,13 +5,18 @@
  */
 
 import { useMemo } from "react";
+import { useWindowDimensions } from "react-native";
 import { Canvas, Circle, Group, LinearGradient, Rect, vec } from "@shopify/react-native-skia";
 import { palette } from "../theme";
 
 const DOT_SPACING = 30;
 const DOT_R = 3;
 
-export function TableBackground({ width, height }: { width: number; height: number }) {
+/** Fills its parent; dimensions default to the full window when omitted. */
+export function TableBackground({ width: w, height: h }: { width?: number; height?: number } = {}) {
+  const win = useWindowDimensions();
+  const width = w ?? win.width;
+  const height = h ?? win.height;
   const dots = useMemo(() => {
     const out: { x: number; y: number }[] = [];
     for (let y = DOT_SPACING / 2; y < height; y += DOT_SPACING) {

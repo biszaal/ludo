@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { TableBackground } from "../components/TableBackground";
 import { Button } from "../components/Button";
 import { AvatarGlyph } from "../components/Avatar";
 import { AddFriendButton } from "../components/AddFriendButton";
@@ -58,7 +59,8 @@ export function LobbyScreen() {
   const previewColors = seatColors(lobby.length);
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: palette.feltCharcoal }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: palette.tableBlue }}>
+      <TableBackground />
       <View style={{ flex: 1, paddingHorizontal: space.xl, paddingTop: space.sm, justifyContent: "space-between" }}>
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
           <Text style={{ fontFamily: font.display, fontSize: 22, color: palette.porcelain }}>Lobby</Text>
