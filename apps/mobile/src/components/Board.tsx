@@ -6,7 +6,7 @@
  * share a cell. Taps are captured by transparent RN overlays.
  */
 
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Pressable, View } from "react-native";
 import { Canvas, Circle, Group, Path, RadialGradient, RoundedRect, Skia, vec } from "@shopify/react-native-skia";
 import {
@@ -72,7 +72,16 @@ interface BoardProps {
   theme: BoardTheme;
   isMovable: (tokenId: string) => boolean;
   onSelectToken: (tokenId: string) => void;
+  /**
+   * The local player's color. The whole board is rotated so this color's yard
+   * always sits bottom-left (Ludo Club style) — each player sees their own seat
+   * in the same, easy-to-reach corner. Omit for a fixed default orientation.
+   */
+  viewColor?: PlayerColor;
 }
+
+/** Quarter-turns (90° CW) needed to bring each yard to the bottom-left. */
+const VIEW_QUARTER: Record<PlayerColor, number> = { red: 3, green: 2, yellow: 1, blue: 0 };
 
 interface Spot {
   x: number;
@@ -80,8 +89,26 @@ interface Spot {
   r: number;
 }
 
-export function Board({ size, state, theme, isMovable, onSelectToken }: BoardProps) {
+export function Board({ size, state, theme, isMovable, onSelectToken, viewColor }: BoardProps) {
   const cell = cellSize(size);
+  const q = viewColor ? VIEW_QUARTER[viewColor] : 0;
+  const center = size / 2;
+
+  // Rotate a logical board point into on-screen coordinates for the current view.
+  // The static surface below is rotated with the same angle, so pawns (drawn
+  // upright at these points) and the board line up exactly. Taps use these too.
+  const rotatePt = useCallback(
+    (x: number, y: number): Spot2 => {
+      if (q === 0) return { x, y };
+      const dx = x - center;
+      const dy = y - center;
+      if (q === 1) return { x: center - dy, y: center + dx };
+      if (q === 2) return { x: center - dx, y: center - dy };
+      return { x: center + dy, y: center - dx }; // q === 3
+    },
+    [q, center],
+  );
+
   // Theme objects are module constants, so reference equality keeps this memo effective.
   const staticBoard = useMemo(() => <BoardSurface size={size} theme={theme} />, [size, theme]);
   const layout = useMemo(() => computeLayout(state.tokens, cell), [state.tokens, cell]);
@@ -96,8 +123,9 @@ export function Board({ size, state, theme, isMovable, onSelectToken }: BoardPro
   const renderData = state.tokens.map((token) => {
     const spot = layout.get(token.id)!;
     const prev = prevPos.current.get(token.id);
-    const waypoints = computeWaypoints(token.color, prev, token.position, spot, cell);
-    return { token, spot, prev, waypoints };
+    const waypoints = computeWaypoints(token.color, prev, token.position, spot, cell).map((p) => rotatePt(p.x, p.y));
+    const rotated = rotatePt(spot.x, spot.y);
+    return { token, spot: { x: rotated.x, y: rotated.y, r: spot.r }, prev, waypoints };
   });
 
   // How long each capturing mover takes to reach a track cell, so a captured
@@ -125,7 +153,13 @@ export function Board({ size, state, theme, isMovable, onSelectToken }: BoardPro
       }}
     >
       <Canvas style={{ width: size, height: size }}>
-        {staticBoard}
+        {q === 0 ? (
+          staticBoard
+        ) : (
+          <Group origin={{ x: center, y: center }} transform={[{ rotate: (q * Math.PI) / 2 }]}>
+            {staticBoard}
+          </Group>
+        )}
         {renderData.map(({ token, spot, prev, waypoints }) => (
           <AnimatedPawn
             key={token.id}

@@ -34,6 +34,10 @@ export function GameScreen() {
   const active = state.players.find((p) => p.id === state.currentTurnPlayerId)!;
   const botLabel = `${COLOR_LABEL[active.color]} is thinking…`;
 
+  // vs AI: rotate the board so the human's seat is bottom-left. Pass & play keeps
+  // the fixed orientation (the device is shared, so there's no single "you").
+  const humanColor = vsAI ? state.players.find((p) => !botIds.includes(p.id))?.color : undefined;
+
   // vs AI: the human seat is "you"; pass & play seats stay color-named.
   const nameFor = (playerId: string): string | null => {
     if (!vsAI) return null;
@@ -59,6 +63,7 @@ export function GameScreen() {
       onRematch={lastConfig ? () => newLocalGame(lastConfig) : undefined}
       nameFor={nameFor}
       avatarFor={(playerId) => (vsAI && !botIds.includes(playerId) ? avatarId : null)}
+      viewColor={humanColor}
     />
   );
 }

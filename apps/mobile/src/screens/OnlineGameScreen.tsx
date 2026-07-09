@@ -38,6 +38,7 @@ export function OnlineGameScreen() {
 
   const myTurn = state.status === "active" && state.currentTurnPlayerId === myPlayerId;
   const active = state.players.find((p) => p.id === state.currentTurnPlayerId)!;
+  const myColor = state.players.find((p) => p.id === myPlayerId)?.color;
 
   const profileOf = (playerId: string) => {
     const player = state.players.find((p) => p.id === playerId);
@@ -73,6 +74,7 @@ export function OnlineGameScreen() {
       offlineFor={offlineOf}
       turnTimer={state.status === "active" ? { seq: turnSeq, seconds: TURN_SECONDS } : null}
       roomCode={roomCode}
+      viewColor={myColor}
       chat={{
         events: chat,
         unread: chatUnread,

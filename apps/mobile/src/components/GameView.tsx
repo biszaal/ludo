@@ -12,7 +12,7 @@
 import { useEffect, useState } from "react";
 import { Pressable, Text, View, useWindowDimensions } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import type { GameState, Move } from "@ludo/engine";
+import type { Color, GameState, Move } from "@ludo/engine";
 import { Board } from "./Board";
 import { Button } from "./Button";
 import { ChatSheet } from "./ChatSheet";
@@ -58,6 +58,8 @@ interface GameViewProps {
   resultsFootnote?: string | null;
   /** Online room code, shown in the top bar. */
   roomCode?: string | null;
+  /** Local player's color — the board rotates so this seat is bottom-left. */
+  viewColor?: Color;
   /** In-room reactions + chat (online only; local play omits it). */
   chat?: GameChat;
 }
@@ -74,6 +76,16 @@ export interface GameChat {
 }
 
 const COLOR_LABEL = { red: "Red", green: "Green", yellow: "Yellow", blue: "Blue" } as const;
+
+type TeamColor = "red" | "green" | "yellow" | "blue";
+/** Color whose yard sits at each screen corner (CW: 0=TL,1=TR,2=BR,3=BL) with no rotation. */
+const COLOR_BY_CORNER: TeamColor[] = ["red", "green", "yellow", "blue"];
+/** Quarter-turns (90° CW) that bring each color's yard to the bottom-left. Mirrors Board. */
+const VIEW_QUARTER: Record<TeamColor, number> = { red: 3, green: 2, yellow: 1, blue: 0 };
+const TL = 0;
+const TR = 1;
+const BR = 2;
+const BL = 3;
 
 export function GameView({
   state,
@@ -94,6 +106,7 @@ export function GameView({
   turnTimer,
   resultsFootnote,
   roomCode,
+  viewColor,
   chat,
 }: GameViewProps) {
   const { width, height } = useWindowDimensions();
@@ -107,6 +120,12 @@ export function GameView({
   const finished = state.status === "finished";
   // Seat each player's profile at the board corner nearest their yard.
   const byColor = new Map(state.players.map((p) => [p.color, p] as const));
+
+  // The board rotates so `viewColor` sits bottom-left; the corner chips follow,
+  // so each color's chip stays pinned to its (rotated) yard corner on screen.
+  // Screen corners in clockwise order: 0=TL, 1=TR, 2=BR, 3=BL.
+  const q = viewColor ? VIEW_QUARTER[viewColor] : 0;
+  const colorAtCorner = (screen: number): TeamColor => COLOR_BY_CORNER[(screen - q + 4) % 4]!;
 
   // Android back: toggle the pause sheet instead of abandoning the game.
   useEffect(() => {
@@ -127,26 +146,34 @@ export function GameView({
     return nameFor?.(pl.id) ?? COLOR_LABEL[pl.color];
   };
 
-  // A corner profile for the player of a given color (empty spacer if that seat
-  // isn't in play, e.g. 2-player diagonal). Reaction bubbles float over it.
-  const cornerChip = (color: "red" | "green" | "yellow" | "blue", align: "left" | "right") => {
-    const p = byColor.get(color);
+  // A corner profile for the player whose (rotated) yard sits at this screen
+  // corner (empty spacer if that seat isn't in play, e.g. 2-player diagonal).
+  // The die rides next to whoever is active — by the local user when it's their
+  // turn (bottom-left), matching Ludo Club. Reaction bubbles float over the chip.
+  const cornerChip = (screen: number) => {
+    const align = screen === TL || screen === BL ? "left" : "right";
+    const p = byColor.get(colorAtCorner(screen));
     if (!p) return <View style={{ width: 92 }} />;
     const isActive = p.id === state.currentTurnPlayerId && !finished;
     const reaction = chat?.latestReactions[p.userId];
     return (
-      <View>
-        <PlayerChip
-          player={p}
-          state={state}
-          active={isActive}
-          label={nameFor?.(p.id) ?? undefined}
-          avatarId={avatarFor?.(p.id) ?? null}
-          offline={offlineFor?.(p.id) ?? false}
-          timer={isActive ? turnTimer : null}
-          align={align}
-        />
-        {reaction ? <ReactionBubble value={reaction.value} seq={reaction.seq} /> : null}
+      <View style={{ flexDirection: align === "left" ? "row" : "row-reverse", alignItems: "center", gap: space.sm }}>
+        <View>
+          <PlayerChip
+            player={p}
+            state={state}
+            active={isActive}
+            label={nameFor?.(p.id) ?? undefined}
+            avatarId={avatarFor?.(p.id) ?? null}
+            offline={offlineFor?.(p.id) ?? false}
+            timer={isActive ? turnTimer : null}
+            align={align}
+          />
+          {reaction ? <ReactionBubble value={reaction.value} seq={reaction.seq} /> : null}
+        </View>
+        {isActive ? (
+          <Dice value={state.diceValue ?? lastRoll} muted={false} spinSeq={rollSeq} size={40} theme={theme} />
+        ) : null}
       </View>
     );
   };
@@ -200,41 +227,38 @@ export function GameView({
         </View>
 
         <View style={{ flex: 1, justifyContent: "center" }}>
-          {/* Top profiles sit above their yards: red (top-left), green (top-right). */}
+          {/* Top-of-board profiles (screen corners), then the board, then bottom. */}
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end", marginBottom: space.sm }}>
-            {cornerChip("red", "left")}
-            {cornerChip("green", "right")}
+            {cornerChip(TL)}
+            {cornerChip(TR)}
           </View>
 
           <View style={{ alignItems: "center" }}>
-            <Board size={boardSize} state={state} theme={theme} isMovable={movable} onSelectToken={canAct && !paused ? onSelectToken : noop} />
+            <Board size={boardSize} state={state} theme={theme} isMovable={movable} onSelectToken={canAct && !paused ? onSelectToken : noop} viewColor={viewColor} />
           </View>
 
-          {/* Bottom profiles sit below their yards: blue (bottom-left), yellow (bottom-right). */}
+          {/* The local player's yard is bottom-left, so their chip + die live here. */}
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginTop: space.sm }}>
-            {cornerChip("blue", "left")}
-            {cornerChip("yellow", "right")}
+            {cornerChip(BL)}
+            {cornerChip(BR)}
           </View>
         </View>
 
-        <View style={{ gap: space.md, marginBottom: space.sm }}>
+        <View style={{ gap: space.md, marginBottom: space.sm, alignItems: "center" }}>
           <Text style={{ fontFamily: font.medium, fontSize: 16, color: palette.porcelain, textAlign: "center" }}>{message}</Text>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: space.lg }}>
-            <Dice value={state.diceValue ?? lastRoll} muted={state.phase === "awaiting-roll"} accent={accent} spinSeq={rollSeq} theme={theme} />
-            <View style={{ flex: 1 }}>
-              {finished ? null : !canAct ? (
-                <Text style={{ fontFamily: font.medium, fontSize: 14, color: palette.mutedSteel, textAlign: "center" }}>
-                  {waitingLabel ?? "Waiting…"}
-                </Text>
-              ) : state.phase === "awaiting-roll" ? (
-                <Button label="Roll" onPress={onRoll} color={accent} textColor={onTeamColor(active.color)} />
-              ) : (
-                <Text style={{ fontFamily: font.medium, fontSize: 14, color: palette.mutedSteel, textAlign: "center" }}>
-                  {validMoves.length === 0 ? "No moves — passing…" : "Tap a highlighted token"}
-                </Text>
-              )}
+          {finished ? null : !canAct ? (
+            <Text style={{ fontFamily: font.medium, fontSize: 14, color: palette.mutedSteel, textAlign: "center" }}>
+              {waitingLabel ?? "Waiting…"}
+            </Text>
+          ) : state.phase === "awaiting-roll" ? (
+            <View style={{ minWidth: 200 }}>
+              <Button label="Roll" onPress={onRoll} color={accent} textColor={onTeamColor(active.color)} />
             </View>
-          </View>
+          ) : (
+            <Text style={{ fontFamily: font.medium, fontSize: 14, color: palette.mutedSteel, textAlign: "center" }}>
+              {validMoves.length === 0 ? "No moves — passing…" : "Tap a highlighted token"}
+            </Text>
+          )}
         </View>
       </View>
 

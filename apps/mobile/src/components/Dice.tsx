@@ -1,12 +1,12 @@
 /**
- * A die that rests as a clean flat (2D) face and tumbles in 3D while rolling.
- * At rest it's a bright rounded square with pips and a soft shadow; on a roll it
- * spins on two axes in perspective (a real cube tumble) and settles back flat.
- * Shows pips for `value` (1–6); the tumble retriggers whenever `spinSeq` changes
- * (so even two 6s in a row animate).
+ * A die that rests as a clean flat face and comes alive while rolling. The roll
+ * spins and pops the die (2D-only transforms — no perspective/rotateX, which
+ * force offscreen compositing and flicker the screen on iOS) while rapidly
+ * shuffling the shown pips, so it reads as a real tumble, then lands on `value`.
+ * The tumble retriggers whenever `spinSeq` changes (so even two 6s animate).
  */
 
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { View } from "react-native";
 import Animated, {
   Easing,
@@ -28,6 +28,9 @@ const PIPS: Record<number, number[]> = {
   6: [0, 2, 3, 5, 6, 8],
 };
 
+const SHUFFLE_MS = 55;
+const SHUFFLE_TICKS = 8;
+
 interface DiceProps {
   value: number | null;
   size?: number;
@@ -42,43 +45,67 @@ interface DiceProps {
 }
 
 export function Dice({ value, size = 64, muted = false, spinSeq = 0, theme }: DiceProps) {
-  // Rotations stay at multiples of 360 at rest, so the die always settles flat.
-  const rx = useSharedValue(0);
-  const ry = useSharedValue(0);
+  const rot = useSharedValue(0);
   const scale = useSharedValue(1);
+  const [shown, setShown] = useState<number | null>(value);
+  const shuffling = useRef(false);
+  const shuffleTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Track the real value whenever we're not mid-shuffle.
+  useEffect(() => {
+    if (!shuffling.current) setShown(value);
+  }, [value]);
 
   useEffect(() => {
     if (!spinSeq) return;
     playDiceRoll();
-    rx.value = withTiming(rx.value + 360, { duration: 620, easing: Easing.out(Easing.cubic) });
-    ry.value = withTiming(ry.value + 720, { duration: 620, easing: Easing.out(Easing.cubic) });
+    rot.value = withTiming(rot.value + 360, { duration: 560, easing: Easing.out(Easing.cubic) });
     scale.value = withSequence(
-      withTiming(1.14, { duration: 170, easing: Easing.out(Easing.quad) }),
-      withTiming(1, { duration: 320, easing: Easing.out(Easing.cubic) }),
+      withTiming(1.16, { duration: 150, easing: Easing.out(Easing.quad) }),
+      withTiming(0.94, { duration: 120, easing: Easing.inOut(Easing.quad) }),
+      withTiming(1, { duration: 220, easing: Easing.out(Easing.cubic) }),
     );
-    // Haptic lands as the tumble settles (DESIGN.md §6: tap on settle).
-    const settle = setTimeout(diceSettle, 500);
-    return () => clearTimeout(settle);
-  }, [spinSeq, rx, ry, scale]);
+
+    // Rapid face shuffle → lands on the real value.
+    shuffling.current = true;
+    let ticks = 0;
+    if (shuffleTimer.current) clearInterval(shuffleTimer.current);
+    shuffleTimer.current = setInterval(() => {
+      ticks += 1;
+      if (ticks >= SHUFFLE_TICKS) {
+        if (shuffleTimer.current) clearInterval(shuffleTimer.current);
+        shuffleTimer.current = null;
+        shuffling.current = false;
+        setShown(value);
+      } else {
+        setShown(1 + Math.floor(Math.random() * 6));
+      }
+    }, SHUFFLE_MS);
+
+    const settle = setTimeout(diceSettle, SHUFFLE_MS * SHUFFLE_TICKS);
+    return () => {
+      clearTimeout(settle);
+      if (shuffleTimer.current) {
+        clearInterval(shuffleTimer.current);
+        shuffleTimer.current = null;
+      }
+      shuffling.current = false;
+    };
+  }, [spinSeq, value, rot, scale]);
 
   const animatedStyle = useAnimatedStyle(() => ({
-    transform: [
-      { perspective: 800 },
-      { rotateX: `${rx.value}deg` },
-      { rotateY: `${ry.value}deg` },
-      { scale: scale.value },
-    ],
+    transform: [{ rotate: `${rot.value}deg` }, { scale: scale.value }],
   }));
 
   const face = theme?.dice.face ?? "#FFFFFF";
   const pipColor = theme?.dice.pip ?? "#17181C";
   const rounded = size * 0.2;
-  const filled = value ? new Set(PIPS[value]) : new Set<number>();
+  const filled = shown ? new Set(PIPS[shown]) : new Set<number>();
   const pip = size * 0.15;
 
   return (
     <Animated.View
-      accessibilityLabel={value ? `Dice showing ${value}` : "Dice"}
+      accessibilityLabel={shown ? `Dice showing ${shown}` : "Dice"}
       style={[
         {
           width: size,
@@ -93,13 +120,29 @@ export function Dice({ value, size = 64, muted = false, spinSeq = 0, theme }: Di
           alignContent: "space-between",
           shadowColor: "#000",
           shadowOpacity: 0.28,
-          shadowRadius: 7,
-          shadowOffset: { width: 0, height: 5 },
+          shadowRadius: 6,
+          shadowOffset: { width: 0, height: 4 },
           elevation: 6,
         },
         animatedStyle,
       ]}
     >
+      {/* Subtle bevel: light top edge, shadowed bottom edge (2D, no compositing). */}
+      <View
+        pointerEvents="none"
+        style={{
+          position: "absolute",
+          left: 0,
+          right: 0,
+          top: 0,
+          bottom: 0,
+          borderRadius: rounded,
+          borderTopWidth: 1.5,
+          borderTopColor: "rgba(255,255,255,0.7)",
+          borderBottomWidth: 2,
+          borderBottomColor: "rgba(0,0,0,0.12)",
+        }}
+      />
       {Array.from({ length: 9 }, (_unused, i) => (
         <View key={i} style={{ width: pip, height: pip, alignItems: "center", justifyContent: "center" }}>
           {filled.has(i) && (
@@ -109,7 +152,6 @@ export function Dice({ value, size = 64, muted = false, spinSeq = 0, theme }: Di
                 height: pip,
                 borderRadius: pip / 2,
                 backgroundColor: pipColor,
-                // A dark ring reads as a drilled pip, not a printed dot.
                 borderWidth: 1,
                 borderColor: "rgba(0,0,0,0.22)",
               }}

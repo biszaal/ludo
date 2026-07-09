@@ -110,7 +110,8 @@ function TurnTimerBar({ seq, seconds, color }: { seq: number; seconds: number; c
         overflow: "hidden",
       }}
     >
-      <Animated.View style={[{ height: "100%", borderRadius: radius.pill }, style]} />
+      {/* Pinned to the left so the fill only recedes from the right (one way). */}
+      <Animated.View style={[{ position: "absolute", left: 0, top: 0, bottom: 0, borderRadius: radius.pill }, style]} />
     </View>
   );
 }
