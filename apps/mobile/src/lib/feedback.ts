@@ -9,6 +9,7 @@
  */
 
 import { SAFE_SQUARES, type Color, type GameState } from "@ludo/engine";
+import { START_CELL_INDEX } from "../render/boardLayout";
 import { useGameStore } from "../store/gameStore";
 import { useOnlineStore } from "../store/onlineStore";
 import { useProfile } from "../store/profileStore";
@@ -18,6 +19,11 @@ import { playSound } from "./sound";
 import * as haptics from "./haptics";
 
 const COLOR_LABEL: Record<Color, string> = { red: "Red", green: "Green", yellow: "Yellow", blue: "Blue" };
+
+// Only the four STARRED cells chime. The four start cells are also in the
+// engine's SAFE_SQUARES (capture-proof), but the board draws no star there and
+// chiming every yard-exit landing read as "sound while passing".
+const STAR_CELLS = new Set([...SAFE_SQUARES].filter((i) => !Object.values(START_CELL_INDEX).includes(i)));
 
 function diffAndFire(prev: GameState | null, next: GameState | null, myPlayerId: string | null): void {
   if (!prev || !next || prev === next) return;
@@ -35,9 +41,9 @@ function diffAndFire(prev: GameState | null, next: GameState | null, myPlayerId:
     if (!moved) continue;
     if (t.position === "home" && was !== "home") captured = true;
     if (t.position === "finished" && was !== "finished") finished = true;
-    // Sanctuary: landing on a starred safe square, or entering the home column.
+    // Sanctuary: LANDING on a starred cell, or entering the home column.
     if (typeof t.position === "object") {
-      if (t.position.type === "track" && SAFE_SQUARES.has(t.position.index)) reachedSafety = true;
+      if (t.position.type === "track" && STAR_CELLS.has(t.position.index)) reachedSafety = true;
       if (t.position.type === "homePath" && typeof was === "object" && was.type === "track") reachedSafety = true;
     }
   }

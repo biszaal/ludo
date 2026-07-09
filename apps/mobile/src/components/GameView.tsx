@@ -171,11 +171,11 @@ export function GameView({
           {reaction ? <ReactionBubble value={reaction.value} seq={reaction.seq} /> : null}
         </View>
         {isActive ? (
+          // Constant size — resizing mid-roll made the face flicker/jump.
           <Dice
             value={state.diceValue ?? lastRoll}
-            muted={!canRoll}
             spinSeq={rollSeq}
-            size={canRoll ? 54 : 42}
+            size={48}
             theme={theme}
             onRollPress={canRoll ? onRoll : null}
           />

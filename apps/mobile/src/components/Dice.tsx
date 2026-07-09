@@ -40,7 +40,8 @@ const SHUFFLE_TICKS = 8;
 interface DiceProps {
   value: number | null;
   size?: number;
-  /** Dim slightly when stale (between turns). */
+  /** Kept for API compatibility — the face always shows at full strength so the
+   *  rolled number stays readable while tokens are being chosen/moved. */
   muted?: boolean;
   /** Bump to replay the tumble animation. */
   spinSeq?: number;
@@ -50,7 +51,7 @@ interface DiceProps {
   onRollPress?: (() => void) | null;
 }
 
-export function Dice({ value, size = 64, muted = false, spinSeq = 0, theme, onRollPress = null }: DiceProps) {
+export function Dice({ value, size = 64, spinSeq = 0, theme, onRollPress = null }: DiceProps) {
   const rot = useSharedValue(0);
   const scale = useSharedValue(1);
   const wiggle = useSharedValue(0);
@@ -58,9 +59,13 @@ export function Dice({ value, size = 64, muted = false, spinSeq = 0, theme, onRo
   const shuffling = useRef(false);
   const shuffleTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const mounted = useRef(false);
+  // The landing value lives in a ref so the roll effect never re-fires (and
+  // never flickers a replay) when the value prop updates mid-animation.
+  const valueRef = useRef(value);
 
   // Track the real value whenever we're not mid-shuffle.
   useEffect(() => {
+    valueRef.current = value;
     if (!shuffling.current) setShown(value);
   }, [value]);
 
@@ -89,7 +94,7 @@ export function Dice({ value, size = 64, muted = false, spinSeq = 0, theme, onRo
         if (shuffleTimer.current) clearInterval(shuffleTimer.current);
         shuffleTimer.current = null;
         shuffling.current = false;
-        setShown(value);
+        setShown(valueRef.current);
       } else {
         setShown(1 + Math.floor(Math.random() * 6));
       }
@@ -104,7 +109,7 @@ export function Dice({ value, size = 64, muted = false, spinSeq = 0, theme, onRo
       }
       shuffling.current = false;
     };
-  }, [spinSeq, value, rot, scale]);
+  }, [spinSeq, rot, scale]);
 
   // "Tap me" wiggle while the die is waiting to be rolled.
   useEffect(() => {
@@ -146,7 +151,6 @@ export function Dice({ value, size = 64, muted = false, spinSeq = 0, theme, onRo
           height: size,
           borderRadius: rounded,
           backgroundColor: face,
-          opacity: muted && !onRollPress ? 0.85 : 1,
           // Bottom edge slightly darker = subtle thickness without 3D transforms.
           borderBottomWidth: 3,
           borderBottomColor: shade(face, -0.25),
