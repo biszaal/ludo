@@ -1,23 +1,27 @@
 /**
  * A player's profile card shown at a board corner (Ludo King layout): avatar in
  * a team-colored frame, name, and finished-token count. The active player's
- * frame lifts and breathes, with a turn-countdown ring beneath; a dropped online
- * player dims and shows "Away". Avatar falls back to a team-color disc.
+ * frame lifts and breathes; when a turn timer runs, a countdown ring sweeps
+ * around the frame's edge — starting at the top and receding one way — warming
+ * to red as time runs out. A dropped online player dims and shows "Away".
+ * Avatar falls back to a team-color disc.
  */
 
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { Text, View } from "react-native";
 import Animated, {
   cancelAnimation,
   Easing,
   useAnimatedStyle,
+  useDerivedValue,
   useSharedValue,
   withRepeat,
   withTiming,
 } from "react-native-reanimated";
+import { Canvas, Path, Skia } from "@shopify/react-native-skia";
 import { TOKENS_PER_PLAYER, type GameState, type PlayerState } from "@ludo/engine";
 import { AvatarGlyph } from "./Avatar";
-import { depth, font, palette, radius, space, teamColor } from "../theme";
+import { depth, font, palette, radius, teamColor } from "../theme";
 
 const COLOR_LABEL: Record<PlayerState["color"], string> = {
   red: "Red",
@@ -27,6 +31,8 @@ const COLOR_LABEL: Record<PlayerState["color"], string> = {
 };
 
 const AVATAR = 48;
+const RING_BOX = AVATAR + 14; // outer container; the ring hugs the frame inside it
+const RING_STROKE = 3.5;
 
 interface PlayerChipProps {
   player: PlayerState;
@@ -46,8 +52,8 @@ export function PlayerChip({ player, state, active, label, avatarId, offline = f
 
   return (
     <View style={{ alignItems: "center", width: 92, opacity: offline ? 0.55 : 1 }}>
-      <View style={{ width: AVATAR + 14, height: AVATAR + 14, alignItems: "center", justifyContent: "center" }}>
-        {active && <Breathe color={color} />}
+      <View style={{ width: RING_BOX, height: RING_BOX, alignItems: "center", justifyContent: "center" }}>
+        {active && !timer && <Breathe color={color} />}
         <View
           style={{
             width: AVATAR + 8,
@@ -68,9 +74,8 @@ export function PlayerChip({ player, state, active, label, avatarId, offline = f
             <View style={{ width: AVATAR, height: AVATAR, borderRadius: radius.sm, backgroundColor: color }} />
           )}
         </View>
+        {active && timer ? <TurnRing seq={timer.seq} seconds={timer.seconds} color={color} /> : null}
       </View>
-
-      {active && timer ? <TurnTimerBar seq={timer.seq} seconds={timer.seconds} color={color} /> : <View style={{ height: 3, marginTop: 3 }} />}
 
       <Text
         numberOfLines={1}
@@ -100,28 +105,44 @@ export function PlayerChip({ player, state, active, label, avatarId, offline = f
   );
 }
 
-/** A short depleting bar beneath the active avatar, warming to red as time runs out. */
-function TurnTimerBar({ seq, seconds, color }: { seq: number; seconds: number; color: string }) {
+/**
+ * The countdown ring: a rounded-rect stroke tracing the avatar frame's edge.
+ * The path is trimmed by an animated `end`, so the ring visibly recedes in one
+ * direction (from the path start, clockwise) as the turn's time drains.
+ */
+function TurnRing({ seq, seconds, color }: { seq: number; seconds: number; color: string }) {
   const progress = useSharedValue(1);
+
   useEffect(() => {
     progress.value = 1;
     progress.value = withTiming(0, { duration: seconds * 1000, easing: Easing.linear });
     return () => cancelAnimation(progress);
   }, [seq, seconds, progress]);
 
-  const style = useAnimatedStyle(() => ({
-    width: `${Math.max(0, progress.value) * 100}%`,
-    backgroundColor: progress.value > 0.35 ? color : teamColor.red,
-  }));
+  const end = useDerivedValue(() => Math.max(0, Math.min(1, progress.value)));
+  const ringColor = useDerivedValue(() => (progress.value > 0.3 ? color : teamColor.red));
+
+  const path = useMemo(() => {
+    const inset = RING_STROKE / 2 + 0.5;
+    const p = Skia.Path.Make();
+    p.addRRect(
+      Skia.RRectXY(
+        Skia.XYWHRect(inset, inset, RING_BOX - inset * 2, RING_BOX - inset * 2),
+        radius.md + 1,
+        radius.md + 1,
+      ),
+    );
+    return p;
+  }, []);
 
   return (
-    <View style={{ width: AVATAR + 8, height: 3, marginTop: 3, borderRadius: radius.pill, backgroundColor: palette.hairline, overflow: "hidden" }}>
-      <Animated.View style={[{ height: "100%", borderRadius: radius.pill }, style]} />
-    </View>
+    <Canvas pointerEvents="none" style={{ position: "absolute", left: 0, top: 0, width: RING_BOX, height: RING_BOX }}>
+      <Path path={path} style="stroke" strokeWidth={RING_STROKE} strokeCap="round" color={ringColor} start={0} end={end} />
+    </Canvas>
   );
 }
 
-/** The active frame's breathing color glow. */
+/** The active frame's breathing color glow (shown when no timer ring runs). */
 function Breathe({ color }: { color: string }) {
   const pulse = useSharedValue(0);
   useEffect(() => {

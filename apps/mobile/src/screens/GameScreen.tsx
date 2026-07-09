@@ -6,7 +6,7 @@
  */
 
 import { GameView } from "../components/GameView";
-import { useGameStore } from "../store/gameStore";
+import { TURN_SECONDS, useGameStore } from "../store/gameStore";
 import { useProfile } from "../store/profileStore";
 
 const COLOR_LABEL = { red: "Red", green: "Green", yellow: "Yellow", blue: "Blue" } as const;
@@ -24,6 +24,7 @@ export function GameScreen() {
   const leaveGame = useGameStore((s) => s.leaveGame);
   const newLocalGame = useGameStore((s) => s.newLocalGame);
   const isCurrentBot = useGameStore((s) => s.isCurrentBot);
+  const turnSeq = useGameStore((s) => s.turnSeq);
   const displayName = useProfile((s) => s.displayName);
   const avatarId = useProfile((s) => s.avatarId);
 
@@ -64,6 +65,7 @@ export function GameScreen() {
       nameFor={nameFor}
       avatarFor={(playerId) => (vsAI && !botIds.includes(playerId) ? avatarId : null)}
       viewColor={humanColor}
+      turnTimer={vsAI && !botTurn && state.status === "active" ? { seq: turnSeq, seconds: TURN_SECONDS } : null}
     />
   );
 }

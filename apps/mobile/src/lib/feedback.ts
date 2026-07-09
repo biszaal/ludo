@@ -8,7 +8,7 @@
  * animations in Dice.tsx/Board.tsx; this module handles event sounds.
  */
 
-import type { Color, GameState } from "@ludo/engine";
+import { SAFE_SQUARES, type Color, type GameState } from "@ludo/engine";
 import { useGameStore } from "../store/gameStore";
 import { useOnlineStore } from "../store/onlineStore";
 import { useProfile } from "../store/profileStore";
@@ -26,12 +26,20 @@ function diffAndFire(prev: GameState | null, next: GameState | null, myPlayerId:
 
   let captured = false;
   let finished = false;
+  let reachedSafety = false;
   const prevPos = new Map(prev.tokens.map((t) => [t.id, t.position]));
   for (const t of next.tokens) {
     const was = prevPos.get(t.id);
     if (was === undefined) continue;
+    const moved = JSON.stringify(was) !== JSON.stringify(t.position);
+    if (!moved) continue;
     if (t.position === "home" && was !== "home") captured = true;
     if (t.position === "finished" && was !== "finished") finished = true;
+    // Sanctuary: landing on a starred safe square, or entering the home column.
+    if (typeof t.position === "object") {
+      if (t.position.type === "track" && SAFE_SQUARES.has(t.position.index)) reachedSafety = true;
+      if (t.position.type === "homePath" && typeof was === "object" && was.type === "track") reachedSafety = true;
+    }
   }
 
   // Win outranks everything (a finishing move also set `finished`).
@@ -46,6 +54,9 @@ function diffAndFire(prev: GameState | null, next: GameState | null, myPlayerId:
     haptics.capture();
   } else if (finished) {
     playSound("finish");
+  } else if (reachedSafety) {
+    playSound("safe");
+    haptics.tapLight();
   }
 
   if (next.currentTurnPlayerId !== prev.currentTurnPlayerId && next.status === "active") {

@@ -23,8 +23,14 @@ describe("checkWin", () => {
     expect(checkWin(state).finished).toBe(false);
   });
 
-  it("honors an already-recorded winner", () => {
+  it("keeps a recorded winner while an active game plays to completion", () => {
+    // Play-to-completion: 1st place is decided but others still race for 2nd/3rd.
     const state = { ...twoPlayerGame(), winnerPlayerId: "p2" };
+    expect(checkWin(state)).toEqual({ finished: false, winnerPlayerId: "p2" });
+  });
+
+  it("honors a finished status with its recorded winner", () => {
+    const state = { ...twoPlayerGame(), status: "finished" as const, winnerPlayerId: "p2" };
     expect(checkWin(state)).toEqual({ finished: true, winnerPlayerId: "p2" });
   });
 });

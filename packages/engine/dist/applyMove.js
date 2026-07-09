@@ -25,12 +25,27 @@ export function applyMove(state, move, options = {}) {
         captured.position = "home";
     }
     next.lastAction = makeAction("move", { tokenId: resolved.tokenId, to: resolved.to, captures: resolved.captures, dice }, options.now);
-    // 3. Win check — a completed game grants no further turns.
+    // 3. Finish check — the game plays to completion. A player who just got all
+    // four tokens home joins finishedOrder (first = the winner) and spectates;
+    // play continues until a single unfinished player remains, who is appended
+    // last and the game ends with full standings.
     if (hasPlayerWon(next, state.currentTurnPlayerId)) {
-        next.status = "finished";
-        next.winnerPlayerId = state.currentTurnPlayerId;
-        next.phase = "awaiting-roll";
-        next.diceValue = null;
+        const mover = state.currentTurnPlayerId;
+        if (!next.finishedOrder.includes(mover))
+            next.finishedOrder.push(mover);
+        if (!next.winnerPlayerId)
+            next.winnerPlayerId = next.finishedOrder[0];
+        const remaining = next.players.filter((p) => !next.finishedOrder.includes(p.id));
+        if (remaining.length <= 1) {
+            if (remaining.length === 1)
+                next.finishedOrder.push(remaining[0].id);
+            next.status = "finished";
+            next.phase = "awaiting-roll";
+            next.diceValue = null;
+            return next;
+        }
+        // Finished players earn no bonus turns — hand off to the next in play.
+        advanceTurn(next);
         return next;
     }
     // 4. Bonus turn vs. hand-off.

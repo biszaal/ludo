@@ -17,6 +17,7 @@ import {
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import * as api from "../net/api";
 import { applyChatEvent, type ChatEvent } from "../lib/chat";
+import { ordinal } from "../lib/standings";
 import { useNav } from "./navStore";
 import { useProfile } from "./profileStore";
 
@@ -430,6 +431,16 @@ function project(state: GameState, myPlayerId: string | null): Projection {
   const win = checkWin(state);
   if (win.finished && win.winnerPlayerId) {
     return { validMoves: [], message: `${COLOR_LABEL[colorOf(state, win.winnerPlayerId)]} wins!`, status: "finished", lastRoll: state.diceValue };
+  }
+  // Play-to-completion: once I've locked a podium place I spectate the rest.
+  const myPlace = myPlayerId ? (state.finishedOrder ?? []).indexOf(myPlayerId) : -1;
+  if (myPlace !== -1) {
+    return {
+      validMoves: [],
+      message: `You finished ${ordinal(myPlace + 1)}! Watching the rest…`,
+      status: "active",
+      lastRoll: state.diceValue,
+    };
   }
   const myTurn = state.currentTurnPlayerId === myPlayerId;
   const validMoves = myTurn && state.phase === "awaiting-move" ? getValidMoves(state, myPlayerId!) : [];

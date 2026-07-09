@@ -13,6 +13,8 @@ export function cloneState(state: GameState): GameState {
     players: state.players.map((p) => ({ ...p })),
     tokens: state.tokens.map((t) => ({ ...t, position: clonePosition(t.position) })),
     rules: { ...state.rules },
+    // `?? []` tolerates states persisted before finishedOrder existed.
+    finishedOrder: [...(state.finishedOrder ?? [])],
     lastAction: state.lastAction ? { ...state.lastAction } : null,
   };
 }
@@ -47,15 +49,23 @@ export function hasPlayerWon(state: GameState, playerId: string): boolean {
 
 /**
  * Advance the clock to the next player in clockwise seat order, resetting the
- * per-turn dice state. Mutates the passed (already-cloned) state.
+ * per-turn dice state. Players who already finished all their tokens are
+ * skipped (they spectate while the rest play on). Mutates the passed
+ * (already-cloned) state.
  */
 export function advanceTurn(state: GameState): void {
+  const done = new Set(state.finishedOrder ?? []);
   const order = state.players
     .slice()
     .sort((a, b) => COLOR_ORDER.indexOf(a.color) - COLOR_ORDER.indexOf(b.color));
   const currentIdx = order.findIndex((p) => p.id === state.currentTurnPlayerId);
-  const next = order[(currentIdx + 1) % order.length]!;
-  state.currentTurnPlayerId = next.id;
+  for (let step = 1; step <= order.length; step++) {
+    const candidate = order[(currentIdx + step) % order.length]!;
+    if (!done.has(candidate.id)) {
+      state.currentTurnPlayerId = candidate.id;
+      break;
+    }
+  }
   state.phase = "awaiting-roll";
   state.diceValue = null;
   state.consecutiveSixes = 0;

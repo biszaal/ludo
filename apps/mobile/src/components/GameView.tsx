@@ -14,7 +14,6 @@ import { Pressable, Text, View, useWindowDimensions } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { Color, GameState, Move } from "@ludo/engine";
 import { Board } from "./Board";
-import { Button } from "./Button";
 import { ChatSheet } from "./ChatSheet";
 import { Dice } from "./Dice";
 import { PauseMenu } from "./PauseMenu";
@@ -24,7 +23,7 @@ import { ReactionBubble } from "./ReactionBubble";
 import { ResultsOverlay } from "./ResultsOverlay";
 import { TableBackground } from "./TableBackground";
 import type { ChatEvent } from "../store/onlineStore";
-import { font, onTeamColor, palette, radius, space, teamColor } from "../theme";
+import { font, palette, radius, space, teamColor } from "../theme";
 import { BOARD_THEMES } from "../render/boardThemes";
 import { setBackInterceptor } from "../store/navStore";
 import { useSettings } from "../store/settingsStore";
@@ -115,8 +114,6 @@ export function GameView({
   const [reactionsOpen, setReactionsOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const boardSize = Math.floor(Math.min(width - space.xl * 2, height * 0.44));
-  const active = state.players.find((p) => p.id === state.currentTurnPlayerId)!;
-  const accent = teamColor[active.color];
   const finished = state.status === "finished";
   // Seat each player's profile at the board corner nearest their yard.
   const byColor = new Map(state.players.map((p) => [p.color, p] as const));
@@ -149,15 +146,17 @@ export function GameView({
   // A corner profile for the player whose (rotated) yard sits at this screen
   // corner (empty spacer if that seat isn't in play, e.g. 2-player diagonal).
   // The die rides next to whoever is active — by the local user when it's their
-  // turn (bottom-left), matching Ludo Club. Reaction bubbles float over the chip.
+  // turn (bottom-left), matching Ludo Club — and IS the roll control: when the
+  // local user may roll, the die wiggles and tapping it rolls.
   const cornerChip = (screen: number) => {
     const align = screen === TL || screen === BL ? "left" : "right";
     const p = byColor.get(colorAtCorner(screen));
     if (!p) return <View style={{ width: 92 }} />;
     const isActive = p.id === state.currentTurnPlayerId && !finished;
     const reaction = chat?.latestReactions[p.userId];
+    const canRoll = isActive && canAct && !paused && state.phase === "awaiting-roll";
     return (
-      <View style={{ flexDirection: align === "left" ? "row" : "row-reverse", alignItems: "center", gap: space.sm }}>
+      <View style={{ flexDirection: align === "left" ? "row" : "row-reverse", alignItems: "center", gap: space.md }}>
         <View>
           <PlayerChip
             player={p}
@@ -172,7 +171,14 @@ export function GameView({
           {reaction ? <ReactionBubble value={reaction.value} seq={reaction.seq} /> : null}
         </View>
         {isActive ? (
-          <Dice value={state.diceValue ?? lastRoll} muted={false} spinSeq={rollSeq} size={40} theme={theme} />
+          <Dice
+            value={state.diceValue ?? lastRoll}
+            muted={!canRoll}
+            spinSeq={rollSeq}
+            size={canRoll ? 54 : 42}
+            theme={theme}
+            onRollPress={canRoll ? onRoll : null}
+          />
         ) : null}
       </View>
     );
@@ -244,21 +250,19 @@ export function GameView({
           </View>
         </View>
 
-        <View style={{ gap: space.md, marginBottom: space.sm, alignItems: "center" }}>
+        <View style={{ gap: space.xs, marginBottom: space.sm, alignItems: "center" }}>
           <Text style={{ fontFamily: font.medium, fontSize: 16, color: palette.porcelain, textAlign: "center" }}>{message}</Text>
-          {finished ? null : !canAct ? (
-            <Text style={{ fontFamily: font.medium, fontSize: 14, color: palette.mutedSteel, textAlign: "center" }}>
-              {waitingLabel ?? "Waiting…"}
-            </Text>
-          ) : state.phase === "awaiting-roll" ? (
-            <View style={{ minWidth: 200 }}>
-              <Button label="Roll" onPress={onRoll} color={accent} textColor={onTeamColor(active.color)} />
-            </View>
-          ) : (
-            <Text style={{ fontFamily: font.medium, fontSize: 14, color: palette.mutedSteel, textAlign: "center" }}>
-              {validMoves.length === 0 ? "No moves — passing…" : "Tap a highlighted token"}
-            </Text>
-          )}
+          <Text style={{ fontFamily: font.medium, fontSize: 13, color: palette.mutedSteel, textAlign: "center" }}>
+            {finished
+              ? " "
+              : !canAct
+                ? waitingLabel ?? "Waiting…"
+                : state.phase === "awaiting-roll"
+                  ? "Tap the die to roll"
+                  : validMoves.length === 0
+                    ? "No moves — passing…"
+                    : "Tap a glowing token to move"}
+          </Text>
         </View>
       </View>
 

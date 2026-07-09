@@ -57,6 +57,7 @@ export function createGame(players: PlayerInput[], options: CreateGameOptions = 
     tokens,
     rules: { ...DEFAULT_RULES, ...options.rules },
     winnerPlayerId: null,
+    finishedOrder: [],
     lastAction: { type: "createGame", payload: { players: playerStates.length }, timestamp: options.now ?? 0 },
   };
 }

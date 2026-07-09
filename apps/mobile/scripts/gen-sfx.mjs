@@ -8,6 +8,7 @@
  *   ding.wav    — warm bell: it's your turn (online)
  *   pop.wav     — bubbly up-blip: a reaction emoji arrived
  *   msg.wav     — soft two-tone: a chat message arrived
+ *   safe.wav    — sparkle chime: pawn lands on a safe star / enters its home column
  * Run: node scripts/gen-sfx.mjs
  */
 import { writeFileSync, mkdirSync } from "node:fs";
@@ -138,4 +139,13 @@ function tone(out, at, freq, amp, decay, durationS = 0.6) {
   tone(out, 0, 620, 0.26, 22, 0.14);
   tone(out, 0.09, 830, 0.28, 18, 0.18);
   writeWav("msg.wav", out);
+}
+
+// safe.wav — bright little sparkle: safe-star landing / home-column entry.
+{
+  const out = buffer(0.4);
+  tone(out, 0.0, 1174.7, 0.26, 16); // D6
+  tone(out, 0.07, 1568.0, 0.3, 13); // G6
+  tone(out, 0.07, 3136.0, 0.08, 18); // shimmer partial
+  writeWav("safe.wav", out);
 }

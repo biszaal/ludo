@@ -128,7 +128,15 @@ export interface GameState {
   consecutiveSixes: number;
   tokens: Token[];
   rules: RuleConfig;
+  /** First player to finish all tokens (kept for compat; = finishedOrder[0]). */
   winnerPlayerId: string | null;
+  /**
+   * Player ids in the order they completed all four tokens. The game plays to
+   * completion: finished players are skipped by the turn clock and spectate;
+   * `status` flips to "finished" once only one unfinished player remains (that
+   * player is appended last, completing the final standings 1st→last).
+   */
+  finishedOrder: string[];
   lastAction: LastAction | null;
 }
 

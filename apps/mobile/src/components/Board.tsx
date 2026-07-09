@@ -339,7 +339,12 @@ function AnimatedPawn({ waypoints, posKey, r, color, stroke, movable, delay }: A
     pulse.value = movable ? withRepeat(withTiming(1, { duration: 1100 }), -1, true) : 0;
   }, [movable, pulse]);
 
-  const transform = useDerivedValue(() => [{ translateX: tx.value }, { translateY: ty.value }]);
+  // Movable pawns pulsate — a gentle scale breath plus the white ring.
+  const transform = useDerivedValue(() => [
+    { translateX: tx.value },
+    { translateY: ty.value },
+    { scale: 1 + pulse.value * 0.12 },
+  ]);
   const ringR = useDerivedValue(() => r * 1.18 + pulse.value * 2);
 
   return (

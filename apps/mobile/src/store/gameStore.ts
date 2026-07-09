@@ -23,6 +23,7 @@ import {
 } from "@ludo/engine";
 import { chooseMove } from "@ludo/bot";
 import { seatColors } from "../lib/seating";
+import { ordinal } from "../lib/standings";
 import { useNav } from "./navStore";
 
 const COLOR_LABEL: Record<PlayerColor, string> = {
@@ -36,6 +37,9 @@ const COLOR_LABEL: Record<PlayerColor, string> = {
 const BOT_DELAY = 650;
 /** Pause before a human's forced action (auto-pass / lone move) so the dice reads. */
 const AUTO_DELAY = 650;
+/** vs-AI: seconds a human has per action before the bot policy acts for them.
+ *  Matches the online TURN_SECONDS so the countdown ring reads the same. */
+export const TURN_SECONDS = 30;
 
 export interface LocalGameConfig {
   /** Seats at the table, 2–4. */
@@ -57,6 +61,8 @@ interface GameStore {
   botIds: string[];
   /** The last game's setup, so Results can offer an instant rematch. */
   lastConfig: LocalGameConfig | null;
+  /** Bumps whenever the human's turn clock (vs AI) restarts — re-keys the ring. */
+  turnSeq: number;
 
   newLocalGame: (config: LocalGameConfig) => void;
   roll: () => void;
@@ -77,6 +83,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   message: "",
   botIds: [],
   lastConfig: null,
+  turnSeq: 0,
 
   newLocalGame: (config) => {
     const { players: numPlayers, bots: numBots = 0 } = config;
@@ -99,6 +106,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     });
     useNav.getState().push("localGame");
     kickBots();
+    scheduleHumanClock();
   },
 
   roll: () => {
@@ -113,6 +121,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (busted) {
       set({ state: newState, validMoves: [], lastRoll: diceValue, rollSeq, message: `${COLOR_LABEL[color]} rolled three 6s — turn forfeited` });
       kickBots();
+      scheduleHumanClock();
       return;
     }
 
@@ -130,6 +139,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     scheduleHumanAuto(); // auto-pass (no moves) or auto-play a lone move, for humans
     kickBots();
+    scheduleHumanClock();
   },
 
   pass: () => {
@@ -139,6 +149,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const next = endTurn(state);
     set({ state: next, validMoves: [], message: `${COLOR_LABEL[playerColor(next, next.currentTurnPlayerId)]} to roll` });
     kickBots();
+    scheduleHumanClock();
   },
 
   selectToken: (tokenId) => {
@@ -152,25 +163,33 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     const win = checkWin(next);
     if (win.finished && win.winnerPlayerId) {
+      clearHumanClock();
       set({ state: next, validMoves: [], message: `${COLOR_LABEL[playerColor(next, win.winnerPlayerId)]} wins!` });
       return; // game over — no bot kick
     }
 
+    // Play-to-completion: announce a player locking in a podium place.
+    const placed =
+      next.finishedOrder.length > (state.finishedOrder?.length ?? 0)
+        ? `${COLOR_LABEL[playerColor(next, before)]} finished ${ordinal(next.finishedOrder.length)}! `
+        : "";
     const nowColor = playerColor(next, next.currentTurnPlayerId);
     set({
       state: next,
       validMoves: [],
       message:
         next.currentTurnPlayerId === before
-          ? `${COLOR_LABEL[nowColor]} rolls again`
-          : `${COLOR_LABEL[nowColor]} to roll`,
+          ? `${placed}${COLOR_LABEL[nowColor]} rolls again`
+          : `${placed}${COLOR_LABEL[nowColor]} to roll`,
     });
     kickBots();
+    scheduleHumanClock();
   },
 
   leaveGame: () => {
     stopBots();
     clearAutoTimer();
+    clearHumanClock();
     set({ state: null, validMoves: [], lastRoll: null, botIds: [], message: "" });
     useNav.getState().popTo("home");
   },
@@ -216,6 +235,43 @@ function scheduleHumanAuto(): void {
   } else if (s.validMoves.length === 1) {
     const only = s.validMoves[0]!.tokenId;
     autoTimer = setTimeout(() => useGameStore.getState().selectToken(only), AUTO_DELAY);
+  }
+}
+
+// --- vs-AI human turn clock ---------------------------------------------------
+// Every human action (or turn hand-off) restarts a 30s clock, mirroring the
+// online server's per-write deadline. On expiry, the bot policy performs ONE
+// action for the idle human (roll / best move / pass) and the clock restarts.
+// Pass & play has no clock — couch games are leisurely by design.
+
+let humanClock: ReturnType<typeof setTimeout> | null = null;
+
+function clearHumanClock(): void {
+  if (humanClock) clearTimeout(humanClock);
+  humanClock = null;
+}
+
+function scheduleHumanClock(): void {
+  clearHumanClock();
+  const s = useGameStore.getState();
+  const state = s.state;
+  if (!state || state.status !== "active") return;
+  if (s.botIds.length === 0) return; // pass & play — no clock
+  if (s.botIds.includes(state.currentTurnPlayerId)) return; // bots pace themselves
+  useGameStore.setState({ turnSeq: s.turnSeq + 1 });
+  humanClock = setTimeout(forceHumanAct, TURN_SECONDS * 1000);
+}
+
+function forceHumanAct(): void {
+  const s = useGameStore.getState();
+  const state = s.state;
+  if (!state || state.status !== "active" || s.botIds.includes(state.currentTurnPlayerId)) return;
+  if (state.phase === "awaiting-roll") {
+    s.roll();
+  } else if (s.validMoves.length > 0) {
+    s.selectToken(chooseMove(state, state.currentTurnPlayerId, s.validMoves).tokenId);
+  } else {
+    s.pass();
   }
 }
 
