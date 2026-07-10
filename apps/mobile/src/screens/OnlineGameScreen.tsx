@@ -33,6 +33,8 @@ export function OnlineGameScreen() {
   const sendMessage = useOnlineStore((s) => s.sendMessage);
   const markChatRead = useOnlineStore((s) => s.markChatRead);
   const turnSeq = useOnlineStore((s) => s.turnSeq);
+  const autoPilot = useOnlineStore((s) => s.autoPilot);
+  const takeControl = useOnlineStore((s) => s.takeControl);
 
   if (!state) return null;
 
@@ -61,8 +63,12 @@ export function OnlineGameScreen() {
       lastRoll={lastRoll}
       rollSeq={rollSeq}
       message={message}
-      canAct={myTurn}
-      waitingLabel={`Waiting for ${profileOf(active.id)?.display_name ?? COLOR_LABEL[active.color]}…`}
+      canAct={myTurn && !autoPilot}
+      waitingLabel={
+        autoPilot && myTurn
+          ? "Bot is playing for you — tap your avatar to take control"
+          : `Waiting for ${profileOf(active.id)?.display_name ?? COLOR_LABEL[active.color]}…`
+      }
       onRoll={() => void roll()}
       onSelectToken={(id) => void selectToken(id)}
       onLeave={leave}
@@ -73,6 +79,7 @@ export function OnlineGameScreen() {
       avatarFor={(playerId) => profileOf(playerId)?.avatar_id ?? null}
       offlineFor={offlineOf}
       turnTimer={state.status === "active" ? { seq: turnSeq, seconds: TURN_SECONDS } : null}
+      autoPilot={autoPilot && myPlayerId ? { playerId: myPlayerId, onTakeControl: takeControl } : null}
       roomCode={roomCode}
       viewColor={myColor}
       chat={{

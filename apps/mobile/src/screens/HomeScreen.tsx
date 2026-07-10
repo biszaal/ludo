@@ -4,7 +4,7 @@
  * heights, then the online section. Local modes open the PlaySetupSheet.
  */
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { TableBackground } from "../components/TableBackground";
@@ -25,6 +25,7 @@ import { font, palette, radius, space, teamColor } from "../theme";
 export function HomeScreen() {
   const [sheetMode, setSheetMode] = useState<PlayMode | null>(null);
   const [code, setCode] = useState<string>("");
+  const scrollRef = useRef<ScrollView>(null);
   const newLocalGame = useGameStore((s) => s.newLocalGame);
   const boardTheme = BOARD_THEMES[useSettings((s) => s.boardThemeId)];
 
@@ -47,7 +48,15 @@ export function HomeScreen() {
         <ProfileChip />
       </View>
 
-      <ScrollView contentContainerStyle={{ flexGrow: 1, paddingHorizontal: space.xl, paddingTop: space.xl, paddingBottom: space.xl, gap: space.xl }}>
+      <ScrollView
+        ref={scrollRef}
+        // Keep the room-code input visible above the keyboard: iOS grows the
+        // scroll insets by the keyboard height (Android's adjustResize already
+        // pans the focused field), and focusing the code field scrolls to it.
+        automaticallyAdjustKeyboardInsets
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={{ flexGrow: 1, paddingHorizontal: space.xl, paddingTop: space.xl, paddingBottom: space.xl, gap: space.xl }}
+      >
         <Text style={{ fontFamily: font.regular, fontSize: 15, color: palette.mutedSteel }}>The classic board game.</Text>
 
         {/* Spacer pushes play actions into the thumb zone. */}
@@ -60,7 +69,7 @@ export function HomeScreen() {
             title="Play vs AI"
             subtitle="You against 1–3 bots"
             minHeight={112}
-            boardArt={boardTheme}
+            piecesArt={boardTheme}
             onPress={() => setSheetMode("ai")}
           />
           <ModeCard title="Pass & play" subtitle="Share this phone around the table" onPress={() => setSheetMode("pass")} />
@@ -90,6 +99,9 @@ export function HomeScreen() {
               accessibilityLabel="Room code"
               value={code}
               onChangeText={(t) => setCode(t.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4))}
+              // Wait out the keyboard-show animation so scrollToEnd measures
+              // the final (inset-shrunk) viewport.
+              onFocus={() => setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 300)}
               placeholder="CODE"
               placeholderTextColor={palette.mutedSteel}
               autoCapitalize="characters"

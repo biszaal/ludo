@@ -53,6 +53,8 @@ interface GameViewProps {
   offlineFor?: (playerId: string) => boolean;
   /** Online: active-turn countdown shown on the current player's panel. */
   turnTimer?: { seq: number; seconds: number } | null;
+  /** Local seat on autopilot: BOT badge on that chip; tapping it reclaims control. */
+  autoPilot?: { playerId: string; onTakeControl: () => void } | null;
   /** Small line under the results buttons (e.g. "Waiting for the host…"). */
   resultsFootnote?: string | null;
   /** Online room code, shown in the top bar. */
@@ -103,6 +105,7 @@ export function GameView({
   avatarFor,
   offlineFor,
   turnTimer,
+  autoPilot,
   resultsFootnote,
   roomCode,
   viewColor,
@@ -155,6 +158,9 @@ export function GameView({
     const isActive = p.id === state.currentTurnPlayerId && !finished;
     const reaction = chat?.latestReactions[p.userId];
     const canRoll = isActive && canAct && !paused && state.phase === "awaiting-roll";
+    // Autopilot seat: BOT badge, tap reclaims, and no countdown ring — the bot
+    // acts long before any deadline, so a ticking ring would be noise.
+    const pilot = autoPilot?.playerId === p.id;
     return (
       <View style={{ flexDirection: align === "left" ? "row" : "row-reverse", alignItems: "center", gap: space.md }}>
         <View>
@@ -165,8 +171,10 @@ export function GameView({
             label={nameFor?.(p.id) ?? undefined}
             avatarId={avatarFor?.(p.id) ?? null}
             offline={offlineFor?.(p.id) ?? false}
-            timer={isActive ? turnTimer : null}
+            timer={isActive && !pilot ? turnTimer : null}
             align={align}
+            botMode={pilot}
+            onPress={pilot ? autoPilot?.onTakeControl : null}
           />
           {reaction ? <ReactionBubble value={reaction.value} seq={reaction.seq} /> : null}
         </View>
@@ -176,6 +184,7 @@ export function GameView({
             value={state.diceValue ?? lastRoll}
             spinSeq={rollSeq}
             size={48}
+            idle={state.phase === "awaiting-roll"}
             theme={theme}
             onRollPress={canRoll ? onRoll : null}
           />

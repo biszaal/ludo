@@ -1,14 +1,16 @@
 /**
  * A player's profile card shown at a board corner (Ludo King layout): avatar in
  * a team-colored frame, name, and finished-token count. The active player's
- * frame lifts and breathes; when a turn timer runs, a countdown ring sweeps
- * around the frame's edge — starting at the top and receding one way — warming
- * to red as time runs out. A dropped online player dims and shows "Away".
+ * colored frame gives way to a single animated ring — the ticking countdown
+ * when a turn timer runs (warming to red as time drains), a slow breathe
+ * otherwise — so the avatar never wears two borders at once. A dropped online
+ * player dims and shows "Away". When the seat is on autopilot, a BOT badge
+ * sits on the avatar and tapping the chip hands control back to the human.
  * Avatar falls back to a team-color disc.
  */
 
 import { useEffect, useMemo } from "react";
-import { Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import Animated, {
   cancelAnimation,
   Easing,
@@ -44,14 +46,40 @@ interface PlayerChipProps {
   timer?: { seq: number; seconds: number } | null;
   /** Text alignment within the corner (left for left column, right otherwise). */
   align?: "left" | "right";
+  /** This seat is on autopilot (local-only) — shows the BOT badge. */
+  botMode?: boolean;
+  /** Makes the chip tappable (autopilot reclaim). */
+  onPress?: (() => void) | null;
 }
 
-export function PlayerChip({ player, state, active, label, avatarId, offline = false, timer = null, align = "left" }: PlayerChipProps) {
+export function PlayerChip({
+  player,
+  state,
+  active,
+  label,
+  avatarId,
+  offline = false,
+  timer = null,
+  align = "left",
+  botMode = false,
+  onPress = null,
+}: PlayerChipProps) {
   const color = teamColor[player.color];
   const finished = state.tokens.filter((t) => t.playerId === player.id && t.position === "finished").length;
 
   return (
-    <View style={{ alignItems: "center", width: 92, opacity: offline ? 0.55 : 1 }}>
+    <Pressable
+      accessibilityRole={onPress ? "button" : undefined}
+      accessibilityLabel={onPress ? "Bot is playing for you — tap to take back control" : undefined}
+      disabled={!onPress}
+      onPress={onPress ?? undefined}
+      style={({ pressed }) => ({
+        alignItems: "center",
+        width: 92,
+        opacity: offline ? 0.55 : 1,
+        transform: [{ scale: pressed ? 0.93 : 1 }],
+      })}
+    >
       <View style={{ width: RING_BOX, height: RING_BOX, alignItems: "center", justifyContent: "center" }}>
         {active && !timer && <Breathe color={color} />}
         <View
@@ -60,8 +88,10 @@ export function PlayerChip({ player, state, active, label, avatarId, offline = f
             height: AVATAR + 8,
             borderRadius: radius.md,
             backgroundColor: palette.liftedSlate,
+            // Active: the animated ring (countdown or breathe) IS the border —
+            // a second colored frame underneath read as a double border.
             borderWidth: active ? 2.5 : 2,
-            borderColor: color,
+            borderColor: active ? "transparent" : color,
             borderTopColor: active ? depth.highlight : color,
             alignItems: "center",
             justifyContent: "center",
@@ -75,6 +105,7 @@ export function PlayerChip({ player, state, active, label, avatarId, offline = f
           )}
         </View>
         {active && timer ? <TurnRing seq={timer.seq} seconds={timer.seconds} color={color} /> : null}
+        {botMode ? <BotBadge /> : null}
       </View>
 
       <Text
@@ -101,6 +132,26 @@ export function PlayerChip({ player, state, active, label, avatarId, offline = f
       >
         {finished}/{TOKENS_PER_PLAYER} home
       </Text>
+    </Pressable>
+  );
+}
+
+/** "BOT" pill on the avatar while autopilot plays this seat (local-only). */
+function BotBadge() {
+  return (
+    <View
+      style={{
+        position: "absolute",
+        bottom: -5,
+        alignSelf: "center",
+        paddingHorizontal: 7,
+        paddingVertical: 2,
+        borderRadius: radius.pill,
+        backgroundColor: palette.porcelain,
+        zIndex: 2,
+      }}
+    >
+      <Text style={{ fontFamily: font.semibold, fontSize: 9, letterSpacing: 0.8, color: palette.feltCharcoal }}>BOT</Text>
     </View>
   );
 }

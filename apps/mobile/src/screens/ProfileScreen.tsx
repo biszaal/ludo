@@ -1,6 +1,9 @@
 /**
  * Profile — display name and avatar. Saves instantly; the name falls back to
- * "You" when cleared. Avatars are drawn chips (see Avatar.tsx), never emojis.
+ * "You" when cleared. The input is controlled by a local draft so the store's
+ * "You" fallback never overwrites a field the user just cleared (RN pushes a
+ * changed defaultValue back into the native field on re-render).
+ * Avatars are drawn chips (see Avatar.tsx), never emojis.
  */
 
 import { useState } from "react";
@@ -20,6 +23,7 @@ export function ProfileScreen() {
   const setAvatar = useProfile((s) => s.setAvatar);
   const pop = useNav((s) => s.pop);
   const [focused, setFocused] = useState(false);
+  const [draft, setDraft] = useState(displayName);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: palette.tableBlue }}>
@@ -43,10 +47,16 @@ export function ProfileScreen() {
           <Text style={{ fontFamily: font.medium, fontSize: 13, color: palette.mutedSteel, letterSpacing: 0.5 }}>DISPLAY NAME</Text>
           <TextInput
             accessibilityLabel="Display name"
-            defaultValue={displayName}
-            onChangeText={setName}
+            value={draft}
+            onChangeText={(t) => {
+              setDraft(t);
+              setName(t);
+            }}
             onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
+            onBlur={() => {
+              setFocused(false);
+              if (draft.trim().length === 0) setDraft(displayName);
+            }}
             placeholder="You"
             placeholderTextColor={palette.mutedSteel}
             maxLength={MAX_NAME_LENGTH}

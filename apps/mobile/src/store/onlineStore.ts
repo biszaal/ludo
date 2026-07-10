@@ -14,6 +14,7 @@ import {
   type GameState,
   type Move,
 } from "@ludo/engine";
+import { chooseMove } from "@ludo/bot";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import * as api from "../net/api";
 import { applyChatEvent, type ChatEvent } from "../lib/chat";
@@ -21,8 +22,20 @@ import { ordinal } from "../lib/standings";
 import { useNav } from "./navStore";
 import { useProfile } from "./profileStore";
 
-const COLOR_LABEL: Record<PlayerColor, string> = { red: "Red", green: "Green", yellow: "Yellow", blue: "Blue" };
-const AUTO_DELAY = 700;
+const COLOR_LABEL: Record<PlayerColor, string> = {
+  red: "Red",
+  green: "Green",
+  yellow: "Yellow",
+  blue: "Blue",
+};
+/** Pause before auto-passing a no-move roll: the die tumble runs ~950ms
+ *  (Dice ROLL_MS), then the number needs a beat to be read. */
+const AUTO_PASS_DELAY = 1500;
+/** A lone legal move plays the moment the tumble settles — no choice to make. */
+const AUTO_MOVE_DELAY = 1000;
+/** Pace of autopilot actions on the local seat — outlasts the ~950ms die
+ *  tumble so each rolled number lands before the bot acts on it. */
+const PILOT_DELAY = 1200;
 const CHAT_MIN_INTERVAL_MS = 500;
 /** Seconds a turn may sit idle before any client asks the server to skip it.
  *  Matches TURN_SECONDS in the edge function; drives the on-screen countdown. */
@@ -66,6 +79,9 @@ interface OnlineStore {
   turnStartedAt: number | null;
   /** Bumps each time the turn clock resets — re-keys the countdown animation. */
   turnSeq: number;
+  /** I idled out my turn clock, so the bot policy plays my seat from this
+   *  device until I take back control. Local-only — opponents just see moves. */
+  autoPilot: boolean;
 
   sendReaction: (value: string) => void;
   sendMessage: (text: string) => void;
@@ -77,6 +93,8 @@ interface OnlineStore {
   roll: () => Promise<void>;
   selectToken: (tokenId: string) => Promise<void>;
   pass: () => Promise<void>;
+  /** Tap-your-avatar reclaim: switch autopilot off and restart the idle clock. */
+  takeControl: () => void;
   /** Host-only: reset the finished game for everyone (guests follow via realtime). */
   rematch: () => Promise<void>;
   leave: () => void;
@@ -109,6 +127,7 @@ const INITIAL = {
   latestReactions: {} as Record<string, { value: string; seq: number }>,
   turnStartedAt: null,
   turnSeq: 0,
+  autoPilot: false,
 };
 
 export const useOnlineStore = create<OnlineStore>((set, get) => ({
@@ -121,7 +140,15 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
       syncMyProfile();
       subscribe(m.gameId);
       const lobby = await api.getLobby(m.gameId);
-      set({ gameId: m.gameId, roomCode: m.roomCode, userId: m.userId, myPlayerId: m.myPlayerId, isHost: true, lobby, status: "lobby" });
+      set({
+        gameId: m.gameId,
+        roomCode: m.roomCode,
+        userId: m.userId,
+        myPlayerId: m.myPlayerId,
+        isHost: true,
+        lobby,
+        status: "lobby",
+      });
       void fetchProfiles(lobby);
       useNav.getState().push("lobby");
     } catch (e) {
@@ -137,7 +164,14 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
       subscribe(m.gameId);
       const lobby = await api.getLobby(m.gameId);
       const me = lobby.find((p) => p.user_id === m.userId);
-      set({ gameId: m.gameId, roomCode: m.roomCode, userId: m.userId, myPlayerId: m.myPlayerId, isHost: me?.is_host ?? false, lobby });
+      set({
+        gameId: m.gameId,
+        roomCode: m.roomCode,
+        userId: m.userId,
+        myPlayerId: m.myPlayerId,
+        isHost: me?.is_host ?? false,
+        lobby,
+      });
       void fetchProfiles(lobby);
       const row = await api.fetchGame(m.gameId);
       if (row.status === "active" && row.state) {
@@ -166,16 +200,30 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
   roll: async () => {
     clearAuto();
     const { state, gameId, myPlayerId } = get();
-    if (!state || !gameId || state.phase !== "awaiting-roll" || state.currentTurnPlayerId !== myPlayerId) return;
+    if (
+      !state ||
+      !gameId ||
+      state.phase !== "awaiting-roll" ||
+      state.currentTurnPlayerId !== myPlayerId
+    )
+      return;
     try {
       const next = await api.rollAction(gameId);
       applyState(next, true);
-      if (next.status === "active" && next.phase === "awaiting-move" && next.currentTurnPlayerId === myPlayerId) {
+      if (
+        next.status === "active" &&
+        next.phase === "awaiting-move" &&
+        next.currentTurnPlayerId === myPlayerId
+      ) {
         const moves = getValidMoves(next, myPlayerId);
-        if (moves.length === 0) autoTimer = setTimeout(() => void get().pass(), AUTO_DELAY);
+        if (moves.length === 0)
+          autoTimer = setTimeout(() => void get().pass(), AUTO_PASS_DELAY);
         else if (moves.length === 1) {
           const only = moves[0]!.tokenId;
-          autoTimer = setTimeout(() => void get().selectToken(only), AUTO_DELAY);
+          autoTimer = setTimeout(
+            () => void get().selectToken(only),
+            AUTO_MOVE_DELAY,
+          );
         }
       }
     } catch (e) {
@@ -187,7 +235,13 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
   selectToken: async (tokenId) => {
     clearAuto();
     const { state, validMoves, gameId, myPlayerId } = get();
-    if (!state || !gameId || state.phase !== "awaiting-move" || state.currentTurnPlayerId !== myPlayerId) return;
+    if (
+      !state ||
+      !gameId ||
+      state.phase !== "awaiting-move" ||
+      state.currentTurnPlayerId !== myPlayerId
+    )
+      return;
     if (!validMoves.some((m) => m.tokenId === tokenId)) return;
     try {
       const next = await api.moveAction(gameId, tokenId);
@@ -201,7 +255,14 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
   pass: async () => {
     clearAuto();
     const { state, validMoves, gameId, myPlayerId } = get();
-    if (!state || !gameId || state.phase !== "awaiting-move" || validMoves.length > 0 || state.currentTurnPlayerId !== myPlayerId) return;
+    if (
+      !state ||
+      !gameId ||
+      state.phase !== "awaiting-move" ||
+      validMoves.length > 0 ||
+      state.currentTurnPlayerId !== myPlayerId
+    )
+      return;
     try {
       const next = await api.passAction(gameId);
       applyState(next, false);
@@ -222,15 +283,23 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
     }
   },
 
+  takeControl: () => {
+    if (!get().autoPilot) return;
+    set({ autoPilot: false });
+    armAutoPilot(get().state?.status === "active"); // restart the idle clock
+  },
+
   leave: () => {
     clearAuto();
     clearTimeoutTimer();
+    clearPilotTimer();
     const { gameId, userId } = get();
     if (channel) {
       api.unsubscribe(channel);
       channel = null;
     }
-    if (gameId && userId) void api.setConnected(gameId, userId, false).catch(() => {});
+    if (gameId && userId)
+      void api.setConnected(gameId, userId, false).catch(() => {});
     set({ ...INITIAL });
     useNav.getState().popTo("home");
   },
@@ -242,12 +311,17 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
 
   setAway: (away) => {
     const { gameId, userId } = get();
-    if (gameId && userId) void api.setConnected(gameId, userId, !away).catch(() => {});
+    if (gameId && userId)
+      void api.setConnected(gameId, userId, !away).catch(() => {});
   },
 
   isMyTurn: () => {
     const { state, myPlayerId } = get();
-    return !!state && state.status === "active" && state.currentTurnPlayerId === myPlayerId;
+    return (
+      !!state &&
+      state.status === "active" &&
+      state.currentTurnPlayerId === myPlayerId
+    );
   },
 
   sendReaction: (value) => sendChatEvent("reaction", value),
@@ -302,7 +376,65 @@ async function requestTimeout(): Promise<void> {
 
 function subscribe(gameId: string): void {
   if (channel) api.unsubscribe(channel);
-  channel = api.subscribeGame(gameId, { onGame: applyGameRow, onLobby: refreshLobby, onChat: receiveChat });
+  channel = api.subscribeGame(gameId, {
+    onGame: applyGameRow,
+    onLobby: refreshLobby,
+    onChat: receiveChat,
+  });
+}
+
+// --- Local-seat autopilot -----------------------------------------------------
+// When the local player idles out TURN_SECONDS on their own turn, the bot
+// policy starts playing their seat from this device (ordinary turn actions —
+// opponents can't tell) until they tap their avatar. Beats the server's
+// stall-skip (TURN_SECONDS + grace), which stays armed as the safety net.
+
+let pilotTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearPilotTimer(): void {
+  if (pilotTimer) clearTimeout(pilotTimer);
+  pilotTimer = null;
+}
+
+/** Re-armed on every authoritative write (the server refreshes the deadline
+ *  the same way): a fresh idle clock off autopilot, the next bot step on it. */
+function armAutoPilot(active: boolean): void {
+  clearPilotTimer();
+  const st = useOnlineStore.getState();
+  if (!active) {
+    if (st.autoPilot) useOnlineStore.setState({ autoPilot: false });
+    return;
+  }
+  if (st.state?.currentTurnPlayerId !== st.myPlayerId) return;
+  if (st.autoPilot) {
+    pilotTimer = setTimeout(autoPilotStep, PILOT_DELAY);
+  } else {
+    pilotTimer = setTimeout(() => {
+      useOnlineStore.setState({ autoPilot: true });
+      autoPilotStep();
+    }, TURN_SECONDS * 1000);
+  }
+}
+
+function autoPilotStep(): void {
+  const st = useOnlineStore.getState();
+  const state = st.state;
+  if (
+    !st.autoPilot ||
+    !state ||
+    state.status !== "active" ||
+    state.currentTurnPlayerId !== st.myPlayerId
+  )
+    return;
+  if (state.phase === "awaiting-roll") {
+    void st.roll();
+  } else if (st.validMoves.length > 0) {
+    void st.selectToken(
+      chooseMove(state, st.myPlayerId!, st.validMoves).tokenId,
+    );
+  } else {
+    void st.pass();
+  }
 }
 
 // --- Chat (ephemeral broadcast) ----------------------------------------------
@@ -325,7 +457,11 @@ function receiveChat(payload: api.ChatPayload): void {
   const { userId } = useOnlineStore.getState();
   if (!payload?.value || payload.fromUserId === userId) return;
   if (payload.kind !== "reaction" && payload.kind !== "text") return;
-  appendChat({ kind: payload.kind, value: String(payload.value).slice(0, 80), fromUserId: payload.fromUserId });
+  appendChat({
+    kind: payload.kind,
+    value: String(payload.value).slice(0, 80),
+    fromUserId: payload.fromUserId,
+  });
 }
 
 function appendChat(p: Omit<ChatEvent, "id" | "at">): void {
@@ -340,7 +476,12 @@ async function refreshLobby(): Promise<void> {
     const lobby = await api.getLobby(gameId);
     useOnlineStore.setState({ lobby });
     void fetchProfiles(lobby);
-    if (isHost && status === "lobby" && lobby.length === 4 && !useOnlineStore.getState().starting) {
+    if (
+      isHost &&
+      status === "lobby" &&
+      lobby.length === 4 &&
+      !useOnlineStore.getState().starting
+    ) {
       void useOnlineStore.getState().start();
     }
   } catch {
@@ -385,6 +526,7 @@ function applyState(state: GameState, rolled: boolean): void {
     turnSeq: active ? st.turnSeq + 1 : st.turnSeq,
   });
   scheduleTimeout(active);
+  armAutoPilot(active);
   if (proj.status !== "lobby") {
     // Enter the game screen; replace a lobby entry so back never returns to a dead lobby.
     const nav = useNav.getState();
@@ -401,7 +543,9 @@ function applyGameRow(row: api.GameRow): void {
   }
   const st = useOnlineStore.getState();
   const prevDice = st.state?.diceValue ?? null;
-  const rolled = row.state.diceValue != null && (st.state?.phase !== "awaiting-move" || prevDice !== row.state.diceValue);
+  const rolled =
+    row.state.diceValue != null &&
+    (st.state?.phase !== "awaiting-move" || prevDice !== row.state.diceValue);
   applyState(row.state, rolled);
 }
 
@@ -430,10 +574,17 @@ interface Projection {
 function project(state: GameState, myPlayerId: string | null): Projection {
   const win = checkWin(state);
   if (win.finished && win.winnerPlayerId) {
-    return { validMoves: [], message: `${COLOR_LABEL[colorOf(state, win.winnerPlayerId)]} wins!`, status: "finished", lastRoll: state.diceValue };
+    return {
+      validMoves: [],
+      message: `${COLOR_LABEL[colorOf(state, win.winnerPlayerId)]} wins!`,
+      status: "finished",
+      lastRoll: state.diceValue,
+    };
   }
   // Play-to-completion: once I've locked a podium place I spectate the rest.
-  const myPlace = myPlayerId ? (state.finishedOrder ?? []).indexOf(myPlayerId) : -1;
+  const myPlace = myPlayerId
+    ? (state.finishedOrder ?? []).indexOf(myPlayerId)
+    : -1;
   if (myPlace !== -1) {
     return {
       validMoves: [],
@@ -443,7 +594,10 @@ function project(state: GameState, myPlayerId: string | null): Projection {
     };
   }
   const myTurn = state.currentTurnPlayerId === myPlayerId;
-  const validMoves = myTurn && state.phase === "awaiting-move" ? getValidMoves(state, myPlayerId!) : [];
+  const validMoves =
+    myTurn && state.phase === "awaiting-move"
+      ? getValidMoves(state, myPlayerId!)
+      : [];
   const turnColor = COLOR_LABEL[colorOf(state, state.currentTurnPlayerId)];
   let message: string;
   if (!myTurn) {
@@ -451,7 +605,8 @@ function project(state: GameState, myPlayerId: string | null): Projection {
   } else if (state.phase === "awaiting-roll") {
     message = "Your turn — roll";
   } else {
-    message = validMoves.length === 0 ? "No moves — passing…" : "Choose a token";
+    message =
+      validMoves.length === 0 ? "No moves — passing…" : "Choose a token";
   }
   return { validMoves, message, status: "active", lastRoll: state.diceValue };
 }

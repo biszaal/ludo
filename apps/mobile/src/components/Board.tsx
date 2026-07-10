@@ -8,7 +8,7 @@
 
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Pressable, View } from "react-native";
-import { Canvas, Circle, Group, Path, RadialGradient, RoundedRect, Skia, vec } from "@shopify/react-native-skia";
+import { Canvas, Circle, Group, Oval, Path, RadialGradient, RoundedRect, Skia, vec } from "@shopify/react-native-skia";
 import {
   Easing,
   runOnJS,
@@ -31,6 +31,7 @@ import {
 } from "@ludo/engine";
 import { playHop } from "../lib/sound";
 import { hopTick } from "../lib/haptics";
+import { FLY_MS, HOP_STEP_MS } from "../lib/moveTiming";
 import { shade } from "../theme";
 import type { BoardTheme } from "../render/boardThemes";
 import {
@@ -45,9 +46,8 @@ import {
 
 const COLORS: PlayerColor[] = ["red", "green", "yellow", "blue"];
 const SAFE = new Set(SAFE_SQUARES);
-
-/** Per-cell hop duration (ms). Slower = more playful, child's-game pacing. */
-const HOP_STEP_MS = 175;
+// Hop/fly durations live in lib/moveTiming: feedback.ts mirrors them so landing
+// sounds (capture, safe chime) fire when the pawn arrives, not when state lands.
 
 /**
  * One hop's sound + haptic, throttled globally. Driven from the animation's
@@ -160,18 +160,22 @@ export function Board({ size, state, theme, isMovable, onSelectToken, viewColor 
             {staticBoard}
           </Group>
         )}
-        {renderData.map(({ token, spot, prev, waypoints }) => (
-          <AnimatedPawn
-            key={token.id}
-            waypoints={waypoints}
-            posKey={positionKey(token.position)}
-            r={spot.r}
-            color={theme.team[token.color]}
-            stroke={theme.pawnStroke}
-            movable={isMovable(token.id)}
-            delay={capturedDelay(token, prev, moverHopMs)}
-          />
-        ))}
+        {/* Painter's order: pawns lower on screen draw over the ones above, so
+            a tall piece overlapping the cell behind it reads as standing depth. */}
+        {[...renderData]
+          .sort((a, b) => a.spot.y - b.spot.y)
+          .map(({ token, spot, prev, waypoints }) => (
+            <AnimatedPawn
+              key={token.id}
+              waypoints={waypoints}
+              posKey={positionKey(token.position)}
+              r={spot.r}
+              color={theme.team[token.color]}
+              stroke={theme.pawnStroke}
+              movable={isMovable(token.id)}
+              delay={capturedDelay(token, prev, moverHopMs)}
+            />
+          ))}
       </Canvas>
 
       {/* Single tap layer: selects the movable token NEAREST the tap, so fanned
@@ -313,8 +317,8 @@ function AnimatedPawn({ waypoints, posKey, r, color, stroke, movable, delay }: A
         if (finished) runOnJS(hopFeedback)();
       };
       if (wps.length <= 1) {
-        tx.value = withDelay(delay, withTiming(last.x, { duration: 240, easing: Easing.out(Easing.cubic) }));
-        ty.value = withDelay(delay, withTiming(last.y, { duration: 240, easing: Easing.out(Easing.cubic) }, onLand));
+        tx.value = withDelay(delay, withTiming(last.x, { duration: FLY_MS, easing: Easing.out(Easing.cubic) }));
+        ty.value = withDelay(delay, withTiming(last.y, { duration: FLY_MS, easing: Easing.out(Easing.cubic) }, onLand));
       } else {
         const HOP = r * 0.5;
         tx.value = withDelay(delay, withSequence(...wps.map((p) => withTiming(p.x, { duration: HOP_STEP_MS, easing: Easing.linear }))));
@@ -339,18 +343,23 @@ function AnimatedPawn({ waypoints, posKey, r, color, stroke, movable, delay }: A
     pulse.value = movable ? withRepeat(withTiming(1, { duration: 1100 }), -1, true) : 0;
   }, [movable, pulse]);
 
-  // Movable pawns pulsate — a gentle scale breath plus the white ring.
+  // Movable pawns pulsate — a gentle scale breath plus a white ground ring
+  // around the base (the piece stands inside it).
   const transform = useDerivedValue(() => [
     { translateX: tx.value },
     { translateY: ty.value },
     { scale: 1 + pulse.value * 0.12 },
   ]);
-  const ringR = useDerivedValue(() => r * 1.18 + pulse.value * 2);
+  const ringRect = useDerivedValue(() => {
+    const rw = r * 1.06 + pulse.value * 2.5;
+    const rh = rw * 0.4;
+    return Skia.XYWHRect(-rw, r * 0.45 - rh, rw * 2, rh * 2);
+  });
 
   return (
     <Group transform={transform}>
+      {movable && <Oval rect={ringRect} color="#FFFFFF" style="stroke" strokeWidth={2.5} />}
       <PawnShape r={r} color={color} stroke={stroke} />
-      {movable && <Circle cx={0} cy={0} r={ringR} color="#FFFFFF" style="stroke" strokeWidth={2.5} />}
     </Group>
   );
 }
@@ -358,32 +367,57 @@ function AnimatedPawn({ waypoints, posKey, r, color, stroke, movable, delay }: A
 /**
  * The glossy 3D pawn drawn at the origin (exported for static uses like
  * how-to-play diagrams — wrap in a translated Group to place it).
+ *
+ * Ludo Club-style standing piece: the base disc sits on the cell (origin ≈
+ * cell center) and the tapered body + ball head rise ~1.6r above it, tall
+ * enough to overlap the cell behind — the pieces read as standing ON the
+ * board, not printed in the squares.
  */
 export function PawnShape({ r, color, stroke }: { r: number; color: string; stroke: string }) {
-  const bodyGrad = [shade(color, 0.55), color, shade(color, -0.42)];
+  const bodyGrad = [shade(color, 0.55), color, shade(color, -0.45)];
   const headGrad = [shade(color, 0.72), shade(color, 0.12), shade(color, -0.3)];
+
+  // Base-and-body silhouette: elliptical foot bulging to ±0.70r, sides pulling
+  // in to a 0.20r-wide neck at -0.62r (the head sphere sits above it).
+  const body = useMemo(() => {
+    const p = Skia.Path.Make();
+    p.moveTo(-0.7 * r, 0.42 * r);
+    p.quadTo(0, 0.7 * r, 0.7 * r, 0.42 * r); // foot underside
+    p.quadTo(0.72 * r, 0.16 * r, 0.5 * r, 0.02 * r); // foot shoulder
+    p.quadTo(0.24 * r, -0.18 * r, 0.2 * r, -0.62 * r); // taper to neck
+    p.lineTo(-0.2 * r, -0.62 * r);
+    p.quadTo(-0.24 * r, -0.18 * r, -0.5 * r, 0.02 * r);
+    p.quadTo(-0.72 * r, 0.16 * r, -0.7 * r, 0.42 * r);
+    p.close();
+    return p;
+  }, [r]);
 
   return (
     <Group>
-      {/* Ground shadow (flattened circle) — a touch stronger for a 3D lift */}
-      <Group transform={[{ translateY: r * 0.78 }, { scaleY: 0.4 }]}>
-        <Circle cx={0} cy={0} r={r * 0.95} color="rgba(0,0,0,0.3)" />
+      {/* Ground shadow under the foot — sells the lift off the cell */}
+      <Group transform={[{ translateY: r * 0.5 }, { scaleY: 0.36 }]}>
+        <Circle cx={0} cy={0} r={r * 0.92} color="rgba(0,0,0,0.32)" />
       </Group>
 
-      {/* Body */}
-      <Circle cx={0} cy={r * 0.3} r={r * 0.8}>
-        <RadialGradient c={vec(-r * 0.3, 0)} r={r * 1.25} colors={bodyGrad} />
-      </Circle>
-      <Circle cx={0} cy={r * 0.3} r={r * 0.8} color={stroke} style="stroke" strokeWidth={1.2} />
+      {/* Foot + tapered body */}
+      <Path path={body}>
+        <RadialGradient c={vec(-r * 0.35, -r * 0.15)} r={r * 1.7} colors={bodyGrad} />
+      </Path>
+      <Path path={body} color={stroke} style="stroke" strokeWidth={1.2} />
+
+      {/* Collar where the neck meets the head */}
+      <Group transform={[{ translateY: -r * 0.62 }, { scaleY: 0.4 }]}>
+        <Circle cx={0} cy={0} r={r * 0.34} color={shade(color, -0.2)} />
+      </Group>
 
       {/* Head */}
-      <Circle cx={0} cy={-r * 0.55} r={r * 0.52}>
-        <RadialGradient c={vec(-r * 0.2, -r * 0.75)} r={r * 0.9} colors={headGrad} />
+      <Circle cx={0} cy={-r * 1.08} r={r * 0.46}>
+        <RadialGradient c={vec(-r * 0.18, -r * 1.26)} r={r * 0.8} colors={headGrad} />
       </Circle>
-      <Circle cx={0} cy={-r * 0.55} r={r * 0.52} color={stroke} style="stroke" strokeWidth={1.2} />
+      <Circle cx={0} cy={-r * 1.08} r={r * 0.46} color={stroke} style="stroke" strokeWidth={1.2} />
 
       {/* Gloss highlight */}
-      <Circle cx={-r * 0.16} cy={-r * 0.72} r={r * 0.16} color="rgba(255,255,255,0.65)" />
+      <Circle cx={-r * 0.14} cy={-r * 1.22} r={r * 0.14} color="rgba(255,255,255,0.65)" />
     </Group>
   );
 }
@@ -401,7 +435,8 @@ function computeLayout(tokens: Token[], cell: number): Map<string, Spot> {
   }
 
   const layout = new Map<string, Spot>();
-  const baseR = cell * 0.34;
+  // Sized so the standing pawn (≈2.2r tall) clearly overtops its cell.
+  const baseR = cell * 0.4;
   for (const group of groups.values()) {
     const n = group.length;
     group.forEach((token, i) => {

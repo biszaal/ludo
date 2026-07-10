@@ -35,8 +35,11 @@ const COLOR_LABEL: Record<PlayerColor, string> = {
 
 /** Delay between a bot's actions, so a human can follow what it's doing. */
 const BOT_DELAY = 650;
-/** Pause before a human's forced action (auto-pass / lone move) so the dice reads. */
-const AUTO_DELAY = 650;
+/** Pause before auto-passing a no-move roll: the die tumble runs ~950ms
+ *  (Dice ROLL_MS), then the number needs a beat to be read. */
+const AUTO_PASS_DELAY = 1500;
+/** A lone legal move plays the moment the tumble settles — no choice to make. */
+const AUTO_MOVE_DELAY = 1000;
 /** vs-AI: seconds a human has per action before the bot policy acts for them.
  *  Matches the online TURN_SECONDS so the countdown ring reads the same. */
 export const TURN_SECONDS = 30;
@@ -63,11 +66,15 @@ interface GameStore {
   lastConfig: LocalGameConfig | null;
   /** Bumps whenever the human's turn clock (vs AI) restarts — re-keys the ring. */
   turnSeq: number;
+  /** vs AI: the human idled out the turn clock, so the bot plays their seat
+   *  until they take back control (local-only — nothing leaves the device). */
+  autoPilot: boolean;
 
   newLocalGame: (config: LocalGameConfig) => void;
   roll: () => void;
   pass: () => void;
   selectToken: (tokenId: string) => void;
+  takeControl: () => void;
   leaveGame: () => void;
 
   currentColor: () => PlayerColor | null;
@@ -84,6 +91,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   botIds: [],
   lastConfig: null,
   turnSeq: 0,
+  autoPilot: false,
 
   newLocalGame: (config) => {
     const { players: numPlayers, bots: numBots = 0 } = config;
@@ -102,6 +110,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       rollSeq: 0,
       botIds,
       lastConfig: config,
+      autoPilot: false,
       message: `${COLOR_LABEL[colors[0]!]} to roll`,
     });
     useNav.getState().push("localGame");
@@ -119,7 +128,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const rollSeq = get().rollSeq + 1;
 
     if (busted) {
-      set({ state: newState, validMoves: [], lastRoll: diceValue, rollSeq, message: `${COLOR_LABEL[color]} rolled three 6s — turn forfeited` });
+      set({
+        state: newState,
+        validMoves: [],
+        lastRoll: diceValue,
+        rollSeq,
+        message: `${COLOR_LABEL[color]} rolled three 6s — turn forfeited`,
+      });
       kickBots();
       scheduleHumanClock();
       return;
@@ -145,9 +160,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
   pass: () => {
     clearAutoTimer();
     const { state, validMoves } = get();
-    if (!state || state.phase !== "awaiting-move" || validMoves.length > 0) return;
+    if (!state || state.phase !== "awaiting-move" || validMoves.length > 0)
+      return;
     const next = endTurn(state);
-    set({ state: next, validMoves: [], message: `${COLOR_LABEL[playerColor(next, next.currentTurnPlayerId)]} to roll` });
+    set({
+      state: next,
+      validMoves: [],
+      message: `${COLOR_LABEL[playerColor(next, next.currentTurnPlayerId)]} to roll`,
+    });
     kickBots();
     scheduleHumanClock();
   },
@@ -164,7 +184,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const win = checkWin(next);
     if (win.finished && win.winnerPlayerId) {
       clearHumanClock();
-      set({ state: next, validMoves: [], message: `${COLOR_LABEL[playerColor(next, win.winnerPlayerId)]} wins!` });
+      set({
+        state: next,
+        validMoves: [],
+        message: `${COLOR_LABEL[playerColor(next, win.winnerPlayerId)]} wins!`,
+      });
       return; // game over — no bot kick
     }
 
@@ -186,11 +210,25 @@ export const useGameStore = create<GameStore>((set, get) => ({
     scheduleHumanClock();
   },
 
+  takeControl: () => {
+    if (!get().autoPilot) return;
+    set({ autoPilot: false });
+    scheduleHumanAuto();
+    scheduleHumanClock();
+  },
+
   leaveGame: () => {
     stopBots();
     clearAutoTimer();
     clearHumanClock();
-    set({ state: null, validMoves: [], lastRoll: null, botIds: [], message: "" });
+    set({
+      state: null,
+      validMoves: [],
+      lastRoll: null,
+      botIds: [],
+      autoPilot: false,
+      message: "",
+    });
     useNav.getState().popTo("home");
   },
 
@@ -203,7 +241,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   isCurrentBot: () => {
     const { state, botIds } = get();
-    return !!state && state.status === "active" && botIds.includes(state.currentTurnPlayerId);
+    return (
+      !!state &&
+      state.status === "active" &&
+      botIds.includes(state.currentTurnPlayerId)
+    );
   },
 }));
 
@@ -211,10 +253,16 @@ function playerColor(state: GameState, playerId: string): PlayerColor {
   return state.players.find((p) => p.id === playerId)!.color;
 }
 
+/** Is this seat bot-driven right now? (a bot seat, or the human's on autopilot) */
+function isDriven(playerId: string): boolean {
+  const s = useGameStore.getState();
+  return s.botIds.includes(playerId) || s.autoPilot;
+}
+
 // --- Forced human actions ---------------------------------------------------
-// After a human rolls, a turn with no legal moves auto-passes, and a turn with a
-// single legal move auto-plays it — after a short delay so the dice is readable.
-// Manual actions cancel the pending timer.
+// After a human rolls, a turn with no legal moves auto-passes (paused so the
+// dice is readable), and a turn with a single legal move auto-plays it as soon
+// as the die lands. Manual actions cancel the pending timer.
 
 let autoTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -227,22 +275,26 @@ function scheduleHumanAuto(): void {
   clearAutoTimer();
   const s = useGameStore.getState();
   const state = s.state;
-  if (!state || state.status !== "active" || state.phase !== "awaiting-move") return;
-  if (s.botIds.includes(state.currentTurnPlayerId)) return; // bots pace themselves
+  if (!state || state.status !== "active" || state.phase !== "awaiting-move")
+    return;
+  if (isDriven(state.currentTurnPlayerId)) return; // bot-driven seats pace themselves
 
   if (s.validMoves.length === 0) {
-    autoTimer = setTimeout(() => useGameStore.getState().pass(), AUTO_DELAY);
+    autoTimer = setTimeout(() => useGameStore.getState().pass(), AUTO_PASS_DELAY);
   } else if (s.validMoves.length === 1) {
     const only = s.validMoves[0]!.tokenId;
-    autoTimer = setTimeout(() => useGameStore.getState().selectToken(only), AUTO_DELAY);
+    autoTimer = setTimeout(
+      () => useGameStore.getState().selectToken(only),
+      AUTO_MOVE_DELAY,
+    );
   }
 }
 
 // --- vs-AI human turn clock ---------------------------------------------------
 // Every human action (or turn hand-off) restarts a 30s clock, mirroring the
-// online server's per-write deadline. On expiry, the bot policy performs ONE
-// action for the idle human (roll / best move / pass) and the clock restarts.
-// Pass & play has no clock — couch games are leisurely by design.
+// online server's per-write deadline. On expiry, the seat flips to autopilot:
+// the bot policy plays it (at bot pace) until the human taps their avatar to
+// take back control. Pass & play has no clock — couch games are leisurely.
 
 let humanClock: ReturnType<typeof setTimeout> | null = null;
 
@@ -257,33 +309,43 @@ function scheduleHumanClock(): void {
   const state = s.state;
   if (!state || state.status !== "active") return;
   if (s.botIds.length === 0) return; // pass & play — no clock
+  if (s.autoPilot) return; // the bot loop is playing the seat — no countdown
   if (s.botIds.includes(state.currentTurnPlayerId)) return; // bots pace themselves
   useGameStore.setState({ turnSeq: s.turnSeq + 1 });
-  humanClock = setTimeout(forceHumanAct, TURN_SECONDS * 1000);
+  humanClock = setTimeout(engageAutoPilot, TURN_SECONDS * 1000);
 }
 
-function forceHumanAct(): void {
+function engageAutoPilot(): void {
   const s = useGameStore.getState();
   const state = s.state;
-  if (!state || state.status !== "active" || s.botIds.includes(state.currentTurnPlayerId)) return;
-  if (state.phase === "awaiting-roll") {
-    s.roll();
-  } else if (s.validMoves.length > 0) {
-    s.selectToken(chooseMove(state, state.currentTurnPlayerId, s.validMoves).tokenId);
-  } else {
-    s.pass();
-  }
+  if (
+    !state ||
+    state.status !== "active" ||
+    s.botIds.includes(state.currentTurnPlayerId)
+  )
+    return;
+  clearAutoTimer(); // the bot loop takes over any pending forced action
+  useGameStore.setState({ autoPilot: true });
+  kickBots();
 }
 
 // --- Bot auto-play loop -----------------------------------------------------
-// Self-perpetuating timer loop that runs only during bot turns. Started by
-// kickBots() at each human→bot hand-off; exits as soon as a human is on the clock.
+// Self-perpetuating timer loop that runs only during bot-driven turns (bot
+// seats, plus the human's while on autopilot). Started by kickBots() at each
+// hand-off; exits as soon as a human-controlled seat is on the clock.
 
 let botLoopActive = false;
 let botTimer: ReturnType<typeof setTimeout> | null = null;
 
 function kickBots(): void {
-  if (botLoopActive || !useGameStore.getState().isCurrentBot()) return;
+  const state = useGameStore.getState().state;
+  if (
+    botLoopActive ||
+    !state ||
+    state.status !== "active" ||
+    !isDriven(state.currentTurnPlayerId)
+  )
+    return;
   botLoopActive = true;
   botTimer = setTimeout(stepBots, BOT_DELAY);
 }
@@ -291,7 +353,11 @@ function kickBots(): void {
 function stepBots(): void {
   const s = useGameStore.getState();
   const state = s.state;
-  if (!state || state.status !== "active" || !s.botIds.includes(state.currentTurnPlayerId)) {
+  if (
+    !state ||
+    state.status !== "active" ||
+    !isDriven(state.currentTurnPlayerId)
+  ) {
     botLoopActive = false;
     return;
   }
