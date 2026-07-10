@@ -180,9 +180,17 @@ export function Dice({ value, size = 64, spinSeq = 0, theme, onRollPress = null 
     </Animated.View>
   );
 
-  if (!onRollPress) return die;
+  // The Pressable wrapper is ALWAYS rendered (merely disabled when not
+  // tappable). Swapping the tree between wrapped/bare remounted the native
+  // view the instant a roll resolved — visible as a flicker mid-animation.
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel="Roll the dice" onPress={onRollPress} hitSlop={10}>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={onRollPress ? "Roll the dice" : shown ? `Dice showing ${shown}` : "Dice"}
+      onPress={onRollPress ?? undefined}
+      disabled={!onRollPress}
+      hitSlop={10}
+    >
       {die}
     </Pressable>
   );
