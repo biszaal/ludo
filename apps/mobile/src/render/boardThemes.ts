@@ -1,6 +1,7 @@
 /**
- * Board & dice skins. "classic" must stay pixel-identical to the original
- * hardcoded board (guarded by a unit test); other themes restyle surfaces only —
+ * Board & dice skins. "classic" keeps the original color literals (guarded by
+ * a unit test) — the renderer derives its depth treatments (gradients, bevels,
+ * recesses) from these via shade(), so themes restyle surfaces only —
  * geometry, animation and layout never change per theme.
  */
 

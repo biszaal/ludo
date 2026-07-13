@@ -33,6 +33,11 @@ interface ResultsOverlayProps {
   onHome: () => void;
 }
 
+/** 2 → "2nd", 3 → "3rd", 4 → "4th" (ranks only ever run 1–4). */
+function ordinal(rank: number): string {
+  return rank === 1 ? "1st" : rank === 2 ? "2nd" : rank === 3 ? "3rd" : `${rank}th`;
+}
+
 export function ResultsOverlay({ state, nameFor, avatarFor, onRematch, footnote, canAddFriends = false, onHome }: ResultsOverlayProps) {
   const userIdOf = (playerId: string) => state.players.find((p) => p.id === playerId)?.userId ?? null;
   const { width, height } = useWindowDimensions();
@@ -50,6 +55,9 @@ export function ResultsOverlay({ state, nameFor, avatarFor, onRematch, footnote,
         right: 0,
         top: 0,
         bottom: 0,
+        // Above the game HUD — the corner-chip rows carry zIndex (for chat
+        // bubbles) and would otherwise draw over this overlay on iOS.
+        zIndex: 40,
         backgroundColor: "rgba(20,23,28,0.94)",
         paddingHorizontal: space.xl,
         justifyContent: "space-between",
@@ -79,33 +87,52 @@ export function ResultsOverlay({ state, nameFor, avatarFor, onRematch, footnote,
             }}
           />
         )}
+        <View
+          style={{
+            paddingHorizontal: space.md,
+            paddingVertical: 3,
+            borderRadius: radius.pill,
+            backgroundColor: palette.porcelain,
+          }}
+        >
+          <Text style={{ fontFamily: font.semibold, fontSize: 12, letterSpacing: 1, color: palette.feltCharcoal }}>1ST</Text>
+        </View>
         <Text style={{ fontFamily: font.display, fontSize: 26, color: palette.porcelain }}>{winnerName}</Text>
         <Text style={{ fontFamily: font.medium, fontSize: 15, color: palette.mutedSteel }}>wins the game</Text>
       </Animated.View>
 
-      {/* Ranked rows (2nd onward) */}
+      {/* Ranked rows (2nd onward — the winner is the block above). Players who
+          left rank last with a "Left" tag instead of a placement. */}
       <View style={{ gap: space.sm }}>
-        {standings.slice(1).map((s) => (
-          <Surface3D
-            key={s.playerId}
-            edge={2}
-            faceStyle={{
-              flexDirection: "row",
-              alignItems: "center",
-              gap: space.md,
-              paddingVertical: space.sm,
-              paddingHorizontal: space.md,
-            }}
-          >
-            <Text style={{ fontFamily: font.mono, fontSize: 14, color: palette.mutedSteel, width: 22 }}>{s.rank}</Text>
-            <View style={{ width: 12, height: 12, borderRadius: radius.pill, backgroundColor: teamColor[s.color] }} />
-            <Text style={{ flex: 1, fontFamily: font.semibold, fontSize: 15, color: palette.porcelain }}>
-              {nameFor?.(s.playerId) ?? COLOR_LABEL[s.color]}
-            </Text>
-            {canAddFriends && userIdOf(s.playerId) ? <AddFriendButton userId={userIdOf(s.playerId)!} /> : null}
-            <Text style={{ fontFamily: font.mono, fontSize: 13, color: palette.mutedSteel }}>{s.finished}/4</Text>
-          </Surface3D>
-        ))}
+        {standings.slice(1).map((s) => {
+          const gone = !!state.players.find((p) => p.id === s.playerId)?.hasLeft;
+          return (
+            <Surface3D
+              key={s.playerId}
+              edge={2}
+              faceStyle={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: space.md,
+                paddingVertical: space.sm,
+                paddingHorizontal: space.md,
+                opacity: gone ? 0.55 : 1,
+              }}
+            >
+              <Text style={{ fontFamily: font.mono, fontSize: 14, color: palette.mutedSteel, width: 36 }}>
+                {gone ? "—" : ordinal(s.rank)}
+              </Text>
+              <View style={{ width: 12, height: 12, borderRadius: radius.pill, backgroundColor: teamColor[s.color] }} />
+              <Text style={{ flex: 1, fontFamily: font.semibold, fontSize: 15, color: palette.porcelain }}>
+                {nameFor?.(s.playerId) ?? COLOR_LABEL[s.color]}
+              </Text>
+              {!gone && canAddFriends && userIdOf(s.playerId) ? <AddFriendButton userId={userIdOf(s.playerId)!} /> : null}
+              <Text style={{ fontFamily: font.mono, fontSize: 13, color: palette.mutedSteel }}>
+                {gone ? "Left" : `${s.finished}/4`}
+              </Text>
+            </Surface3D>
+          );
+        })}
       </View>
 
       {/* Actions */}

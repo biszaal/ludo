@@ -1,131 +1,294 @@
 /**
- * Skia-drawn avatar chips — six geometric motifs across two muted palettes
- * (12 avatars). Deliberately NOT the four team colors (those stay board-only)
- * and no emojis, per DESIGN.md. Avatar ids are stable slugs stored in the
- * profile (and later the Supabase profiles table).
+ * Skia-drawn cartoon avatars — twelve Ludo Club–style characters (faces, a cat,
+ * crowns/caps/headphones) on vibrant gradient chips. Drawn from SVG path data
+ * scaled to size, so one definition serves list chips and the big profile
+ * picker. Avatar ids are stable slugs stored in the profile (and the Supabase
+ * profiles table); LEGACY_IDS keeps profiles saved under the old geometric-
+ * motif ids pointing at a stable face.
  */
 
-import { Canvas, Circle, Group, Path, RoundedRect, Skia } from "@shopify/react-native-skia";
+import { useMemo } from "react";
+import { Canvas, Circle, Group, LinearGradient, Oval, Path, Skia, vec } from "@shopify/react-native-skia";
+import { shade } from "../theme";
+
+export type AvatarStyle =
+  | "crown"
+  | "spiky"
+  | "afro"
+  | "bun"
+  | "cap"
+  | "pigtails"
+  | "side"
+  | "beanie"
+  | "headphones"
+  | "bow"
+  | "beard"
+  | "cat";
 
 export interface AvatarSpec {
   id: string;
-  /** Chip fill. */
-  bg: string;
-  /** Motif ink. */
-  fg: string;
-  motif: "orbit" | "peak" | "quad" | "wave" | "ring" | "spark";
+  /** Chip gradient, top → bottom. */
+  bgTop: string;
+  bgBottom: string;
+  skin: string;
+  hair: string;
+  style: AvatarStyle;
 }
 
-// Muted gem/earth palette pairs: [bg, fg].
-const DUSK: [string, string] = ["#3D4A63", "#C9D4E8"];
-const MOSS: [string, string] = ["#44523B", "#D3DEC4"];
-const CLAY: [string, string] = ["#6E4A3A", "#EBD5C4"];
-const SAND: [string, string] = ["#8A7551", "#F1E6CB"];
-const PLUM: [string, string] = ["#5A4059", "#E3CFE1"];
-const TEAL: [string, string] = ["#2F5A5C", "#C4E2E0"];
-
 export const AVATARS: AvatarSpec[] = [
-  { id: "orbit-moss", bg: MOSS[0], fg: MOSS[1], motif: "orbit" },
-  { id: "peak-dusk", bg: DUSK[0], fg: DUSK[1], motif: "peak" },
-  { id: "quad-clay", bg: CLAY[0], fg: CLAY[1], motif: "quad" },
-  { id: "wave-teal", bg: TEAL[0], fg: TEAL[1], motif: "wave" },
-  { id: "ring-plum", bg: PLUM[0], fg: PLUM[1], motif: "ring" },
-  { id: "spark-sand", bg: SAND[0], fg: SAND[1], motif: "spark" },
-  { id: "orbit-plum", bg: PLUM[0], fg: PLUM[1], motif: "orbit" },
-  { id: "peak-moss", bg: MOSS[0], fg: MOSS[1], motif: "peak" },
-  { id: "quad-teal", bg: TEAL[0], fg: TEAL[1], motif: "quad" },
-  { id: "wave-dusk", bg: DUSK[0], fg: DUSK[1], motif: "wave" },
-  { id: "ring-sand", bg: SAND[0], fg: SAND[1], motif: "ring" },
-  { id: "spark-clay", bg: CLAY[0], fg: CLAY[1], motif: "spark" },
+  { id: "leo", bgTop: "#FFD75E", bgBottom: "#F5A100", skin: "#FFD9B3", hair: "#7A4A21", style: "crown" },
+  { id: "sunny", bgTop: "#FF9D66", bgBottom: "#F0642F", skin: "#FFE0C2", hair: "#E8542F", style: "spiky" },
+  { id: "coco", bgTop: "#7ED09A", bgBottom: "#2FA968", skin: "#8A5A3B", hair: "#26150B", style: "afro" },
+  { id: "zara", bgTop: "#FF8FB1", bgBottom: "#E24E7B", skin: "#C68642", hair: "#2B1B10", style: "bun" },
+  { id: "rex", bgTop: "#7FB2FF", bgBottom: "#3E63DD", skin: "#FFD9B3", hair: "#5A3A1E", style: "cap" },
+  { id: "nina", bgTop: "#C79BFF", bgBottom: "#8A4FD0", skin: "#8A5A3B", hair: "#1E1208", style: "pigtails" },
+  { id: "milo", bgTop: "#8EE0DC", bgBottom: "#2E9E96", skin: "#FFE0C2", hair: "#B0722F", style: "side" },
+  { id: "ivy", bgTop: "#B4E07C", bgBottom: "#5E9E32", skin: "#F3C7A5", hair: "#C2572E", style: "beanie" },
+  { id: "ace", bgTop: "#9FA8FF", bgBottom: "#4E56C9", skin: "#E8B98A", hair: "#6E3FBF", style: "headphones" },
+  { id: "ruby", bgTop: "#FF9B94", bgBottom: "#DE4040", skin: "#FFD9B3", hair: "#4A2C15", style: "bow" },
+  { id: "bruno", bgTop: "#FFC46B", bgBottom: "#E08A1E", skin: "#E8B98A", hair: "#3D2A1A", style: "beard" },
+  { id: "kito", bgTop: "#A9C4D8", bgBottom: "#5B7B94", skin: "#F5B78D", hair: "#E88A3C", style: "cat" },
 ];
 
 export const DEFAULT_AVATAR = AVATARS[0]!;
 
+/** Profiles saved before the cartoon set map to a stable face, not the default. */
+const LEGACY_IDS: Record<string, string> = {
+  "orbit-moss": "leo",
+  "peak-dusk": "sunny",
+  "quad-clay": "coco",
+  "wave-teal": "zara",
+  "ring-plum": "rex",
+  "spark-sand": "nina",
+  "orbit-plum": "milo",
+  "peak-moss": "ivy",
+  "quad-teal": "ace",
+  "wave-dusk": "ruby",
+  "ring-sand": "bruno",
+  "spark-clay": "kito",
+};
+
 export function avatarById(id: string | null | undefined): AvatarSpec {
-  return AVATARS.find((a) => a.id === id) ?? DEFAULT_AVATAR;
+  const mapped = id ? LEGACY_IDS[id] ?? id : null;
+  return AVATARS.find((a) => a.id === mapped) ?? DEFAULT_AVATAR;
 }
+
+// --- Drawing --------------------------------------------------------------
+// All geometry lives on a 100×100 canvas (matching the design mocks) and is
+// scaled by a Group transform, so stroke widths scale with the chip.
+
+type Op =
+  | { t: "path"; d: string; fill: string; op?: number }
+  | { t: "stroke"; d: string; color: string; w: number; op?: number; round?: boolean }
+  | { t: "circle"; cx: number; cy: number; r: number; fill: string; op?: number }
+  | { t: "ring"; cx: number; cy: number; r: number; color: string; w: number; op?: number }
+  | { t: "oval"; cx: number; cy: number; rx: number; ry: number; fill: string; op?: number };
+
+/** Hat/band styles hide the hairline, so brows fall back to a warm neutral. */
+const NEUTRAL_BROW = "#5A4632";
 
 export function AvatarGlyph({ id, size }: { id: string | null | undefined; size: number }) {
   const spec = avatarById(id);
-  const c = size / 2;
+  const ops = useMemo(() => buildOps(spec), [spec]);
+  const clip = useMemo(() => {
+    const p = Skia.Path.Make();
+    p.addCircle(50, 50, 50);
+    return p;
+  }, []);
+  const k = size / 100;
+
   return (
     <Canvas style={{ width: size, height: size }}>
-      <Circle cx={c} cy={c} r={c} color={spec.bg} />
-      <Motif spec={spec} size={size} />
+      <Group transform={[{ scale: k }]}>
+        <Group clip={clip}>
+          {/* Gradient chip */}
+          <Circle cx={50} cy={50} r={50}>
+            <LinearGradient start={vec(50, 0)} end={vec(50, 100)} colors={[spec.bgTop, spec.bgBottom]} />
+          </Circle>
+          {ops.map((o, i) => (
+            <OpShape key={i} o={o} />
+          ))}
+          {/* Top gloss */}
+          <Path path="M0 0 H100 V30 Q50 46 0 30 Z" color="rgba(255,255,255,0.14)" />
+        </Group>
+        <Circle cx={50} cy={50} r={49} color="rgba(0,0,0,0.15)" style="stroke" strokeWidth={2} />
+      </Group>
     </Canvas>
   );
 }
 
-function Motif({ spec, size }: { spec: AvatarSpec; size: number }) {
-  const c = size / 2;
-  const u = size / 10; // motif unit
-  const ink = spec.fg;
-
-  switch (spec.motif) {
-    case "orbit":
-      return (
-        <Group>
-          <Circle cx={c} cy={c} r={u * 2.6} color={ink} style="stroke" strokeWidth={u * 0.55} />
-          <Circle cx={c + u * 2.6 * Math.cos(-0.9)} cy={c + u * 2.6 * Math.sin(-0.9)} r={u * 0.9} color={ink} />
-        </Group>
-      );
-    case "peak": {
-      const p = Skia.Path.Make();
-      p.moveTo(c - u * 3.2, c + u * 2.2);
-      p.lineTo(c - u * 0.9, c - u * 1.6);
-      p.lineTo(c + u * 0.6, c + u * 0.6);
-      p.lineTo(c + u * 1.8, c - u * 2.4);
-      p.lineTo(c + u * 3.4, c + u * 2.2);
-      p.close();
-      return <Path path={p} color={ink} />;
-    }
-    case "quad": {
-      const s = u * 1.9;
-      const gap = u * 0.5;
-      const x0 = c - s - gap / 2;
-      const y0 = c - s - gap / 2;
-      return (
-        <Group>
-          <RoundedRect x={x0} y={y0} width={s} height={s} r={u * 0.5} color={ink} />
-          <RoundedRect x={c + gap / 2} y={y0} width={s} height={s} r={u * 0.5} color={ink} />
-          <RoundedRect x={x0} y={c + gap / 2} width={s} height={s} r={u * 0.5} color={ink} />
-          <RoundedRect x={c + gap / 2} y={c + gap / 2} width={s} height={s} r={u * 0.5} color={ink} opacity={0.55} />
-        </Group>
-      );
-    }
-    case "wave": {
-      const p = Skia.Path.Make();
-      for (let row = -1; row <= 1; row++) {
-        const y = c + row * u * 1.7;
-        p.moveTo(c - u * 3, y);
-        p.quadTo(c - u * 1.5, y - u * 1.3, c, y);
-        p.quadTo(c + u * 1.5, y + u * 1.3, c + u * 3, y);
-      }
-      const stroked = p.copy();
-      stroked.stroke({ width: u * 0.55 });
-      return <Path path={stroked} color={ink} />;
-    }
+function OpShape({ o }: { o: Op }) {
+  switch (o.t) {
+    case "path":
+      return <Path path={o.d} color={o.fill} opacity={o.op} />;
+    case "stroke":
+      return <Path path={o.d} color={o.color} style="stroke" strokeWidth={o.w} strokeCap={o.round ? "round" : "butt"} strokeJoin="round" opacity={o.op} />;
+    case "circle":
+      return <Circle cx={o.cx} cy={o.cy} r={o.r} color={o.fill} opacity={o.op} />;
     case "ring":
-      return (
-        <Group>
-          <Circle cx={c} cy={c} r={u * 3} color={ink} style="stroke" strokeWidth={u * 0.55} />
-          <Circle cx={c} cy={c} r={u * 1.4} color={ink} />
-        </Group>
-      );
-    case "spark": {
-      const p = Skia.Path.Make();
-      const outer = u * 3.4;
-      const inner = u * 1.1;
-      for (let i = 0; i < 8; i++) {
-        const r = i % 2 === 0 ? outer : inner;
-        const a = (Math.PI * i) / 4 - Math.PI / 2;
-        const x = c + Math.cos(a) * r;
-        const y = c + Math.sin(a) * r;
-        if (i === 0) p.moveTo(x, y);
-        else p.lineTo(x, y);
-      }
-      p.close();
-      return <Path path={p} color={ink} />;
-    }
+      return <Circle cx={o.cx} cy={o.cy} r={o.r} color={o.color} style="stroke" strokeWidth={o.w} opacity={o.op} />;
+    case "oval":
+      return <Oval rect={Skia.XYWHRect(o.cx - o.rx, o.cy - o.ry, o.rx * 2, o.ry * 2)} color={o.fill} opacity={o.op} />;
   }
+}
+
+/** Full draw list for one avatar: torso, head, hair/hat, face. */
+function buildOps(spec: AvatarSpec): Op[] {
+  const { skin, hair, style, bgBottom } = spec;
+  const ops: Op[] = [
+    { t: "oval", cx: 50, cy: 102, rx: 30, ry: 20, fill: shade(bgBottom, -0.25) }, // torso
+    { t: "circle", cx: 50, cy: 55, r: 26, fill: skin },
+    { t: "ring", cx: 50, cy: 55, r: 26, color: "rgba(0,0,0,0.12)", w: 1.5 },
+    { t: "circle", cx: 24, cy: 56, r: 5, fill: skin },
+    { t: "ring", cx: 24, cy: 56, r: 5, color: "rgba(0,0,0,0.12)", w: 1.2 },
+    { t: "circle", cx: 76, cy: 56, r: 5, fill: skin },
+    { t: "ring", cx: 76, cy: 56, r: 5, color: "rgba(0,0,0,0.12)", w: 1.2 },
+  ];
+
+  switch (style) {
+    case "crown":
+      ops.push(
+        { t: "path", d: "M50 24 A26 26 0 0 1 76 52 L24 52 A26 26 0 0 1 50 24 Z", fill: hair },
+        { t: "path", d: "M34 22 L37 8 L45 17 L50 4 L55 17 L63 8 L66 22 Z", fill: "#FFE45C" },
+        { t: "stroke", d: "M34 22 L37 8 L45 17 L50 4 L55 17 L63 8 L66 22 Z", color: "#B8770A", w: 2.5 },
+        { t: "path", d: "M33.5 20 H66.5 A3.5 3.5 0 0 1 66.5 27 H33.5 A3.5 3.5 0 0 1 33.5 20 Z", fill: "#FFE45C" },
+        { t: "stroke", d: "M33.5 20 H66.5 A3.5 3.5 0 0 1 66.5 27 H33.5 A3.5 3.5 0 0 1 33.5 20 Z", color: "#B8770A", w: 2.5 },
+      );
+      break;
+    case "spiky":
+      ops.push({
+        t: "path",
+        d: "M26 48 C24 30 34 24 38 30 L40 22 L45 29 L50 19 L55 29 L60 22 L62 30 C68 24 76 30 74 48 C66 38 34 38 26 48 Z",
+        fill: hair,
+      });
+      break;
+    case "afro":
+      ops.push(
+        { t: "circle", cx: 50, cy: 31, r: 19, fill: hair },
+        { t: "circle", cx: 33, cy: 38, r: 10, fill: hair },
+        { t: "circle", cx: 67, cy: 38, r: 10, fill: hair },
+        { t: "path", d: "M26 47 A26 26 0 0 1 74 47 L74 42 A26 26 0 0 0 26 42 Z", fill: hair },
+      );
+      break;
+    case "bun":
+      ops.push(
+        { t: "circle", cx: 50, cy: 22, r: 10, fill: hair },
+        { t: "path", d: "M24 56 C22 34 36 27 50 27 C64 27 78 34 76 56 C74 44 66 40 50 40 C34 40 26 44 24 56 Z", fill: hair },
+        { t: "ring", cx: 24, cy: 63, r: 4, color: "#F5C542", w: 2.4 },
+        { t: "ring", cx: 76, cy: 63, r: 4, color: "#F5C542", w: 2.4 },
+      );
+      break;
+    case "cap":
+      ops.push(
+        { t: "path", d: "M26 46 A25 25 0 0 1 74 46 L74 42 L26 42 Z", fill: hair },
+        { t: "path", d: "M25 44 A25 22 0 0 1 75 44 L75 47 L25 47 Z", fill: "#D93636" },
+        { t: "path", d: "M23 43 H77 A3.5 3.5 0 0 1 77 50 H23 A3.5 3.5 0 0 1 23 43 Z", fill: "#B52A2A" },
+        { t: "circle", cx: 50, cy: 27, r: 4, fill: "#B52A2A" },
+      );
+      break;
+    case "pigtails":
+      ops.push(
+        { t: "circle", cx: 22, cy: 40, r: 9, fill: hair },
+        { t: "circle", cx: 78, cy: 40, r: 9, fill: hair },
+        { t: "path", d: "M24 54 C24 32 38 26 50 26 C62 26 76 32 76 54 C70 42 62 38 50 38 C38 38 30 42 24 54 Z", fill: hair },
+      );
+      break;
+    case "side":
+      ops.push({
+        t: "path",
+        d: "M24 52 C24 30 40 24 54 27 C68 30 76 38 75 52 C70 40 62 40 58 34 C50 42 32 40 24 52 Z",
+        fill: hair,
+      });
+      for (const fx of [40, 46, 54, 60]) ops.push({ t: "circle", cx: fx, cy: 63, r: 1.3, fill: "rgba(160,90,40,0.55)" });
+      break;
+    case "beanie":
+      ops.push(
+        { t: "circle", cx: 50, cy: 21, r: 6.5, fill: "#5E9E3A" },
+        { t: "path", d: "M23 45 A27 25 0 0 1 77 45 Z", fill: "#4C7F2C" },
+        { t: "path", d: "M22 41 H78 A4.2 4.2 0 0 1 78 49.5 H22 A4.2 4.2 0 0 1 22 41 Z", fill: "#3E6A23" },
+      );
+      break;
+    case "headphones":
+      ops.push(
+        { t: "path", d: "M26 50 C26 30 42 25 50 25 C58 25 74 30 74 50 C66 36 34 36 26 50 Z", fill: hair },
+        { t: "stroke", d: "M24 52 A26 26 0 0 1 76 52", color: "#2A2E39", w: 5 },
+        { t: "path", d: "M19 48 H29 A5 5 0 0 1 29 62 H19 A5 5 0 0 1 19 48 Z", fill: "#2A2E39" },
+        { t: "path", d: "M71 48 H81 A5 5 0 0 1 81 62 H71 A5 5 0 0 1 71 48 Z", fill: "#2A2E39" },
+        { t: "path", d: "M21.5 51 H26.5 A2.5 2.5 0 0 1 26.5 59 H21.5 A2.5 2.5 0 0 1 21.5 51 Z", fill: "#4E56C9" },
+        { t: "path", d: "M73.5 51 H78.5 A2.5 2.5 0 0 1 78.5 59 H73.5 A2.5 2.5 0 0 1 73.5 51 Z", fill: "#4E56C9" },
+      );
+      break;
+    case "bow":
+      ops.push(
+        {
+          t: "path",
+          d: "M24 54 C24 32 36 26 50 26 C64 26 76 32 76 54 C72 44 64 41 58 42 C60 38 58 34 54 33 C50 40 32 42 24 54 Z",
+          fill: hair,
+        },
+        // Bow at (66,30), rotated ~18°: two triangles + knot (pre-transformed points).
+        { t: "path", d: "M66 30 L57.4 22.9 L53.7 34.3 Z", fill: "#E8386D" },
+        { t: "path", d: "M66 30 L78.3 25.7 L74.6 37.1 Z", fill: "#E8386D" },
+        { t: "circle", cx: 66, cy: 30, r: 3.4, fill: "#C21850" },
+      );
+      break;
+    case "beard":
+      ops.push(
+        { t: "path", d: "M27 50 A25 25 0 0 1 73 50 L73 44 A25 25 0 0 0 27 44 Z", fill: hair },
+        { t: "path", d: "M31 60 C31 76 40 81 50 81 C60 81 69 76 69 60 C66 70 58 72 50 72 C42 72 34 70 31 60 Z", fill: hair },
+      );
+      break;
+    case "cat":
+      ops.push(
+        { t: "path", d: "M28 40 L22 20 L40 30 Z", fill: hair },
+        { t: "path", d: "M72 40 L78 20 L60 30 Z", fill: hair },
+        { t: "path", d: "M31 38 L27 25 L38 31 Z", fill: "#FFC9A3" },
+        { t: "path", d: "M69 38 L73 25 L62 31 Z", fill: "#FFC9A3" },
+        { t: "path", d: "M26 50 A26 24 0 0 1 74 50 L74 44 A26 26 0 0 0 26 44 Z", fill: hair },
+      );
+      break;
+  }
+
+  // Mouth (cat gets a muzzle + whiskers instead of the open smile).
+  if (style === "cat") {
+    ops.push(
+      { t: "oval", cx: 50, cy: 66, rx: 10, ry: 7, fill: "#FFE8D6" },
+      { t: "path", d: "M47 62 L53 62 L50 66 Z", fill: "#E8698A" },
+      {
+        t: "stroke",
+        d: "M50 66 L50 69 M50 69 C48 71 46 71 45 70 M50 69 C52 71 54 71 55 70",
+        color: "rgba(0,0,0,0.5)",
+        w: 1.4,
+        round: true,
+      },
+      { t: "stroke", d: "M36 62 L26 61 M36 66 L26 65 M64 62 L74 61 M64 66 L74 65", color: "rgba(0,0,0,0.35)", w: 1.3, round: true },
+    );
+  } else {
+    ops.push({ t: "path", d: "M42 66 Q50 75 58 66 Q50 70 42 66 Z", fill: "#7A3B2E" });
+  }
+
+  // Eyes + shine.
+  const eyeCy = style === "cat" ? 54 : 55;
+  const eyeRy = style === "cat" ? 6.2 : 5.6;
+  for (const ex of [41, 59]) {
+    ops.push(
+      { t: "oval", cx: ex, cy: eyeCy, rx: 4.6, ry: eyeRy, fill: "#26221E" },
+      { t: "circle", cx: ex + 1.6, cy: eyeCy - 2.5, r: 1.7, fill: "#FFFFFF" },
+    );
+  }
+
+  // Brows (cats skip them; hat styles use the neutral brow tone).
+  if (style !== "cat") {
+    const brow = style === "cap" || style === "beanie" || style === "headphones" ? NEUTRAL_BROW : hair;
+    ops.push(
+      { t: "stroke", d: "M36 47 Q41 44 46 47", color: brow, w: 2.2, round: true },
+      { t: "stroke", d: "M54 47 Q59 44 64 47", color: brow, w: 2.2, round: true },
+    );
+  }
+
+  // Blush.
+  ops.push(
+    { t: "oval", cx: 33, cy: 62, rx: 4.5, ry: 2.8, fill: "rgba(255,120,120,0.35)" },
+    { t: "oval", cx: 67, cy: 62, rx: 4.5, ry: 2.8, fill: "rgba(255,120,120,0.35)" },
+  );
+  return ops;
 }

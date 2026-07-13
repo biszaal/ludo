@@ -43,6 +43,13 @@ export interface PlayerState {
   userId: string;
   color: Color;
   isConnected: boolean;
+  /**
+   * The player left the game for good (explicit leave, or their app stayed
+   * closed past the idle limit). Their tokens are removed from the board, the
+   * turn clock skips them, and — unlike `isConnected` — this never flips back.
+   * Optional so states persisted before the field existed stay valid.
+   */
+  hasLeft?: boolean;
 }
 
 /** Minimal input accepted by {@link createGame}. Color is auto-assigned if absent. */
@@ -75,7 +82,7 @@ export interface Move {
 }
 
 export interface LastAction {
-  type: "createGame" | "roll" | "move" | "endTurn";
+  type: "createGame" | "roll" | "move" | "endTurn" | "leave";
   payload: unknown;
   /** Epoch ms. Defaults to 0 inside the pure engine; callers may supply real time. */
   timestamp: number;

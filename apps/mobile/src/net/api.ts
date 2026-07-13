@@ -18,6 +18,15 @@ export interface GameRow {
   status: "waiting" | "active" | "finished";
   state: GameState | null;
   current_turn_player_id: string | null;
+  /** Monotonic write counter — dedup/ordering key for every authoritative
+   *  state. Null only on rows written before the column existed. */
+  state_version: number | null;
+}
+
+/** An authoritative state plus its version, as returned by every turn op. */
+export interface TurnResult {
+  state: GameState;
+  v: number | null;
 }
 
 export interface LobbyPlayer {
@@ -49,10 +58,21 @@ export async function ensureSignedIn(): Promise<string> {
   return data.user.id;
 }
 
+/** Give up on a stalled call well before fetch's own timeout — the caller
+ *  resyncs, and a write that lands late anyway dedupes via its version. */
+const CALL_TIMEOUT_MS = 8000;
+
 /** Invoke the `game` Edge Function and surface its `{ error }` payload as a throw. */
 async function callGame<T>(op: string, payload: Record<string, unknown> = {}): Promise<T> {
   const supabase = getSupabase();
-  const { data, error } = await supabase.functions.invoke("game", { body: { op, ...payload } });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error("The server took too long — check your connection.")), CALL_TIMEOUT_MS);
+  });
+  const { data, error } = await Promise.race([
+    supabase.functions.invoke("game", { body: { op, ...payload } }),
+    timeout,
+  ]).finally(() => clearTimeout(timer));
   if (error) {
     let message = error.message;
     const ctx = (error as { context?: { json?: () => Promise<{ error?: string }> } }).context;
@@ -82,30 +102,41 @@ export async function joinGame(rawCode: string): Promise<Membership> {
   return { gameId: res.gameId, roomCode: res.roomCode, userId, myPlayerId: res.playerId };
 }
 
-export async function startGame(gameId: string): Promise<GameState> {
-  return (await callGame<{ state: GameState }>("start", { gameId })).state;
+async function turnCall(op: string, payload: Record<string, unknown>): Promise<TurnResult> {
+  const res = await callGame<{ state: GameState; v?: number | null }>(op, payload);
+  return { state: res.state, v: res.v ?? null };
 }
 
-export async function rollAction(gameId: string): Promise<GameState> {
-  return (await callGame<{ state: GameState }>("roll", { gameId })).state;
+export async function startGame(gameId: string): Promise<TurnResult> {
+  return turnCall("start", { gameId });
 }
 
-export async function moveAction(gameId: string, tokenId: string): Promise<GameState> {
-  return (await callGame<{ state: GameState }>("move", { gameId, tokenId })).state;
+export async function rollAction(gameId: string): Promise<TurnResult> {
+  return turnCall("roll", { gameId });
 }
 
-export async function passAction(gameId: string): Promise<GameState> {
-  return (await callGame<{ state: GameState }>("pass", { gameId })).state;
+export async function moveAction(gameId: string, tokenId: string): Promise<TurnResult> {
+  return turnCall("move", { gameId, tokenId });
+}
+
+export async function passAction(gameId: string): Promise<TurnResult> {
+  return turnCall("pass", { gameId });
 }
 
 /** Skip the current turn once its server deadline has passed (any participant). */
-export async function timeoutAction(gameId: string): Promise<GameState> {
-  return (await callGame<{ state: GameState }>("timeout", { gameId })).state;
+export async function timeoutAction(gameId: string): Promise<TurnResult> {
+  return turnCall("timeout", { gameId });
 }
 
 /** Host-only: reset a finished game to a fresh one with the same players. */
-export async function rematchAction(gameId: string): Promise<GameState> {
-  return (await callGame<{ state: GameState }>("rematch", { gameId })).state;
+export async function rematchAction(gameId: string): Promise<TurnResult> {
+  return turnCall("rematch", { gameId });
+}
+
+/** Quit the room for good: active game → tokens removed and turns skipped;
+ *  waiting lobby → the seat is freed. Fire-and-forget on the way out. */
+export async function leaveAction(gameId: string): Promise<void> {
+  await callGame<unknown>("leave", { gameId });
 }
 
 export interface Profile {
@@ -126,7 +157,9 @@ export async function getProfiles(userIds: string[]): Promise<Profile[]> {
   return (data ?? []) as Profile[];
 }
 
-/** Upsert the caller's own profile row (RLS: self-write only). Best-effort. */
+/** Upsert the caller's own profile row (RLS: self-write only). Best-effort —
+ *  a display name already registered to another user is rejected by the DB's
+ *  unique index, and the previous server-side name simply stays. */
 export async function upsertMyProfile(displayName: string, avatarId: string): Promise<void> {
   const supabase = getSupabase();
   const { data: sessionData } = await supabase.auth.getSession();
@@ -137,31 +170,72 @@ export async function upsertMyProfile(displayName: string, avatarId: string): Pr
     .upsert({ user_id: userId, display_name: displayName.slice(0, 20), avatar_id: avatarId }, { onConflict: "user_id" });
 }
 
+/** Is this display name already registered to ANOTHER user? Best-effort: false
+ *  on any failure or when signed out (the unique index still has final say). */
+export async function isNameTaken(name: string): Promise<boolean> {
+  const supabase = getSupabase();
+  const { data: sessionData } = await supabase.auth.getSession();
+  const me = sessionData.session?.user.id;
+  if (!me) return false;
+  // ilike with wildcards escaped = case-insensitive equality, matching the index.
+  const escaped = name.replace(/[\\%_]/g, (c) => `\\${c}`);
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("user_id")
+    .ilike("display_name", escaped)
+    .neq("user_id", me)
+    .limit(1);
+  if (error) return false;
+  return (data ?? []).length > 0;
+}
+
+/** Retry an idempotent read a couple of times with backoff — flaky mobile
+ *  networks drop individual requests far more often than they go fully dark.
+ *  Never used for turn ops: replaying a lost roll could double-act a turn. */
+async function withRetry<T>(fn: () => Promise<T>, tries = 3, delayMs = 400): Promise<T> {
+  for (;;) {
+    try {
+      return await fn();
+    } catch (e) {
+      if (--tries <= 0) throw e;
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      delayMs *= 2;
+    }
+  }
+}
+
 export async function getLobby(gameId: string): Promise<LobbyPlayer[]> {
   const supabase = getSupabase();
-  const { data, error } = await supabase
-    .from("players")
-    .select("id, user_id, color, seat, is_host, is_connected")
-    .eq("game_id", gameId)
-    .order("seat", { ascending: true });
-  if (error) throw new Error(`Could not load players: ${error.message}`);
-  return (data ?? []) as LobbyPlayer[];
+  return withRetry(async () => {
+    const { data, error } = await supabase
+      .from("players")
+      .select("id, user_id, color, seat, is_host, is_connected")
+      .eq("game_id", gameId)
+      .order("seat", { ascending: true });
+    if (error) throw new Error(`Could not load players: ${error.message}`);
+    return (data ?? []) as LobbyPlayer[];
+  });
 }
 
 export async function fetchGame(gameId: string): Promise<GameRow> {
   const supabase = getSupabase();
-  const { data, error } = await supabase
-    .from("games")
-    .select("id, room_code, host_user_id, status, state, current_turn_player_id")
-    .eq("id", gameId)
-    .single();
-  if (error || !data) throw new Error(`Could not load game: ${error?.message ?? "unknown"}`);
-  return data as GameRow;
+  return withRetry(async () => {
+    const { data, error } = await supabase
+      .from("games")
+      .select("id, room_code, host_user_id, status, state, current_turn_player_id, state_version")
+      .eq("id", gameId)
+      .single();
+    if (error || !data) throw new Error(`Could not load game: ${error?.message ?? "unknown"}`);
+    return data as GameRow;
+  });
 }
 
 export async function setConnected(gameId: string, userId: string, connected: boolean): Promise<void> {
   const supabase = getSupabase();
-  await supabase.from("players").update({ is_connected: connected }).eq("game_id", gameId).eq("user_id", userId);
+  // Coming back also clears the idle-strike counter — proof this was a
+  // minimized app, not a closed one (the server auto-leaves at 3 strikes).
+  const patch = connected ? { is_connected: true, missed_turns: 0 } : { is_connected: false };
+  await supabase.from("players").update(patch).eq("game_id", gameId).eq("user_id", userId);
 }
 
 /** Ephemeral in-room chatter carried on the realtime channel (never stored). */
@@ -175,11 +249,15 @@ export interface GameSubscription {
   onGame: (row: GameRow) => void;
   onLobby: () => void;
   onChat?: (payload: ChatPayload) => void;
+  /** The socket dropped and rejoined: row updates in the gap were lost, not
+   *  queued — the subscriber must refetch to catch up. */
+  onReconnect?: () => void;
 }
 
 /** Subscribe to a game's row changes (state sync), its players (lobby), and chat. */
 export function subscribeGame(gameId: string, handlers: GameSubscription): RealtimeChannel {
   const supabase = getSupabase();
+  let everSubscribed = false;
   return supabase
     .channel(`game:${gameId}`)
     .on(
@@ -193,7 +271,12 @@ export function subscribeGame(gameId: string, handlers: GameSubscription): Realt
       () => handlers.onLobby(),
     )
     .on("broadcast", { event: "chat" }, (msg) => handlers.onChat?.(msg.payload as ChatPayload))
-    .subscribe();
+    .subscribe((status) => {
+      // Fires SUBSCRIBED again on every automatic rejoin after a drop.
+      if (status !== "SUBSCRIBED") return;
+      if (everSubscribed) handlers.onReconnect?.();
+      everSubscribed = true;
+    });
 }
 
 /** Broadcast a reaction/message to the room (senders don't receive their own). */

@@ -14,8 +14,8 @@ export declare function hasPlayerWon(state: GameState, playerId: string): boolea
 /**
  * Advance the clock to the next player in clockwise seat order, resetting the
  * per-turn dice state. Players who already finished all their tokens are
- * skipped (they spectate while the rest play on). Mutates the passed
- * (already-cloned) state.
+ * skipped (they spectate while the rest play on), as are players who left the
+ * game. Mutates the passed (already-cloned) state.
  */
 export declare function advanceTurn(state: GameState): void;
 export declare function makeAction(type: LastAction["type"], payload: unknown, now: number | undefined): LastAction;

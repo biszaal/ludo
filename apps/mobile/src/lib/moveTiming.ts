@@ -5,7 +5,7 @@
  * imports only, so the Node test suite can pin the math.
  */
 
-import { FINISH_REL_INDEX, toRelativeIndex, type Color, type TokenPosition } from "@ludo/engine";
+import { FINISH_REL_INDEX, toRelativeIndex, type Color, type GameState, type TokenPosition } from "@ludo/engine";
 
 /** Per-cell hop duration (ms). Slower = more playful, child's-game pacing. */
 export const HOP_STEP_MS = 175;
@@ -24,4 +24,25 @@ export function moveDurationMs(color: Color, was: TokenPosition, now: TokenPosit
   if (oldRel === null || newRel === null) return FLY_MS;
   if (newRel > oldRel && newRel - oldRel <= 6) return (newRel - oldRel) * HOP_STEP_MS;
   return FLY_MS;
+}
+
+/**
+ * How long the Board animates the transition `prev -> next` overall: the
+ * slowest mover, plus a captured token's fly home (Board delays it until the
+ * capturing mover lands). Drives the online store's pacing of bunched realtime
+ * updates: a laggy connection that delivers several writes at once must still
+ * show each move, not collapse them into one jump.
+ */
+export function stateAnimationMs(prev: GameState, next: GameState): number {
+  if (prev.gameId !== next.gameId) return 0;
+  const prevPos = new Map(prev.tokens.map((t) => [t.id, t.position]));
+  let moverMs = 0;
+  let captureMs = 0;
+  for (const t of next.tokens) {
+    const was = prevPos.get(t.id);
+    if (was === undefined || JSON.stringify(was) === JSON.stringify(t.position)) continue;
+    if (t.position === "home") captureMs = FLY_MS; // captured — flies after the mover lands
+    else moverMs = Math.max(moverMs, moveDurationMs(t.color, was, t.position));
+  }
+  return moverMs + captureMs;
 }

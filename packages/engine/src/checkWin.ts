@@ -23,8 +23,10 @@ export function checkWin(state: GameState): WinResult {
   }
 
   // Derived fallback: the game is over when at most one player is still playing.
-  const unfinishedCount = state.players.filter((p) => !hasPlayerWon(state, p.id)).length;
-  const finished = state.players.length - unfinishedCount >= Math.max(1, state.players.length - 1);
+  // Players who left don't count — a game everyone else abandoned is over.
+  const active = state.players.filter((p) => !p.hasLeft);
+  const unfinishedCount = active.filter((p) => !hasPlayerWon(state, p.id)).length;
+  const finished = active.length - unfinishedCount >= Math.max(1, active.length - 1);
   return finished ? { finished: true, winnerPlayerId: winner } : { finished: false, winnerPlayerId: winner };
 }
 

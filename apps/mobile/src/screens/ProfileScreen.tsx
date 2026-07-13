@@ -1,29 +1,54 @@
 /**
  * Profile — display name and avatar. Saves instantly; the name falls back to
- * "You" when cleared. The input is controlled by a local draft so the store's
- * "You" fallback never overwrites a field the user just cleared (RN pushes a
- * changed defaultValue back into the native field on re-render).
+ * this device's guest handle ("guest362829") when cleared. The input is
+ * controlled by a local draft so the store's fallback never overwrites a field
+ * the user just cleared (RN pushes a changed defaultValue back into the native
+ * field on re-render). Registered names are unique server-side; a debounced
+ * lookup warns when the typed name already belongs to someone else.
  * Avatars are drawn chips (see Avatar.tsx), never emojis.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { TableBackground } from "../components/TableBackground";
 import { Button } from "../components/Button";
 import { AVATARS, AvatarGlyph } from "../components/Avatar";
+import { isNameTaken } from "../net/api";
 import { useNav } from "../store/navStore";
 import { MAX_NAME_LENGTH, useProfile } from "../store/profileStore";
-import { font, palette, radius, space } from "../theme";
+import { font, palette, radius, space, teamColor } from "../theme";
+
+const NAME_CHECK_DEBOUNCE_MS = 600;
 
 export function ProfileScreen() {
   const displayName = useProfile((s) => s.displayName);
+  const guestName = useProfile((s) => s.guestName);
   const avatarId = useProfile((s) => s.avatarId);
   const setName = useProfile((s) => s.setName);
   const setAvatar = useProfile((s) => s.setAvatar);
   const pop = useNav((s) => s.pop);
   const [focused, setFocused] = useState(false);
   const [draft, setDraft] = useState(displayName);
+  const [taken, setTaken] = useState(false);
+
+  useEffect(() => {
+    const name = draft.trim();
+    if (name.length === 0) {
+      setTaken(false);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      void isNameTaken(name).then((is) => {
+        if (!cancelled) setTaken(is);
+      });
+    }, NAME_CHECK_DEBOUNCE_MS);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [draft]);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: palette.tableBlue }}>
@@ -57,7 +82,7 @@ export function ProfileScreen() {
               setFocused(false);
               if (draft.trim().length === 0) setDraft(displayName);
             }}
-            placeholder="You"
+            placeholder={guestName}
             placeholderTextColor={palette.mutedSteel}
             maxLength={MAX_NAME_LENGTH}
             autoCorrect={false}
@@ -73,6 +98,11 @@ export function ProfileScreen() {
               paddingHorizontal: space.lg,
             }}
           />
+          {taken && (
+            <Text style={{ fontFamily: font.regular, fontSize: 13, color: teamColor.red }}>
+              That name is already taken — others will keep seeing your previous one until you pick another.
+            </Text>
+          )}
         </View>
 
         <View style={{ gap: space.sm }}>
@@ -85,7 +115,7 @@ export function ProfileScreen() {
                   key={a.id}
                   accessibilityRole="radio"
                   accessibilityState={{ selected }}
-                  accessibilityLabel={`Avatar ${a.motif}`}
+                  accessibilityLabel={`Avatar ${a.id}`}
                   onPress={() => setAvatar(a.id)}
                   style={({ pressed }) => ({
                     width: "22%",

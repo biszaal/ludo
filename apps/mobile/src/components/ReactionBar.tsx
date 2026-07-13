@@ -1,7 +1,7 @@
 /**
- * The emoji strip that opens from the game top bar (online play). One tap
- * sends the reaction to the room and closes the strip; the backdrop closes it
- * without sending.
+ * The emoji strip that opens from the bottom-left action cluster (online
+ * play). One tap sends the reaction to the room and closes the strip; the
+ * backdrop closes it without sending.
  */
 
 import { Pressable, Text, View } from "react-native";
@@ -25,7 +25,8 @@ export function ReactionBar({ onSend, onClose }: ReactionBarProps) {
       <Animated.View
         entering={FadeIn.duration(140).easing(Easing.out(Easing.cubic))}
         exiting={FadeOut.duration(120)}
-        style={{ position: "absolute", top: 52, right: space.xl }}
+        // Just above the bottom-left cluster (44px buttons + status block).
+        style={{ position: "absolute", bottom: 108, left: space.xl }}
       >
         <Surface3D rad={radius.pill} edge={3} faceStyle={{ flexDirection: "row", paddingHorizontal: space.sm, paddingVertical: space.xs }}>
           {REACTIONS.map((emoji) => (

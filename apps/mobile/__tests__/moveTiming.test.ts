@@ -4,8 +4,8 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { fromRelativeIndex } from "@ludo/engine";
-import { FLY_MS, HOP_STEP_MS, moveDurationMs } from "../src/lib/moveTiming";
+import { createGame, fromRelativeIndex, type GameState, type TokenPosition } from "@ludo/engine";
+import { FLY_MS, HOP_STEP_MS, moveDurationMs, stateAnimationMs } from "../src/lib/moveTiming";
 
 describe("moveDurationMs", () => {
   it("walks contiguous track moves cell-by-cell", () => {
@@ -32,5 +32,54 @@ describe("moveDurationMs", () => {
 
   it("flies a captured token back home", () => {
     expect(moveDurationMs("red", fromRelativeIndex("red", 20), "home")).toBe(FLY_MS);
+  });
+});
+
+describe("stateAnimationMs", () => {
+  const base = (): GameState =>
+    createGame(
+      [
+        { id: "p1", userId: "u1", color: "red" },
+        { id: "p2", userId: "u2", color: "yellow" },
+      ],
+      { gameId: "g1" },
+    );
+
+  const withToken = (state: GameState, tokenId: string, position: TokenPosition): GameState => ({
+    ...state,
+    tokens: state.tokens.map((t) => (t.id === tokenId ? { ...t, position } : t)),
+  });
+
+  it("is zero when nothing moved", () => {
+    const s = base();
+    expect(stateAnimationMs(s, { ...s })).toBe(0);
+  });
+
+  it("is zero across different games (fresh board, nothing to animate)", () => {
+    const a = base();
+    const b = { ...base(), gameId: "g2" };
+    expect(stateAnimationMs(a, b)).toBe(0);
+  });
+
+  it("matches the mover's hop time for a plain track move", () => {
+    const prev = withToken(base(), "red-0", fromRelativeIndex("red", 5));
+    const next = withToken(prev, "red-0", fromRelativeIndex("red", 9));
+    expect(stateAnimationMs(prev, next)).toBe(4 * HOP_STEP_MS);
+  });
+
+  it("adds the captured token's fly home after the mover lands", () => {
+    // Yellow sits where red will land: red hops 3 cells, then yellow flies home.
+    const landing = fromRelativeIndex("red", 8);
+    let prev = withToken(base(), "red-0", fromRelativeIndex("red", 5));
+    prev = withToken(prev, "yellow-0", landing);
+    let next = withToken(prev, "red-0", landing);
+    next = withToken(next, "yellow-0", "home");
+    expect(stateAnimationMs(prev, next)).toBe(3 * HOP_STEP_MS + FLY_MS);
+  });
+
+  it("uses the fly time for a resync-style jump (>6 cells)", () => {
+    const prev = withToken(base(), "red-0", fromRelativeIndex("red", 5));
+    const next = withToken(prev, "red-0", fromRelativeIndex("red", 20));
+    expect(stateAnimationMs(prev, next)).toBe(FLY_MS);
   });
 });

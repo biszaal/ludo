@@ -26,7 +26,9 @@ export function PauseMenu({ onResume, onLeave, confirmLeave = false }: PauseMenu
   const [confirming, setConfirming] = useState(false);
 
   return (
-    <View style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0 }}>
+    // zIndex above the game HUD — the corner-chip rows carry zIndex (for chat
+    // bubbles) and would otherwise draw over this sheet on iOS.
+    <View style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0, zIndex: 40 }}>
       <Animated.View
         entering={FadeIn.duration(160)}
         exiting={FadeOut.duration(160)}

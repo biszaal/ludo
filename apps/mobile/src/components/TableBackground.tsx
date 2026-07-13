@@ -7,7 +7,7 @@
  * sized to fill its parent; purely decorative and memoized on size.
  */
 
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
 import { useWindowDimensions } from "react-native";
 import { Canvas, Circle, Group, LinearGradient, Path, RadialGradient, Rect, Skia, vec } from "@shopify/react-native-skia";
 import { palette } from "../theme";
@@ -28,8 +28,10 @@ interface Glyph {
   rotate: number;
 }
 
-/** Fills its parent; dimensions default to the full window when omitted. */
-export function TableBackground({ width: w, height: h }: { width?: number; height?: number } = {}) {
+/** Fills its parent; dimensions default to the full window when omitted.
+ *  Memoized: it re-renders with every game-state write otherwise, and its
+ *  ~dozens of glyph groups are pure decoration that never changes. */
+export const TableBackground = memo(function TableBackground({ width: w, height: h }: { width?: number; height?: number } = {}) {
   const win = useWindowDimensions();
   const width = w ?? win.width;
   const height = h ?? win.height;
@@ -93,7 +95,7 @@ export function TableBackground({ width: w, height: h }: { width?: number; heigh
       </Rect>
     </Canvas>
   );
-}
+});
 
 /** A 5-point star centered at the origin (the board's safe-square glyph). */
 function starPath(outer: number) {

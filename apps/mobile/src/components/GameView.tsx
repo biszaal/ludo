@@ -19,7 +19,7 @@ import { Dice } from "./Dice";
 import { PauseMenu } from "./PauseMenu";
 import { PlayerChip } from "./PlayerChip";
 import { ReactionBar } from "./ReactionBar";
-import { ReactionBubble } from "./ReactionBubble";
+import { ChatBubble } from "./ChatBubble";
 import { ResultsOverlay } from "./ResultsOverlay";
 import { TableBackground } from "./TableBackground";
 import type { ChatEvent } from "../store/onlineStore";
@@ -51,6 +51,8 @@ interface GameViewProps {
   avatarFor?: (playerId: string) => string | null;
   /** Online: has this seat's player dropped? (shows an "Away" badge). */
   offlineFor?: (playerId: string) => boolean;
+  /** Online: has this seat's player left for good? (dims the chip, "Left"). */
+  leftFor?: (playerId: string) => boolean;
   /** Online: active-turn countdown shown on the current player's panel. */
   turnTimer?: { seq: number; seconds: number } | null;
   /** Local seat on autopilot: BOT badge on that chip; tapping it reclaims control. */
@@ -68,7 +70,7 @@ interface GameViewProps {
 export interface GameChat {
   events: ChatEvent[];
   unread: number;
-  latestReactions: Record<string, { value: string; seq: number }>;
+  latestBubbles: Record<string, { value: string; kind: "reaction" | "text"; seq: number }>;
   myUserId: string | null;
   onSendReaction: (value: string) => void;
   onSendMessage: (text: string) => void;
@@ -104,6 +106,7 @@ export function GameView({
   nameFor,
   avatarFor,
   offlineFor,
+  leftFor,
   turnTimer,
   autoPilot,
   resultsFootnote,
@@ -153,10 +156,14 @@ export function GameView({
   // local user may roll, the die wiggles and tapping it rolls.
   const cornerChip = (screen: number) => {
     const align = screen === TL || screen === BL ? "left" : "right";
+    // Bubbles always pop toward the board: top chips downward (never over the
+    // top bar), bottom chips upward — like Ludo King / Ludo Club.
+    const vAlign = screen === TL || screen === TR ? "below" : "above";
     const p = byColor.get(colorAtCorner(screen));
     if (!p) return <View style={{ width: 92 }} />;
     const isActive = p.id === state.currentTurnPlayerId && !finished;
-    const reaction = chat?.latestReactions[p.userId];
+    const gone = leftFor?.(p.id) ?? false;
+    const bubble = gone ? undefined : chat?.latestBubbles[p.userId];
     const canRoll = isActive && canAct && !paused && state.phase === "awaiting-roll";
     // Autopilot seat: BOT badge, tap reclaims, and no countdown ring — the bot
     // acts long before any deadline, so a ticking ring would be noise.
@@ -171,22 +178,26 @@ export function GameView({
             label={nameFor?.(p.id) ?? undefined}
             avatarId={avatarFor?.(p.id) ?? null}
             offline={offlineFor?.(p.id) ?? false}
+            left={gone}
             timer={isActive && !pilot ? turnTimer : null}
             align={align}
             botMode={pilot}
             onPress={pilot ? autoPilot?.onTakeControl : null}
           />
-          {reaction ? <ReactionBubble value={reaction.value} seq={reaction.seq} /> : null}
+          {bubble ? <ChatBubble value={bubble.value} kind={bubble.kind} seq={bubble.seq} align={align} vAlign={vAlign} /> : null}
         </View>
         {isActive ? (
           // Constant size — resizing mid-roll made the face flicker/jump.
+          // On an autopilot seat the die stays tappable too: tapping it (like
+          // tapping the avatar) hands control back to the human.
           <Dice
             value={state.diceValue ?? lastRoll}
             spinSeq={rollSeq}
             size={48}
             idle={state.phase === "awaiting-roll"}
             theme={theme}
-            onRollPress={canRoll ? onRoll : null}
+            onRollPress={canRoll ? onRoll : pilot ? autoPilot?.onTakeControl ?? null : null}
+            pressLabel={canRoll ? "Roll the dice" : "Bot is playing for you — tap to take back control"}
           />
         ) : null}
       </View>
@@ -223,27 +234,14 @@ export function GameView({
                 <Text style={{ fontFamily: font.semibold, fontSize: 12, color: palette.mutedSteel }}>SHARE</Text>
               </Pressable>
             ) : null}
-            {chat ? (
-              <>
-                <IconButton label="Reactions" glyph="🙂" onPress={() => setReactionsOpen((v) => !v)} />
-                <IconButton
-                  label="Chat"
-                  glyph="💬"
-                  showDot={chat.unread > 0}
-                  onPress={() => {
-                    chat.onOpened();
-                    setChatOpen(true);
-                  }}
-                />
-              </>
-            ) : null}
-            <MenuButton onPress={() => setPaused(true)} />
           </View>
         </View>
 
         <View style={{ flex: 1, justifyContent: "center" }}>
-          {/* Top-of-board profiles (screen corners), then the board, then bottom. */}
-          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end", marginBottom: space.sm }}>
+          {/* Top-of-board profiles (screen corners), then the board, then bottom.
+              zIndex keeps chat bubbles (which pop past the row's bounds toward
+              the board) drawing over the board instead of under it. */}
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end", marginBottom: space.sm, zIndex: 2 }}>
             {cornerChip(TL)}
             {cornerChip(TR)}
           </View>
@@ -253,7 +251,7 @@ export function GameView({
           </View>
 
           {/* The local player's yard is bottom-left, so their chip + die live here. */}
-          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginTop: space.sm }}>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginTop: space.sm, zIndex: 2 }}>
             {cornerChip(BL)}
             {cornerChip(BR)}
           </View>
@@ -272,6 +270,26 @@ export function GameView({
                     ? "No moves — passing…"
                     : "Tap a glowing token to move"}
           </Text>
+        </View>
+
+        {/* Bottom-left action cluster — reactions, chat and menu live in the
+            thumb zone (Ludo Club convention), not the top bar. */}
+        <View style={{ flexDirection: "row", gap: space.sm, marginBottom: space.sm }}>
+          {chat ? (
+            <>
+              <IconButton label="Reactions" glyph="🙂" onPress={() => setReactionsOpen((v) => !v)} />
+              <IconButton
+                label="Chat"
+                glyph="💬"
+                showDot={chat.unread > 0}
+                onPress={() => {
+                  chat.onOpened();
+                  setChatOpen(true);
+                }}
+              />
+            </>
+          ) : null}
+          <MenuButton onPress={() => setPaused(true)} />
         </View>
       </View>
 

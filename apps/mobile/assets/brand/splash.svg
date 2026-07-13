@@ -1,0 +1,125 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="40%" r="75%">
+      <stop offset="0%" stop-color="#4C8DFF"/>
+      <stop offset="50%" stop-color="#2E62E8"/>
+      <stop offset="100%" stop-color="#1B3FA6"/>
+    </radialGradient>
+    <linearGradient id="dieFace" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="70%" stop-color="#F2F5FB"/>
+      <stop offset="100%" stop-color="#D8E0EE"/>
+    </linearGradient>
+    <linearGradient id="red" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FF6B77"/>
+      <stop offset="45%" stop-color="#FF4757"/>
+      <stop offset="100%" stop-color="#C21830"/>
+    </linearGradient>
+    <linearGradient id="yellow" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFE066"/>
+      <stop offset="45%" stop-color="#FFC93C"/>
+      <stop offset="100%" stop-color="#EE8E00"/>
+    </linearGradient>
+    <linearGradient id="green" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#5CE68C"/>
+      <stop offset="45%" stop-color="#2ED573"/>
+      <stop offset="100%" stop-color="#14913F"/>
+    </linearGradient>
+    <linearGradient id="blue" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#6FA9FF"/>
+      <stop offset="45%" stop-color="#3E8BFF"/>
+      <stop offset="100%" stop-color="#1D5AD6"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFF3A0"/>
+      <stop offset="40%" stop-color="#FFDD45"/>
+      <stop offset="100%" stop-color="#FFA400"/>
+    </linearGradient>
+    <linearGradient id="crownGold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFEB70"/>
+      <stop offset="100%" stop-color="#F5A100"/>
+    </linearGradient>
+    <!-- cartoon pawn silhouette, base sits at y=0, ~300 tall -->
+    <path id="pawn" d="M -63,-196
+      A 64 64 0 1 1 63,-196
+      C 52,-152 32,-134 26,-120
+      C 62,-96 80,-58 88,-34
+      L 92,-26
+      A 92 26 0 0 1 -92,-26
+      L -88,-34
+      C -80,-58 -62,-96 -26,-120
+      C -32,-134 -52,-152 -63,-196 Z"/>
+    <filter id="soft" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#0B1E52" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+
+  <!-- background -->
+  
+  
+  
+
+  <!-- ground shadow -->
+  <ellipse cx="512" cy="756" rx="340" ry="48" fill="#0B1E52" opacity="0.35"/>
+
+  <!-- back pawns -->
+  <g transform="translate(200,636) scale(0.84)" filter="url(#soft)">
+    <use href="#pawn" fill="url(#green)" stroke="#123B22" stroke-width="12" paint-order="stroke"/>
+    <ellipse cx="-22" cy="-208" rx="24" ry="17" fill="#FFFFFF" opacity="0.75" transform="rotate(-20 -22 -208)"/>
+  </g>
+  <g transform="translate(824,636) scale(0.84)" filter="url(#soft)">
+    <use href="#pawn" fill="url(#blue)" stroke="#0F2C66" stroke-width="12" paint-order="stroke"/>
+    <ellipse cx="-22" cy="-208" rx="24" ry="17" fill="#FFFFFF" opacity="0.75" transform="rotate(-20 -22 -208)"/>
+  </g>
+
+  <!-- die -->
+  <g transform="translate(512,430) rotate(-8)" filter="url(#soft)">
+    <rect x="-176" y="-172" width="380" height="380" rx="88" fill="#AEBBD2"/>
+    <rect x="-190" y="-190" width="380" height="380" rx="88" fill="url(#dieFace)" stroke="#17224F" stroke-width="14"/>
+    <path d="M -150,-180 Q -20,-196 150,-160 Q 40,-120 -160,-90 Q -186,-140 -150,-180 Z" fill="#FFFFFF" opacity="0.55"/>
+    <!-- pips -->
+    <g>
+      <circle cx="-95" cy="-95" r="46" fill="url(#red)"/>
+      <circle cx="95" cy="-95" r="46" fill="url(#green)"/>
+      <circle cx="-95" cy="95" r="46" fill="url(#blue)"/>
+      <circle cx="95" cy="95" r="46" fill="url(#yellow)"/>
+      <circle cx="0" cy="0" r="46" fill="#17224F"/>
+      <circle cx="-108" cy="-110" r="13" fill="#FFFFFF" opacity="0.85"/>
+      <circle cx="82" cy="-110" r="13" fill="#FFFFFF" opacity="0.85"/>
+      <circle cx="-108" cy="80" r="13" fill="#FFFFFF" opacity="0.85"/>
+      <circle cx="82" cy="80" r="13" fill="#FFFFFF" opacity="0.85"/>
+      <circle cx="-13" cy="-15" r="13" fill="#FFFFFF" opacity="0.6"/>
+    </g>
+    <!-- crown on top-left corner -->
+    <g transform="translate(-112,-176) rotate(-14)">
+      <path d="M -70,10 L -78,-60 L -34,-24 L 0,-78 L 34,-24 L 78,-60 L 70,10 Z"
+        fill="url(#crownGold)" stroke="#8C4A00" stroke-width="10" stroke-linejoin="round"/>
+      <rect x="-70" y="8" width="140" height="26" rx="13" fill="url(#crownGold)" stroke="#8C4A00" stroke-width="10"/>
+      <circle cx="-78" cy="-66" r="14" fill="#FFE45C" stroke="#8C4A00" stroke-width="8"/>
+      <circle cx="0" cy="-84" r="14" fill="#FFE45C" stroke="#8C4A00" stroke-width="8"/>
+      <circle cx="78" cy="-66" r="14" fill="#FFE45C" stroke="#8C4A00" stroke-width="8"/>
+    </g>
+  </g>
+
+  <!-- front pawns -->
+  <g transform="translate(316,748) scale(1.12)" filter="url(#soft)">
+    <use href="#pawn" fill="url(#red)" stroke="#6E0E1C" stroke-width="12" paint-order="stroke"/>
+    <ellipse cx="-22" cy="-208" rx="24" ry="17" fill="#FFFFFF" opacity="0.8" transform="rotate(-20 -22 -208)"/>
+    <ellipse cx="-40" cy="-40" rx="16" ry="26" fill="#FFFFFF" opacity="0.3" transform="rotate(14 -40 -40)"/>
+  </g>
+  <g transform="translate(708,748) scale(1.12)" filter="url(#soft)">
+    <use href="#pawn" fill="url(#yellow)" stroke="#8C4A00" stroke-width="12" paint-order="stroke"/>
+    <ellipse cx="-22" cy="-208" rx="24" ry="17" fill="#FFFFFF" opacity="0.8" transform="rotate(-20 -22 -208)"/>
+    <ellipse cx="-40" cy="-40" rx="16" ry="26" fill="#FFFFFF" opacity="0.3" transform="rotate(14 -40 -40)"/>
+  </g>
+
+  <!-- LUDO lettering -->
+  <defs>
+    <path id="arc" d="M 150,930 Q 512,830 874,930"/>
+  </defs>
+  <text font-family="Arial Rounded MT Bold, Arial Black, sans-serif" font-size="200" font-weight="900"
+    letter-spacing="10" fill="url(#gold)" stroke="#7A2504" stroke-width="26" paint-order="stroke"
+    stroke-linejoin="round" filter="url(#soft)">
+    <textPath href="#arc" startOffset="50%" text-anchor="middle">LUDO</textPath>
+  </text>
+</svg>

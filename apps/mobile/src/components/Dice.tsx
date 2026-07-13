@@ -14,9 +14,10 @@
 import { useEffect, useMemo, useRef } from "react";
 import { Pressable, View } from "react-native";
 import { Canvas, Picture, PaintStyle, Skia, StrokeCap, StrokeJoin } from "@shopify/react-native-skia";
-import {
+import Animated, {
   cancelAnimation,
   Easing,
+  useAnimatedStyle,
   useDerivedValue,
   useSharedValue,
   withRepeat,
@@ -57,11 +58,14 @@ interface DiceProps {
   idle?: boolean;
   /** Board theme supplying face/pip colors (defaults white/ink). */
   theme?: BoardTheme;
-  /** When set, the die is tappable (it wiggles) and tapping rolls. */
+  /** When set, the die is tappable (it wiggles) — tapping rolls, or reclaims
+   *  the seat from autopilot (the caller decides). */
   onRollPress?: (() => void) | null;
+  /** Accessibility label while tappable (differs for roll vs bot-reclaim). */
+  pressLabel?: string;
 }
 
-export function Dice({ value, size = 64, spinSeq = 0, idle = false, theme, onRollPress = null }: DiceProps) {
+export function Dice({ value, size = 64, spinSeq = 0, idle = false, theme, onRollPress = null, pressLabel = "Roll the dice" }: DiceProps) {
   // 0→1 over a roll; rests at 1 (settled). Starts settled so remounting at the
   // next player's corner never replays the tumble (the old double-roll bug).
   const roll = useSharedValue(1);
@@ -197,13 +201,13 @@ export function Dice({ value, size = 64, spinSeq = 0, idle = false, theme, onRol
         canvas.restore();
       }
     } else {
-      // Settled flat face. The landing squash pivots at the die's base and the
-      // tap-me wiggle rocks around the center; only one is ever non-identity.
+      // Settled flat face with the landing squash (pivoting at the die's base).
+      // The tap-me wiggle lives on the Canvas view's transform instead — inside
+      // this recording it forced a full picture re-record every frame for as
+      // long as the die was tappable, hogging the UI thread between turns.
       const q = (p - CUBE_END) / (1 - CUBE_END);
       const squash = Math.sin(Math.PI * Math.min(q, 1));
       canvas.concat(Skia.Matrix(rotateScaleAbout(0, 1 + 0.07 * squash, 1 - 0.11 * squash, c, c + size / 2)));
-      const ws = 1 + Math.abs(wiggle.value) * 0.04;
-      canvas.concat(Skia.Matrix(rotateScaleAbout((wiggle.value * 6 * Math.PI) / 180, ws, ws, c, c)));
 
       const x = c - size / 2;
       const y = c - size / 2;
@@ -249,22 +253,32 @@ export function Dice({ value, size = 64, spinSeq = 0, idle = false, theme, onRol
     return rec.finishRecordingAsPicture();
   });
 
+  // The wiggle rocks the whole (padded) canvas around the die's center as a
+  // plain view transform — pure compositor work, no Skia re-recording. The
+  // tumble suppresses it: mid-roll the wiggle is already animated back to 0.
+  const wiggleStyle = useAnimatedStyle(() => {
+    const ws = 1 + Math.abs(wiggle.value) * 0.04;
+    return { transform: [{ rotate: `${wiggle.value * 6}deg` }, { scale: ws }] };
+  });
+
   const label = idle || value === null ? "Dice" : `Dice showing ${value}`;
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={onRollPress ? "Roll the dice" : label}
+      accessibilityLabel={onRollPress ? pressLabel : label}
       onPress={onRollPress ?? undefined}
       disabled={!onRollPress}
       hitSlop={10}
     >
       <View style={{ width: size, height: size }}>
-        <Canvas
+        <Animated.View
           pointerEvents="none"
-          style={{ position: "absolute", left: -pad, top: -pad, width: canvasSide, height: canvasSide }}
+          style={[{ position: "absolute", left: -pad, top: -pad, width: canvasSide, height: canvasSide }, wiggleStyle]}
         >
-          <Picture picture={picture} />
-        </Canvas>
+          <Canvas style={{ width: canvasSide, height: canvasSide }}>
+            <Picture picture={picture} />
+          </Canvas>
+        </Animated.View>
       </View>
     </Pressable>
   );

@@ -43,6 +43,8 @@ interface PlayerChipProps {
   label?: string;
   avatarId?: string | null;
   offline?: boolean;
+  /** The player quit for good — dims the chip and shows "Left" (beats Away). */
+  left?: boolean;
   timer?: { seq: number; seconds: number } | null;
   /** Text alignment within the corner (left for left column, right otherwise). */
   align?: "left" | "right";
@@ -59,6 +61,7 @@ export function PlayerChip({
   label,
   avatarId,
   offline = false,
+  left = false,
   timer = null,
   align = "left",
   botMode = false,
@@ -76,7 +79,7 @@ export function PlayerChip({
       style={({ pressed }) => ({
         alignItems: "center",
         width: 92,
-        opacity: offline ? 0.55 : 1,
+        opacity: left ? 0.4 : offline ? 0.55 : 1,
         transform: [{ scale: pressed ? 0.93 : 1 }],
       })}
     >
@@ -120,7 +123,11 @@ export function PlayerChip({
           color: active ? palette.porcelain : palette.mutedSteel,
         }}
       >
-        {offline ? `${label ?? COLOR_LABEL[player.color]} · Away` : label ?? COLOR_LABEL[player.color]}
+        {left
+          ? `${label ?? COLOR_LABEL[player.color]} · Left`
+          : offline
+            ? `${label ?? COLOR_LABEL[player.color]} · Away`
+            : label ?? COLOR_LABEL[player.color]}
       </Text>
       <Text
         style={{

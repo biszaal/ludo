@@ -8,7 +8,7 @@
 
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Pressable, View } from "react-native";
-import { Canvas, Circle, Group, Oval, Path, RadialGradient, RoundedRect, Skia, vec } from "@shopify/react-native-skia";
+import { Canvas, Circle, Group, Line, LinearGradient, Oval, Path, RadialGradient, RoundedRect, Skia, vec } from "@shopify/react-native-skia";
 import {
   Easing,
   runOnJS,
@@ -216,57 +216,146 @@ export function BoardSurface({ size, theme }: { size: number; theme: BoardTheme 
   const startIndices = new Set(Object.values(START_CELL_INDEX));
   return (
     <Group>
-      <RoundedRect x={0} y={0} width={size} height={size} r={18} color={theme.boardBase} />
+      {/* Plate: vertical light-to-dark wash + bevel (outer edge, inner light lip). */}
+      <RoundedRect x={0} y={0} width={size} height={size} r={18}>
+        <LinearGradient start={vec(0, 0)} end={vec(0, size)} colors={[shade(theme.boardBase, 0.02), shade(theme.boardBase, -0.07)]} />
+      </RoundedRect>
       <RoundedRect x={1.5} y={1.5} width={size - 3} height={size - 3} r={16} color={theme.boardEdge} style="stroke" strokeWidth={2.5} />
+      <RoundedRect x={4} y={4} width={size - 8} height={size - 8} r={14} color="rgba(255,255,255,0.5)" style="stroke" strokeWidth={1.5} />
 
-      {/* Yards: solid color corner, plate-colored inner, color-ringed slots */}
+      {/* Yards: raised gradient tile (drop shadow + top lip), inset inner plate,
+          and recessed slot discs ringed in the team color. */}
       {COLORS.map((color) => {
         const b = YARD_BLOCKS[color];
+        const team = theme.team[color];
         const pad = cell * 0.12;
+        const x = b.col * cell + pad;
+        const y = b.row * cell + pad;
+        const w = b.size * cell - pad * 2;
+        const ix = b.col * cell + cell * 0.9;
+        const iy = b.row * cell + cell * 0.9;
+        const iw = b.size * cell - cell * 1.8;
         return (
           <Group key={`yard-${color}`}>
-            <RoundedRect x={b.col * cell + pad} y={b.row * cell + pad} width={b.size * cell - pad * 2} height={b.size * cell - pad * 2} r={16} color={theme.team[color]} />
-            <RoundedRect x={b.col * cell + cell * 0.9} y={b.row * cell + cell * 0.9} width={b.size * cell - cell * 1.8} height={b.size * cell - cell * 1.8} r={12} color={theme.cellFill} />
-            {YARD_SLOTS[color].map(([gx, gy], i) => (
-              <Group key={`slot-${color}-${i}`}>
-                {/* Recessed gray disc: darker rim + gray fill (empty slot look). */}
-                <Circle cx={gx * cell} cy={gy * cell} r={cell * 0.44} color={shade(theme.slotEmpty, -0.16)} />
-                <Circle cx={gx * cell} cy={gy * cell} r={cell * 0.38} color={theme.slotEmpty} />
-              </Group>
-            ))}
+            <RoundedRect x={x} y={y + 3} width={w} height={w} r={16} color="rgba(0,0,0,0.18)" />
+            <RoundedRect x={x} y={y} width={w} height={w} r={16}>
+              <LinearGradient start={vec(x, y)} end={vec(x, y + w)} colors={[shade(team, 0.22), team, shade(team, -0.18)]} positions={[0, 0.55, 1]} />
+            </RoundedRect>
+            <RoundedRect x={x + 1.5} y={y + 1.5} width={w - 3} height={w - 3} r={14} color="rgba(255,255,255,0.35)" style="stroke" strokeWidth={2} />
+            <RoundedRect x={ix} y={iy} width={iw} height={iw} r={12} color={theme.cellFill} />
+            <RoundedRect x={ix} y={iy} width={iw} height={iw} r={12} color={shade(team, -0.3)} opacity={0.35} style="stroke" strokeWidth={1.5} />
+            {YARD_SLOTS[color].map(([gx, gy], i) => {
+              const cx = gx * cell;
+              const cy = gy * cell;
+              const r = cell * 0.38;
+              return (
+                <Group key={`slot-${color}-${i}`}>
+                  <Circle cx={cx} cy={cy} r={cell * 0.44} color={shade(theme.slotEmpty, -0.22)} />
+                  <Circle cx={cx} cy={cy} r={r}>
+                    <RadialGradient c={vec(cx, cy - r * 0.3)} r={r * 1.6} colors={[shade(theme.slotEmpty, -0.14), shade(theme.slotEmpty, 0.1)]} />
+                  </Circle>
+                  {/* Inner-shadow crescent along the top — reads as a recess. */}
+                  <Path path={topArc(cx, cy, r)} color="rgba(0,0,0,0.18)" style="stroke" strokeWidth={3} />
+                  <Circle cx={cx} cy={cy} r={cell * 0.44} color={shade(team, -0.12)} opacity={0.5} style="stroke" strokeWidth={1.5} />
+                </Group>
+              );
+            })}
           </Group>
         );
       })}
 
-      {/* Home-column runs */}
+      {/* Home-column runs: gradient colored path cells */}
       {COLORS.map((color) =>
         HOME_CELLS[color].map(([col, row], i) => (
-          <RoundedRect key={`home-${color}-${i}`} x={col * cell + 0.5} y={row * cell + 0.5} width={cell - 1} height={cell - 1} r={2} color={theme.team[color]} />
+          <ColorCell key={`home-${color}-${i}`} x={col * cell} y={row * cell} cell={cell} team={theme.team[color]} />
         )),
       )}
 
-      {/* Track cells */}
+      {/* Track cells: plain cells get a subtle emboss (light top / dark bottom
+          hairline); start cells are colored like the path with a white star. */}
       {TRACK_CELLS.map(([col, row], idx) => {
         const isStart = startIndices.has(idx);
         const cx = (col + 0.5) * cell;
         const cy = (row + 0.5) * cell;
+        if (isStart) {
+          return (
+            <Group key={`track-${idx}`}>
+              <ColorCell x={col * cell} y={row * cell} cell={cell} team={startColor(idx, theme)} />
+              <Path path={starPath(cx, cy, cell * 0.3, cell * 0.13)} color="rgba(255,255,255,0.9)" />
+            </Group>
+          );
+        }
+        const g = cellInset(cell);
         return (
           <Group key={`track-${idx}`}>
-            <RoundedRect x={col * cell + 0.5} y={row * cell + 0.5} width={cell - 1} height={cell - 1} r={2} color={isStart ? startColor(idx, theme) : theme.cellFill} />
-            <RoundedRect x={col * cell + 0.5} y={row * cell + 0.5} width={cell - 1} height={cell - 1} r={2} color={theme.cellBorder} style="stroke" strokeWidth={1} />
-            {SAFE.has(idx) && !isStart && <Path path={starPath(cx, cy, cell * 0.28, cell * 0.12)} color={theme.starColor} />}
+            <RoundedRect x={col * cell + g} y={row * cell + g} width={cell - g * 2} height={cell - g * 2} r={2} color={theme.cellFill} />
+            <RoundedRect x={col * cell + g} y={row * cell + g} width={cell - g * 2} height={cell - g * 2} r={2} color={theme.cellBorder} style="stroke" strokeWidth={1} />
+            <Line p1={vec(col * cell + g + 2.5, row * cell + g + 1.1)} p2={vec(col * cell + cell - g - 2.5, row * cell + g + 1.1)} color="rgba(255,255,255,0.75)" strokeWidth={1.2} />
+            <Line p1={vec(col * cell + g + 2.5, row * cell + cell - g - 1.1)} p2={vec(col * cell + cell - g - 2.5, row * cell + cell - g - 1.1)} color="rgba(0,0,0,0.06)" strokeWidth={1.2} />
+            {SAFE.has(idx) && <Path path={starPath(cx, cy, cell * 0.28, cell * 0.12)} color={theme.starColor} />}
           </Group>
         );
       })}
 
-      {/* Center finishing triangles */}
-      <Path path={triangle([6, 6], [9, 6], [7.5, 7.5], cell)} color={theme.team.green} />
-      <Path path={triangle([9, 6], [9, 9], [7.5, 7.5], cell)} color={theme.team.yellow} />
-      <Path path={triangle([9, 9], [6, 9], [7.5, 7.5], cell)} color={theme.team.blue} />
-      <Path path={triangle([6, 9], [6, 6], [7.5, 7.5], cell)} color={theme.team.red} />
+      {/* Center finishing triangles: soft drop shadow, gradient wedges, white seams */}
+      <RoundedRect x={6 * cell - 2} y={6 * cell + 2} width={3 * cell + 4} height={3 * cell + 4} r={4} color="rgba(0,0,0,0.15)" />
+      {(
+        [
+          ["green", [6, 6], [9, 6]],
+          ["yellow", [9, 6], [9, 9]],
+          ["blue", [9, 9], [6, 9]],
+          ["red", [6, 9], [6, 6]],
+        ] as const
+      ).map(([color, a, b]) => (
+        <Group key={`center-${color}`}>
+          <Path path={triangle([a[0], a[1]], [b[0], b[1]], [7.5, 7.5], cell)}>
+            <LinearGradient
+              start={vec(7.5 * cell, 6 * cell)}
+              end={vec(7.5 * cell, 9 * cell)}
+              colors={[shade(theme.team[color], 0.22), theme.team[color], shade(theme.team[color], -0.18)]}
+              positions={[0, 0.55, 1]}
+            />
+          </Path>
+          <Path path={triangle([a[0], a[1]], [b[0], b[1]], [7.5, 7.5], cell)} color="rgba(255,255,255,0.5)" style="stroke" strokeWidth={1} />
+        </Group>
+      ))}
       <RoundedRect x={6 * cell} y={6 * cell} width={3 * cell} height={3 * cell} r={3} color={theme.boardEdge} style="stroke" strokeWidth={1.5} />
+
+      {/* Soft diagonal sheen over the whole plate (plastic-board gloss). */}
+      <Path path={`M 0 0 L ${size} 0 L 0 ${size * 0.55} Z`} color="rgba(255,255,255,0.05)" />
     </Group>
   );
+}
+
+/** A colored path cell (home runs + start cells): vertical gradient + tonal edge. */
+function ColorCell({ x, y, cell, team }: { x: number; y: number; cell: number; team: string }) {
+  const g = cellInset(cell);
+  return (
+    <Group>
+      <RoundedRect x={x + g} y={y + g} width={cell - g * 2} height={cell - g * 2} r={2}>
+        <LinearGradient start={vec(x, y)} end={vec(x, y + cell)} colors={[shade(team, 0.16), shade(team, -0.1)]} />
+      </RoundedRect>
+      <RoundedRect x={x + g} y={y + g} width={cell - g * 2} height={cell - g * 2} r={2} color={shade(team, -0.25)} opacity={0.4} style="stroke" strokeWidth={1} />
+    </Group>
+  );
+}
+
+/**
+ * Gap between a cell's edge and its tile, scaled with the board so the plate
+ * color shows through as "grout" at every size — this is what makes Night /
+ * Walnut / Sand actually read as their plate color in-game, exactly like the
+ * Settings thumbnails (which render this same surface small, where the gaps
+ * are proportionally huge).
+ */
+function cellInset(cell: number): number {
+  return Math.max(0.5, cell * 0.045);
+}
+
+/** Stroke path along a circle's top half — the slot recess's inner shadow. */
+function topArc(cx: number, cy: number, r: number) {
+  const p = Skia.Path.Make();
+  p.addArc(Skia.XYWHRect(cx - r, cy - r, r * 2, r * 2), 180, 180);
+  return p;
 }
 
 // --- 3D animated pawn -------------------------------------------------------

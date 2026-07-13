@@ -21,6 +21,9 @@ const client: SupabaseClient | null = isSupabaseConfigured
         persistSession: true,
         detectSessionInUrl: false,
       },
+      // Faster dead-socket detection (default ~30s): a game client should
+      // notice a dropped realtime connection and resync within seconds.
+      realtime: { heartbeatIntervalMs: 15000 },
     })
   : null;
 

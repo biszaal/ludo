@@ -7,23 +7,25 @@
  * service-role key (auto-injected) to write past RLS, but authorizes each call
  * against the caller's JWT.
  *
- * Body: { op: "create" | "join" | "start" | "roll" | "move" | "pass" | "rematch", ... }
+ * Body: { op: "create" | "join" | "start" | "roll" | "move" | "pass" | "timeout" | "rematch" | "leave", ... }
  * Always responds 200 with either a payload or `{ error }`.
  */
 
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createRemoteJWKSet, jwtVerify } from "https://esm.sh/jose@5";
 import {
   applyMove,
   createGame as engineCreateGame,
   endTurn,
   getValidMoves,
+  leaveGame as engineLeaveGame,
   rollDice,
-  skipTurn,
   validateMove,
   type Color,
   type GameState,
   type Rng,
 } from "../_shared/engine/index.js";
+import { chooseMove } from "../_shared/bot/index.js";
 import { corsHeaders } from "../_shared/cors.ts";
 
 const FULL_ORDER: Color[] = ["red", "green", "yellow", "blue"];
@@ -61,6 +63,43 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
+declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void } | undefined;
+
+/** Bookkeeping writes (audit log, presence) that must not block the response.
+ *  waitUntil keeps the isolate alive until they settle; failures are swallowed
+ *  — none of them affect game state. */
+function afterResponse(task: PromiseLike<unknown>): void {
+  const settled = Promise.resolve(task).catch(() => {});
+  if (typeof EdgeRuntime !== "undefined") EdgeRuntime.waitUntil(settled);
+}
+
+/** Auth JWKS, fetched once per cold start and cached by jose. */
+const jwks = createRemoteJWKSet(new URL(`${Deno.env.get("SUPABASE_URL")}/auth/v1/.well-known/jwks.json`));
+
+/**
+ * Resolve the caller's user id from their JWT, verifying the signature locally
+ * (no auth-server round trip on the hot path). Local verification can't see
+ * session revocation — acceptable for a game. Projects still on legacy HS256
+ * signing have no usable JWKS, so any local failure falls back to the auth
+ * server's verdict; invalid tokens just pay one extra hop on their way to a 401.
+ */
+async function authUserId(admin: SupabaseClient, token: string): Promise<string | null> {
+  try {
+    const { payload } = await jwtVerify(token, jwks);
+    if (typeof payload.sub === "string" && payload.sub) return payload.sub;
+  } catch {
+    // fall through to remote verification
+  }
+  const { data, error } = await admin.auth.getUser(token);
+  return error || !data.user ? null : data.user.id;
+}
+
+/** A racing write beat ours — return the current authoritative row instead. */
+async function freshState(admin: SupabaseClient, gameId: string, fallback: GameState): Promise<Response> {
+  const { data } = await admin.from("games").select("state, state_version").eq("id", gameId).single();
+  return json({ state: (data?.state as GameState) ?? fallback, v: data?.state_version ?? null });
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -70,9 +109,8 @@ Deno.serve(async (req: Request) => {
     });
 
     const token = (req.headers.get("Authorization") ?? "").replace("Bearer ", "");
-    const { data: auth, error: authErr } = await admin.auth.getUser(token);
-    if (authErr || !auth.user) return json({ error: "Not authenticated." });
-    const userId = auth.user.id;
+    const userId = await authUserId(admin, token);
+    if (!userId) return json({ error: "Not authenticated." });
 
     const body = await req.json();
     switch (body.op) {
@@ -92,6 +130,8 @@ Deno.serve(async (req: Request) => {
         return await opTimeout(admin, userId, String(body.gameId));
       case "rematch":
         return await opRematch(admin, userId, String(body.gameId));
+      case "leave":
+        return await opLeave(admin, userId, String(body.gameId));
       default:
         return json({ error: "Unknown op." });
     }
@@ -142,10 +182,11 @@ async function opJoin(admin: SupabaseClient, userId: string, rawCode: string): P
 }
 
 async function opStart(admin: SupabaseClient, userId: string, gameId: string): Promise<Response> {
-  const { data: game } = await admin.from("games").select("id, host_user_id, status").eq("id", gameId).single();
+  const { data: game } = await admin.from("games").select("id, host_user_id, status, state_version").eq("id", gameId).single();
   if (!game) return json({ error: "Game not found." });
   if (game.host_user_id !== userId) return json({ error: "Only the host can start." });
   if (game.status !== "waiting") return json({ error: "Game already started." });
+  const v = (game.state_version as number | null) ?? 0;
 
   const { data: lobby } = await admin.from("players").select("id, user_id, color, seat").eq("game_id", gameId).order("seat");
   if (!lobby || lobby.length < 2) return json({ error: "Need at least 2 players." });
@@ -154,36 +195,94 @@ async function opStart(admin: SupabaseClient, userId: string, gameId: string): P
   const players = lobby.map((p, i) => ({ id: p.id, userId: p.user_id, color: colors[i]! }));
   const state = engineCreateGame(players, { gameId });
 
-  const { error } = await admin
+  const { data: updated, error } = await admin
     .from("games")
-    .update({ state, status: "active", current_turn_player_id: state.currentTurnPlayerId, turn_deadline: turnDeadline(state) })
-    .eq("id", gameId);
+    .update({ state, status: "active", current_turn_player_id: state.currentTurnPlayerId, turn_deadline: turnDeadline(state), state_version: v + 1 })
+    .eq("id", gameId)
+    .eq("state_version", v)
+    .select("id")
+    .maybeSingle();
   if (error) return json({ error: error.message });
+  if (!updated) return await freshState(admin, gameId, state);
 
-  return json({ state });
+  afterResponse(admin.from("players").update({ missed_turns: 0 }).eq("game_id", gameId));
+
+  return json({ state, v: v + 1 });
+}
+
+/**
+ * A player quits the room for good. Active game: the engine removes their
+ * tokens and skips their turns from now on (2-player: the opponent wins).
+ * Waiting lobby: the seat is freed (non-host). Idempotent and safe to call
+ * as a fire-and-forget on the way out.
+ */
+async function opLeave(admin: SupabaseClient, userId: string, gameId: string): Promise<Response> {
+  const { data: game } = await admin.from("games").select("id, host_user_id, status, state, state_version").eq("id", gameId).single();
+  if (!game) return json({ error: "Game not found." });
+  const v = (game.state_version as number | null) ?? 0;
+
+  if (game.status === "waiting") {
+    // Free the seat so someone else can take it. The host's seat stays (the
+    // room is theirs); their absence just leaves the lobby idle.
+    if (game.host_user_id !== userId) {
+      await admin.from("players").delete().eq("game_id", gameId).eq("user_id", userId);
+    }
+    return json({ ok: true });
+  }
+
+  const state = game.state as GameState | null;
+  if (!state) return json({ error: "Game not found." });
+  const me = state.players.find((p) => p.userId === userId);
+  if (!me) return json({ error: "You are not in this game." });
+
+  afterResponse(admin.from("players").update({ is_connected: false }).eq("game_id", gameId).eq("user_id", userId));
+  if (game.status !== "active" || me.hasLeft) return json({ state, v });
+
+  const next = engineLeaveGame(state, me.id, { now: Date.now() });
+  const { data: updated, error } = await admin
+    .from("games")
+    .update({ state: next, status: next.status, current_turn_player_id: next.currentTurnPlayerId, turn_deadline: turnDeadline(next), state_version: v + 1 })
+    .eq("id", gameId)
+    .eq("state_version", v)
+    .select("id")
+    .maybeSingle();
+  if (error) return json({ error: error.message });
+  if (!updated) return await freshState(admin, gameId, state);
+
+  afterResponse(admin.from("moves").insert({ game_id: gameId, player_id: me.id, action: { action: "leave" } }));
+  return json({ state: next, v: v + 1 });
 }
 
 /** Host-only: reset a finished game to a fresh state with the same seats/colors. */
 async function opRematch(admin: SupabaseClient, userId: string, gameId: string): Promise<Response> {
-  const { data: game } = await admin.from("games").select("id, host_user_id, status, state").eq("id", gameId).single();
+  const { data: game } = await admin.from("games").select("id, host_user_id, status, state, state_version").eq("id", gameId).single();
   if (!game || !game.state) return json({ error: "Game not found." });
   if (game.host_user_id !== userId) return json({ error: "Only the host can start a rematch." });
   if (game.status !== "finished") return json({ error: "The game is still in progress." });
+  const v = (game.state_version as number | null) ?? 0;
 
   const prev = game.state as GameState;
-  const players = prev.players.map((p) => ({ id: p.id, userId: p.userId, color: p.color }));
+  // Players who left are gone for good — the rematch seats whoever stayed.
+  const stayed = prev.players.filter((p) => !p.hasLeft);
+  if (stayed.length < 2) return json({ error: "Not enough players left for a rematch." });
+  const players = stayed.map((p) => ({ id: p.id, userId: p.userId, color: p.color }));
   const next = engineCreateGame(players, { gameId });
 
-  const { error } = await admin
+  const { data: updated, error } = await admin
     .from("games")
-    .update({ state: next, status: "active", current_turn_player_id: next.currentTurnPlayerId, turn_deadline: turnDeadline(next) })
-    .eq("id", gameId);
+    .update({ state: next, status: "active", current_turn_player_id: next.currentTurnPlayerId, turn_deadline: turnDeadline(next), state_version: v + 1 })
+    .eq("id", gameId)
+    .eq("state_version", v)
+    .select("id")
+    .maybeSingle();
   if (error) return json({ error: error.message });
+  if (!updated) return await freshState(admin, gameId, prev);
 
+  afterResponse(admin.from("players").update({ missed_turns: 0 }).eq("game_id", gameId));
   const me = prev.players.find((p) => p.userId === userId);
-  await admin.from("moves").insert({ game_id: gameId, player_id: me?.id ?? null, action: { action: "rematch" } });
+  afterResponse(admin.from("moves").insert({ game_id: gameId, player_id: me?.id ?? null, action: { action: "rematch" } }));
 
-  return json({ state: next });
+  return json({ state: next, v: v + 1 });
 }
 
 async function opTurn(
@@ -193,10 +292,11 @@ async function opTurn(
   action: "roll" | "move" | "pass",
   tokenId?: string,
 ): Promise<Response> {
-  const { data: game } = await admin.from("games").select("id, state").eq("id", gameId).single();
+  const { data: game } = await admin.from("games").select("id, state, state_version").eq("id", gameId).single();
   if (!game || !game.state) return json({ error: "Game not found." });
 
   const state = game.state as GameState;
+  const v = (game.state_version as number | null) ?? 0;
   if (state.status !== "active") return json({ error: "Game is not active." });
 
   const me = state.players.find((p) => p.userId === userId);
@@ -218,26 +318,70 @@ async function opTurn(
     next = applyMove(state, { tokenId: tokenId ?? "" });
   }
 
-  const { error } = await admin
+  // Version-guarded write: a racing write (stall bot, duplicate tap) loses
+  // cleanly instead of silently clobbering, and the counter gives clients a
+  // cheap dedup/ordering key for every realtime row.
+  const { data: updated, error } = await admin
     .from("games")
-    .update({ state: next, status: next.status, current_turn_player_id: next.currentTurnPlayerId, turn_deadline: turnDeadline(next) })
-    .eq("id", gameId);
+    .update({
+      state: next,
+      status: next.status,
+      current_turn_player_id: next.currentTurnPlayerId,
+      turn_deadline: turnDeadline(next),
+      state_version: v + 1,
+    })
+    .eq("id", gameId)
+    .eq("state_version", v)
+    .select("id")
+    .maybeSingle();
   if (error) return json({ error: error.message });
+  if (!updated) return await freshState(admin, gameId, state);
 
-  await admin.from("moves").insert({ game_id: gameId, player_id: me.id, action: { action, tokenId: tokenId ?? null, dice: next.diceValue } });
+  afterResponse(
+    admin.from("moves").insert({ game_id: gameId, player_id: me.id, action: { action, tokenId: tokenId ?? null, dice: next.diceValue } }),
+  );
+  // Acting proves the player is present — clear the idle strike counter. Only
+  // write when something changes: every players write fans out a realtime
+  // event that makes each client refetch the lobby.
+  afterResponse(
+    admin
+      .from("players")
+      .update({ missed_turns: 0, is_connected: true })
+      .eq("game_id", gameId)
+      .eq("user_id", userId)
+      .or("missed_turns.neq.0,is_connected.eq.false"),
+  );
 
-  return json({ state: next });
+  return json({ state: next, v: v + 1 });
 }
 
+/** Pause between the bot's writes so clients can animate each one — outlasts
+ *  the ~950ms die tumble, mirroring the client autopilot's pacing. */
+const BOT_STEP_PAUSE_MS = 1100;
 /**
- * Skip the current player's turn once its deadline has passed. Any participant
- * may call this (the idle player rarely will); the server re-checks the clock,
- * so a client can't skip early. Idempotent enough: if the turn already moved
- * on, the deadline check simply fails and we return the current state.
+ * Consecutive whole turns a player may idle through (bot-played) before the
+ * server removes them from the game. A briefly-minimized app resets the count
+ * the moment it comes back (resync / next action); a closed app never does.
+ */
+const MISSED_TURNS_TO_LEAVE = 3;
+/** Safety cap on one call's bot actions (extra turns from 6s/captures chain).
+ *  If a turn somehow runs longer, the peers' timers fire again and resume. */
+const BOT_MAX_ACTIONS = 8;
+
+/**
+ * The current turn idled past its deadline — the player's app is closed or
+ * asleep, so nothing local can act for them. The server's bot policy plays the
+ * turn for them (roll, then the policy's move, or a forced pass), including any
+ * extra turns it earns, paced so clients can animate each write. Any
+ * participant may call this (the idle player rarely will); the server re-checks
+ * the clock, so a client can't trigger it early. Every write is guarded on the
+ * turn_deadline it read — the deadline refreshes on every write, so racing
+ * callers and a returning player can never double-act a turn.
  */
 async function opTimeout(admin: SupabaseClient, userId: string, gameId: string): Promise<Response> {
-  const { data: game } = await admin.from("games").select("id, state, turn_deadline").eq("id", gameId).single();
+  const { data: game } = await admin.from("games").select("id, state, turn_deadline, state_version").eq("id", gameId).single();
   if (!game || !game.state) return json({ error: "Game not found." });
+  let v = (game.state_version as number | null) ?? 0;
 
   const state = game.state as GameState;
   if (state.status !== "active") return json({ error: "Game is not active." });
@@ -248,30 +392,95 @@ async function opTimeout(admin: SupabaseClient, userId: string, gameId: string):
   // Re-check the deadline server-side — the source of truth, not the caller.
   const deadline = game.turn_deadline ? Date.parse(game.turn_deadline) : NaN;
   if (!Number.isFinite(deadline) || Date.now() < deadline) {
-    return json({ state }); // not actually expired (or already advanced) — no-op
+    return json({ state, v }); // not actually expired (or already advanced) — no-op
   }
 
-  const skippedPlayerId = state.currentTurnPlayerId;
-  const next = skipTurn(state);
+  const awayPlayerId = state.currentTurnPlayerId;
+  const awayUserId = state.players.find((p) => p.id === awayPlayerId)?.userId;
 
-  // Optimistic guard: only skip if the turn is still on the same player. If two
-  // clients race, the first write flips current_turn_player_id and the second
-  // matches zero rows — we then return whatever actually won.
-  const { data: updated, error } = await admin
-    .from("games")
-    .update({ state: next, status: next.status, current_turn_player_id: next.currentTurnPlayerId, turn_deadline: turnDeadline(next) })
-    .eq("id", gameId)
-    .eq("current_turn_player_id", skippedPlayerId)
-    .select("state")
-    .maybeSingle();
-  if (error) return json({ error: error.message });
-  if (!updated) {
-    // Lost the race — return the current authoritative state.
-    const { data: fresh } = await admin.from("games").select("state").eq("id", gameId).single();
-    return json({ state: (fresh?.state as GameState) ?? next });
+  // They idled through the whole clock — show the room an Away badge and count
+  // the strike. Their own device clears both on foreground/resync (or their
+  // next action); a closed app never comes back, so the strikes accumulate.
+  if (awayUserId) {
+    const { data: row } = await admin
+      .from("players")
+      .select("missed_turns")
+      .eq("game_id", gameId)
+      .eq("user_id", awayUserId)
+      .maybeSingle();
+    const missed = (row?.missed_turns ?? 0) + 1;
+    await admin
+      .from("players")
+      .update({ is_connected: false, missed_turns: missed })
+      .eq("game_id", gameId)
+      .eq("user_id", awayUserId);
+
+    if (missed >= MISSED_TURNS_TO_LEAVE) {
+      // Gone for good — remove them from the game instead of bot-playing
+      // another turn. Guard on the deadline we read so a racing caller (or
+      // the player suddenly returning) can't double-apply.
+      const next = engineLeaveGame(state, awayPlayerId, { now: Date.now() });
+      const { data: updated, error } = await admin
+        .from("games")
+        .update({ state: next, status: next.status, current_turn_player_id: next.currentTurnPlayerId, turn_deadline: turnDeadline(next), state_version: v + 1 })
+        .eq("id", gameId)
+        .eq("turn_deadline", game.turn_deadline!)
+        .eq("state_version", v)
+        .select("id")
+        .maybeSingle();
+      if (error) return json({ error: error.message });
+      if (!updated) return await freshState(admin, gameId, state);
+      afterResponse(admin.from("moves").insert({ game_id: gameId, player_id: awayPlayerId, action: { action: "auto-leave", missed } }));
+      return json({ state: next, v: v + 1 });
+    }
   }
 
-  await admin.from("moves").insert({ game_id: gameId, player_id: skippedPlayerId, action: { action: "timeout" } });
+  let cur = state;
+  let guard: string | null = game.turn_deadline;
+  for (let step = 0; step < BOT_MAX_ACTIONS; step++) {
+    let next: GameState;
+    let logged: Record<string, unknown>;
+    if (cur.phase === "awaiting-roll") {
+      const roll = rollDice(cur, cryptoRng);
+      next = roll.newState;
+      logged = { action: "bot-roll", dice: roll.diceValue };
+    } else {
+      const moves = getValidMoves(cur, awayPlayerId);
+      if (moves.length === 0) {
+        next = endTurn(cur);
+        logged = { action: "bot-pass", dice: cur.diceValue };
+      } else {
+        const move = chooseMove(cur, awayPlayerId, moves);
+        next = applyMove(cur, { tokenId: move.tokenId });
+        logged = { action: "bot-move", tokenId: move.tokenId, dice: cur.diceValue };
+      }
+    }
 
-  return json({ state: next });
+    const nextDeadline = turnDeadline(next);
+    const { data: updated, error } = await admin
+      .from("games")
+      .update({ state: next, status: next.status, current_turn_player_id: next.currentTurnPlayerId, turn_deadline: nextDeadline, state_version: v + 1 })
+      .eq("id", gameId)
+      .eq("turn_deadline", guard!)
+      .eq("state_version", v)
+      .select("id")
+      .maybeSingle();
+    if (error) return json({ error: error.message });
+    if (!updated) {
+      // Someone else wrote first (racing caller, or the player came back) —
+      // return the current authoritative state.
+      return await freshState(admin, gameId, cur);
+    }
+
+    afterResponse(admin.from("moves").insert({ game_id: gameId, player_id: awayPlayerId, action: logged }));
+
+    cur = next;
+    v += 1;
+    guard = nextDeadline;
+    if (next.status !== "active" || next.currentTurnPlayerId !== awayPlayerId || !guard) break;
+    // Let clients animate this write (die tumble / token hops) before the next.
+    await new Promise((resolve) => setTimeout(resolve, BOT_STEP_PAUSE_MS));
+  }
+
+  return json({ state: cur, v });
 }

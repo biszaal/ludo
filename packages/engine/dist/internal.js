@@ -41,11 +41,14 @@ export function hasPlayerWon(state, playerId) {
 /**
  * Advance the clock to the next player in clockwise seat order, resetting the
  * per-turn dice state. Players who already finished all their tokens are
- * skipped (they spectate while the rest play on). Mutates the passed
- * (already-cloned) state.
+ * skipped (they spectate while the rest play on), as are players who left the
+ * game. Mutates the passed (already-cloned) state.
  */
 export function advanceTurn(state) {
-    const done = new Set(state.finishedOrder ?? []);
+    const done = new Set([
+        ...(state.finishedOrder ?? []),
+        ...state.players.filter((p) => p.hasLeft).map((p) => p.id),
+    ]);
     const order = state.players
         .slice()
         .sort((a, b) => COLOR_ORDER.indexOf(a.color) - COLOR_ORDER.indexOf(b.color));

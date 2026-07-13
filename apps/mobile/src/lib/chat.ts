@@ -21,11 +21,12 @@ export interface ChatState {
   chatSeq: number;
   /** Text messages received since the chat sheet was last opened. */
   chatUnread: number;
-  /** Latest reaction per sender user_id (drives the floating bubbles). */
-  latestReactions: Record<string, { value: string; seq: number }>;
+  /** Latest event per sender user_id — every reaction AND text pops as a
+   *  speech bubble beside the sender's avatar (Ludo Club style). */
+  latestBubbles: Record<string, { value: string; kind: ChatEvent["kind"]; seq: number }>;
 }
 
-/** Append one event: cap the transcript, count remote-text unread, track reactions. */
+/** Append one event: cap the transcript, count remote-text unread, track bubbles. */
 export function applyChatEvent(
   st: ChatState & { userId: string | null },
   p: Omit<ChatEvent, "id" | "at">,
@@ -37,7 +38,6 @@ export function applyChatEvent(
     chat: [...st.chat, ev].slice(-CHAT_CAP),
     chatSeq: seq,
     chatUnread: p.kind === "text" && !own ? st.chatUnread + 1 : st.chatUnread,
-    latestReactions:
-      p.kind === "reaction" ? { ...st.latestReactions, [p.fromUserId]: { value: p.value, seq } } : st.latestReactions,
+    latestBubbles: { ...st.latestBubbles, [p.fromUserId]: { value: p.value, kind: p.kind, seq } },
   };
 }

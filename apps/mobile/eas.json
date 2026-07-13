@@ -20,7 +20,8 @@
   "submit": {
     "production": {
       "ios": {
-        "appleId": "biszaal@icloud.com"
+        "appleId": "biszaal@icloud.com",
+        "ascAppId": "6788536072"
       },
       "android": {
         "serviceAccountKeyPath": "./play-service-account.json",

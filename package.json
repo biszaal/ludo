@@ -16,7 +16,7 @@
     "build:engine": "npm run build --workspace packages/engine",
     "build:bot": "npm run build --workspace packages/bot",
     "build:packages": "npm run build:engine && npm run build:bot",
-    "build:edge": "npm run build:engine && node scripts/build-edge.mjs",
+    "build:edge": "npm run build:packages && node scripts/build-edge.mjs",
     "mobile": "npm start --workspace mobile",
     "ios": "npm run run:ios --workspace mobile",
     "android": "npm run run:android --workspace mobile"

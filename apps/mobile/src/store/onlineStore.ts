@@ -8,9 +8,9 @@
 
 import { create } from "zustand";
 import {
-  checkWin,
+  applyMove,
+  endTurn,
   getValidMoves,
-  type Color as PlayerColor,
   type GameState,
   type Move,
 } from "@ludo/engine";
@@ -18,16 +18,11 @@ import { chooseMove } from "@ludo/bot";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import * as api from "../net/api";
 import { applyChatEvent, type ChatEvent } from "../lib/chat";
-import { ordinal } from "../lib/standings";
+import { stateAnimationMs } from "../lib/moveTiming";
+import { bustedRollDice, colorOf, project } from "../lib/projection";
 import { useNav } from "./navStore";
 import { useProfile } from "./profileStore";
 
-const COLOR_LABEL: Record<PlayerColor, string> = {
-  red: "Red",
-  green: "Green",
-  yellow: "Yellow",
-  blue: "Blue",
-};
 /** Pause before auto-passing a no-move roll: the die tumble runs ~950ms
  *  (Dice ROLL_MS), then the number needs a beat to be read. */
 const AUTO_PASS_DELAY = 1500;
@@ -72,8 +67,8 @@ interface OnlineStore {
   chatSeq: number;
   /** Text messages received since the chat sheet was last opened. */
   chatUnread: number;
-  /** Latest reaction per sender user_id (drives the floating bubbles). */
-  latestReactions: Record<string, { value: string; seq: number }>;
+  /** Latest event per sender user_id (drives the speech bubbles by avatars). */
+  latestBubbles: Record<string, { value: string; kind: ChatEvent["kind"]; seq: number }>;
 
   /** Local receipt time of the current turn (drives the countdown; display only). */
   turnStartedAt: number | null;
@@ -124,7 +119,7 @@ const INITIAL = {
   chat: [] as ChatEvent[],
   chatSeq: 0,
   chatUnread: 0,
-  latestReactions: {} as Record<string, { value: string; seq: number }>,
+  latestBubbles: {} as Record<string, { value: string; kind: ChatEvent["kind"]; seq: number }>,
   turnStartedAt: null,
   turnSeq: 0,
   autoPilot: false,
@@ -190,8 +185,8 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
     if (!gameId || !isHost || starting || lobby.length < 2) return;
     set({ starting: true });
     try {
-      const state = await api.startGame(gameId);
-      applyState(state, false);
+      const res = await api.startGame(gameId);
+      applyTurnResult(res, false);
     } catch (e) {
       set({ error: errorText(e), starting: false });
     }
@@ -199,17 +194,25 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
 
   roll: async () => {
     clearAuto();
-    const { state, gameId, myPlayerId } = get();
+    const { state, gameId, myPlayerId, rollSeq } = get();
     if (
       !state ||
       !gameId ||
       state.phase !== "awaiting-roll" ||
-      state.currentTurnPlayerId !== myPlayerId
+      state.currentTurnPlayerId !== myPlayerId ||
+      rollInFlight
     )
       return;
+    // The number is server-generated, but the animation needn't wait for it:
+    // start the tumble on the tap and let the response land the real value
+    // mid-tumble. rollBumped stops the arriving state from re-triggering it.
+    rollInFlight = true;
+    rollBumped = true;
+    set({ rollSeq: rollSeq + 1 });
     try {
-      const next = await api.rollAction(gameId);
-      applyState(next, true);
+      const res = await enqueueSend(() => api.rollAction(gameId));
+      applyTurnResult(res, true);
+      const next = res.state;
       if (
         next.status === "active" &&
         next.phase === "awaiting-move" &&
@@ -227,8 +230,11 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
         }
       }
     } catch (e) {
+      rollBumped = false;
       set({ error: errorText(e) });
-      await resyncGame(gameId);
+      scheduleResync(gameId);
+    } finally {
+      rollInFlight = false;
     }
   },
 
@@ -239,16 +245,24 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
       !state ||
       !gameId ||
       state.phase !== "awaiting-move" ||
-      state.currentTurnPlayerId !== myPlayerId
+      state.currentTurnPlayerId !== myPlayerId ||
+      pending
     )
       return;
     if (!validMoves.some((m) => m.tokenId === tokenId)) return;
+    // The client runs the same pure engine as the server with no clock input,
+    // so the outcome is byte-for-byte predictable: animate it immediately and
+    // let the server's write confirm (or, on a race, correct) it.
+    const predicted = applyMove(state, { tokenId });
+    pending = { baseV: lastAppliedV, predicted };
+    applyState(predicted, false);
     try {
-      const next = await api.moveAction(gameId, tokenId);
-      applyState(next, false);
+      const res = await enqueueSend(() => api.moveAction(gameId, tokenId));
+      applyTurnResult(res, false);
     } catch (e) {
+      pending = null;
       set({ error: errorText(e) });
-      await resyncGame(gameId);
+      scheduleResync(gameId);
     }
   },
 
@@ -260,15 +274,20 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
       !gameId ||
       state.phase !== "awaiting-move" ||
       validMoves.length > 0 ||
-      state.currentTurnPlayerId !== myPlayerId
+      state.currentTurnPlayerId !== myPlayerId ||
+      pending
     )
       return;
+    const predicted = endTurn(state);
+    pending = { baseV: lastAppliedV, predicted };
+    applyState(predicted, false);
     try {
-      const next = await api.passAction(gameId);
-      applyState(next, false);
+      const res = await enqueueSend(() => api.passAction(gameId));
+      applyTurnResult(res, false);
     } catch (e) {
+      pending = null;
       set({ error: errorText(e) });
-      await resyncGame(gameId);
+      scheduleResync(gameId);
     }
   },
 
@@ -276,8 +295,8 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
     const { gameId, isHost, state } = get();
     if (!gameId || !isHost || state?.status !== "finished") return;
     try {
-      const next = await api.rematchAction(gameId);
-      applyState(next, false);
+      const res = await api.rematchAction(gameId);
+      applyTurnResult(res, false);
     } catch (e) {
       set({ error: errorText(e) });
     }
@@ -293,20 +312,25 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
     clearAuto();
     clearTimeoutTimer();
     clearPilotTimer();
-    const { gameId, userId } = get();
+    clearRowQueue();
+    clearResync();
+    clearLobbyTimer();
+    resetSyncState();
+    const { gameId } = get();
     if (channel) {
       api.unsubscribe(channel);
       channel = null;
     }
-    if (gameId && userId)
-      void api.setConnected(gameId, userId, false).catch(() => {});
+    // Tell the server we're gone for good: active game → our tokens come off
+    // the board and turns skip us; waiting lobby → the seat frees up.
+    if (gameId) void api.leaveAction(gameId).catch(() => {});
     set({ ...INITIAL });
     useNav.getState().popTo("home");
   },
 
   resync: async () => {
     const { gameId } = get();
-    if (gameId) await resyncGame(gameId);
+    if (gameId) scheduleResync(gameId, true);
   },
 
   setAway: (away) => {
@@ -340,6 +364,71 @@ let channel: RealtimeChannel | null = null;
 let autoTimer: ReturnType<typeof setTimeout> | null = null;
 let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
 
+// --- Optimistic action state ---------------------------------------------------
+// The server stamps every games write with a monotonic state_version (v).
+// lastAppliedV is the version on screen; anything at or below it is an echo.
+
+let lastAppliedV = -1;
+/** The optimistic move/pass currently awaiting the server's verdict. */
+let pending: { baseV: number; predicted: GameState } | null = null;
+/** A roll request is in flight (its tumble already started on the tap). */
+let rollInFlight = false;
+/** The tap already bumped rollSeq — swallow the arriving state's bump. */
+let rollBumped = false;
+
+function recordApplied(v: number | null | undefined): void {
+  if (v != null && v > lastAppliedV) lastAppliedV = v;
+}
+
+/** Deterministic-engine equality: both sides build states with identical key
+ *  order (same code, same JSON-roundtripped input), so stringify compares. */
+function statesEqual(a: GameState, b: GameState): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+/** Chain turn-op sends so a quick follow-up (an extra-turn roll fired on an
+ *  optimistic move) can't overtake the previous request on the wire. The UI
+ *  never waits on this — it already animated. */
+let sendChain: Promise<unknown> = Promise.resolve();
+function enqueueSend<T>(fn: () => Promise<T>): Promise<T> {
+  const run = sendChain.then(fn, fn);
+  sendChain = run.catch(() => {});
+  return run;
+}
+
+/**
+ * Apply a turn op's HTTP response, reconciling any optimistic prediction.
+ * The realtime echo may have arrived first — versions decide, not timing.
+ */
+function applyTurnResult(res: api.TurnResult, rolled: boolean): void {
+  const { state, v } = res;
+  if (v != null && v <= lastAppliedV) return; // realtime/resync got there first
+
+  if (pending) {
+    const confirmed =
+      (v == null || v === pending.baseV + 1) && statesEqual(state, pending.predicted);
+    pending = null;
+    recordApplied(v);
+    if (confirmed) return; // already on screen from the optimistic apply
+    // The server disagreed, or another write (stall bot) won the race and our
+    // own write bounced off the version guard — snap to the server's truth.
+    applyState(state, rolled);
+    return;
+  }
+
+  recordApplied(v);
+  applyState(state, rolled);
+}
+
+/** Forget all per-game optimistic/sync bookkeeping (leave, new subscribe). */
+function resetSyncState(): void {
+  lastAppliedV = -1;
+  pending = null;
+  rollInFlight = false;
+  rollBumped = false;
+  sendChain = Promise.resolve();
+}
+
 function clearAuto(): void {
   if (autoTimer) clearTimeout(autoTimer);
   autoTimer = null;
@@ -351,10 +440,11 @@ function clearTimeoutTimer(): void {
 }
 
 /**
- * Every client arms a skip for the active turn (including the current player's —
- * an AFK player's own app may be asleep). Fires a few seconds past the deadline
- * with per-client jitter so racers don't all pile on; the server dedupes. Any
- * fresh state reschedules this, so only a genuinely stalled turn ever fires.
+ * Every client arms a stall-timer for the active turn (including the current
+ * player's — an AFK player's own app may be asleep). Fires a few seconds past
+ * the deadline with per-client jitter so racers don't all pile on; the server
+ * re-checks the clock and has the bot play the stalled turn. Any fresh state
+ * reschedules this, so only a genuinely stalled turn ever fires.
  */
 function scheduleTimeout(active: boolean): void {
   clearTimeoutTimer();
@@ -367,8 +457,12 @@ async function requestTimeout(): Promise<void> {
   const { gameId, state } = useOnlineStore.getState();
   if (!gameId || state?.status !== "active") return;
   try {
-    const next = await api.timeoutAction(gameId);
-    applyState(next, false);
+    const res = await api.timeoutAction(gameId);
+    // The response is the state AFTER the server bot's whole turn; the turn's
+    // individual writes stream in as realtime rows. Queue it rather than apply
+    // it directly, so it can't leap ahead of their animations (it dedupes to a
+    // no-op when realtime already delivered everything).
+    enqueueGameRow({ state: res.state, status: res.state.status, state_version: res.v });
   } catch {
     // transient — realtime or the next resync will correct us
   }
@@ -376,18 +470,89 @@ async function requestTimeout(): Promise<void> {
 
 function subscribe(gameId: string): void {
   if (channel) api.unsubscribe(channel);
+  clearRowQueue();
+  resetSyncState();
   channel = api.subscribeGame(gameId, {
-    onGame: applyGameRow,
+    onGame: enqueueGameRow,
     onLobby: refreshLobby,
     onChat: receiveChat,
+    // Row updates during a socket drop are lost, not replayed — refetch.
+    onReconnect: () => scheduleResync(gameId, true),
   });
+}
+
+// --- Paced application of realtime rows ----------------------------------------
+// Under lag the socket can deliver several row updates in one burst. Applied
+// immediately they'd collapse into one render — the same token's two moves merge
+// into a >6-cell jump the Board won't hop, and a mid-animation restart cuts the
+// previous move short. Queue them instead: each state applies only after the
+// previous one's animation has played out. Local action responses still apply
+// directly (the actor wants instant feedback); their realtime echoes dedupe here.
+
+/** The slice of a games row the sync path actually consumes. */
+type GameSnapshot = Pick<api.GameRow, "state" | "status" | "state_version">;
+
+/** Small buffer after each animation before the next state lands. */
+const ROW_HOLD_PAD_MS = 120;
+let rowQueue: GameSnapshot[] = [];
+let rowHoldTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearRowQueue(): void {
+  rowQueue = [];
+  if (rowHoldTimer) clearTimeout(rowHoldTimer);
+  rowHoldTimer = null;
+}
+
+function enqueueGameRow(row: GameSnapshot): void {
+  rowQueue.push(row);
+  if (!rowHoldTimer) drainRowQueue();
+}
+
+function drainRowQueue(): void {
+  rowHoldTimer = null;
+  const row = rowQueue.shift();
+  if (!row) return;
+  const prev = useOnlineStore.getState().state;
+  const v = row.state_version ?? null;
+
+  // Echo of a state already applied (our own action's response/prediction, or
+  // a resync that overtook the stream): skip — don't restart the countdown or
+  // delay whatever is queued behind it. Versions decide when present; the
+  // stringify compare remains for rows written before the version column.
+  const stale =
+    v != null
+      ? v <= lastAppliedV
+      : !!(prev && row.state && JSON.stringify(prev) === JSON.stringify(row.state));
+  if (stale) {
+    drainRowQueue();
+    return;
+  }
+
+  if (pending && row.state && v != null) {
+    if (v === pending.baseV + 1 && statesEqual(row.state, pending.predicted)) {
+      // The realtime echo of our optimistic action — already on screen.
+      pending = null;
+      recordApplied(v);
+      drainRowQueue();
+      return;
+    }
+    // A write we didn't predict landed at or past our slot (stall bot won the
+    // race; our own write bounced off the version guard). Snap to it and keep
+    // draining — anything queued behind is newer still.
+    pending = null;
+  }
+
+  applyGameRow(row);
+  const hold = prev && row.state ? stateAnimationMs(prev, row.state) + ROW_HOLD_PAD_MS : 0;
+  rowHoldTimer = setTimeout(drainRowQueue, hold);
 }
 
 // --- Local-seat autopilot -----------------------------------------------------
 // When the local player idles out TURN_SECONDS on their own turn, the bot
 // policy starts playing their seat from this device (ordinary turn actions —
-// opponents can't tell) until they tap their avatar. Beats the server's
-// stall-skip (TURN_SECONDS + grace), which stays armed as the safety net.
+// opponents can't tell) until they tap their avatar. Beats the server-side
+// stall bot (TURN_SECONDS + grace), which stays armed as the safety net for
+// when this device is asleep or the app is closed.
 
 let pilotTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -469,7 +634,25 @@ function appendChat(p: Omit<ChatEvent, "id" | "at">): void {
   useOnlineStore.setState(applyChatEvent(st, p));
 }
 
-async function refreshLobby(): Promise<void> {
+/** players-table events arrive in bursts (join + presence toggles) — coalesce
+ *  them into one lobby fetch instead of one HTTP round trip per event. */
+const LOBBY_DEBOUNCE_MS = 150;
+let lobbyTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearLobbyTimer(): void {
+  if (lobbyTimer) clearTimeout(lobbyTimer);
+  lobbyTimer = null;
+}
+
+function refreshLobby(): void {
+  if (lobbyTimer) return;
+  lobbyTimer = setTimeout(() => {
+    lobbyTimer = null;
+    void doRefreshLobby();
+  }, LOBBY_DEBOUNCE_MS);
+}
+
+async function doRefreshLobby(): Promise<void> {
   const { gameId, isHost, status } = useOnlineStore.getState();
   if (!gameId) return;
   try {
@@ -489,10 +672,15 @@ async function refreshLobby(): Promise<void> {
   }
 }
 
-/** Merge profiles for these players into the store (best-effort, cosmetic). */
+/** Merge profiles for these players into the store (best-effort, cosmetic).
+ *  Already-cached users are skipped — profiles barely change mid-game, and
+ *  presence churn shouldn't cost a fetch. */
 async function fetchProfiles(lobby: api.LobbyPlayer[]): Promise<void> {
   try {
-    const rows = await api.getProfiles(lobby.map((p) => p.user_id));
+    const known = useOnlineStore.getState().profiles;
+    const missing = lobby.filter((p) => !known[p.user_id]).map((p) => p.user_id);
+    if (missing.length === 0) return;
+    const rows = await api.getProfiles(missing);
     if (rows.length === 0) return;
     const profiles = { ...useOnlineStore.getState().profiles };
     for (const r of rows) profiles[r.user_id] = r;
@@ -515,104 +703,121 @@ function applyState(state: GameState, rolled: boolean): void {
   // Reset the per-turn countdown on every active write (mirrors the server, which
   // refreshes turn_deadline on every write). Idle turns keep the same clock.
   const active = proj.status === "active";
+  // Our own roll's tumble already started on the tap — don't restart it when
+  // the rolled state arrives (whichever of HTTP/realtime/resync gets it here).
+  const bump = rolled && !rollBumped;
+  if (rolled) rollBumped = false;
   useOnlineStore.setState({
     state,
     validMoves: proj.validMoves,
     lastRoll: proj.lastRoll,
     message: proj.message,
     status: proj.status,
-    rollSeq: st.rollSeq + (rolled ? 1 : 0),
+    rollSeq: st.rollSeq + (bump ? 1 : 0),
     turnStartedAt: active ? Date.now() : null,
     turnSeq: active ? st.turnSeq + 1 : st.turnSeq,
   });
   scheduleTimeout(active);
   armAutoPilot(active);
-  if (proj.status !== "lobby") {
-    // Enter the game screen; replace a lobby entry so back never returns to a dead lobby.
-    const nav = useNav.getState();
-    const top = nav.stack[nav.stack.length - 1]!.name;
-    if (top === "lobby") nav.replace("onlineGame");
-    else if (top !== "onlineGame") nav.push("onlineGame");
-  }
+  // Enter the game screen; replace a lobby entry so back never returns to a dead lobby.
+  const nav = useNav.getState();
+  const top = nav.stack[nav.stack.length - 1]!.name;
+  if (top === "lobby") nav.replace("onlineGame");
+  else if (top !== "onlineGame") nav.push("onlineGame");
 }
 
-function applyGameRow(row: api.GameRow): void {
+function applyGameRow(row: GameSnapshot): void {
   if (!row.state || row.status === "waiting") {
     useOnlineStore.setState({ status: "lobby" });
     return;
   }
+  recordApplied(row.state_version);
   const st = useOnlineStore.getState();
   const prevDice = st.state?.diceValue ?? null;
+  // A busted third six never reaches diceValue (the same write hands the turn
+  // off), so detect it via lastAction; the turn change dedupes re-deliveries.
+  const busted =
+    bustedRollDice(row.state) !== null &&
+    st.state?.currentTurnPlayerId !== row.state.currentTurnPlayerId;
   const rolled =
-    row.state.diceValue != null &&
-    (st.state?.phase !== "awaiting-move" || prevDice !== row.state.diceValue);
+    busted ||
+    (row.state.diceValue != null &&
+      (st.state?.phase !== "awaiting-move" || prevDice !== row.state.diceValue));
   applyState(row.state, rolled);
 }
 
-async function resyncGame(gameId: string): Promise<void> {
+// Coalesced, single-flight resync. Errors and reconnects tend to arrive in
+// bursts on exactly the connections that can least afford four extra requests
+// per burst — collapse them into one fetch, and back off while it keeps failing.
+
+const RESYNC_COALESCE_MS = 500;
+const RESYNC_BACKOFF_MAX_MS = 4000;
+let resyncTimer: ReturnType<typeof setTimeout> | null = null;
+let resyncRunning = false;
+let resyncAgain = false;
+let resyncWantsLobby = false;
+let resyncBackoffMs = 0;
+
+function clearResync(): void {
+  if (resyncTimer) clearTimeout(resyncTimer);
+  resyncTimer = null;
+  resyncRunning = false;
+  resyncAgain = false;
+  resyncWantsLobby = false;
+  resyncBackoffMs = 0;
+}
+
+/** Request a resync; bursts coalesce into one run. `withLobby` refetches the
+ *  players list too (reconnects — seat changes were missed; action errors
+ *  don't need it, the realtime lobby stream is still alive). */
+function scheduleResync(gameId: string, withLobby = false): void {
+  resyncWantsLobby ||= withLobby;
+  if (resyncRunning) {
+    resyncAgain = true;
+    return;
+  }
+  if (resyncTimer) return;
+  resyncTimer = setTimeout(
+    () => {
+      resyncTimer = null;
+      void runResync(gameId);
+    },
+    Math.max(RESYNC_COALESCE_MS, resyncBackoffMs),
+  );
+}
+
+async function runResync(gameId: string): Promise<void> {
+  if (useOnlineStore.getState().gameId !== gameId) return; // left the game
+  resyncRunning = true;
+  const withLobby = resyncWantsLobby;
+  resyncWantsLobby = false;
   try {
     if (!channel) subscribe(gameId);
     const { userId } = useOnlineStore.getState();
     if (userId) void api.setConnected(gameId, userId, true).catch(() => {});
-    const lobby = await api.getLobby(gameId);
-    useOnlineStore.setState({ lobby });
-    void fetchProfiles(lobby);
+    if (withLobby) {
+      const lobby = await api.getLobby(gameId);
+      useOnlineStore.setState({ lobby });
+      void fetchProfiles(lobby);
+    }
     const row = await api.fetchGame(gameId);
+    // The fetch is the freshest truth — anything queued or predicted is older.
+    pending = null;
+    clearRowQueue();
     applyGameRow(row);
+    resyncBackoffMs = 0;
   } catch {
-    // best-effort
+    // Still failing — retry with backoff until it succeeds or the game ends.
+    resyncBackoffMs = Math.min(Math.max(resyncBackoffMs * 2, 1000), RESYNC_BACKOFF_MAX_MS);
+    resyncWantsLobby ||= withLobby;
+    resyncAgain = true;
+  } finally {
+    resyncRunning = false;
+    if (resyncAgain) {
+      resyncAgain = false;
+      scheduleResync(gameId, resyncWantsLobby);
+    }
   }
-}
-
-interface Projection {
-  validMoves: Move[];
-  message: string;
-  status: Status;
-  lastRoll: number | null;
-}
-
-function project(state: GameState, myPlayerId: string | null): Projection {
-  const win = checkWin(state);
-  if (win.finished && win.winnerPlayerId) {
-    return {
-      validMoves: [],
-      message: `${COLOR_LABEL[colorOf(state, win.winnerPlayerId)]} wins!`,
-      status: "finished",
-      lastRoll: state.diceValue,
-    };
-  }
-  // Play-to-completion: once I've locked a podium place I spectate the rest.
-  const myPlace = myPlayerId
-    ? (state.finishedOrder ?? []).indexOf(myPlayerId)
-    : -1;
-  if (myPlace !== -1) {
-    return {
-      validMoves: [],
-      message: `You finished ${ordinal(myPlace + 1)}! Watching the rest…`,
-      status: "active",
-      lastRoll: state.diceValue,
-    };
-  }
-  const myTurn = state.currentTurnPlayerId === myPlayerId;
-  const validMoves =
-    myTurn && state.phase === "awaiting-move"
-      ? getValidMoves(state, myPlayerId!)
-      : [];
-  const turnColor = COLOR_LABEL[colorOf(state, state.currentTurnPlayerId)];
-  let message: string;
-  if (!myTurn) {
-    message = `Waiting for ${turnColor}…`;
-  } else if (state.phase === "awaiting-roll") {
-    message = "Your turn — roll";
-  } else {
-    message =
-      validMoves.length === 0 ? "No moves — passing…" : "Choose a token";
-  }
-  return { validMoves, message, status: "active", lastRoll: state.diceValue };
-}
-
-function colorOf(state: GameState, playerId: string): PlayerColor {
-  return state.players.find((p) => p.id === playerId)!.color;
 }
 
 function errorText(e: unknown): string {

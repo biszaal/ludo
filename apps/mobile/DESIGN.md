@@ -102,7 +102,9 @@ Felt Charcoal text. This makes "whose turn it is" the loudest signal in the app.
 
 ## 7. Anti-Patterns (Banned)
 
-- No emojis anywhere in the UI (use Skia/SVG shapes and glyphs).
+- No emojis in app chrome (use Skia/SVG shapes and glyphs). Exception: player
+  expression — chat reactions and the speech bubbles beside avatars are emoji
+  by design (Ludo Club convention).
 - No `Inter`, no system-default headings, no serif fonts.
 - No pure black `#000000` — Felt Charcoal is the floor.
 - No neon glows, no oversaturated/fire-engine player colors, no rainbow gradients.

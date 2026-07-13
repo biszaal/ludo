@@ -34,8 +34,9 @@ apps/mobile/android/
 # Supabase
 supabase/.branches/
 supabase/.temp/
-# Generated: engine copied for Deno (run `npm run build:edge`)
+# Generated: engine + bot copied for Deno (run `npm run build:edge`)
 supabase/functions/_shared/engine/
+supabase/functions/_shared/bot/
 
 # Logs
 *.log

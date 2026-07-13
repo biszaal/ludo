@@ -30,6 +30,7 @@ export { validateMove, type ValidationResult } from "./validateMove.js";
 export { applyMove } from "./applyMove.js";
 export { endTurn } from "./endTurn.js";
 export { skipTurn } from "./skipTurn.js";
+export { leaveGame } from "./leaveGame.js";
 export { checkWin, type WinResult } from "./checkWin.js";
 
 // Read-only helpers handy for clients/bots projecting the state.

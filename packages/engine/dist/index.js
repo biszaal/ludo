@@ -15,6 +15,7 @@ export { validateMove } from "./validateMove.js";
 export { applyMove } from "./applyMove.js";
 export { endTurn } from "./endTurn.js";
 export { skipTurn } from "./skipTurn.js";
+export { leaveGame } from "./leaveGame.js";
 export { checkWin } from "./checkWin.js";
 // Read-only helpers handy for clients/bots projecting the state.
 export { getCurrentPlayer, getPlayerTokens, hasPlayerWon } from "./internal.js";
