@@ -7,8 +7,16 @@
  * service-role key (auto-injected) to write past RLS, but authorizes each call
  * against the caller's JWT.
  *
- * Body: { op: "create" | "join" | "start" | "roll" | "move" | "pass" | "timeout" | "rematch" | "leave", ... }
+ * Body: { op: "create" | "join" | "start" | "roll" | "move" | "pass" | "timeout" | "rematch" | "leave"
+ *             | "quickMatch" | "quickBotFill", ... }
  * Always responds 200 with either a payload or `{ error }`.
+ *
+ * Quick match: "quickMatch" pairs the caller into the oldest open queue game
+ * (atomic SQL claim) or opens a new one ({ waiting: true }). If nobody shows
+ * up, the client calls "quickBotFill" and the server seats a hidden bot — a
+ * real auth user with an ordinary profile, driven server-side from turn 1 via
+ * chained waitUntil steps (see driveBotTurns). Nothing client-readable marks
+ * the seat as a bot.
  */
 
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -132,6 +140,14 @@ Deno.serve(async (req: Request) => {
         return await opRematch(admin, userId, String(body.gameId));
       case "leave":
         return await opLeave(admin, userId, String(body.gameId));
+      case "quickMatch":
+        return await opQuickMatch(admin, userId);
+      case "quickBotFill":
+        return await opQuickBotFill(admin, userId, String(body.gameId));
+      case "walletGet":
+        return await opWalletGet(admin, userId);
+      case "walletTopup":
+        return await opWalletTopup(admin, userId);
       default:
         return json({ error: "Unknown op." });
     }
@@ -182,14 +198,31 @@ async function opJoin(admin: SupabaseClient, userId: string, rawCode: string): P
 }
 
 async function opStart(admin: SupabaseClient, userId: string, gameId: string): Promise<Response> {
-  const { data: game } = await admin.from("games").select("id, host_user_id, status, state_version").eq("id", gameId).single();
+  const { data: game } = await admin.from("games").select("id, host_user_id, status").eq("id", gameId).single();
   if (!game) return json({ error: "Game not found." });
   if (game.host_user_id !== userId) return json({ error: "Only the host can start." });
   if (game.status !== "waiting") return json({ error: "Game already started." });
+  const started = await startGameNow(admin, gameId);
+  return json(started);
+}
+
+type StartResult = { state: GameState; v: number } | { error: string };
+
+/**
+ * Deal the game from whoever is seated and flip the row to active. No host
+ * check — quick-match paths start rooms on behalf of either seat. Racing
+ * starts collapse via the version guard; the loser gets the live row back.
+ */
+async function startGameNow(admin: SupabaseClient, gameId: string): Promise<StartResult> {
+  const { data: game } = await admin.from("games").select("id, status, is_quick, state, state_version").eq("id", gameId).single();
+  if (!game) return { error: "Game not found." };
   const v = (game.state_version as number | null) ?? 0;
+  if (game.status !== "waiting") {
+    return game.state ? { state: game.state as GameState, v } : { error: "Game already started." };
+  }
 
   const { data: lobby } = await admin.from("players").select("id, user_id, color, seat").eq("game_id", gameId).order("seat");
-  if (!lobby || lobby.length < 2) return json({ error: "Need at least 2 players." });
+  if (!lobby || lobby.length < 2) return { error: "Need at least 2 players." };
 
   const colors = seatColors(lobby.length);
   const players = lobby.map((p, i) => ({ id: p.id, userId: p.user_id, color: colors[i]! }));
@@ -202,12 +235,18 @@ async function opStart(admin: SupabaseClient, userId: string, gameId: string): P
     .eq("state_version", v)
     .select("id")
     .maybeSingle();
-  if (error) return json({ error: error.message });
-  if (!updated) return await freshState(admin, gameId, state);
+  if (error) return { error: error.message };
+  if (!updated) {
+    const { data } = await admin.from("games").select("state, state_version").eq("id", gameId).single();
+    return data?.state
+      ? { state: data.state as GameState, v: (data.state_version as number | null) ?? 0 }
+      : { error: "Could not start the game." };
+  }
 
   afterResponse(admin.from("players").update({ missed_turns: 0 }).eq("game_id", gameId));
+  afterGameWrite(admin, gameId, !!game.is_quick, state);
 
-  return json({ state, v: v + 1 });
+  return { state, v: v + 1 };
 }
 
 /**
@@ -217,11 +256,26 @@ async function opStart(admin: SupabaseClient, userId: string, gameId: string): P
  * as a fire-and-forget on the way out.
  */
 async function opLeave(admin: SupabaseClient, userId: string, gameId: string): Promise<Response> {
-  const { data: game } = await admin.from("games").select("id, host_user_id, status, state, state_version").eq("id", gameId).single();
+  const { data: game } = await admin.from("games").select("id, host_user_id, status, state, state_version, is_quick").eq("id", gameId).single();
   if (!game) return json({ error: "Game not found." });
   const v = (game.state_version as number | null) ?? 0;
 
   if (game.status === "waiting") {
+    if (game.is_quick && game.host_user_id === userId) {
+      // Cancel matchmaking: tear the queue room down so another searcher
+      // can't claim a seat opposite someone who already walked away. The
+      // status guard no-ops if a claim+start won the race (no refund then —
+      // the game is live and the stake rides on it).
+      const { data: deleted } = await admin
+        .from("games")
+        .delete()
+        .eq("id", gameId)
+        .eq("status", "waiting")
+        .select("stake");
+      const stake = (deleted?.[0]?.stake as number | null) ?? 0;
+      if (stake > 0) await walletApply(admin, userId, stake, "stake-refund", gameId);
+      return json({ ok: true });
+    }
     // Free the seat so someone else can take it. The host's seat stays (the
     // room is theirs); their absence just leaves the lobby idle.
     if (game.host_user_id !== userId) {
@@ -250,12 +304,14 @@ async function opLeave(admin: SupabaseClient, userId: string, gameId: string): P
   if (!updated) return await freshState(admin, gameId, state);
 
   afterResponse(admin.from("moves").insert({ game_id: gameId, player_id: me.id, action: { action: "leave" } }));
+  await settleIfFinished(admin, gameId, next);
+  afterGameWrite(admin, gameId, !!game.is_quick, next);
   return json({ state: next, v: v + 1 });
 }
 
 /** Host-only: reset a finished game to a fresh state with the same seats/colors. */
 async function opRematch(admin: SupabaseClient, userId: string, gameId: string): Promise<Response> {
-  const { data: game } = await admin.from("games").select("id, host_user_id, status, state, state_version").eq("id", gameId).single();
+  const { data: game } = await admin.from("games").select("id, host_user_id, status, state, state_version, is_quick").eq("id", gameId).single();
   if (!game || !game.state) return json({ error: "Game not found." });
   if (game.host_user_id !== userId) return json({ error: "Only the host can start a rematch." });
   if (game.status !== "finished") return json({ error: "The game is still in progress." });
@@ -270,7 +326,10 @@ async function opRematch(admin: SupabaseClient, userId: string, gameId: string):
 
   const { data: updated, error } = await admin
     .from("games")
-    .update({ state: next, status: "active", current_turn_player_id: next.currentTurnPlayerId, turn_deadline: turnDeadline(next), state_version: v + 1 })
+    // Rematches play for fun: the previous pot is already paid out, and
+    // silently re-debiting seated guests would be a hidden charge — so the
+    // stake resets along with the payout latch.
+    .update({ state: next, status: "active", current_turn_player_id: next.currentTurnPlayerId, turn_deadline: turnDeadline(next), state_version: v + 1, stake: 0, payout_done: false })
     .eq("id", gameId)
     .eq("state_version", v)
     .select("id")
@@ -281,6 +340,7 @@ async function opRematch(admin: SupabaseClient, userId: string, gameId: string):
   afterResponse(admin.from("players").update({ missed_turns: 0 }).eq("game_id", gameId));
   const me = prev.players.find((p) => p.userId === userId);
   afterResponse(admin.from("moves").insert({ game_id: gameId, player_id: me?.id ?? null, action: { action: "rematch" } }));
+  afterGameWrite(admin, gameId, !!game.is_quick, next);
 
   return json({ state: next, v: v + 1 });
 }
@@ -292,7 +352,7 @@ async function opTurn(
   action: "roll" | "move" | "pass",
   tokenId?: string,
 ): Promise<Response> {
-  const { data: game } = await admin.from("games").select("id, state, state_version").eq("id", gameId).single();
+  const { data: game } = await admin.from("games").select("id, state, state_version, is_quick").eq("id", gameId).single();
   if (!game || !game.state) return json({ error: "Game not found." });
 
   const state = game.state as GameState;
@@ -351,13 +411,15 @@ async function opTurn(
       .eq("user_id", userId)
       .or("missed_turns.neq.0,is_connected.eq.false"),
   );
+  await settleIfFinished(admin, gameId, next);
+  afterGameWrite(admin, gameId, !!game.is_quick, next);
 
   return json({ state: next, v: v + 1 });
 }
 
 /** Pause between the bot's writes so clients can animate each one — outlasts
- *  the ~950ms die tumble, mirroring the client autopilot's pacing. */
-const BOT_STEP_PAUSE_MS = 1100;
+ *  the ~700ms die tumble, mirroring the client autopilot's pacing. */
+const BOT_STEP_PAUSE_MS = 900;
 /**
  * Consecutive whole turns a player may idle through (bot-played) before the
  * server removes them from the game. A briefly-minimized app resets the count
@@ -379,7 +441,7 @@ const BOT_MAX_ACTIONS = 8;
  * callers and a returning player can never double-act a turn.
  */
 async function opTimeout(admin: SupabaseClient, userId: string, gameId: string): Promise<Response> {
-  const { data: game } = await admin.from("games").select("id, state, turn_deadline, state_version").eq("id", gameId).single();
+  const { data: game } = await admin.from("games").select("id, state, turn_deadline, state_version, is_quick").eq("id", gameId).single();
   if (!game || !game.state) return json({ error: "Game not found." });
   let v = (game.state_version as number | null) ?? 0;
 
@@ -398,10 +460,23 @@ async function opTimeout(admin: SupabaseClient, userId: string, gameId: string):
   const awayPlayerId = state.currentTurnPlayerId;
   const awayUserId = state.players.find((p) => p.id === awayPlayerId)?.userId;
 
+  // Hidden-bot seat whose driver isolate died: no Away badge, no idle strikes
+  // (either would out the bot). The loop below simply plays the turn.
+  let stalledBot = false;
+  if (game.is_quick && awayUserId) {
+    const { data: botRow } = await admin
+      .from("game_bots")
+      .select("user_id")
+      .eq("game_id", gameId)
+      .eq("user_id", awayUserId)
+      .maybeSingle();
+    stalledBot = !!botRow;
+  }
+
   // They idled through the whole clock — show the room an Away badge and count
   // the strike. Their own device clears both on foreground/resync (or their
   // next action); a closed app never comes back, so the strikes accumulate.
-  if (awayUserId) {
+  if (awayUserId && !stalledBot) {
     const { data: row } = await admin
       .from("players")
       .select("missed_turns")
@@ -431,6 +506,8 @@ async function opTimeout(admin: SupabaseClient, userId: string, gameId: string):
       if (error) return json({ error: error.message });
       if (!updated) return await freshState(admin, gameId, state);
       afterResponse(admin.from("moves").insert({ game_id: gameId, player_id: awayPlayerId, action: { action: "auto-leave", missed } }));
+      await settleIfFinished(admin, gameId, next);
+      afterGameWrite(admin, gameId, !!game.is_quick, next);
       return json({ state: next, v: v + 1 });
     }
   }
@@ -482,5 +559,354 @@ async function opTimeout(admin: SupabaseClient, userId: string, gameId: string):
     await new Promise((resolve) => setTimeout(resolve, BOT_STEP_PAUSE_MS));
   }
 
+  // If the turn handed off to a hidden bot (or the game just finished),
+  // settle any pot and resume the quick-game machinery.
+  await settleIfFinished(admin, gameId, cur);
+  afterGameWrite(admin, gameId, !!game.is_quick, cur);
+
   return json({ state: cur, v });
+}
+
+// --- Coins -------------------------------------------------------------------
+// All balances live in `wallets`, mutated ONLY through the wallet_apply RPC
+// (atomic, overdraw-guarded, ledgered). Quick match stakes a fixed entry;
+// the winner takes the pot. Balances below the floor top back up on request
+// so a player can always afford the next game.
+
+const QUICK_STAKE = 100;
+const WALLET_FLOOR = 100;
+
+/** Returns the new balance, or null when a debit would overdraw (or the RPC failed). */
+async function walletApply(
+  admin: SupabaseClient,
+  userId: string,
+  delta: number,
+  reason: string,
+  gameId: string | null,
+): Promise<number | null> {
+  const { data, error } = await admin.rpc("wallet_apply", {
+    p_user: userId,
+    p_delta: delta,
+    p_reason: reason,
+    p_game: gameId,
+  });
+  if (error) return null;
+  return (data as number | null) ?? null;
+}
+
+/**
+ * Pay the pot exactly once when a staked game finishes: the payout_done CAS is
+ * the latch, so racing finisher paths (opTurn, bot driver, leave, timeout)
+ * collapse to a single credit. A winning hidden bot forfeits to the house.
+ */
+async function settleIfFinished(admin: SupabaseClient, gameId: string, next: GameState): Promise<void> {
+  if (next.status !== "finished") return;
+  const { data: claimed } = await admin
+    .from("games")
+    .update({ payout_done: true })
+    .eq("id", gameId)
+    .eq("payout_done", false)
+    .gt("stake", 0)
+    .select("stake")
+    .maybeSingle();
+  if (!claimed) return;
+  const stake = (claimed.stake as number | null) ?? 0;
+  const winnerId = next.finishedOrder[0] ?? next.winnerPlayerId;
+  const winnerUserId = next.players.find((p) => p.id === winnerId)?.userId;
+  if (!winnerUserId || stake <= 0) return;
+  const { data: botRow } = await admin
+    .from("game_bots")
+    .select("user_id")
+    .eq("game_id", gameId)
+    .eq("user_id", winnerUserId)
+    .maybeSingle();
+  if (botRow) return;
+  await walletApply(admin, winnerUserId, stake * 2, "win", gameId);
+}
+
+async function opWalletGet(admin: SupabaseClient, userId: string): Promise<Response> {
+  await admin.from("wallets").upsert({ user_id: userId }, { onConflict: "user_id", ignoreDuplicates: true });
+  const { data } = await admin.from("wallets").select("balance").eq("user_id", userId).single();
+  return json({ balance: (data?.balance as number | null) ?? 0 });
+}
+
+/** Top a low balance back up to the floor. Server-guarded: a balance at or
+ *  above the floor gets nothing, so the client can't farm it. */
+async function opWalletTopup(admin: SupabaseClient, userId: string): Promise<Response> {
+  await admin.from("wallets").upsert({ user_id: userId }, { onConflict: "user_id", ignoreDuplicates: true });
+  const { data } = await admin.from("wallets").select("balance").eq("user_id", userId).single();
+  const balance = (data?.balance as number | null) ?? 0;
+  if (balance >= WALLET_FLOOR) return json({ balance });
+  const topped = await walletApply(admin, userId, WALLET_FLOOR - balance, "floor-topup", null);
+  return json({ balance: topped ?? balance });
+}
+
+// --- Quick match + hidden bots ----------------------------------------------
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Beat before the hidden "opponent" reacts — reads as a human noticing their turn. */
+const BOT_TURN_LEAD_MS = 900;
+/** Short deadline while the server drives a bot: if the driving isolate dies,
+ *  any client's timeout call resumes the turn after ~12s instead of 30. */
+const BOT_TURN_SECONDS = 12;
+
+/** Fill-in identities: everyday first names (some with an initial), mixed with
+ *  the app's own guest-handle format so the pool reads like the player base. */
+const BOT_NAMES = [
+  "Maya", "Arjun K", "Sofia", "Leo M", "Priya", "Daniel", "Amara", "Kenji",
+  "Lucas P", "Anika", "Mateo", "Zoe", "Rahul", "Elena V", "Sam T", "Nadia",
+  "Omar", "Isla", "Ravi J", "Clara", "Tomas", "Mina K", "Jonas", "Aisha",
+  "Nikhil", "Lena", "Marco B", "Tara", "Felix", "Divya", "Noah S", "Ipsita",
+];
+
+function pickBotName(rng: () => number, attempt: number): string {
+  // A third of the pool presents as app guests; the rest as chosen names.
+  if (rng() < 0.34) return `guest${String(Math.floor(rng() * 900000) + 100000)}`;
+  const base = BOT_NAMES[Math.floor(rng() * BOT_NAMES.length)]!;
+  return attempt === 0 ? base : `${base}${Math.floor(rng() * 90) + 10}`;
+}
+
+/** Avatar ids mirrored from the client's Avatar.tsx set. */
+const BOT_AVATARS = ["leo", "sunny", "coco", "zara", "rex", "nina", "milo", "ivy", "ace", "ruby", "bruno", "kito"];
+
+/**
+ * Pair the caller into the oldest open quick game, or open a new one. The SQL
+ * claim is atomic (row lock + seat insert in one transaction), so simultaneous
+ * searchers can't both end up hosting empty rooms.
+ */
+async function opQuickMatch(admin: SupabaseClient, userId: string): Promise<Response> {
+  // Re-tap while already searching: hand back the same waiting room.
+  const { data: mine } = await admin
+    .from("players")
+    .select("id, game_id, games!inner(status, is_quick)")
+    .eq("user_id", userId)
+    .eq("games.status", "waiting")
+    .eq("games.is_quick", true)
+    .limit(1)
+    .maybeSingle();
+  if (mine) return json({ gameId: mine.game_id, playerId: mine.id, waiting: true });
+
+  const { data: claimed, error: claimErr } = await admin.rpc("quick_match_claim", { p_user: userId });
+  if (claimErr) return json({ error: claimErr.message });
+  if (claimed) {
+    const gameId = String(claimed.game_id);
+    const playerId = String(claimed.player_id);
+    // Seat first, stake second: an overdraw hands the seat straight back.
+    const debited = await walletApply(admin, userId, -QUICK_STAKE, "stake", gameId);
+    if (debited === null) {
+      await admin.from("players").delete().eq("id", playerId);
+      return json({ error: `Not enough coins — you need ${QUICK_STAKE} to play.` });
+    }
+    const started = await startGameNow(admin, gameId);
+    if ("error" in started) return json({ error: started.error });
+    return json({ gameId, playerId, state: started.state, v: started.v, stake: QUICK_STAKE });
+  }
+
+  const debited = await walletApply(admin, userId, -QUICK_STAKE, "stake", null);
+  if (debited === null) return json({ error: `Not enough coins — you need ${QUICK_STAKE} to play.` });
+
+  const { data: game, error } = await admin
+    .from("games")
+    .insert({ room_code: genCode(), host_user_id: userId, status: "waiting", is_quick: true, stake: QUICK_STAKE })
+    .select("id")
+    .single();
+  if (error || !game) {
+    await walletApply(admin, userId, QUICK_STAKE, "stake-refund", null);
+    return json({ error: error?.message ?? "Could not start matchmaking." });
+  }
+
+  const { data: player, error: pErr } = await admin
+    .from("players")
+    .insert({ game_id: game.id, user_id: userId, color: "red", seat: 0, is_host: true })
+    .select("id")
+    .single();
+  if (pErr || !player) {
+    await walletApply(admin, userId, QUICK_STAKE, "stake-refund", game.id);
+    return json({ error: pErr?.message ?? "Could not start matchmaking." });
+  }
+
+  return json({ gameId: game.id, playerId: player.id, waiting: true, stake: QUICK_STAKE });
+}
+
+/**
+ * Nobody joined the caller's quick game in time — seat a hidden bot and start.
+ * If a human slipped in while the client's timer ran, this just starts the
+ * game with them instead (all the races collapse into "start with whoever is
+ * seated"; the version guard dedups racing starts).
+ */
+async function opQuickBotFill(admin: SupabaseClient, userId: string, gameId: string): Promise<Response> {
+  const { data: game } = await admin.from("games").select("id, status, is_quick, state, state_version").eq("id", gameId).single();
+  if (!game || !game.is_quick) return json({ error: "Game not found." });
+  if (game.status !== "waiting") {
+    return game.state
+      ? json({ state: game.state as GameState, v: (game.state_version as number | null) ?? 0 })
+      : json({ error: "Game not found." });
+  }
+
+  const { data: seated } = await admin.from("players").select("id, user_id").eq("game_id", gameId);
+  if (!seated?.some((p) => p.user_id === userId)) return json({ error: "You are not in this game." });
+
+  if (seated.length === 1) {
+    const botUserId = await claimOrCreateBotIdentity(admin, gameId);
+    if (!botUserId) return json({ error: "Could not find an opponent. Try again." });
+
+    const { error: seatErr } = await admin
+      .from("players")
+      .insert({ game_id: gameId, user_id: botUserId, color: "yellow", seat: 1 });
+    if (seatErr) {
+      // A human took the seat between our read and the insert — release the
+      // identity and fall through to start with them.
+      afterResponse(
+        admin.from("bot_identities").update({ in_use_game_id: null }).eq("user_id", botUserId).eq("in_use_game_id", gameId),
+      );
+    } else {
+      await admin.from("game_bots").insert({ game_id: gameId, user_id: botUserId });
+    }
+  }
+
+  const started = await startGameNow(admin, gameId);
+  return json(started);
+}
+
+/**
+ * Reuse a free identity from the pool, or mint one: a real auth user (so the
+ * profiles FK holds) with an ordinary profile row — indistinguishable from a
+ * human to every client-readable surface.
+ */
+async function claimOrCreateBotIdentity(admin: SupabaseClient, gameId: string): Promise<string | null> {
+  const { data: claimed } = await admin.rpc("claim_bot_identity", { p_game: gameId });
+  if (claimed) return String(claimed);
+
+  const { data: created, error } = await admin.auth.admin.createUser({
+    email: `bot-${crypto.randomUUID()}@bots.ludo.internal`,
+    email_confirm: true,
+  });
+  if (error || !created?.user) return null;
+  const uid = created.user.id;
+  await admin.from("bot_identities").insert({ user_id: uid, in_use_game_id: gameId });
+
+  const avatar = BOT_AVATARS[Math.floor(cryptoRng() * BOT_AVATARS.length)]!;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const name = pickBotName(cryptoRng, attempt);
+    const { error: profErr } = await admin.from("profiles").insert({ user_id: uid, display_name: name, avatar_id: avatar });
+    if (!profErr) return uid;
+    if (!/unique|duplicate/i.test(profErr.message)) break;
+  }
+  // Names exhausted (or another failure): a timestamp guest handle is unique enough.
+  await admin
+    .from("profiles")
+    .insert({ user_id: uid, display_name: `guest${String(Date.now()).slice(-6)}`, avatar_id: avatar })
+    .then(undefined, () => {});
+  return uid;
+}
+
+/**
+ * Post-write hook for quick games: on finish, release the bots' identities back
+ * to the pool; while active, if the turn just landed on a hidden bot, drive it
+ * after a human-feeling pause. Runs via waitUntil — never on the response path.
+ * Every write inside is version-guarded, so a duplicate driver (racing calls,
+ * an opTimeout fallback) loses cleanly instead of double-acting.
+ */
+function afterGameWrite(admin: SupabaseClient, gameId: string, isQuick: boolean, next: GameState): void {
+  if (!isQuick) return;
+  afterResponse(
+    (async () => {
+      const { data } = await admin.from("game_bots").select("user_id").eq("game_id", gameId);
+      const botIds = new Set((data ?? []).map((r) => String(r.user_id)));
+      if (botIds.size === 0) return;
+
+      if (next.status === "finished") {
+        await admin.from("bot_identities").update({ in_use_game_id: null }).eq("in_use_game_id", gameId);
+        return;
+      }
+      if (next.status !== "active") return;
+
+      // A rematch re-deals the same room — re-mark the identities as in use
+      // (best-effort; purely advisory bookkeeping for the reuse pool).
+      if (next.lastAction?.type === "createGame") {
+        await admin
+          .from("bot_identities")
+          .update({ in_use_game_id: gameId })
+          .in("user_id", [...botIds])
+          .is("in_use_game_id", null);
+      }
+
+      const uid = next.players.find((p) => p.id === next.currentTurnPlayerId)?.userId;
+      if (!uid || !botIds.has(uid)) return;
+      await sleep(BOT_TURN_LEAD_MS);
+      await driveBotTurns(admin, gameId, botIds);
+    })(),
+  );
+}
+
+/**
+ * Server-side driver for hidden-bot seats: re-read, act, CAS-write, pace,
+ * repeat while the turn belongs to a bot. Re-reading every step makes racing
+ * drivers harmless — a lost write just re-reads the winner's row and carries
+ * on from there. The step cap bounds one isolate's run; the short bot deadline
+ * plus the clients' opTimeout path resumes a turn if the isolate is evicted.
+ */
+async function driveBotTurns(admin: SupabaseClient, gameId: string, botIds: Set<string>): Promise<void> {
+  for (let step = 0; step < BOT_MAX_ACTIONS * 3; step++) {
+    const { data: game } = await admin.from("games").select("state, state_version").eq("id", gameId).single();
+    const cur = game?.state as GameState | undefined;
+    if (!cur) return;
+    const v = (game!.state_version as number | null) ?? 0;
+    if (cur.status !== "active") {
+      await admin.from("bot_identities").update({ in_use_game_id: null }).eq("in_use_game_id", gameId);
+      return;
+    }
+    const pid = cur.currentTurnPlayerId;
+    const uid = cur.players.find((p) => p.id === pid)?.userId;
+    if (!uid || !botIds.has(uid)) return; // a human's turn — stand down
+
+    let next: GameState;
+    let logged: Record<string, unknown>;
+    if (cur.phase === "awaiting-roll") {
+      const roll = rollDice(cur, cryptoRng);
+      next = roll.newState;
+      logged = { action: "bot-roll", dice: roll.diceValue };
+    } else {
+      const moves = getValidMoves(cur, pid);
+      if (moves.length === 0) {
+        next = endTurn(cur);
+        logged = { action: "bot-pass", dice: cur.diceValue };
+      } else {
+        const move = chooseMove(cur, pid, moves);
+        next = applyMove(cur, { tokenId: move.tokenId });
+        logged = { action: "bot-move", tokenId: move.tokenId, dice: cur.diceValue };
+      }
+    }
+
+    const nextUid = next.players.find((p) => p.id === next.currentTurnPlayerId)?.userId;
+    const nextIsBot = !!nextUid && botIds.has(nextUid);
+    const deadlineSecs = nextIsBot ? BOT_TURN_SECONDS : TURN_SECONDS;
+    const { data: updated, error } = await admin
+      .from("games")
+      .update({
+        state: next,
+        status: next.status,
+        current_turn_player_id: next.currentTurnPlayerId,
+        turn_deadline: next.status === "active" ? new Date(Date.now() + deadlineSecs * 1000).toISOString() : null,
+        state_version: v + 1,
+      })
+      .eq("id", gameId)
+      .eq("state_version", v)
+      .select("id")
+      .maybeSingle();
+    if (error) return;
+
+    if (updated) {
+      afterResponse(admin.from("moves").insert({ game_id: gameId, player_id: pid, action: logged }));
+      if (next.status !== "active") {
+        await settleIfFinished(admin, gameId, next);
+        await admin.from("bot_identities").update({ in_use_game_id: null }).eq("in_use_game_id", gameId);
+        return;
+      }
+      if (!nextIsBot) return;
+    }
+    // CAS loss: loop back, re-read the winner's row and re-decide from there.
+    await sleep(BOT_STEP_PAUSE_MS);
+  }
 }

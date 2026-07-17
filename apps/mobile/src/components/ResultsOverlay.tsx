@@ -30,6 +30,8 @@ interface ResultsOverlayProps {
   footnote?: string | null;
   /** Online only: offer "Add friend" on other players (real auth users). */
   canAddFriends?: boolean;
+  /** Coins each seat staked (0/undefined = friendly game, no payout lines). */
+  stake?: number;
   onHome: () => void;
 }
 
@@ -38,7 +40,7 @@ function ordinal(rank: number): string {
   return rank === 1 ? "1st" : rank === 2 ? "2nd" : rank === 3 ? "3rd" : `${rank}th`;
 }
 
-export function ResultsOverlay({ state, nameFor, avatarFor, onRematch, footnote, canAddFriends = false, onHome }: ResultsOverlayProps) {
+export function ResultsOverlay({ state, nameFor, avatarFor, onRematch, footnote, canAddFriends = false, stake = 0, onHome }: ResultsOverlayProps) {
   const userIdOf = (playerId: string) => state.players.find((p) => p.id === playerId)?.userId ?? null;
   const { width, height } = useWindowDimensions();
   const standings = computeStandings(state);
@@ -68,7 +70,12 @@ export function ResultsOverlay({ state, nameFor, avatarFor, onRematch, footnote,
         height={height}
         originX={width / 2}
         originY={height * 0.3}
-        colors={[teamColor[winner.color], palette.porcelain, teamTint[winner.color]]}
+        // Staked wins rain coin golds; friendly wins burst in the winner's color.
+        colors={
+          stake > 0
+            ? ["#F5C542", "#FFE08A", "#C8951B"]
+            : [teamColor[winner.color], palette.porcelain, teamTint[winner.color]]
+        }
       />
 
       {/* Winner block */}
@@ -98,7 +105,9 @@ export function ResultsOverlay({ state, nameFor, avatarFor, onRematch, footnote,
           <Text style={{ fontFamily: font.semibold, fontSize: 12, letterSpacing: 1, color: palette.feltCharcoal }}>1ST</Text>
         </View>
         <Text style={{ fontFamily: font.display, fontSize: 26, color: palette.porcelain }}>{winnerName}</Text>
-        <Text style={{ fontFamily: font.medium, fontSize: 15, color: palette.mutedSteel }}>wins the game</Text>
+        <Text style={{ fontFamily: font.medium, fontSize: 15, color: palette.mutedSteel }}>
+          {stake > 0 ? `wins the pot — +${stake * 2} coins` : "wins the game"}
+        </Text>
       </Animated.View>
 
       {/* Ranked rows (2nd onward — the winner is the block above). Players who
@@ -128,7 +137,7 @@ export function ResultsOverlay({ state, nameFor, avatarFor, onRematch, footnote,
               </Text>
               {!gone && canAddFriends && userIdOf(s.playerId) ? <AddFriendButton userId={userIdOf(s.playerId)!} /> : null}
               <Text style={{ fontFamily: font.mono, fontSize: 13, color: palette.mutedSteel }}>
-                {gone ? "Left" : `${s.finished}/4`}
+                {gone ? "Left" : stake > 0 ? `−${stake}` : `${s.finished}/4`}
               </Text>
             </Surface3D>
           );

@@ -14,6 +14,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { TableBackground } from "../components/TableBackground";
 import { Button } from "../components/Button";
 import { AVATARS, AvatarGlyph } from "../components/Avatar";
+import { CoinsPill } from "../components/CoinsPill";
 import { isNameTaken } from "../net/api";
 import { useNav } from "../store/navStore";
 import { MAX_NAME_LENGTH, useProfile } from "../store/profileStore";
@@ -66,6 +67,7 @@ export function ProfileScreen() {
             <Text style={{ fontFamily: font.display, fontSize: 20, color: palette.porcelain }}>{displayName}</Text>
             <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel }}>Shown to friends in online rooms.</Text>
           </View>
+          <CoinsPill />
         </View>
 
         <View style={{ gap: space.sm }}>

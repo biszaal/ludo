@@ -8,7 +8,7 @@
 import { FINISH_REL_INDEX, toRelativeIndex, type Color, type GameState, type TokenPosition } from "@ludo/engine";
 
 /** Per-cell hop duration (ms). Slower = more playful, child's-game pacing. */
-export const HOP_STEP_MS = 175;
+export const HOP_STEP_MS = 150;
 /** Single-fly duration (ms) for non-walkable moves: yard exits, capture returns. */
 export const FLY_MS = 240;
 

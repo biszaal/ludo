@@ -1,17 +1,17 @@
 /**
- * The emoji strip that opens from the bottom-left action cluster (online
- * play). One tap sends the reaction to the room and closes the strip; the
- * backdrop closes it without sending.
+ * The emoji strip that opens from the bottom-left action cluster. One tap
+ * sends the reaction (its ID goes over the wire; see lib/emoji.ts) and closes
+ * the strip; the backdrop closes it without sending. Sprites are our own
+ * generated set — no unicode emoji.
  */
 
-import { Pressable, Text, View } from "react-native";
+import { Image, Pressable, View } from "react-native";
 import Animated, { Easing, FadeIn, FadeOut } from "react-native-reanimated";
 import { Surface3D } from "./Surface3D";
+import { EMOJIS } from "../lib/emoji";
 import { playSound } from "../lib/sound";
 import { tapLight } from "../lib/haptics";
 import { radius, space } from "../theme";
-
-export const REACTIONS = ["😂", "😭", "👍", "🔥", "😡", "🎉"] as const;
 
 interface ReactionBarProps {
   onSend: (value: string) => void;
@@ -26,18 +26,22 @@ export function ReactionBar({ onSend, onClose }: ReactionBarProps) {
         entering={FadeIn.duration(140).easing(Easing.out(Easing.cubic))}
         exiting={FadeOut.duration(120)}
         // Just above the bottom-left cluster (44px buttons + status block).
-        style={{ position: "absolute", bottom: 108, left: space.xl }}
+        style={{ position: "absolute", bottom: 108, left: space.xl, right: space.xl }}
       >
-        <Surface3D rad={radius.pill} edge={3} faceStyle={{ flexDirection: "row", paddingHorizontal: space.sm, paddingVertical: space.xs }}>
-          {REACTIONS.map((emoji) => (
+        <Surface3D
+          rad={radius.lg}
+          edge={3}
+          faceStyle={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", paddingHorizontal: space.sm, paddingVertical: space.xs }}
+        >
+          {EMOJIS.map((emoji) => (
             <Pressable
-              key={emoji}
+              key={emoji.id}
               accessibilityRole="button"
-              accessibilityLabel={`React ${emoji}`}
+              accessibilityLabel={`React: ${emoji.label}`}
               onPress={() => {
                 playSound("tap");
                 tapLight();
-                onSend(emoji);
+                onSend(emoji.id);
                 onClose();
               }}
               style={({ pressed }) => ({
@@ -46,7 +50,7 @@ export function ReactionBar({ onSend, onClose }: ReactionBarProps) {
                 transform: [{ scale: pressed ? 1.2 : 1 }],
               })}
             >
-              <Text style={{ fontSize: 26 }}>{emoji}</Text>
+              <Image source={emoji.source} style={{ width: 34, height: 34 }} />
             </Pressable>
           ))}
         </Surface3D>

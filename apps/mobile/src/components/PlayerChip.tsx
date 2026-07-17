@@ -18,6 +18,7 @@ import Animated, {
   useDerivedValue,
   useSharedValue,
   withRepeat,
+  withSequence,
   withTiming,
 } from "react-native-reanimated";
 import { Canvas, Path, Skia } from "@shopify/react-native-skia";
@@ -70,6 +71,19 @@ export function PlayerChip({
   const color = teamColor[player.color];
   const finished = state.tokens.filter((t) => t.playerId === player.id && t.position === "finished").length;
 
+  // Turn hand-off pop: the chip that just became active scales up and settles,
+  // pulling the eye to whose turn it is (the "feels alive" cue).
+  const popScale = useSharedValue(1);
+  useEffect(() => {
+    if (!active) return;
+    popScale.value = 1;
+    popScale.value = withSequence(
+      withTiming(1.14, { duration: 150, easing: Easing.out(Easing.quad) }),
+      withTiming(1, { duration: 200, easing: Easing.inOut(Easing.quad) }),
+    );
+  }, [active, popScale]);
+  const popStyle = useAnimatedStyle(() => ({ transform: [{ scale: popScale.value }] }));
+
   return (
     <Pressable
       accessibilityRole={onPress ? "button" : undefined}
@@ -83,7 +97,7 @@ export function PlayerChip({
         transform: [{ scale: pressed ? 0.93 : 1 }],
       })}
     >
-      <View style={{ width: RING_BOX, height: RING_BOX, alignItems: "center", justifyContent: "center" }}>
+      <Animated.View style={[{ width: RING_BOX, height: RING_BOX, alignItems: "center", justifyContent: "center" }, popStyle]}>
         {active && !timer && <Breathe color={color} />}
         <View
           style={{
@@ -109,7 +123,7 @@ export function PlayerChip({
         </View>
         {active && timer ? <TurnRing seq={timer.seq} seconds={timer.seconds} color={color} /> : null}
         {botMode ? <BotBadge /> : null}
-      </View>
+      </Animated.View>
 
       <Text
         numberOfLines={1}

@@ -73,8 +73,8 @@ describe("forced-action pacing", () => {
     store.getState().roll();
     expect(store.getState().validMoves).toHaveLength(0);
 
-    // Tumble runs ~950ms; the number must stay on screen well past it.
-    vi.advanceTimersByTime(1400);
+    // Tumble runs ~700ms; the number must stay on screen well past it.
+    vi.advanceTimersByTime(900);
     expect(store.getState().state!.currentTurnPlayerId).toBe("p1");
 
     vi.advanceTimersByTime(200);
@@ -93,8 +93,8 @@ describe("forced-action pacing", () => {
     store.getState().roll(); // rolled again on the 6: a 2 — only the entered token can move
     expect(store.getState().validMoves).toHaveLength(1);
 
-    // Not before the tumble settles (~950ms)…
-    vi.advanceTimersByTime(900);
+    // Not before the tumble settles (~700ms)…
+    vi.advanceTimersByTime(500);
     expect(store.getState().state!.currentTurnPlayerId).toBe("p1");
     expect(store.getState().state!.phase).toBe("awaiting-move");
 

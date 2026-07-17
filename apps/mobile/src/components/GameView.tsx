@@ -9,8 +9,9 @@
  * Android back pauses/resumes instead of leaving.
  */
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, Text, View, useWindowDimensions } from "react-native";
+import Animated, { Easing, FadeOut, ZoomIn } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { Color, GameState, Move } from "@ludo/engine";
 import { Board } from "./Board";
@@ -22,6 +23,7 @@ import { ReactionBar } from "./ReactionBar";
 import { ChatBubble } from "./ChatBubble";
 import { ResultsOverlay } from "./ResultsOverlay";
 import { TableBackground } from "./TableBackground";
+import { CoinGlyph } from "./CoinsPill";
 import type { ChatEvent } from "../store/onlineStore";
 import { font, palette, radius, space, teamColor } from "../theme";
 import { BOARD_THEMES } from "../render/boardThemes";
@@ -61,6 +63,8 @@ interface GameViewProps {
   resultsFootnote?: string | null;
   /** Online room code, shown in the top bar. */
   roomCode?: string | null;
+  /** Coins each seat staked (0 = friendly). Shows the pot in the top bar. */
+  stake?: number;
   /** Local player's color — the board rotates so this seat is bottom-left. */
   viewColor?: Color;
   /** In-room reactions + chat (online only; local play omits it). */
@@ -76,6 +80,8 @@ export interface GameChat {
   onSendMessage: (text: string) => void;
   /** Called when the sheet opens — clears the unread badge. */
   onOpened: () => void;
+  /** Local play: reactions work but there is nobody to text — hide the chat sheet. */
+  reactionsOnly?: boolean;
 }
 
 const COLOR_LABEL = { red: "Red", green: "Green", yellow: "Yellow", blue: "Blue" } as const;
@@ -111,6 +117,7 @@ export function GameView({
   autoPilot,
   resultsFootnote,
   roomCode,
+  stake = 0,
   viewColor,
   chat,
 }: GameViewProps) {
@@ -122,7 +129,7 @@ export function GameView({
   const boardSize = Math.floor(Math.min(width - space.xl * 2, height * 0.44));
   const finished = state.status === "finished";
   // Seat each player's profile at the board corner nearest their yard.
-  const byColor = new Map(state.players.map((p) => [p.color, p] as const));
+  const byColor = useMemo(() => new Map(state.players.map((p) => [p.color, p] as const)), [state.players]);
 
   // The board rotates so `viewColor` sits bottom-left; the corner chips follow,
   // so each color's chip stays pinned to its (rotated) yard corner on screen.
@@ -139,7 +146,33 @@ export function GameView({
     return () => setBackInterceptor(null);
   }, []);
 
-  const movable = (id: string) => canAct && validMoves.some((m) => m.tokenId === id);
+  // Capture toast: a token was just sent home — flash a one-liner over the
+  // board (timed near the capture sound's arrival delay).
+  const [toast, setToast] = useState<{ text: string; seq: number } | null>(null);
+  const prevTokensRef = useRef(state.tokens);
+  useEffect(() => {
+    const prev = prevTokensRef.current;
+    prevTokensRef.current = state.tokens;
+    if (prev === state.tokens || state.status !== "active") return;
+    const wasHome = new Set(prev.filter((t) => t.position === "home").map((t) => t.id));
+    const captured = state.tokens.some((t) => t.position === "home" && !wasHome.has(t.id));
+    if (!captured) return;
+    const lines = ["Gotcha!", "Sent home!", "Boom!"];
+    setToast((s) => ({ text: lines[Math.floor(Math.random() * lines.length)]!, seq: (s?.seq ?? 0) + 1 }));
+  }, [state.tokens, state.status]);
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 1500);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  // Stable movable lookup: a Set rebuilt only when the moves change, so Board's
+  // per-token checks don't rescan validMoves on every store write.
+  const movableIds = useMemo(
+    () => (canAct ? new Set(validMoves.map((m) => m.tokenId)) : null),
+    [canAct, validMoves],
+  );
+  const movable = useCallback((id: string) => movableIds?.has(id) ?? false, [movableIds]);
   const noop = () => {};
 
   const nameForUser = (userId: string): string => {
@@ -211,6 +244,25 @@ export function GameView({
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
           <Text style={{ fontFamily: font.display, fontSize: 22, color: palette.porcelain }}>Ludo</Text>
           <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
+            {stake > 0 ? (
+              <View
+                accessibilityLabel={`Pot: ${stake * 2} coins`}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 5,
+                  paddingHorizontal: space.sm,
+                  paddingVertical: 4,
+                  borderRadius: radius.pill,
+                  backgroundColor: palette.liftedSlate,
+                  borderTopWidth: 1,
+                  borderTopColor: "rgba(255,255,255,0.10)",
+                }}
+              >
+                <CoinGlyph size={14} />
+                <Text style={{ fontFamily: font.mono, fontSize: 13, color: palette.porcelain }}>{stake * 2}</Text>
+              </View>
+            ) : null}
             {roomCode ? (
               // Tapping the code opens the share sheet — invite a friend mid-room.
               <Pressable
@@ -248,6 +300,27 @@ export function GameView({
 
           <View style={{ alignItems: "center" }}>
             <Board size={boardSize} state={state} theme={theme} isMovable={movable} onSelectToken={canAct && !paused ? onSelectToken : noop} viewColor={viewColor} />
+            {toast ? (
+              <Animated.View
+                key={toast.seq}
+                entering={ZoomIn.delay(350).duration(220).easing(Easing.out(Easing.back(1.6)))}
+                exiting={FadeOut.duration(180)}
+                pointerEvents="none"
+                style={{
+                  position: "absolute",
+                  top: "42%",
+                  paddingHorizontal: space.lg,
+                  paddingVertical: space.sm,
+                  borderRadius: radius.pill,
+                  backgroundColor: "rgba(20,23,28,0.88)",
+                  borderWidth: 1,
+                  borderColor: "rgba(255,255,255,0.14)",
+                  zIndex: 5,
+                }}
+              >
+                <Text style={{ fontFamily: font.display, fontSize: 18, color: palette.porcelain }}>{toast.text}</Text>
+              </Animated.View>
+            ) : null}
           </View>
 
           {/* The local player's yard is bottom-left, so their chip + die live here. */}
@@ -278,15 +351,17 @@ export function GameView({
           {chat ? (
             <>
               <IconButton label="Reactions" glyph="🙂" onPress={() => setReactionsOpen((v) => !v)} />
-              <IconButton
-                label="Chat"
-                glyph="💬"
-                showDot={chat.unread > 0}
-                onPress={() => {
-                  chat.onOpened();
-                  setChatOpen(true);
-                }}
-              />
+              {!chat.reactionsOnly ? (
+                <IconButton
+                  label="Chat"
+                  glyph="💬"
+                  showDot={chat.unread > 0}
+                  onPress={() => {
+                    chat.onOpened();
+                    setChatOpen(true);
+                  }}
+                />
+              ) : null}
             </>
           ) : null}
           <MenuButton onPress={() => setPaused(true)} />
@@ -294,7 +369,7 @@ export function GameView({
       </View>
 
       {finished && (
-        <ResultsOverlay state={state} nameFor={nameFor} avatarFor={avatarFor} onRematch={onRematch} footnote={resultsFootnote} canAddFriends={!!chat} onHome={onLeave} />
+        <ResultsOverlay state={state} nameFor={nameFor} avatarFor={avatarFor} onRematch={onRematch} footnote={resultsFootnote} canAddFriends={!!chat && !chat.reactionsOnly} stake={stake} onHome={onLeave} />
       )}
 
       {paused && !finished && (

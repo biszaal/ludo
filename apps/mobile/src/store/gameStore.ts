@@ -34,12 +34,12 @@ const COLOR_LABEL: Record<PlayerColor, string> = {
 };
 
 /** Delay between a bot's actions, so a human can follow what it's doing. */
-const BOT_DELAY = 650;
-/** Pause before auto-passing a no-move roll: the die tumble runs ~950ms
+const BOT_DELAY = 450;
+/** Pause before auto-passing a no-move roll: the die tumble runs ~700ms
  *  (Dice ROLL_MS), then the number needs a beat to be read. */
-const AUTO_PASS_DELAY = 1500;
+const AUTO_PASS_DELAY = 1000;
 /** A lone legal move plays the moment the tumble settles — no choice to make. */
-const AUTO_MOVE_DELAY = 1000;
+const AUTO_MOVE_DELAY = 600;
 /** vs-AI: seconds a human has per action before the bot policy acts for them.
  *  Matches the online TURN_SECONDS so the countdown ring reads the same. */
 export const TURN_SECONDS = 30;

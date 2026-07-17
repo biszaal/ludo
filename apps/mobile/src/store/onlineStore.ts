@@ -22,15 +22,16 @@ import { stateAnimationMs } from "../lib/moveTiming";
 import { bustedRollDice, colorOf, project } from "../lib/projection";
 import { useNav } from "./navStore";
 import { useProfile } from "./profileStore";
+import { useWallet } from "./walletStore";
 
-/** Pause before auto-passing a no-move roll: the die tumble runs ~950ms
+/** Pause before auto-passing a no-move roll: the die tumble runs ~700ms
  *  (Dice ROLL_MS), then the number needs a beat to be read. */
-const AUTO_PASS_DELAY = 1500;
+const AUTO_PASS_DELAY = 1000;
 /** A lone legal move plays the moment the tumble settles — no choice to make. */
-const AUTO_MOVE_DELAY = 1000;
-/** Pace of autopilot actions on the local seat — outlasts the ~950ms die
+const AUTO_MOVE_DELAY = 600;
+/** Pace of autopilot actions on the local seat — outlasts the ~700ms die
  *  tumble so each rolled number lands before the bot acts on it. */
-const PILOT_DELAY = 1200;
+const PILOT_DELAY = 900;
 const CHAT_MIN_INTERVAL_MS = 500;
 /** Seconds a turn may sit idle before any client asks the server to skip it.
  *  Matches TURN_SECONDS in the edge function; drives the on-screen countdown. */
@@ -51,6 +52,10 @@ interface OnlineStore {
   myPlayerId: string | null;
   isHost: boolean;
   starting: boolean;
+  /** Quick-match room: the lobby shows "finding an opponent", no room code. */
+  isQuick: boolean;
+  /** Coins each seat staked (0 = friendly). Winner takes stake × 2. */
+  stake: number;
   lobby: api.LobbyPlayer[];
   /** Display profiles keyed by auth user_id (cosmetic; color labels fall back). */
   profiles: Record<string, api.Profile>;
@@ -84,6 +89,8 @@ interface OnlineStore {
 
   create: () => Promise<void>;
   join: (code: string) => Promise<void>;
+  /** Play online: pair with a random opponent (a hidden bot fills a dry queue). */
+  quickMatch: () => Promise<void>;
   start: () => Promise<void>;
   roll: () => Promise<void>;
   selectToken: (tokenId: string) => Promise<void>;
@@ -109,6 +116,8 @@ const INITIAL = {
   myPlayerId: null,
   isHost: false,
   starting: false,
+  isQuick: false,
+  stake: 0,
   lobby: [] as api.LobbyPlayer[],
   profiles: {} as Record<string, api.Profile>,
   state: null,
@@ -180,6 +189,38 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
     }
   },
 
+  quickMatch: async () => {
+    set({ status: "connecting", error: null });
+    try {
+      const m = await api.quickMatch();
+      syncMyProfile();
+      subscribe(m.gameId);
+      const lobby = await api.getLobby(m.gameId);
+      const me = lobby.find((p) => p.user_id === m.userId);
+      set({
+        gameId: m.gameId,
+        roomCode: null, // quick rooms aren't shareable — keep the code off screen
+        userId: m.userId,
+        myPlayerId: m.myPlayerId,
+        isHost: me?.is_host ?? false,
+        isQuick: true,
+        stake: m.stake ?? 0,
+        lobby,
+        status: "lobby",
+      });
+      void fetchProfiles(lobby);
+      if (m.waiting) {
+        useNav.getState().push("lobby");
+        armQuickFill(m.gameId);
+      } else if (m.state) {
+        // Claimed a seat opposite a waiting searcher — the game is already dealt.
+        applyTurnResult({ state: m.state, v: m.v ?? null }, false);
+      }
+    } catch (e) {
+      set({ status: "error", error: errorText(e) });
+    }
+  },
+
   start: async () => {
     const { gameId, isHost, lobby, starting } = get();
     if (!gameId || !isHost || starting || lobby.length < 2) return;
@@ -204,11 +245,13 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
     )
       return;
     // The number is server-generated, but the animation needn't wait for it:
-    // start the tumble on the tap and let the response land the real value
-    // mid-tumble. rollBumped stops the arriving state from re-triggering it.
+    // start the tumble on the tap with lastRoll cleared — a null value tells
+    // the die to hold airborne until the response lands the real one (a stale
+    // lastRoll here would hand it a wrong face to settle on). rollBumped stops
+    // the arriving state from re-triggering the tumble.
     rollInFlight = true;
     rollBumped = true;
-    set({ rollSeq: rollSeq + 1 });
+    set({ rollSeq: rollSeq + 1, lastRoll: null });
     try {
       const res = await enqueueSend(() => api.rollAction(gameId));
       applyTurnResult(res, true);
@@ -315,6 +358,7 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
     clearRowQueue();
     clearResync();
     clearLobbyTimer();
+    clearQuickFill();
     resetSyncState();
     const { gameId } = get();
     if (channel) {
@@ -363,6 +407,40 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
 let channel: RealtimeChannel | null = null;
 let autoTimer: ReturnType<typeof setTimeout> | null = null;
 let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
+
+// --- Quick-match fill --------------------------------------------------------
+// If nobody claims the seat while we wait, ask the server to fill it. The
+// window is jittered so "found an opponent" doesn't land on a suspiciously
+// exact clock; a real human joining first flips the game active via realtime
+// and the fired timer no-ops on the status check.
+
+const QUICK_FILL_MIN_MS = 8000;
+const QUICK_FILL_JITTER_MS = 6000;
+let quickFillTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearQuickFill(): void {
+  if (quickFillTimer) clearTimeout(quickFillTimer);
+  quickFillTimer = null;
+}
+
+function armQuickFill(gameId: string): void {
+  clearQuickFill();
+  quickFillTimer = setTimeout(() => {
+    quickFillTimer = null;
+    void (async () => {
+      const st = useOnlineStore.getState();
+      if (st.gameId !== gameId || st.status !== "lobby") return;
+      try {
+        const res = await api.quickBotFill(gameId);
+        applyTurnResult(res, false);
+      } catch {
+        // The server refused (raced start, network blip) — the realtime row or
+        // a resync will surface the truth.
+        scheduleResync(gameId);
+      }
+    })();
+  }, QUICK_FILL_MIN_MS + Math.random() * QUICK_FILL_JITTER_MS);
+}
 
 // --- Optimistic action state ---------------------------------------------------
 // The server stamps every games write with a monotonic state_version (v).
@@ -490,10 +568,10 @@ function subscribe(gameId: string): void {
 // directly (the actor wants instant feedback); their realtime echoes dedupe here.
 
 /** The slice of a games row the sync path actually consumes. */
-type GameSnapshot = Pick<api.GameRow, "state" | "status" | "state_version">;
+type GameSnapshot = Pick<api.GameRow, "state" | "status" | "state_version" | "stake">;
 
 /** Small buffer after each animation before the next state lands. */
-const ROW_HOLD_PAD_MS = 120;
+const ROW_HOLD_PAD_MS = 80;
 let rowQueue: GameSnapshot[] = [];
 let rowHoldTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -703,6 +781,10 @@ function applyState(state: GameState, rolled: boolean): void {
   // Reset the per-turn countdown on every active write (mirrors the server, which
   // refreshes turn_deadline on every write). Idle turns keep the same clock.
   const active = proj.status === "active";
+  if (active) clearQuickFill(); // matched — no bot fill needed
+  // Game over: the server just settled any pot — pull the fresh balance
+  // (and its floor top-up) so the results and home screens show it.
+  if (proj.status === "finished" && st.status !== "finished") void useWallet.getState().refresh();
   // Our own roll's tumble already started on the tap — don't restart it when
   // the rolled state arrives (whichever of HTTP/realtime/resync gets it here).
   const bump = rolled && !rollBumped;
@@ -732,6 +814,8 @@ function applyGameRow(row: GameSnapshot): void {
     return;
   }
   recordApplied(row.state_version);
+  // Rows carry the authoritative stake (rematches reset it server-side).
+  if (row.stake != null) useOnlineStore.setState({ stake: row.stake });
   const st = useOnlineStore.getState();
   const prevDice = st.state?.diceValue ?? null;
   // A busted third six never reaches diceValue (the same write hands the turn

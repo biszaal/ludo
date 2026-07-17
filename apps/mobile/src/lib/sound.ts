@@ -9,7 +9,9 @@
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from "expo-audio";
 import { useSettings } from "../store/settingsStore";
 
-export type SoundName = "hop" | "dice" | "capture" | "finish" | "win" | "tap" | "turn" | "ding" | "pop" | "msg" | "safe";
+export type SoundName =
+  | "hop" | "dice" | "capture" | "finish" | "win" | "tap" | "turn" | "ding" | "pop" | "msg" | "safe"
+  | "laugh" | "crying" | "angry" | "tease" | "cheer" | "shock";
 
 const SPECS: Record<SoundName, { source: number; pool: number; volume: number }> = {
   hop: { source: require("../../assets/hop.wav"), pool: 4, volume: 0.5 },
@@ -23,6 +25,13 @@ const SPECS: Record<SoundName, { source: number; pool: number; volume: number }>
   pop: { source: require("../../assets/pop.wav"), pool: 2, volume: 0.5 },
   msg: { source: require("../../assets/msg.wav"), pool: 2, volume: 0.45 },
   safe: { source: require("../../assets/safe.wav"), pool: 2, volume: 0.45 },
+  // Reaction-emoji voices (gen-reaction-sfx.mjs) — one per expressive sprite.
+  laugh: { source: require("../../assets/laugh.wav"), pool: 1, volume: 0.5 },
+  crying: { source: require("../../assets/crying.wav"), pool: 1, volume: 0.5 },
+  angry: { source: require("../../assets/angry.wav"), pool: 1, volume: 0.5 },
+  tease: { source: require("../../assets/tease.wav"), pool: 1, volume: 0.5 },
+  cheer: { source: require("../../assets/cheer.wav"), pool: 1, volume: 0.5 },
+  shock: { source: require("../../assets/shock.wav"), pool: 1, volume: 0.5 },
 };
 
 const pools = {} as Record<SoundName, AudioPlayer[]>;

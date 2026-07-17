@@ -21,6 +21,8 @@ export interface GameRow {
   /** Monotonic write counter — dedup/ordering key for every authoritative
    *  state. Null only on rows written before the column existed. */
   state_version: number | null;
+  /** Coins each seat put in (0 = friendly game). Winner takes stake × 2. */
+  stake?: number | null;
 }
 
 /** An authoritative state plus its version, as returned by every turn op. */
@@ -105,6 +107,60 @@ export async function joinGame(rawCode: string): Promise<Membership> {
 async function turnCall(op: string, payload: Record<string, unknown>): Promise<TurnResult> {
   const res = await callGame<{ state: GameState; v?: number | null }>(op, payload);
   return { state: res.state, v: res.v ?? null };
+}
+
+export interface QuickMatchResult {
+  gameId: string;
+  userId: string;
+  myPlayerId: string;
+  /** True: seated alone in the queue — wait for a match (or the fill). */
+  waiting?: boolean;
+  /** Set when the claim paired us instantly: the game is already dealt. */
+  state?: GameState;
+  v?: number | null;
+  /** Entry coins debited for this match. */
+  stake?: number;
+}
+
+/** Pair into the oldest open quick game, or open a new one and wait. */
+export async function quickMatch(): Promise<QuickMatchResult> {
+  const userId = await ensureSignedIn();
+  const res = await callGame<{
+    gameId: string;
+    playerId: string;
+    waiting?: boolean;
+    state?: GameState;
+    v?: number | null;
+    stake?: number;
+  }>("quickMatch");
+  return {
+    gameId: res.gameId,
+    userId,
+    myPlayerId: res.playerId,
+    waiting: res.waiting,
+    state: res.state,
+    v: res.v ?? null,
+    stake: res.stake,
+  };
+}
+
+/** Nobody joined in time — ask the server to seat an opponent and start. */
+export async function quickBotFill(gameId: string): Promise<TurnResult> {
+  return turnCall("quickBotFill", { gameId });
+}
+
+/** Own coin balance (server-authoritative; creates the wallet on first read). */
+export async function getWallet(): Promise<number> {
+  await ensureSignedIn();
+  const res = await callGame<{ balance: number }>("walletGet");
+  return res.balance;
+}
+
+/** Ask the server to enforce the low-balance floor; returns the new balance. */
+export async function topupWallet(): Promise<number> {
+  await ensureSignedIn();
+  const res = await callGame<{ balance: number }>("walletTopup");
+  return res.balance;
 }
 
 export async function startGame(gameId: string): Promise<TurnResult> {
@@ -222,7 +278,7 @@ export async function fetchGame(gameId: string): Promise<GameRow> {
   return withRetry(async () => {
     const { data, error } = await supabase
       .from("games")
-      .select("id, room_code, host_user_id, status, state, current_turn_player_id, state_version")
+      .select("id, room_code, host_user_id, status, state, current_turn_player_id, state_version, stake")
       .eq("id", gameId)
       .single();
     if (error || !data) throw new Error(`Could not load game: ${error?.message ?? "unknown"}`);

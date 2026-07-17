@@ -4,7 +4,7 @@
  * heights, then the online section. Local modes open the PlaySetupSheet.
  */
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { TableBackground } from "../components/TableBackground";
@@ -13,6 +13,8 @@ import { Logo } from "../components/Logo";
 import { ModeCard } from "../components/ModeCard";
 import { PlaySetupSheet, type PlayMode } from "../components/PlaySetupSheet";
 import { ProfileChip } from "../components/ProfileChip";
+import { CoinsPill } from "../components/CoinsPill";
+import { QUICK_STAKE, useWallet } from "../store/walletStore";
 import { BOARD_THEMES } from "../render/boardThemes";
 import { useGameStore } from "../store/gameStore";
 import { useOnlineStore } from "../store/onlineStore";
@@ -31,6 +33,7 @@ export function HomeScreen() {
 
   const createOnline = useOnlineStore((s) => s.create);
   const joinOnline = useOnlineStore((s) => s.join);
+  const quickMatch = useOnlineStore((s) => s.quickMatch);
   const onlineStatus = useOnlineStore((s) => s.status);
   const onlineError = useOnlineStore((s) => s.error);
   const connecting = onlineStatus === "connecting";
@@ -40,12 +43,22 @@ export function HomeScreen() {
   const myUserId = useFriends((s) => s.userId);
   const requestCount = incomingRequests(friendships, myUserId).length;
 
+  // Balance freshness: on mount, and again whenever a game hands us back home
+  // (the online store refreshes on finish; this catches stake debits too).
+  const refreshWallet = useWallet((s) => s.refresh);
+  useEffect(() => {
+    void refreshWallet();
+  }, [refreshWallet, onlineStatus]);
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: palette.tableBlue }}>
       <TableBackground />
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: space.xl, paddingTop: space.sm }}>
         <Logo tile={36} />
-        <ProfileChip />
+        <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
+          <CoinsPill />
+          <ProfileChip />
+        </View>
       </View>
 
       <ScrollView
@@ -73,6 +86,20 @@ export function HomeScreen() {
             onPress={() => setSheetMode("ai")}
           />
           <ModeCard title="Pass & play" subtitle="Share this phone around the table" onPress={() => setSheetMode("pass")} />
+        </View>
+
+        {/* Online quick match */}
+        <View style={{ gap: space.md }}>
+          <Text style={{ fontFamily: font.medium, fontSize: 13, color: palette.mutedSteel }}>PLAY ONLINE</Text>
+          <ModeCard
+            title={connecting ? "Finding a match…" : "Quick match"}
+            subtitle={`Play a random opponent, 1 vs 1 · Entry ${QUICK_STAKE} coins, winner takes ${QUICK_STAKE * 2}`}
+            minHeight={112}
+            piecesArt={boardTheme}
+            onPress={() => {
+              if (!connecting) void quickMatch();
+            }}
+          />
         </View>
 
         {/* Online play */}

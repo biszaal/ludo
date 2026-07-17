@@ -5,7 +5,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { TableBackground } from "../components/TableBackground";
 import { Button } from "../components/Button";
@@ -52,11 +52,43 @@ export function LobbyScreen() {
     copiedTimer.current = setTimeout(() => setCopied(false), 1800);
   };
 
+  const isQuick = useOnlineStore((s) => s.isQuick);
+
   const full = lobby.length >= 4;
   const canStart = isHost && lobby.length >= 2 && !starting;
   const emptySlots = Math.max(0, 4 - lobby.length);
   // Preview the colors the game will actually use (diagonal for 2 players).
   const previewColors = seatColors(lobby.length);
+
+  // Quick match: no shareable code, no start button — just the search state.
+  // The game starts on its own the moment an opponent is found.
+  if (isQuick) {
+    const me = userId ? profiles[userId] : undefined;
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: palette.tableBlue }}>
+        <TableBackground />
+        <View style={{ flex: 1, paddingHorizontal: space.xl, paddingTop: space.sm }}>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+            <Text style={{ fontFamily: font.display, fontSize: 22, color: palette.porcelain }}>Quick match</Text>
+            <Button label="Cancel" onPress={leave} variant="ghost" />
+          </View>
+          <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: space.lg }}>
+            {me ? <AvatarGlyph id={me.avatar_id} size={72} /> : null}
+            <ActivityIndicator size="large" color={palette.porcelain} />
+            <Text style={{ fontFamily: font.semibold, fontSize: 18, color: palette.porcelain }}>
+              Finding an opponent…
+            </Text>
+            <Text style={{ fontFamily: font.regular, fontSize: 14, color: palette.mutedSteel, textAlign: "center" }}>
+              Matching you with another player.{"\n"}This usually takes a few seconds.
+            </Text>
+            {error ? (
+              <Text style={{ fontFamily: font.regular, fontSize: 13, color: teamColor.red, textAlign: "center" }}>{error}</Text>
+            ) : null}
+          </View>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: palette.tableBlue }}>

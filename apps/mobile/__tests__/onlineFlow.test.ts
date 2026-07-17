@@ -218,13 +218,16 @@ describe("optimistic roll", () => {
 
     const rollSeq0 = store.getState().rollSeq;
     const done = store.getState().roll();
-    // Tumble starts on the tap, before any network round trip.
+    // Tumble starts on the tap, before any network round trip — with no value
+    // to land on yet (the die holds airborne until the server answers).
     expect(store.getState().rollSeq).toBe(rollSeq0 + 1);
+    expect(store.getState().lastRoll).toBeNull();
+    expect(store.getState().state?.diceValue).toBeNull();
 
     const rolled = rollDice(base, () => 0.99).newState;
     d.resolve({ state: rolled, v: 2 });
     await done;
-    // The arriving value lands mid-tumble — no second rollSeq bump.
+    // The arriving value lands the held tumble — no second rollSeq bump.
     expect(store.getState().rollSeq).toBe(rollSeq0 + 1);
     expect(store.getState().state?.diceValue).toBe(rolled.diceValue);
     store.getState().leave(); // clear the auto-move timer before real timers resume

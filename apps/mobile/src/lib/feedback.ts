@@ -19,6 +19,7 @@ import { useProfile } from "../store/profileStore";
 import { useStats } from "../store/statsStore";
 import { computeStandings } from "./standings";
 import { moveDurationMs } from "./moveTiming";
+import { resolveEmoji } from "./emoji";
 import { playSound } from "./sound";
 import * as haptics from "./haptics";
 
@@ -70,6 +71,10 @@ function diffAndFire(prev: GameState | null, next: GameState | null, myPlayerId:
   after(arrivalMs, () => {
     if (captured) {
       playSound("capture");
+      // Streak flair: back-to-back captures in the room get a sparkle on top.
+      const now = Date.now();
+      if (now - lastCaptureAt < CAPTURE_STREAK_MS) after(140, () => playSound("safe"));
+      lastCaptureAt = now;
       haptics.capture();
     } else if (finished) {
       playSound("finish");
@@ -94,6 +99,10 @@ function after(ms: number, fn: () => void): void {
   if (ms <= 0) fn();
   else setTimeout(fn, ms);
 }
+
+/** Captures this close together count as a streak and escalate the sound. */
+const CAPTURE_STREAK_MS = 12000;
+let lastCaptureAt = 0;
 
 // A match records exactly once, on the active→finished edge (resyncs of an
 // already-finished game never cross that edge again).
@@ -139,11 +148,12 @@ export function initFeedback(): () => void {
   const unOnline = useOnlineStore.subscribe((s, prevS) => {
     diffAndFire(prevS.state, s.state, s.myPlayerId);
     if (justFinished(prevS.state, s.state)) recordOnline(s.state, s.myPlayerId);
-    // Incoming chatter: a soft cue per received event (own sends stay silent).
+    // Incoming chatter: reactions play their own voice (laugh, cry, …),
+    // texts a soft two-tone; own sends stay silent.
     if (s.chatSeq !== prevS.chatSeq) {
       const ev = s.chat[s.chat.length - 1];
       if (ev && ev.fromUserId !== s.userId) {
-        playSound(ev.kind === "reaction" ? "pop" : "msg");
+        playSound(ev.kind === "reaction" ? resolveEmoji(ev.value)?.sound ?? "pop" : "msg");
         haptics.tapLight();
       }
     }

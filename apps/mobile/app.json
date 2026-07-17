@@ -34,7 +34,12 @@
     },
     "plugins": [
       "expo-font",
-      "expo-audio"
+      [
+        "expo-audio",
+        {
+          "enableBackgroundPlayback": false
+        }
+      ]
     ],
     "scheme": "ludo",
     "extra": {

@@ -8,6 +8,8 @@
  *   local player can tap it to roll);
  * - rolling: a true 3D cube tumble (orthographic projection from dieMath),
  *   which lands with the real rolled value on the camera face — no shuffle;
+ *   a tumble started before the server value arrives (value=null) holds
+ *   airborne until the value lands, so the die never settles on a stale face;
  * - landed: the flat face with that value's pips, plus a settle squash.
  */
 
@@ -39,9 +41,13 @@ const PIP_XY: Record<number, [number, number][]> = {
   6: [[0.26, 0.22], [0.74, 0.22], [0.26, 0.5], [0.74, 0.5], [0.26, 0.78], [0.74, 0.78]],
 };
 
-const ROLL_MS = 950;
+const ROLL_MS = 700;
 /** Fraction of the roll spent tumbling; the rest is the landing squash. */
 const CUBE_END = 0.8;
+/** One leg of the airborne hold loop while the server value is in flight. */
+const HOLD_LEG_MS = 180;
+/** Give up on a value that never arrives (request failed) and settle to idle. */
+const HOLD_BAIL_MS = 9000;
 
 /** "#RRGGBB" → [r, g, b] for the worklet color mixer. */
 function hexRGB(hex: string): [number, number, number] {
@@ -71,6 +77,13 @@ export function Dice({ value, size = 64, spinSeq = 0, idle = false, theme, onRol
   const roll = useSharedValue(1);
   const wiggle = useSharedValue(0);
   const mounted = useRef(false);
+  // The die must never land without an authoritative value: a tumble started
+  // with value=null (the roller's optimistic tap — the server hasn't answered
+  // yet) holds airborne until the value prop arrives, then unwinds to land on
+  // it. `holding` marks that in-flight wait.
+  const valueRef = useRef(value);
+  valueRef.current = value;
+  const holding = useRef(false);
 
   useEffect(() => {
     if (!mounted.current) {
@@ -81,11 +94,49 @@ export function Dice({ value, size = 64, spinSeq = 0, idle = false, theme, onRol
     playDiceRoll();
     cancelAnimation(roll);
     roll.value = 0;
-    roll.value = withTiming(1, { duration: ROLL_MS, easing: Easing.linear });
-    // Haptic on impact — when the tumble lands, not when the squash finishes.
-    const settle = setTimeout(diceSettle, ROLL_MS * CUBE_END);
-    return () => clearTimeout(settle);
+    if (valueRef.current != null) {
+      holding.current = false;
+      roll.value = withTiming(1, { duration: ROLL_MS, easing: Easing.linear });
+      // Haptic on impact — when the tumble lands, not when the squash finishes.
+      const settle = setTimeout(diceSettle, ROLL_MS * CUBE_END);
+      return () => clearTimeout(settle);
+    }
+    // Value unknown: tumble up to mid-flight, then ping-pong inside the
+    // airborne range (angles stay large there, so it reads as one continuous
+    // tumble) until the value effect below resumes the landing.
+    holding.current = true;
+    roll.value = withSequence(
+      withTiming(CUBE_END * 0.7, { duration: ROLL_MS * CUBE_END * 0.7, easing: Easing.linear }),
+      withRepeat(
+        withSequence(
+          withTiming(CUBE_END * 0.25, { duration: HOLD_LEG_MS, easing: Easing.inOut(Easing.quad) }),
+          withTiming(CUBE_END * 0.7, { duration: HOLD_LEG_MS, easing: Easing.inOut(Easing.quad) }),
+        ),
+        -1,
+      ),
+    );
+    const bail = setTimeout(() => {
+      if (!holding.current) return;
+      holding.current = false;
+      cancelAnimation(roll);
+      roll.value = 1; // settles to the idle swirl — value is still null
+    }, HOLD_BAIL_MS);
+    return () => clearTimeout(bail);
   }, [spinSeq, roll]);
+
+  // The held tumble's landing: the authoritative value arrived mid-flight —
+  // resume the same parametric curve from wherever the hold left it, so the
+  // hand-off is seamless and the re-recorded picture bakes in the real face.
+  useEffect(() => {
+    if (value == null || !holding.current) return;
+    holding.current = false;
+    cancelAnimation(roll);
+    const p = Math.min(roll.value, CUBE_END * 0.7);
+    roll.value = p;
+    roll.value = withTiming(1, { duration: ROLL_MS * (1 - p), easing: Easing.linear });
+    const settle = setTimeout(diceSettle, Math.max(0, ROLL_MS * (CUBE_END - p)));
+    return () => clearTimeout(settle);
+  }, [value, roll]);
 
   // "Tap me" wiggle while the die is waiting to be rolled.
   useEffect(() => {

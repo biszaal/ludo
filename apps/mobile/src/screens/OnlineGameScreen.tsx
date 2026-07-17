@@ -36,6 +36,7 @@ export function OnlineGameScreen() {
   const turnSeq = useOnlineStore((s) => s.turnSeq);
   const autoPilot = useOnlineStore((s) => s.autoPilot);
   const takeControl = useOnlineStore((s) => s.takeControl);
+  const stake = useOnlineStore((s) => s.stake);
   const myName = useProfile((s) => s.displayName);
 
   if (!state) return null;
@@ -88,6 +89,7 @@ export function OnlineGameScreen() {
       turnTimer={state.status === "active" ? { seq: turnSeq, seconds: TURN_SECONDS } : null}
       autoPilot={autoPilot && myPlayerId ? { playerId: myPlayerId, onTakeControl: takeControl } : null}
       roomCode={roomCode}
+      stake={stake}
       viewColor={myColor}
       chat={{
         events: chat,

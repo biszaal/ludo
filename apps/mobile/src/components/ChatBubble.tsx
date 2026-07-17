@@ -10,8 +10,9 @@
  */
 
 import { useEffect, useState } from "react";
-import { Text, View } from "react-native";
+import { Image, Text, View } from "react-native";
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
+import { resolveEmoji } from "../lib/emoji";
 import { font, radius, space } from "../theme";
 
 const EMOJI_MS = 2600;
@@ -84,7 +85,14 @@ export function ChatBubble({ value, kind, seq, align, vAlign }: ChatBubbleProps)
       }}
     >
       {kind === "reaction" ? (
-        <Text style={{ fontSize: 32 }}>{value}</Text>
+        (() => {
+          const sprite = resolveEmoji(value);
+          return sprite ? (
+            <Image source={sprite.source} accessibilityLabel={sprite.label} style={{ width: 40, height: 40 }} />
+          ) : (
+            <Text style={{ fontSize: 32 }}>{value}</Text>
+          );
+        })()
       ) : (
         <Text numberOfLines={3} style={{ fontFamily: font.medium, fontSize: 13, color: "#232830" }}>
           {value}
