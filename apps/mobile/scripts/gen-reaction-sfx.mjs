@@ -2,13 +2,14 @@
  * Generates the reaction-emoji sounds (same PCM/WAV pattern as gen-sfx.mjs) —
  * cartoonish synthesized vocalizations, kept in the app's procedural soundscape
  * rather than recorded voices:
- *   laugh.wav — four staccato descending "ha" blips with vibrato
  *   crying.wav — two long "wah" sine droops
  *   angry.wav — low sawtooth growl with tremolo
  *   tease.wav — nasal rising-falling "nyah" glide, twice
  *   cheer.wav — fast major arpeggio + noise sparkle
  *   shock.wav — quick spring "boing"
  * (thumbs reuses pop.wav, gg reuses finish.wav — see src/lib/emoji.ts)
+ * laugh.wav is NOT generated here: it is a recorded human laugh dropped in as
+ * an asset directly — regenerating must never overwrite it.
  * Run: node scripts/gen-reaction-sfx.mjs
  */
 import { writeFileSync, mkdirSync } from "node:fs";
@@ -61,16 +62,6 @@ function voice(out, at, f0, f1, durS, amp, { vibHz = 0, vibAmt = 0, nasal = 0.2,
     const s = Math.sin(phase) + nasal * Math.sin(2 * phase) + nasal * 0.4 * Math.sin(3 * phase);
     out[start + i] += s * amp * env;
   }
-}
-
-// laugh.wav — "ha-ha-ha-ha": staccato blips stepping down, each with a tiny droop.
-{
-  const out = buffer(0.72);
-  const steps = [520, 470, 430, 390];
-  steps.forEach((f, i) => {
-    voice(out, i * 0.16, f * 1.12, f * 0.86, 0.11, 0.42, { vibHz: 26, vibAmt: 0.02, nasal: 0.3, attack: 0.006 });
-  });
-  writeWav("laugh.wav", out);
 }
 
 // crying.wav — two long "wah" droops with heavy vibrato (a cartoon sob).

@@ -1,19 +1,21 @@
 /**
- * Settings — device preferences (sound / music / haptics), board skin picker,
- * and entry points to Profile and How to play. Everything saves instantly via
- * the persisted stores; there is no Save button.
+ * Settings — device preferences (sound / music / haptics) and How to play.
+ * Everything saves instantly via the persisted stores; there is no Save
+ * button. Doorways the Home dock already owns (Shop, Stats, Profile) don't
+ * repeat here — Settings owns the device, not the account.
  */
 
+import type { ReactNode } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { TableBackground } from "../components/TableBackground";
-import { Button } from "../components/Button";
+import { ScreenHeader } from "../components/ScreenHeader";
+import { ContentColumn } from "../components/ContentColumn";
+import { SectionLabel } from "../components/SectionLabel";
 import { SettingRow } from "../components/SettingRow";
-import { ThemeSwatch } from "../components/ThemeSwatch";
-import { AvatarGlyph } from "../components/Avatar";
-import { BOARD_THEMES } from "../render/boardThemes";
+import { Surface3D } from "../components/Surface3D";
+import { BookGlyph, ChevronGlyph, NoteGlyph, PulseGlyph, SpeakerGlyph } from "../components/HomeGlyphs";
 import { useNav } from "../store/navStore";
-import { useProfile } from "../store/profileStore";
 import { useSettings } from "../store/settingsStore";
 import { font, palette, radius, space } from "../theme";
 
@@ -23,88 +25,75 @@ const APP_VERSION: string = require("../../app.json").expo.version ?? "1.0.0";
 
 export function SettingsScreen() {
   const settings = useSettings();
-  const displayName = useProfile((s) => s.displayName);
-  const avatarId = useProfile((s) => s.avatarId);
-  const pop = useNav((s) => s.pop);
   const push = useNav((s) => s.push);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: palette.tableBlue }}>
       <TableBackground />
-      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: space.xl, paddingTop: space.sm }}>
-        <Text style={{ fontFamily: font.display, fontSize: 22, color: palette.porcelain }}>Settings</Text>
-        <Button label="Back" onPress={pop} variant="ghost" />
-      </View>
+      <ScreenHeader title="Settings" />
 
-      <ScrollView contentContainerStyle={{ paddingHorizontal: space.xl, paddingTop: space.lg, paddingBottom: space.xxl, gap: space.xl }}>
-        <Section title="SOUND">
-          <SettingRow label="Sound effects" hint="Dice, hops and captures" value={settings.soundOn} onChange={settings.setSound} />
+      <ScrollView contentContainerStyle={{ paddingTop: space.lg, paddingBottom: space.xxl, alignItems: "center" }}>
+        <ContentColumn style={{ paddingHorizontal: space.xl, gap: space.xl }}>
+        <Tray title="Sound & feel">
+          <Row glyph={<SpeakerGlyph size={20} />}>
+            <SettingRow label="Sound effects" hint="Dice, hops and captures" value={settings.soundOn} onChange={settings.setSound} />
+          </Row>
           <Hairline />
-          <SettingRow label="Music" hint="Ambient table loop" value={settings.musicOn} onChange={settings.setMusic} />
-        </Section>
+          <Row glyph={<NoteGlyph size={20} />}>
+            <SettingRow label="Music" hint="Ambient table loop" value={settings.musicOn} onChange={settings.setMusic} />
+          </Row>
+          <Hairline />
+          <Row glyph={<PulseGlyph size={20} />}>
+            <SettingRow label="Haptics" hint="Gentle taps on rolls and moves" value={settings.hapticsOn} onChange={settings.setHaptics} />
+          </Row>
+        </Tray>
 
-        <Section title="FEEL">
-          <SettingRow label="Haptics" hint="Gentle taps on rolls and moves" value={settings.hapticsOn} onChange={settings.setHaptics} />
-        </Section>
+        <Tray title="Learn">
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="How to play"
+            onPress={() => push("howToPlay")}
+            style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", minHeight: 52, gap: space.md, opacity: pressed ? 0.85 : 1 })}
+          >
+            <BookGlyph size={20} />
+            <Text style={{ flex: 1, fontFamily: font.medium, fontSize: 16, color: palette.porcelain }}>How to play</Text>
+            <ChevronGlyph size={16} />
+          </Pressable>
+        </Tray>
 
-        <Section title="BOARD">
-          <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" }}>
-            {Object.values(BOARD_THEMES).map((t) => (
-              <ThemeSwatch key={t.id} theme={t} selected={t.id === settings.boardThemeId} onSelect={() => settings.setBoardTheme(t.id)} />
-            ))}
+        <Tray title="About">
+          <View style={{ minHeight: 44, justifyContent: "center" }}>
+            <Text style={{ fontFamily: font.mono, fontSize: 12, color: palette.mutedSteel }}>Ludo · v{APP_VERSION}</Text>
           </View>
-        </Section>
-
-        <Section title="YOU">
-          <LinkRow onPress={() => push("profile")} label={displayName} left={<AvatarGlyph id={avatarId} size={36} />} />
-          <Hairline />
-          <LinkRow onPress={() => push("stats")} label="Stats" />
-        </Section>
-
-        <Section title="LEARN">
-          <LinkRow onPress={() => push("howToPlay")} label="How to play" />
-        </Section>
-
-        <Text style={{ fontFamily: font.mono, fontSize: 12, color: palette.mutedSteel, textAlign: "center", marginTop: space.sm }}>
-          Ludo · v{APP_VERSION}
-        </Text>
+        </Tray>
+      </ContentColumn>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+/** A raised settings tray: SectionLabel over a Surface3D card. */
+function Tray({ title, children }: { title: string; children: ReactNode }) {
   return (
     <View style={{ gap: space.sm }}>
-      <Text style={{ fontFamily: font.medium, fontSize: 13, color: palette.mutedSteel, letterSpacing: 0.5 }}>{title}</Text>
-      <View style={{ backgroundColor: palette.raisedSlate, borderRadius: radius.lg, borderWidth: 1, borderColor: palette.hairline, paddingHorizontal: space.lg, paddingVertical: space.xs }}>
+      <SectionLabel>{title}</SectionLabel>
+      <Surface3D rad={radius.lg} faceStyle={{ paddingHorizontal: space.lg, paddingVertical: space.xs }}>
         {children}
-      </View>
+      </Surface3D>
+    </View>
+  );
+}
+
+/** Glyph gutter beside a SettingRow, vertically centered on the row. */
+function Row({ glyph, children }: { glyph: ReactNode; children: ReactNode }) {
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
+      {glyph}
+      <View style={{ flex: 1 }}>{children}</View>
     </View>
   );
 }
 
 function Hairline() {
   return <View style={{ height: 1, backgroundColor: palette.hairline }} />;
-}
-
-function LinkRow({ label, onPress, left }: { label: string; onPress: () => void; left?: React.ReactNode }) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      onPress={onPress}
-      style={({ pressed }) => ({
-        flexDirection: "row",
-        alignItems: "center",
-        minHeight: 52,
-        gap: space.md,
-        opacity: pressed ? 0.85 : 1,
-      })}
-    >
-      {left}
-      <Text style={{ flex: 1, fontFamily: font.medium, fontSize: 16, color: palette.porcelain }}>{label}</Text>
-      <Text style={{ fontFamily: font.semibold, fontSize: 20, color: palette.mutedSteel }}>›</Text>
-    </Pressable>
-  );
 }

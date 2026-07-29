@@ -12,7 +12,7 @@ import { useState } from "react";
 import { GameView, type GameChat } from "../components/GameView";
 import { resolveEmoji } from "../lib/emoji";
 import { playSound } from "../lib/sound";
-import { TURN_SECONDS, useGameStore } from "../store/gameStore";
+import { useGameStore } from "../store/gameStore";
 import { useProfile } from "../store/profileStore";
 
 const COLOR_LABEL = { red: "Red", green: "Green", yellow: "Yellow", blue: "Blue" } as const;
@@ -30,11 +30,9 @@ export function GameScreen() {
   const leaveGame = useGameStore((s) => s.leaveGame);
   const newLocalGame = useGameStore((s) => s.newLocalGame);
   const isCurrentBot = useGameStore((s) => s.isCurrentBot);
-  const turnSeq = useGameStore((s) => s.turnSeq);
-  const autoPilot = useGameStore((s) => s.autoPilot);
-  const takeControl = useGameStore((s) => s.takeControl);
   const displayName = useProfile((s) => s.displayName);
   const avatarId = useProfile((s) => s.avatarId);
+  const diceSkinId = useProfile((s) => s.diceSkinId);
 
   // Local reactions-only chat: my emoji bubbles on my chip, with its voice.
   const [myBubble, setMyBubble] = useState<{ value: string; kind: "reaction"; seq: number } | null>(null);
@@ -88,17 +86,16 @@ export function GameScreen() {
       lastRoll={lastRoll}
       rollSeq={rollSeq}
       message={message}
-      canAct={!botTurn && !autoPilot && state.status === "active"}
-      waitingLabel={botTurn ? botLabel : autoPilot ? "Bot is playing for you — tap your avatar to take control" : null}
+      canAct={!botTurn && state.status === "active"}
+      waitingLabel={botTurn ? botLabel : null}
       onRoll={roll}
       onSelectToken={selectToken}
       onLeave={leaveGame}
       onRematch={lastConfig ? () => newLocalGame(lastConfig) : undefined}
       nameFor={nameFor}
       avatarFor={(playerId) => (vsAI && !botIds.includes(playerId) ? avatarId : null)}
+      diceSkinFor={(playerId) => (vsAI && !botIds.includes(playerId) ? diceSkinId : null)}
       viewColor={humanColor}
-      turnTimer={vsAI && !botTurn && !autoPilot && state.status === "active" ? { seq: turnSeq, seconds: TURN_SECONDS } : null}
-      autoPilot={autoPilot && human ? { playerId: human.id, onTakeControl: takeControl } : null}
       chat={chat}
     />
   );

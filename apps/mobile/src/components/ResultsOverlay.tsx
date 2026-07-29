@@ -14,6 +14,8 @@ import { AvatarGlyph } from "./Avatar";
 import { AddFriendButton } from "./AddFriendButton";
 import { Surface3D } from "./Surface3D";
 import { computeStandings } from "../lib/standings";
+import { potFor } from "../lib/economy";
+import { useLayout } from "../lib/useLayout";
 import { font, palette, radius, space, teamColor, teamTint } from "../theme";
 
 const COLOR_LABEL = { red: "Red", green: "Green", yellow: "Yellow", blue: "Blue" } as const;
@@ -32,6 +34,10 @@ interface ResultsOverlayProps {
   canAddFriends?: boolean;
   /** Coins each seat staked (0/undefined = friendly game, no payout lines). */
   stake?: number;
+  /** Entry delay (ms) — long by default so the winning move lands on the board
+   *  first; short when revealed from the celebration screen (a tapped button
+   *  must answer immediately). */
+  enterDelayMs?: number;
   onHome: () => void;
 }
 
@@ -40,9 +46,13 @@ function ordinal(rank: number): string {
   return rank === 1 ? "1st" : rank === 2 ? "2nd" : rank === 3 ? "3rd" : `${rank}th`;
 }
 
-export function ResultsOverlay({ state, nameFor, avatarFor, onRematch, footnote, canAddFriends = false, stake = 0, onHome }: ResultsOverlayProps) {
+export function ResultsOverlay({ state, nameFor, avatarFor, onRematch, footnote, canAddFriends = false, stake = 0, enterDelayMs = 900, onHome }: ResultsOverlayProps) {
   const userIdOf = (playerId: string) => state.players.find((p) => p.id === playerId)?.userId ?? null;
   const { width, height } = useWindowDimensions();
+  const { maxWidth } = useLayout();
+  // Keep the standings + buttons in a readable centered column on a tablet
+  // instead of stretching them across the whole screen.
+  const col = { width: "100%" as const, maxWidth, alignSelf: "center" as const };
   const standings = computeStandings(state);
   const winner = standings[0]!;
   const winnerName = nameFor?.(winner.playerId) ?? COLOR_LABEL[winner.color];
@@ -50,7 +60,7 @@ export function ResultsOverlay({ state, nameFor, avatarFor, onRematch, footnote,
 
   return (
     <Animated.View
-      entering={FadeIn.delay(900).duration(450)}
+      entering={FadeIn.delay(enterDelayMs).duration(450)}
       style={{
         position: "absolute",
         left: 0,
@@ -79,7 +89,7 @@ export function ResultsOverlay({ state, nameFor, avatarFor, onRematch, footnote,
       />
 
       {/* Winner block */}
-      <Animated.View entering={FadeInDown.delay(1050).duration(320).easing(Easing.out(Easing.cubic))} style={{ alignItems: "center", marginTop: height * 0.14, gap: space.md }}>
+      <Animated.View entering={FadeInDown.delay(enterDelayMs + 150).duration(320).easing(Easing.out(Easing.cubic))} style={{ alignItems: "center", marginTop: height * 0.14, gap: space.md }}>
         {winnerAvatar ? (
           <AvatarGlyph id={winnerAvatar} size={72} />
         ) : (
@@ -106,13 +116,13 @@ export function ResultsOverlay({ state, nameFor, avatarFor, onRematch, footnote,
         </View>
         <Text style={{ fontFamily: font.display, fontSize: 26, color: palette.porcelain }}>{winnerName}</Text>
         <Text style={{ fontFamily: font.medium, fontSize: 15, color: palette.mutedSteel }}>
-          {stake > 0 ? `wins the pot — +${stake * 2} coins` : "wins the game"}
+          {stake > 0 ? `wins the pot — +${potFor(stake, state.players.length)} coins` : "wins the game"}
         </Text>
       </Animated.View>
 
       {/* Ranked rows (2nd onward — the winner is the block above). Players who
           left rank last with a "Left" tag instead of a placement. */}
-      <View style={{ gap: space.sm }}>
+      <View style={{ gap: space.sm, ...col }}>
         {standings.slice(1).map((s) => {
           const gone = !!state.players.find((p) => p.id === s.playerId)?.hasLeft;
           return (
@@ -145,7 +155,7 @@ export function ResultsOverlay({ state, nameFor, avatarFor, onRematch, footnote,
       </View>
 
       {/* Actions */}
-      <View style={{ gap: space.sm, marginBottom: space.xxl }}>
+      <View style={{ gap: space.sm, marginBottom: space.xxl, ...col }}>
         {onRematch ? <Button label="Rematch" onPress={onRematch} /> : null}
         <Button label="Home" onPress={onHome} variant="ghost" />
         {footnote ? (

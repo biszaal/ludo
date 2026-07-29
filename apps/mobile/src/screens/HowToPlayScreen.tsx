@@ -7,7 +7,9 @@
 import { ScrollView, Text, View, useWindowDimensions } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { TableBackground } from "../components/TableBackground";
+import { ContentColumn } from "../components/ContentColumn";
 import { Button } from "../components/Button";
+import { useLayout } from "../lib/useLayout";
 import {
   CaptureDiagram,
   HomeColumnDiagram,
@@ -62,9 +64,11 @@ const SECTIONS = [
 
 export function HowToPlayScreen() {
   const { width } = useWindowDimensions();
+  const { maxWidth } = useLayout();
   const theme = BOARD_THEMES[useSettings((s) => s.boardThemeId)];
   const pop = useNav((s) => s.pop);
-  const diagramWidth = width - space.xl * 2 - space.lg * 2;
+  // Diagrams size to the (capped) column, not the full iPad width.
+  const diagramWidth = Math.min(width, maxWidth ?? width) - space.xl * 2 - space.lg * 2;
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: palette.tableBlue }}>
@@ -74,7 +78,8 @@ export function HowToPlayScreen() {
         <Button label="Back" onPress={pop} variant="ghost" />
       </View>
 
-      <ScrollView contentContainerStyle={{ paddingHorizontal: space.xl, paddingTop: space.lg, paddingBottom: space.xxl, gap: space.lg }}>
+      <ScrollView contentContainerStyle={{ paddingTop: space.lg, paddingBottom: space.xxl, alignItems: "center" }}>
+        <ContentColumn style={{ paddingHorizontal: space.xl, gap: space.lg }}>
         {SECTIONS.map(({ key, title, body, Diagram }) => (
           <View
             key={key}
@@ -92,6 +97,7 @@ export function HowToPlayScreen() {
             <Text style={{ fontFamily: font.regular, fontSize: 15, lineHeight: 22, color: palette.mutedSteel }}>{body}</Text>
           </View>
         ))}
+        </ContentColumn>
       </ScrollView>
     </SafeAreaView>
   );

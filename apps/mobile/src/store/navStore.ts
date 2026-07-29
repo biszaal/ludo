@@ -9,7 +9,7 @@
 
 import { create } from "zustand";
 
-export type ScreenName = "home" | "localGame" | "lobby" | "onlineGame" | "settings" | "profile" | "howToPlay" | "stats" | "friends";
+export type ScreenName = "home" | "localGame" | "lobby" | "onlineGame" | "settings" | "profile" | "shop" | "howToPlay" | "stats" | "friends" | "addFriend" | "playerProfile";
 
 export interface NavEntry {
   name: ScreenName;

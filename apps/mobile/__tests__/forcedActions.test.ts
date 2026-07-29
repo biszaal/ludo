@@ -1,12 +1,13 @@
 /**
- * vs-AI autopilot: when the human idles out the 30s turn clock, the bot takes
- * over their seat until they tap their avatar (takeControl). Also covers the
- * forced-action pacing: a no-move roll must stay readable (~2s) before passing.
+ * Local forced-action pacing: after a human rolls, a turn with no legal moves
+ * auto-passes (paused so the die stays readable), and a turn with a single
+ * legal move auto-plays it as soon as the die lands. Local games never hand a
+ * human's seat to the bot on idle — the human takes as long as they like — so
+ * there is no turn clock to test here (idle-out-to-bot lives only online).
  */
 
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { createSeededRng } from "@ludo/engine";
-import { TURN_SECONDS, useGameStore } from "../src/store/gameStore";
+import { useGameStore } from "../src/store/gameStore";
 
 const store = useGameStore;
 
@@ -16,55 +17,18 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("vs-AI autopilot", () => {
-  it("hands the idle human's seat to the bot when the turn clock expires", () => {
-    const rng = createSeededRng(7);
-    vi.spyOn(Math, "random").mockImplementation(() => rng());
+describe("forced-action pacing", () => {
+  it("does not hand an idle human's seat to the bot, however long they wait", () => {
     vi.useFakeTimers();
-
     store.getState().newLocalGame({ players: 2, bots: 1 }); // p1 human, p2 bot
-    expect(store.getState().autoPilot).toBe(false);
 
-    vi.advanceTimersByTime(TURN_SECONDS * 1000);
-    expect(store.getState().autoPilot).toBe(true);
-
-    // With the seat on autopilot, the whole game plays out with no input.
-    for (let i = 0; i < 200_000 && store.getState().state!.status === "active"; i++) {
-      vi.advanceTimersByTime(700);
-    }
-    expect(store.getState().state!.status).toBe("finished");
-  });
-
-  it("returns the seat to the human on takeControl and stops acting for them", () => {
-    vi.useFakeTimers();
-    store.getState().newLocalGame({ players: 2, bots: 1 });
-
-    vi.advanceTimersByTime(TURN_SECONDS * 1000); // idle out the first turn
-    expect(store.getState().autoPilot).toBe(true);
-
-    store.getState().takeControl();
-    expect(store.getState().autoPilot).toBe(false);
-
-    // The pending bot step must not act on the reclaimed seat, and the fresh
-    // 30s clock hasn't expired — the game waits for the human.
-    vi.advanceTimersByTime(5000);
-    expect(store.getState().autoPilot).toBe(false);
+    // Well past any old 30s clock: the human seat stays on the human, waiting.
+    vi.advanceTimersByTime(120_000);
     expect(store.getState().state!.currentTurnPlayerId).toBe("p1");
     expect(store.getState().state!.phase).toBe("awaiting-roll");
+    expect(store.getState().state!.status).toBe("active");
   });
 
-  it("keeps the human in control when they act before the clock expires", () => {
-    vi.useFakeTimers();
-    store.getState().newLocalGame({ players: 2, bots: 1 });
-
-    vi.advanceTimersByTime(TURN_SECONDS * 1000 - 1000);
-    store.getState().roll(); // manual action restarts the clock
-    vi.advanceTimersByTime(1000); // past the original deadline
-    expect(store.getState().autoPilot).toBe(false);
-  });
-});
-
-describe("forced-action pacing", () => {
   it("waits out the die tumble plus a beat before auto-passing a no-move roll", () => {
     vi.spyOn(Math, "random").mockReturnValue(0); // roll = 1 → nothing can leave the yard
     vi.useFakeTimers();

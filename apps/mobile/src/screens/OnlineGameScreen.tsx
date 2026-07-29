@@ -38,6 +38,7 @@ export function OnlineGameScreen() {
   const takeControl = useOnlineStore((s) => s.takeControl);
   const stake = useOnlineStore((s) => s.stake);
   const myName = useProfile((s) => s.displayName);
+  const myDiceSkin = useProfile((s) => s.diceSkinId);
 
   if (!state) return null;
 
@@ -84,6 +85,12 @@ export function OnlineGameScreen() {
       resultsFootnote={isHost ? null : "Waiting for the host to start a rematch…"}
       nameFor={(playerId) => profileOf(playerId)?.display_name ?? (playerId === myPlayerId ? myName : null)}
       avatarFor={(playerId) => profileOf(playerId)?.avatar_id ?? null}
+      // Local-first for my own seat: the profiles cache is fetched once per
+      // user per session and skips users already cached (onlineStore's
+      // fetchProfiles), so it can go stale if I re-equip a skin mid-session.
+      // Everyone else — bots included, they carry an ordinary profiles row —
+      // resolves the same way a name or avatar does.
+      diceSkinFor={(playerId) => (playerId === myPlayerId ? myDiceSkin : (profileOf(playerId)?.dice_skin ?? null))}
       offlineFor={offlineOf}
       leftFor={leftOf}
       turnTimer={state.status === "active" ? { seq: turnSeq, seconds: TURN_SECONDS } : null}

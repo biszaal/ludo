@@ -15,7 +15,7 @@
 
 import { useEffect, useMemo, useRef } from "react";
 import { Pressable, View } from "react-native";
-import { Canvas, Picture, PaintStyle, Skia, StrokeCap, StrokeJoin } from "@shopify/react-native-skia";
+import { BlurStyle, Canvas, ClipOp, Picture, PaintStyle, Skia, StrokeCap, StrokeJoin, TileMode } from "@shopify/react-native-skia";
 import Animated, {
   cancelAnimation,
   Easing,
@@ -29,7 +29,9 @@ import Animated, {
 import { playDiceRoll } from "../lib/sound";
 import { diceSettle } from "../lib/haptics";
 import type { BoardTheme } from "../render/boardThemes";
+import { diceRenderParams, type DiceSkin } from "../render/diceSkins";
 import { cubeFaces, faceMatrix, lambert, rotateScaleAbout, rotateVec } from "../render/dieMath";
+import { appendPip, overlayArt } from "../render/pipShapes";
 
 /** Pip centers on a unit face (x, y in 0..1), per die value. */
 const PIP_XY: Record<number, [number, number][]> = {
@@ -49,12 +51,6 @@ const HOLD_LEG_MS = 180;
 /** Give up on a value that never arrives (request failed) and settle to idle. */
 const HOLD_BAIL_MS = 9000;
 
-/** "#RRGGBB" → [r, g, b] for the worklet color mixer. */
-function hexRGB(hex: string): [number, number, number] {
-  const n = parseInt(hex.replace("#", ""), 16);
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
-}
-
 interface DiceProps {
   value: number | null;
   size?: number;
@@ -64,6 +60,9 @@ interface DiceProps {
   idle?: boolean;
   /** Board theme supplying face/pip colors (defaults white/ink). */
   theme?: BoardTheme;
+  /** The roller's equipped dice skin. Classic (or undefined) inherits `theme`,
+   *  matching the die's pre-cosmetics look exactly. */
+  skin?: DiceSkin;
   /** When set, the die is tappable (it wiggles) — tapping rolls, or reclaims
    *  the seat from autopilot (the caller decides). */
   onRollPress?: (() => void) | null;
@@ -71,7 +70,7 @@ interface DiceProps {
   pressLabel?: string;
 }
 
-export function Dice({ value, size = 64, spinSeq = 0, idle = false, theme, onRollPress = null, pressLabel = "Roll the dice" }: DiceProps) {
+export function Dice({ value, size = 64, spinSeq = 0, idle = false, theme, skin, onRollPress = null, pressLabel = "Roll the dice" }: DiceProps) {
   // 0→1 over a roll; rests at 1 (settled). Starts settled so remounting at the
   // next player's corner never replays the tumble (the old double-roll bug).
   const roll = useSharedValue(1);
@@ -156,8 +155,11 @@ export function Dice({ value, size = 64, spinSeq = 0, idle = false, theme, onRol
     return () => cancelAnimation(wiggle);
   }, [onRollPress !== null, wiggle]);
 
-  const faceRGB = useMemo(() => hexRGB(theme?.dice.face ?? "#FFFFFF"), [theme]);
-  const pipRGB = useMemo(() => hexRGB(theme?.dice.pip ?? "#17181C"), [theme]);
+  // Single memoized object crossing into the worklet closure below — an inline
+  // object here would change identity every render and force a full picture
+  // re-record each time (see the file header: that's exactly the flicker this
+  // component exists to avoid).
+  const sp = useMemo(() => diceRenderParams(skin, theme), [skin, theme]);
 
   // Canvas is padded beyond the die so the mid-flight scale-up and the ground
   // shadow have room (corner-on at apex the cube's half-diagonal reaches
@@ -204,12 +206,21 @@ export function Dice({ value, size = 64, spinSeq = 0, idle = false, theme, onRol
 
       const core = Skia.Paint();
       core.setAntiAlias(true);
-      core.setColor(mix(faceRGB, -0.55));
+      core.setColor(sp.edgeRGB ? mix(sp.edgeRGB, 0) : mix(sp.faceRGB, -0.55));
       const facePaint = Skia.Paint();
       facePaint.setAntiAlias(true);
       const pipPaint = Skia.Paint();
       pipPaint.setAntiAlias(true);
-      pipPaint.setColor(mix(pipRGB, 0));
+      pipPaint.setColor(mix(sp.pipRGB, 0));
+      // Same darker-rim trick as the landed face: a shaped pip is only a
+      // couple of local units across here, so the outline — not the fill —
+      // is what actually reads as a shape while the cube is spinning.
+      const outlinePaint = Skia.Paint();
+      outlinePaint.setAntiAlias(true);
+      outlinePaint.setStyle(PaintStyle.Stroke);
+      outlinePaint.setStrokeWidth(0.05);
+      outlinePaint.setStrokeJoin(StrokeJoin.Round);
+      outlinePaint.setColor(mix(sp.pipRGB, -0.45));
 
       // Cull faces nearly edge-on (they draw as stray hairline slivers).
       const visible = cubeFaces(shownValue)
@@ -237,17 +248,46 @@ export function Dice({ value, size = 64, spinSeq = 0, idle = false, theme, onRol
         }
       }
 
-      // Pass 2 — lit faces with their pips (face-local circles come out as
-      // properly foreshortened ellipses through the same matrix). Corner
-      // radius 0.48 = the resting face's 24%, keeping the rounding constant
-      // between the tumble and the flat die.
+      // Pass 2 — lit faces with their pips (face-local geometry comes out as
+      // properly foreshortened shapes through the same matrix). Corner radius
+      // 0.48 = the resting face's 24%, keeping the rounding constant between
+      // the tumble and the flat die. Premium skins keep their gradient and
+      // pip shape here too, not just once landed — only the decorative
+      // overlay texture and the pip glow stay landed-only: those cost a lot
+      // more per draw, and at tumbling speed neither would read anyway.
       for (const { face, n, u, v } of visible) {
-        facePaint.setColor(mix(faceRGB, -0.46 + 0.62 * lambert(n)));
         canvas.save();
         canvas.concat(Skia.Matrix(faceMatrix(u, v, n, h, c, c)));
+        if (sp.gradient) {
+          facePaint.setShader(
+            Skia.Shader.MakeLinearGradient(
+              { x: -1, y: -1 },
+              { x: 1, y: 1 },
+              sp.gradient.colors.map((cc) => Skia.Color(cc)),
+              sp.gradient.stops,
+              TileMode.Clamp,
+            ),
+          );
+          // The shader replaces per-face lambert shading, so fake back a hint
+          // of it via alpha (modulates the shader's own output) — otherwise a
+          // gradient skin's cube looks flat next to a solid-color one's.
+          facePaint.setAlphaf(0.72 + 0.28 * lambert(n));
+        } else {
+          facePaint.setShader(null);
+          facePaint.setColor(mix(sp.faceRGB, -0.46 + 0.62 * lambert(n)));
+        }
         canvas.drawRRect(Skia.RRectXY(Skia.XYWHRect(-1, -1, 2, 2), 0.48, 0.48), facePaint);
-        for (const [px, py] of PIP_XY[face.value]!) {
-          canvas.drawCircle((px - 0.5) * 1.84, (py - 0.5) * 1.84, 0.17, pipPaint);
+        if (sp.pipShape === "dot") {
+          for (const [px, py] of PIP_XY[face.value]!) {
+            canvas.drawCircle((px - 0.5) * 1.84, (py - 0.5) * 1.84, 0.17, pipPaint);
+          }
+        } else {
+          const facePips = Skia.Path.Make();
+          for (const [px, py] of PIP_XY[face.value]!) {
+            appendPip(facePips, sp.pipShape, (px - 0.5) * 1.84, (py - 0.5) * 1.84, 0.19);
+          }
+          canvas.drawPath(facePips, outlinePaint);
+          canvas.drawPath(facePips, pipPaint);
         }
         canvas.restore();
       }
@@ -263,18 +303,76 @@ export function Dice({ value, size = 64, spinSeq = 0, idle = false, theme, onRol
       const x = c - size / 2;
       const y = c - size / 2;
       const rounded = size * 0.24;
+      const faceH = size - 3;
+
       const edge = Skia.Paint();
       edge.setAntiAlias(true);
-      edge.setColor(mix(faceRGB, -0.25));
+      edge.setColor(sp.edgeRGB ? mix(sp.edgeRGB, 0) : mix(sp.faceRGB, -0.25));
       canvas.drawRRect(Skia.RRectXY(Skia.XYWHRect(x, y, size, size), rounded, rounded), edge);
+
+      const faceRRect = Skia.RRectXY(Skia.XYWHRect(x, y, size, faceH), rounded, rounded);
       const facePaint = Skia.Paint();
       facePaint.setAntiAlias(true);
-      facePaint.setColor(mix(faceRGB, 0));
-      canvas.drawRRect(Skia.RRectXY(Skia.XYWHRect(x, y, size, size - 3), rounded, rounded), facePaint);
+      if (sp.gradient) {
+        facePaint.setShader(
+          Skia.Shader.MakeLinearGradient(
+            { x, y },
+            { x: x + size, y: y + faceH },
+            sp.gradient.colors.map((cc) => Skia.Color(cc)),
+            sp.gradient.stops,
+            TileMode.Clamp,
+          ),
+        );
+      } else {
+        facePaint.setColor(mix(sp.faceRGB, 0));
+      }
+      canvas.drawRRect(faceRRect, facePaint);
+
+      // Overlay: a cheap deterministic texture pass (grain/veins/stars/facets),
+      // clipped to the face. Recorded once per landing along with everything
+      // else in this branch — the tumble never touches it.
+      if (sp.overlay) {
+        const art = overlayArt(sp.overlay, sp.overlaySeed);
+        canvas.save();
+        canvas.clipRRect(faceRRect, ClipOp.Intersect, true);
+        const dotPaint = Skia.Paint();
+        dotPaint.setAntiAlias(true);
+        dotPaint.setColor(mix(sp.pipRGB, 0));
+        for (const d of art.dots) {
+          dotPaint.setAlphaf(d.a);
+          canvas.drawCircle(x + d.x * size, y + d.y * faceH, d.r * size, dotPaint);
+        }
+        const strokePaint = Skia.Paint();
+        strokePaint.setAntiAlias(true);
+        strokePaint.setStyle(PaintStyle.Stroke);
+        strokePaint.setStrokeCap(StrokeCap.Round);
+        strokePaint.setColor(mix(sp.pipRGB, 0));
+        for (const st of art.strokes) {
+          strokePaint.setAlphaf(st.a);
+          strokePaint.setStrokeWidth(st.w * size);
+          const strokePath = Skia.Path.Make();
+          st.pts.forEach(([px, py], i) => {
+            if (i === 0) strokePath.moveTo(x + px * size, y + py * faceH);
+            else strokePath.lineTo(x + px * size, y + py * faceH);
+          });
+          canvas.drawPath(strokePath, strokePaint);
+        }
+        canvas.restore();
+      }
+
+      // Frame: a rim stroke reserved for the top prestige skins.
+      if (sp.frame) {
+        const frame = Skia.Paint();
+        frame.setAntiAlias(true);
+        frame.setStyle(PaintStyle.Stroke);
+        frame.setStrokeWidth(size * 0.045);
+        frame.setColor(Skia.Color(sp.frame));
+        canvas.drawRRect(faceRRect, frame);
+      }
 
       const ink = Skia.Paint();
       ink.setAntiAlias(true);
-      ink.setColor(mix(pipRGB, 0));
+      ink.setColor(mix(sp.pipRGB, 0));
       if (idle || value === null) {
         // Swirl pattern: an outward spiral stroke — "not rolled yet".
         ink.setStyle(PaintStyle.Stroke);
@@ -293,11 +391,41 @@ export function Dice({ value, size = 64, spinSeq = 0, idle = false, theme, onRol
           else spiral.lineTo(sx, sy);
         }
         canvas.drawPath(spiral, ink);
-      } else {
+      } else if (sp.pipShape === "dot") {
         const pip = size * 0.17;
         for (const [px, py] of PIP_XY[shownValue]!) {
-          canvas.drawCircle(x + px * size, y + py * (size - 3), pip / 2, ink);
+          canvas.drawCircle(x + px * size, y + py * faceH, pip / 2, ink);
         }
+      } else {
+        // Shaped pips (skins above the starter tier). At the die's actual
+        // in-game size (~48px) a heart/star/diamond/crown/flame silhouette is
+        // only a few pixels across — too small for its outline alone to read
+        // as anything but a round dot. A soft glow pass underneath plus a
+        // darker outline stroke around the glyph (classic small-icon
+        // technique: the rim, not the fill color, is what actually carries
+        // the shape at this scale) fix that; the solid fill goes on top. One
+        // shared path, drawn up to three times, so every pip on the face
+        // still costs a single path build per landing.
+        const r = size * 0.12;
+        const pipPath = Skia.Path.Make();
+        for (const [px, py] of PIP_XY[shownValue]!) {
+          appendPip(pipPath, sp.pipShape, x + px * size, y + py * faceH, r);
+        }
+        if (sp.glow) {
+          const glow = Skia.Paint();
+          glow.setAntiAlias(true);
+          glow.setColor(Skia.Color(sp.glow));
+          glow.setMaskFilter(Skia.MaskFilter.MakeBlur(BlurStyle.Normal, size * 0.08, true));
+          canvas.drawPath(pipPath, glow);
+        }
+        const outline = Skia.Paint();
+        outline.setAntiAlias(true);
+        outline.setStyle(PaintStyle.Stroke);
+        outline.setStrokeWidth(size * 0.034);
+        outline.setStrokeJoin(StrokeJoin.Round);
+        outline.setColor(mix(sp.pipRGB, -0.45));
+        canvas.drawPath(pipPath, outline);
+        canvas.drawPath(pipPath, ink);
       }
     }
 

@@ -25,7 +25,8 @@ const SPECS: Record<SoundName, { source: number; pool: number; volume: number }>
   pop: { source: require("../../assets/pop.wav"), pool: 2, volume: 0.5 },
   msg: { source: require("../../assets/msg.wav"), pool: 2, volume: 0.45 },
   safe: { source: require("../../assets/safe.wav"), pool: 2, volume: 0.45 },
-  // Reaction-emoji voices (gen-reaction-sfx.mjs) — one per expressive sprite.
+  // Reaction-emoji voices — one per expressive sprite. laugh is a recorded
+  // human laugh; the rest come from gen-reaction-sfx.mjs.
   laugh: { source: require("../../assets/laugh.wav"), pool: 1, volume: 0.5 },
   crying: { source: require("../../assets/crying.wav"), pool: 1, volume: 0.5 },
   angry: { source: require("../../assets/angry.wav"), pool: 1, volume: 0.5 },
@@ -41,9 +42,48 @@ let ready = false;
 let music: AudioPlayer | null = null;
 let appActive = true;
 
+// createAudioPlayer players are never auto-released (expo-audio docs), and a
+// dev reload re-evaluates this module while the previous generation's players
+// live on natively — the old music loop then plays UNDER the new one. Each
+// generation parks a release-everything handle on globalThis so the next one
+// can silence it before creating its own players.
+declare global {
+  // eslint-disable-next-line no-var
+  var __ludoSoundReset: (() => void) | undefined;
+}
+
+function releaseAll(): void {
+  for (const pool of Object.values(pools)) {
+    for (const p of pool) {
+      try {
+        p.release();
+      } catch {
+        // already released or context torn down
+      }
+    }
+  }
+  try {
+    music?.release();
+  } catch {
+    // ignore
+  }
+  music = null;
+}
+
+/** True once THIS module generation has begun init — set synchronously so a
+ *  second call can never slip past while the first is still awaiting. */
+let initStarted = false;
+
 /** Load all sounds, start music (if enabled) and allow playback in silent mode. */
 export async function initSound(): Promise<void> {
-  if (ready) return;
+  if (initStarted) return;
+  initStarted = true;
+  try {
+    globalThis.__ludoSoundReset?.();
+  } catch {
+    // ignore
+  }
+  globalThis.__ludoSoundReset = releaseAll;
   try {
     await setAudioModeAsync({ playsInSilentMode: true, interruptionMode: "mixWithOthers", shouldPlayInBackground: false });
   } catch {

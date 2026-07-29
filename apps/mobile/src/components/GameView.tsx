@@ -22,14 +22,22 @@ import { PlayerChip } from "./PlayerChip";
 import { ReactionBar } from "./ReactionBar";
 import { ChatBubble } from "./ChatBubble";
 import { ResultsOverlay } from "./ResultsOverlay";
+import { WinnerCelebration } from "./WinnerCelebration";
 import { TableBackground } from "./TableBackground";
 import { CoinGlyph } from "./CoinsPill";
+import { ContentColumn } from "./ContentColumn";
+import { useLayout } from "../lib/useLayout";
 import type { ChatEvent } from "../store/onlineStore";
 import { font, palette, radius, space, teamColor } from "../theme";
 import { BOARD_THEMES } from "../render/boardThemes";
+import { resolveDiceSkin } from "../render/diceSkins";
 import { setBackInterceptor } from "../store/navStore";
 import { useSettings } from "../store/settingsStore";
 import { shareInvite } from "../lib/invite";
+import { potFor } from "../lib/economy";
+import { useAds, canShowInterstitial } from "../store/adsStore";
+import { useConfig } from "../store/configStore";
+import { preloadInterstitial, showInterstitial } from "../lib/ads/provider";
 
 interface GameViewProps {
   state: GameState;
@@ -51,6 +59,9 @@ interface GameViewProps {
   /** Seat display names/avatars; fall back to color labels/chips. */
   nameFor?: (playerId: string) => string | null;
   avatarFor?: (playerId: string) => string | null;
+  /** Seat's equipped dice skin id; unset/unknown falls back to classic (the
+   *  viewer's own board theme) inside <Dice> itself. */
+  diceSkinFor?: (playerId: string) => string | null;
   /** Online: has this seat's player dropped? (shows an "Away" badge). */
   offlineFor?: (playerId: string) => boolean;
   /** Online: has this seat's player left for good? (dims the chip, "Left"). */
@@ -111,6 +122,7 @@ export function GameView({
   confirmLeave,
   nameFor,
   avatarFor,
+  diceSkinFor,
   offlineFor,
   leftFor,
   turnTimer,
@@ -122,12 +134,19 @@ export function GameView({
   chat,
 }: GameViewProps) {
   const { width, height } = useWindowDimensions();
+  const { maxWidth, isTablet, scale } = useLayout();
   const theme = BOARD_THEMES[useSettings((s) => s.boardThemeId)];
   const [paused, setPaused] = useState(false);
   const [reactionsOpen, setReactionsOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
-  const boardSize = Math.floor(Math.min(width - space.xl * 2, height * 0.44));
+  // On a tablet the board grows to fill the centered column and a bit more
+  // height; on a phone this is exactly the old min(width−48, height·0.44).
+  const colWidth = maxWidth ?? width;
+  const boardSize = Math.floor(Math.min(colWidth - space.xl * 2, height * (isTablet ? 0.5 : 0.44)));
+  const diceSize = Math.round(48 * scale);
   const finished = state.status === "finished";
+  // Every seat's entry, bot seats included — matches what the server pays out.
+  const pot = potFor(stake, state.players.length);
   // Seat each player's profile at the board corner nearest their yard.
   const byColor = useMemo(() => new Map(state.players.map((p) => [p.color, p] as const)), [state.players]);
 
@@ -144,6 +163,61 @@ export function GameView({
       return true;
     });
     return () => setBackInterceptor(null);
+  }, []);
+
+  // Winner celebration: fires once when the game's champion is decided (the
+  // first seat to finish all four tokens) — including the 2-player case where
+  // that same move ends the game. Dismissing it either resumes the room (minor
+  // places still racing) or, on game over, reveals the results leaderboard.
+  const [celebrating, setCelebrating] = useState(false);
+  // "See results" was tapped — the results screen must answer immediately
+  // instead of waiting out its usual let-the-move-land entry delay.
+  const fromCelebration = useRef(false);
+  const prevFinishedCount = useRef(state.finishedOrder.length);
+  useEffect(() => {
+    const was = prevFinishedCount.current;
+    const now = state.finishedOrder.length;
+    prevFinishedCount.current = now;
+    if (was === 0 && now >= 1) setCelebrating(true);
+    else if (now === 0) {
+      // Rematch reset — a fresh game gets a fresh celebration.
+      setCelebrating(false);
+      fromCelebration.current = false;
+    }
+  }, [state.finishedOrder.length]);
+  const championId = state.finishedOrder[0] ?? null;
+  const champion = championId ? state.players.find((p) => p.id === championId) : undefined;
+  // Is the local seat still racing for a place? (Labels the stay button.)
+  const mySeat = viewColor ? state.players.find((p) => p.color === viewColor) : undefined;
+  const stillPlaying = !!mySeat && !state.finishedOrder.includes(mySeat.id) && !mySeat.hasLeft;
+
+  // Ad bookkeeping. Recorded once per match, on the transition into finished —
+  // whether the local seat WON matters, because losing a staked match is the
+  // one moment an interstitial must never follow.
+  const countedFinish = useRef(false);
+  useEffect(() => {
+    if (!finished) {
+      countedFinish.current = false;
+      return;
+    }
+    if (countedFinish.current) return;
+    countedFinish.current = true;
+    const iWon = !!mySeat && championId === mySeat.id;
+    useAds.getState().noteMatchFinished(stake > 0, iWon);
+  }, [finished, championId, mySeat, stake]);
+
+  // Warm an interstitial while the match plays out — matches run minutes, so
+  // there is always time, and the seam never waits on the network.
+  useEffect(() => {
+    if (!finished) preloadInterstitial();
+  }, [finished]);
+
+  /** Show the end-of-match interstitial if every gate allows it. */
+  const maybeShowEndOfMatchAd = useCallback(async () => {
+    // TODO(phase-8): real `noads` entitlement once coin packs ship.
+    if (!canShowInterstitial(useAds.getState(), useConfig.getState().config, false)) return;
+    const shown = await showInterstitial();
+    if (shown) useAds.getState().noteInterstitialShown();
   }, []);
 
   // Capture toast: a token was just sent home — flash a one-liner over the
@@ -226,9 +300,10 @@ export function GameView({
           <Dice
             value={state.diceValue ?? lastRoll}
             spinSeq={rollSeq}
-            size={48}
+            size={diceSize}
             idle={state.phase === "awaiting-roll"}
             theme={theme}
+            skin={resolveDiceSkin(diceSkinFor?.(p.id) ?? null)}
             onRollPress={canRoll ? onRoll : pilot ? autoPilot?.onTakeControl ?? null : null}
             pressLabel={canRoll ? "Roll the dice" : "Bot is playing for you — tap to take back control"}
           />
@@ -240,13 +315,15 @@ export function GameView({
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: palette.tableBlue }}>
       <TableBackground width={width} height={height} />
-      <View style={{ flex: 1, paddingHorizontal: space.xl, paddingTop: space.sm }}>
+      {/* Centered column on tablet so the board and the corner chips share one
+          readable width instead of spanning the whole iPad; full-width on phone. */}
+      <ContentColumn style={{ flex: 1, paddingHorizontal: space.xl, paddingTop: space.sm }}>
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-          <Text style={{ fontFamily: font.display, fontSize: 22, color: palette.porcelain }}>Ludo</Text>
+          <Text style={{ fontFamily: font.display, fontSize: Math.round(22 * scale), color: palette.porcelain }}>Ludo</Text>
           <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
             {stake > 0 ? (
               <View
-                accessibilityLabel={`Pot: ${stake * 2} coins`}
+                accessibilityLabel={`Pot: ${pot} coins`}
                 style={{
                   flexDirection: "row",
                   alignItems: "center",
@@ -260,7 +337,7 @@ export function GameView({
                 }}
               >
                 <CoinGlyph size={14} />
-                <Text style={{ fontFamily: font.mono, fontSize: 13, color: palette.porcelain }}>{stake * 2}</Text>
+                <Text style={{ fontFamily: font.mono, fontSize: 13, color: palette.porcelain }}>{pot}</Text>
               </View>
             ) : null}
             {roomCode ? (
@@ -331,8 +408,8 @@ export function GameView({
         </View>
 
         <View style={{ gap: space.xs, marginBottom: space.sm, alignItems: "center" }}>
-          <Text style={{ fontFamily: font.medium, fontSize: 16, color: palette.porcelain, textAlign: "center" }}>{message}</Text>
-          <Text style={{ fontFamily: font.medium, fontSize: 13, color: palette.mutedSteel, textAlign: "center" }}>
+          <Text style={{ fontFamily: font.medium, fontSize: Math.round(16 * scale), color: palette.porcelain, textAlign: "center" }}>{message}</Text>
+          <Text style={{ fontFamily: font.medium, fontSize: Math.round(13 * scale), color: palette.mutedSteel, textAlign: "center" }}>
             {finished
               ? " "
               : !canAct
@@ -366,10 +443,44 @@ export function GameView({
           ) : null}
           <MenuButton onPress={() => setPaused(true)} />
         </View>
-      </View>
+      </ContentColumn>
 
-      {finished && (
-        <ResultsOverlay state={state} nameFor={nameFor} avatarFor={avatarFor} onRematch={onRematch} footnote={resultsFootnote} canAddFriends={!!chat && !chat.reactionsOnly} stake={stake} onHome={onLeave} />
+      {celebrating && champion && (
+        <WinnerCelebration
+          winnerName={nameFor?.(champion.id) ?? COLOR_LABEL[champion.color]}
+          winnerColor={champion.color}
+          winnerAvatar={avatarFor?.(champion.id) ?? null}
+          gameOver={finished}
+          stillPlaying={stillPlaying}
+          pot={pot}
+          onStay={() => {
+            fromCelebration.current = finished;
+            // The one interstitial seam in the app. The player has just asked
+            // to move on, so a full-screen ad here costs no perceived
+            // responsiveness — and every gate lives in canShowInterstitial,
+            // including "never right after losing a staked match".
+            void maybeShowEndOfMatchAd();
+            setCelebrating(false);
+          }}
+          onLeave={() => {
+            setCelebrating(false);
+            onLeave();
+          }}
+        />
+      )}
+
+      {finished && !celebrating && (
+        <ResultsOverlay
+          state={state}
+          nameFor={nameFor}
+          avatarFor={avatarFor}
+          onRematch={onRematch}
+          footnote={resultsFootnote}
+          canAddFriends={!!chat && !chat.reactionsOnly}
+          stake={stake}
+          enterDelayMs={fromCelebration.current ? 100 : 900}
+          onHome={onLeave}
+        />
       )}
 
       {paused && !finished && (

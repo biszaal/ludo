@@ -24,3 +24,14 @@ describe("profile guest identity", () => {
     expect(useProfile.getState().displayName).toBe(guestName);
   });
 });
+
+describe("dice skin", () => {
+  it("defaults to classic (inherits the board theme, no purchase needed)", () => {
+    expect(useProfile.getState().diceSkinId).toBe("classic");
+  });
+
+  it("equips a purchased skin and keeps it selected", () => {
+    useProfile.getState().setDiceSkin("gold");
+    expect(useProfile.getState().diceSkinId).toBe("gold");
+  });
+});

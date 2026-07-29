@@ -21,7 +21,7 @@ export interface GameRow {
   /** Monotonic write counter — dedup/ordering key for every authoritative
    *  state. Null only on rows written before the column existed. */
   state_version: number | null;
-  /** Coins each seat put in (0 = friendly game). Winner takes stake × 2. */
+  /** Coins each seat put in (0 = friendly game). Winner takes stake × seats. */
   stake?: number | null;
 }
 
@@ -113,17 +113,20 @@ export interface QuickMatchResult {
   gameId: string;
   userId: string;
   myPlayerId: string;
-  /** True: seated alone in the queue — wait for a match (or the fill). */
+  /** True: still seats to fill — wait for a match (or the fill). */
   waiting?: boolean;
-  /** Set when the claim paired us instantly: the game is already dealt. */
+  /** Set when the claim filled the room instantly: the game is already dealt. */
   state?: GameState;
   v?: number | null;
   /** Entry coins debited for this match. */
   stake?: number;
+  /** The room's table size (2 = 1v1, 4 = free-for-all). */
+  size?: number;
 }
 
-/** Pair into the oldest open quick game, or open a new one and wait. */
-export async function quickMatch(): Promise<QuickMatchResult> {
+/** Pair into the oldest open quick game of this size AND stake tier, or open
+ *  one and wait. The server validates the stake against its tier list. */
+export async function quickMatch(size: 2 | 4, stake?: number): Promise<QuickMatchResult> {
   const userId = await ensureSignedIn();
   const res = await callGame<{
     gameId: string;
@@ -132,7 +135,8 @@ export async function quickMatch(): Promise<QuickMatchResult> {
     state?: GameState;
     v?: number | null;
     stake?: number;
-  }>("quickMatch");
+    size?: number;
+  }>("quickMatch", stake == null ? { size } : { size, stake });
   return {
     gameId: res.gameId,
     userId,
@@ -141,12 +145,32 @@ export async function quickMatch(): Promise<QuickMatchResult> {
     state: res.state,
     v: res.v ?? null,
     stake: res.stake,
+    size: res.size,
   };
 }
 
 /** Nobody joined in time — ask the server to seat an opponent and start. */
 export async function quickBotFill(gameId: string): Promise<TurnResult> {
   return turnCall("quickBotFill", { gameId });
+}
+
+/** Best-effort region hint from the device locale ("en-NP" -> "NP"). Only a
+ *  fallback: the server prefers its own geo header, since this is spoofable. */
+function deviceRegion(): string | undefined {
+  try {
+    const locale = Intl.DateTimeFormat().resolvedOptions().locale;
+    return /-([A-Z]{2})\b/.exec(locale)?.[1];
+  } catch {
+    return undefined;
+  }
+}
+
+/** Ad pacing + economy config for this region. Pacing and presentation only —
+ *  every coin amount is re-decided server-side at grant time. */
+export async function getConfig(): Promise<{ config: unknown; region: string | null }> {
+  await ensureSignedIn();
+  const res = await callGame<{ config: unknown; region: string | null }>("config", { region: deviceRegion() });
+  return { config: res.config, region: res.region ?? null };
 }
 
 /** Own coin balance (server-authoritative; creates the wallet on first read). */
@@ -156,11 +180,94 @@ export async function getWallet(): Promise<number> {
   return res.balance;
 }
 
-/** Ask the server to enforce the low-balance floor; returns the new balance. */
+export interface WalletState {
+  balance: number;
+  /** The money-backed subset of `balance` (0 until coin packs ship). */
+  purchasedBalance: number;
+  /** Premium currency. Old servers omit it; treat missing as 0. */
+  gems?: number;
+  streakDay: number;
+  bonusClaimable: boolean;
+  /** A once-a-day grant is available because the balance is at zero. */
+  pityAvailable: boolean;
+}
+
+/** Balance, streak and what's claimable — one round trip for the wallet UI. */
+export async function getWalletState(): Promise<WalletState> {
+  await ensureSignedIn();
+  return await callGame<WalletState>("walletState");
+}
+
+/** Claim today's bonus. Server-side idempotent by UTC date; `claimed` is 0 if
+ *  it was already taken. */
+export async function claimDailyBonus(): Promise<{ balance: number; streakDay: number; claimed: number }> {
+  await ensureSignedIn();
+  return await callGame<{ balance: number; streakDay: number; claimed: number }>("dailyBonus");
+}
+
+/** Last-resort grant for a player sitting at zero, once a day. */
 export async function topupWallet(): Promise<number> {
   await ensureSignedIn();
-  const res = await callGame<{ balance: number }>("walletTopup");
+  const res = await callGame<{ balance: number; granted: number }>("walletTopup");
   return res.balance;
+}
+
+export type RewardPlacement = "coins" | "free-entry" | "double-pot";
+
+/** Reserve a rewarded grant BEFORE showing the ad. Returns the SSV nonce to
+ *  pass as customData; grants nothing on its own — only AdMob's signed
+ *  callback credits coins. */
+export async function adRewardIntent(
+  placement: RewardPlacement,
+  gameId?: string,
+): Promise<{ nonce: string; coins: number }> {
+  await ensureSignedIn();
+  return await callGame<{ nonce: string; coins: number }>("adRewardIntent", { placement, gameId });
+}
+
+/** Poll after the ad reports EARNED_REWARD, until the SSV callback lands. */
+export async function adRewardStatus(
+  nonce: string,
+): Promise<{ status: "pending" | "granted" | "expired"; coins: number; balance: number }> {
+  await ensureSignedIn();
+  return await callGame<{ status: "pending" | "granted" | "expired"; coins: number; balance: number }>(
+    "adRewardStatus",
+    { nonce },
+  );
+}
+
+export interface CatalogItem {
+  sku: string;
+  kind: "theme" | "avatar" | "entitlement" | "dice";
+  price: number;
+  /** Old servers omit it; treat missing as "coins". */
+  currency?: "coins" | "gems";
+  active: boolean;
+}
+
+/** Owned cosmetic SKUs plus the live catalog. */
+export async function getEntitlements(): Promise<{ skus: string[]; catalog: CatalogItem[] }> {
+  await ensureSignedIn();
+  return await callGame<{ skus: string[]; catalog: CatalogItem[] }>("entitlementsGet");
+}
+
+/** Buy a cosmetic. Price AND currency are decided server-side. */
+export async function shopBuy(sku: string): Promise<{ sku: string; balance: number; gems?: number }> {
+  await ensureSignedIn();
+  return await callGame<{ sku: string; balance: number; gems?: number }>("shopBuy", { sku });
+}
+
+/** Buy a gem pack (stub provider until real billing ships — server-gated). */
+export async function gemsBuy(productId: string): Promise<{ gems: number; purchaseId: string }> {
+  await ensureSignedIn();
+  return await callGame<{ gems: number; purchaseId: string }>("gemsBuy", { productId });
+}
+
+/** Exchange gems for coins, one-way, at the server's rate. `key` makes a
+ *  retry idempotent. */
+export async function gemsExchange(gems: number, key?: string): Promise<{ gems: number; balance: number }> {
+  await ensureSignedIn();
+  return await callGame<{ gems: number; balance: number }>("gemsExchange", key ? { gems, key } : { gems });
 }
 
 export async function startGame(gameId: string): Promise<TurnResult> {
@@ -199,6 +306,8 @@ export interface Profile {
   user_id: string;
   display_name: string;
   avatar_id: string;
+  /** Equipped dice skin id, or null for classic (inherits the viewer's board theme). */
+  dice_skin: string | null;
 }
 
 /** Fetch profiles for a set of users; missing rows simply aren't returned. */
@@ -207,7 +316,7 @@ export async function getProfiles(userIds: string[]): Promise<Profile[]> {
   const supabase = getSupabase();
   const { data, error } = await supabase
     .from("profiles")
-    .select("user_id, display_name, avatar_id")
+    .select("user_id, display_name, avatar_id, dice_skin")
     .in("user_id", userIds);
   if (error) return []; // profiles are cosmetic — never block on them
   return (data ?? []) as Profile[];
@@ -215,15 +324,23 @@ export async function getProfiles(userIds: string[]): Promise<Profile[]> {
 
 /** Upsert the caller's own profile row (RLS: self-write only). Best-effort —
  *  a display name already registered to another user is rejected by the DB's
- *  unique index, and the previous server-side name simply stays. */
-export async function upsertMyProfile(displayName: string, avatarId: string): Promise<void> {
+ *  unique index, and the previous server-side name simply stays. A priced
+ *  dice skin the caller doesn't own is silently stripped server-side (see the
+ *  profiles_enforce_dice_skin trigger) rather than rejecting the whole write. */
+export async function upsertMyProfile(displayName: string, avatarId: string, diceSkinId: string): Promise<void> {
   const supabase = getSupabase();
   const { data: sessionData } = await supabase.auth.getSession();
   const userId = sessionData.session?.user.id;
   if (!userId) return; // not signed in yet — create/join will sync it
-  await supabase
-    .from("profiles")
-    .upsert({ user_id: userId, display_name: displayName.slice(0, 20), avatar_id: avatarId }, { onConflict: "user_id" });
+  await supabase.from("profiles").upsert(
+    {
+      user_id: userId,
+      display_name: displayName.slice(0, 20),
+      avatar_id: avatarId,
+      dice_skin: diceSkinId === "classic" ? null : diceSkinId,
+    },
+    { onConflict: "user_id" },
+  );
 }
 
 /** Is this display name already registered to ANOTHER user? Best-effort: false
@@ -243,6 +360,65 @@ export async function isNameTaken(name: string): Promise<boolean> {
     .limit(1);
   if (error) return false;
   return (data ?? []).length > 0;
+}
+
+export interface PublicStats {
+  games_played: number;
+  games_won: number;
+}
+
+/** The caller's own shareable friend code, minted on first call. */
+export async function getMyFriendCode(): Promise<string | null> {
+  await ensureSignedIn();
+  try {
+    const { code } = await callGame<{ code: string }>("friendCode");
+    return code ?? null;
+  } catch {
+    return null; // cosmetic — the Add Friend screen shows a retry instead
+  }
+}
+
+/** Resolve a friend code to a player card. Throws with a user-facing message
+ *  (not found, rate limited) — the caller surfaces it inline. */
+export async function lookupFriendCode(code: string): Promise<{ user: Profile; stats: PublicStats }> {
+  await ensureSignedIn();
+  return await callGame<{ user: Profile; stats: PublicStats }>("friendLookup", { code });
+}
+
+/** Send a friend request through the edge function, which enforces blocks and
+ *  rate limits with readable errors and handles the hidden-bot case. */
+export async function requestFriend(toUserId: string): Promise<void> {
+  await ensureSignedIn();
+  await callGame<{ ok: true }>("friendRequest", { toUserId });
+}
+
+/** Opponents from recent games who aren't already friends. Server-side because
+ *  hidden bots must be filtered out and only the service role can see them. */
+export async function getRecentPlayers(): Promise<Profile[]> {
+  await ensureSignedIn();
+  try {
+    const { players } = await callGame<{ players: Profile[] }>("friendsRecent");
+    return players ?? [];
+  } catch {
+    return []; // discovery is best-effort; never block the screen
+  }
+}
+
+/** Public match record for a set of users. Best-effort: a missing row is a
+ *  player who hasn't finished an online game yet. */
+export async function getPlayerStats(userIds: string[]): Promise<Record<string, PublicStats>> {
+  if (userIds.length === 0) return {};
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from("player_stats")
+    .select("user_id, games_played, games_won")
+    .in("user_id", userIds);
+  if (error) return {};
+  const out: Record<string, PublicStats> = {};
+  for (const r of data ?? []) {
+    out[r.user_id as string] = { games_played: r.games_played as number, games_won: r.games_won as number };
+  }
+  return out;
 }
 
 /** Retry an idempotent read a couple of times with backoff — flaky mobile

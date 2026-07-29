@@ -40,9 +40,6 @@ const BOT_DELAY = 450;
 const AUTO_PASS_DELAY = 1000;
 /** A lone legal move plays the moment the tumble settles — no choice to make. */
 const AUTO_MOVE_DELAY = 600;
-/** vs-AI: seconds a human has per action before the bot policy acts for them.
- *  Matches the online TURN_SECONDS so the countdown ring reads the same. */
-export const TURN_SECONDS = 30;
 
 export interface LocalGameConfig {
   /** Seats at the table, 2–4. */
@@ -64,17 +61,11 @@ interface GameStore {
   botIds: string[];
   /** The last game's setup, so Results can offer an instant rematch. */
   lastConfig: LocalGameConfig | null;
-  /** Bumps whenever the human's turn clock (vs AI) restarts — re-keys the ring. */
-  turnSeq: number;
-  /** vs AI: the human idled out the turn clock, so the bot plays their seat
-   *  until they take back control (local-only — nothing leaves the device). */
-  autoPilot: boolean;
 
   newLocalGame: (config: LocalGameConfig) => void;
   roll: () => void;
   pass: () => void;
   selectToken: (tokenId: string) => void;
-  takeControl: () => void;
   leaveGame: () => void;
 
   currentColor: () => PlayerColor | null;
@@ -90,8 +81,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
   message: "",
   botIds: [],
   lastConfig: null,
-  turnSeq: 0,
-  autoPilot: false,
 
   newLocalGame: (config) => {
     const { players: numPlayers, bots: numBots = 0 } = config;
@@ -110,12 +99,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
       rollSeq: 0,
       botIds,
       lastConfig: config,
-      autoPilot: false,
       message: `${COLOR_LABEL[colors[0]!]} to roll`,
     });
     useNav.getState().push("localGame");
     kickBots();
-    scheduleHumanClock();
   },
 
   roll: () => {
@@ -136,7 +123,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
         message: `${COLOR_LABEL[color]} rolled three 6s — turn forfeited`,
       });
       kickBots();
-      scheduleHumanClock();
       return;
     }
 
@@ -154,7 +140,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     scheduleHumanAuto(); // auto-pass (no moves) or auto-play a lone move, for humans
     kickBots();
-    scheduleHumanClock();
   },
 
   pass: () => {
@@ -169,7 +154,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
       message: `${COLOR_LABEL[playerColor(next, next.currentTurnPlayerId)]} to roll`,
     });
     kickBots();
-    scheduleHumanClock();
   },
 
   selectToken: (tokenId) => {
@@ -183,7 +167,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     const win = checkWin(next);
     if (win.finished && win.winnerPlayerId) {
-      clearHumanClock();
       set({
         state: next,
         validMoves: [],
@@ -207,26 +190,16 @@ export const useGameStore = create<GameStore>((set, get) => ({
           : `${placed}${COLOR_LABEL[nowColor]} to roll`,
     });
     kickBots();
-    scheduleHumanClock();
-  },
-
-  takeControl: () => {
-    if (!get().autoPilot) return;
-    set({ autoPilot: false });
-    scheduleHumanAuto();
-    scheduleHumanClock();
   },
 
   leaveGame: () => {
     stopBots();
     clearAutoTimer();
-    clearHumanClock();
     set({
       state: null,
       validMoves: [],
       lastRoll: null,
       botIds: [],
-      autoPilot: false,
       message: "",
     });
     useNav.getState().popTo("home");
@@ -253,10 +226,9 @@ function playerColor(state: GameState, playerId: string): PlayerColor {
   return state.players.find((p) => p.id === playerId)!.color;
 }
 
-/** Is this seat bot-driven right now? (a bot seat, or the human's on autopilot) */
+/** Is this seat bot-driven right now? (i.e. one of the vs-AI opponent seats) */
 function isDriven(playerId: string): boolean {
-  const s = useGameStore.getState();
-  return s.botIds.includes(playerId) || s.autoPilot;
+  return useGameStore.getState().botIds.includes(playerId);
 }
 
 // --- Forced human actions ---------------------------------------------------
@@ -290,49 +262,15 @@ function scheduleHumanAuto(): void {
   }
 }
 
-// --- vs-AI human turn clock ---------------------------------------------------
-// Every human action (or turn hand-off) restarts a 30s clock, mirroring the
-// online server's per-write deadline. On expiry, the seat flips to autopilot:
-// the bot policy plays it (at bot pace) until the human taps their avatar to
-// take back control. Pass & play has no clock — couch games are leisurely.
-
-let humanClock: ReturnType<typeof setTimeout> | null = null;
-
-function clearHumanClock(): void {
-  if (humanClock) clearTimeout(humanClock);
-  humanClock = null;
-}
-
-function scheduleHumanClock(): void {
-  clearHumanClock();
-  const s = useGameStore.getState();
-  const state = s.state;
-  if (!state || state.status !== "active") return;
-  if (s.botIds.length === 0) return; // pass & play — no clock
-  if (s.autoPilot) return; // the bot loop is playing the seat — no countdown
-  if (s.botIds.includes(state.currentTurnPlayerId)) return; // bots pace themselves
-  useGameStore.setState({ turnSeq: s.turnSeq + 1 });
-  humanClock = setTimeout(engageAutoPilot, TURN_SECONDS * 1000);
-}
-
-function engageAutoPilot(): void {
-  const s = useGameStore.getState();
-  const state = s.state;
-  if (
-    !state ||
-    state.status !== "active" ||
-    s.botIds.includes(state.currentTurnPlayerId)
-  )
-    return;
-  clearAutoTimer(); // the bot loop takes over any pending forced action
-  useGameStore.setState({ autoPilot: true });
-  kickBots();
-}
+// Note: local games never hand a human's seat to the bot on idle. The human
+// takes as long as they like; only the vs-AI OPPONENT seats auto-play (below).
+// Idle-out-to-bot exists solely online, where a stalled seat blocks real
+// opponents — see onlineStore.
 
 // --- Bot auto-play loop -----------------------------------------------------
-// Self-perpetuating timer loop that runs only during bot-driven turns (bot
-// seats, plus the human's while on autopilot). Started by kickBots() at each
-// hand-off; exits as soon as a human-controlled seat is on the clock.
+// Self-perpetuating timer loop that runs only during bot-driven (vs-AI
+// opponent) turns. Started by kickBots() at each hand-off; exits as soon as a
+// human-controlled seat is on the clock.
 
 let botLoopActive = false;
 let botTimer: ReturnType<typeof setTimeout> | null = null;

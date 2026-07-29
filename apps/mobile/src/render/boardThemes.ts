@@ -8,7 +8,7 @@
 import type { Color as PlayerColor } from "@ludo/engine";
 import { palette, teamColor } from "../theme";
 
-export type BoardThemeId = "classic" | "night" | "walnut" | "sand";
+export type BoardThemeId = "classic" | "night" | "walnut" | "sand" | "aurora";
 
 export interface BoardTheme {
   id: BoardThemeId;
@@ -75,6 +75,21 @@ export const BOARD_THEMES: Record<BoardThemeId, BoardTheme> = {
     team: teamColor,
     dice: { face: "#6B4E30", pip: "#F3E9D7" },
     pawnStroke: "rgba(0,0,0,0.38)",
+  },
+  // The gem tier (0018 seed): polar night — deep indigo plate, ice cells,
+  // cool-shifted team colors. Premium but calibrated (no neon).
+  aurora: {
+    id: "aurora",
+    label: "Aurora",
+    boardBase: "#242A44",
+    boardEdge: "#4A5478",
+    cellFill: "#E9EEF6",
+    slotEmpty: "#BFC9DA",
+    cellBorder: "#1B2036",
+    starColor: "#8FA0C4",
+    team: { red: "#D9484F", green: "#2FA98C", yellow: "#D9B02E", blue: "#5B76E8" },
+    dice: { face: "#2E3554", pip: "#BFE8DF" },
+    pawnStroke: "rgba(0,0,0,0.45)",
   },
   // Soft warm off-white with clay accents; light dice with dark pips.
   sand: {

@@ -80,8 +80,17 @@ Felt Charcoal text. This makes "whose turn it is" the loudest signal in the app.
   so it never crowds the panels or the Roll button.
 - Game screen vertical rhythm: opponents row (top) → board (center) → your panel +
   dice + Roll (bottom, thumb zone).
-- Home screen is intentionally asymmetric: large left-aligned wordmark high on the
-  screen, primary actions stacked low — not a centered hero.
+- Home is the game hub (arcade-lobby structure, our visual language): a lean
+  status header — wallet pills (coins, gems) on the left, identity + settings on
+  the right, no wordmark (the diorama and app icon carry the brand; the animated
+  mark lives on the loading screen) — over a single centered hero — the
+  player's *equipped* board, pawns and die staged in the lamplight as a Skia
+  diorama — over one dominant PLAY CTA, a terse row of mode tiles, and a bottom
+  dock of drawn-glyph entries (Shop, Friends, Stats, How to play). One screen,
+  no scrolling: only the diorama flexes; header, tiles, dock and ad strip are
+  fixed-height. The hero must always display real equipped cosmetics — it is a
+  showcase, never stock art. Social proof under PLAY uses real presence counts
+  only, and hides at zero.
 - Generous safe-area padding; respect notches/home indicators (`SafeAreaView`).
 - Single column always (it's a phone); no horizontal scroll anywhere.
 
@@ -112,5 +121,7 @@ Felt Charcoal text. This makes "whose turn it is" the loudest signal in the app.
 - No generic circular loading spinners.
 - No placeholder names ("John Doe", "Player1") — use real-feel names or "You".
 - No AI copy clichés ("Seamless", "Elevate", "Unleash", "Next-Gen").
-- No centered hero on Home; no three-equal-card rows.
+- Centered heroes and equal tile/dock rows are permitted **only on the Home
+  hub** (hero diorama, mode-tile row, dock). Every other screen stays
+  asymmetric — no centered heroes, no equal-card grids elsewhere.
 - No fake round stats; no broken remote images (board art is drawn in Skia).

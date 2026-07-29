@@ -8,8 +8,9 @@
 
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Pressable, View } from "react-native";
-import { Canvas, Circle, Group, Line, LinearGradient, Oval, Path, RadialGradient, RoundedRect, Skia, vec } from "@shopify/react-native-skia";
+import { Canvas, Circle, Group, Line, LinearGradient, Path, RadialGradient, RoundedRect, Skia, vec } from "@shopify/react-native-skia";
 import {
+  cancelAnimation,
   Easing,
   runOnJS,
   useDerivedValue,
@@ -46,6 +47,15 @@ import {
 
 const COLORS: PlayerColor[] = ["red", "green", "yellow", "blue"];
 const SAFE = new Set(SAFE_SQUARES);
+
+/**
+ * The track grid + pawns are scaled toward the board centre by this factor, so a
+ * board-coloured frame rings the whole play area — the outer cells sit clearly
+ * INSIDE the plate instead of running off its rounded edge. Applied identically
+ * to the drawn cells (a Skia scale in BoardSurface) and to pawn seats/waypoints
+ * (in JS, so the tap layer stays aligned). 1 = no frame; lower = thicker frame.
+ */
+const BOARD_INTERIOR_SCALE = 0.94;
 // Hop/fly durations live in lib/moveTiming: feedback.ts mirrors them so landing
 // sounds (capture, safe chime) fire when the pawn arrives, not when state lands.
 
@@ -109,6 +119,19 @@ export function Board({ size, state, theme, isMovable, onSelectToken, viewColor 
     [q, center],
   );
 
+  // Scale a board point toward the centre so pawns land on the framed (inset)
+  // cells. Rotation and this inset both pivot on the centre, so they commute —
+  // pawns line up with BoardSurface's scaled interior at any view angle.
+  const insetPt = useCallback(
+    (x: number, y: number): Spot2 => ({ x: center + (x - center) * BOARD_INTERIOR_SCALE, y: center + (y - center) * BOARD_INTERIOR_SCALE }),
+    [center],
+  );
+
+  // Extra Skia canvas room around the plate so a tall pawn (or its bob) on the
+  // top row rises past the board's edge instead of being clipped. The board's
+  // layout footprint stays `size`; the canvas just bleeds outward (see below).
+  const pad = Math.round(cell * 0.7);
+
   // Theme objects are module constants, so reference equality keeps this memo effective.
   const staticBoard = useMemo(() => <BoardSurface size={size} theme={theme} />, [size, theme]);
   const layout = useMemo(() => computeLayout(state.tokens, cell), [state.tokens, cell]);
@@ -123,17 +146,23 @@ export function Board({ size, state, theme, isMovable, onSelectToken, viewColor 
   const renderData = state.tokens.map((token) => {
     const spot = layout.get(token.id)!;
     const prev = prevPos.current.get(token.id);
-    const waypoints = computeWaypoints(token.color, prev, token.position, spot, cell).map((p) => rotatePt(p.x, p.y));
+    const walked = computeWaypoints(token.color, prev, token.position, spot, cell);
+    const waypoints = walked.points.map((p) => {
+      const r = rotatePt(p.x, p.y);
+      return insetPt(r.x, r.y);
+    });
     const rotated = rotatePt(spot.x, spot.y);
-    return { token, spot: { x: rotated.x, y: rotated.y, r: spot.r }, prev, waypoints };
+    const seat = insetPt(rotated.x, rotated.y);
+    return { token, spot: { x: seat.x, y: seat.y, r: spot.r * BOARD_INTERIOR_SCALE }, prev, waypoints, walk: walked.walk };
   });
 
   // How long each capturing mover takes to reach a track cell, so a captured
   // token can wait until the mover arrives before animating home.
   const moverHopMs = new Map<number, number>();
-  for (const { token, prev, waypoints } of renderData) {
+  for (const { token, prev, waypoints, walk } of renderData) {
     if (prev && positionKey(prev) !== positionKey(token.position) && typeof token.position === "object" && token.position.type === "track") {
-      moverHopMs.set(token.position.index, Math.max(moverHopMs.get(token.position.index) ?? 0, waypoints.length * HOP_STEP_MS));
+      const ms = walk ? waypoints.length * HOP_STEP_MS : FLY_MS;
+      moverHopMs.set(token.position.index, Math.max(moverHopMs.get(token.position.index) ?? 0, ms));
     }
   }
 
@@ -150,33 +179,49 @@ export function Board({ size, state, theme, isMovable, onSelectToken, viewColor 
         shadowRadius: 18,
         shadowOffset: { width: 0, height: 10 },
         elevation: 14,
+        // Let the oversized canvas (and pawns rising past the top row) draw
+        // beyond this footprint instead of being clipped to it.
+        overflow: "visible",
       }}
     >
-      <Canvas style={{ width: size, height: size }}>
-        {q === 0 ? (
-          staticBoard
-        ) : (
-          <Group origin={{ x: center, y: center }} transform={[{ rotate: (q * Math.PI) / 2 }]}>
-            {staticBoard}
-          </Group>
-        )}
-        {/* Painter's order: pawns lower on screen draw over the ones above, so
-            a tall piece overlapping the cell behind it reads as standing depth. */}
-        {[...renderData]
-          .sort((a, b) => a.spot.y - b.spot.y)
-          .map(({ token, spot, prev, waypoints }) => (
-            <AnimatedPawn
-              key={token.id}
-              waypoints={waypoints}
-              posKey={positionKey(token.position)}
-              r={spot.r}
-              color={theme.team[token.color]}
-              stroke={theme.pawnStroke}
-              movable={isMovable(token.id)}
-              delay={capturedDelay(token, prev, moverHopMs)}
-            />
-          ))}
+      {/* Canvas bleeds `pad` past every edge (offset back by -pad) so the board
+          plate still sits exactly on this View's footprint, while tall pawns get
+          clear room above the top row. Everything is drawn shifted by +pad to
+          compensate for the -pad offset. */}
+      <Canvas style={{ position: "absolute", left: -pad, top: -pad, width: size + pad * 2, height: size + pad * 2 }}>
+        <Group transform={[{ translateX: pad }, { translateY: pad }]}>
+          {q === 0 ? (
+            staticBoard
+          ) : (
+            <Group origin={{ x: center, y: center }} transform={[{ rotate: (q * Math.PI) / 2 }]}>
+              {staticBoard}
+            </Group>
+          )}
+          {/* Painter's order: pawns lower on screen draw over the ones above, so
+              a tall piece overlapping the cell behind it reads as standing depth. */}
+          {[...renderData]
+            .sort((a, b) => a.spot.y - b.spot.y)
+            .map(({ token, spot, prev, waypoints, walk }) => (
+              <AnimatedPawn
+                key={token.id}
+                waypoints={waypoints}
+                walk={walk}
+                posKey={positionKey(token.position)}
+                r={spot.r}
+                color={theme.team[token.color]}
+                stroke={theme.pawnStroke}
+                delay={capturedDelay(token, prev, moverHopMs)}
+                movable={isMovable(token.id)}
+                phase={tokenIndex(token.id) % 4}
+              />
+            ))}
+        </Group>
       </Canvas>
+
+      {/* The tap-me cue lives inside each movable pawn now (a gentle vertical
+          bob + squashing ground shadow, in AnimatedPawn) — it rides the same
+          cheap Skia transform path the hop uses, so no compositor overlay and
+          no picture re-record. */}
 
       {/* Single tap layer: selects the movable token NEAREST the tap, so fanned
           tokens sharing a cell are disambiguated precisely (no overlapping hit
@@ -214,14 +259,19 @@ export function Board({ size, state, theme, isMovable, onSelectToken, viewColor 
 export function BoardSurface({ size, theme }: { size: number; theme: BoardTheme }) {
   const cell = cellSize(size);
   const startIndices = new Set(Object.values(START_CELL_INDEX));
+  const center = size / 2;
   return (
     <Group>
-      {/* Plate: vertical light-to-dark wash + bevel (outer edge, inner light lip). */}
+      {/* Plate: vertical light-to-dark wash + bevel (outer edge, inner light lip).
+          The plate fills the full footprint; the track interior below is scaled
+          in (BOARD_INTERIOR_SCALE) so a board-coloured frame rings the cells. */}
       <RoundedRect x={0} y={0} width={size} height={size} r={18}>
         <LinearGradient start={vec(0, 0)} end={vec(0, size)} colors={[shade(theme.boardBase, 0.02), shade(theme.boardBase, -0.07)]} />
       </RoundedRect>
       <RoundedRect x={1.5} y={1.5} width={size - 3} height={size - 3} r={16} color={theme.boardEdge} style="stroke" strokeWidth={2.5} />
       <RoundedRect x={4} y={4} width={size - 8} height={size - 8} r={14} color="rgba(255,255,255,0.5)" style="stroke" strokeWidth={1.5} />
+
+      <Group origin={{ x: center, y: center }} transform={[{ scale: BOARD_INTERIOR_SCALE }]}>
 
       {/* Yards: raised gradient tile (drop shadow + top lip), inset inner plate,
           and recessed slot discs ringed in the team color. */}
@@ -320,6 +370,7 @@ export function BoardSurface({ size, theme }: { size: number; theme: BoardTheme 
         </Group>
       ))}
       <RoundedRect x={6 * cell} y={6 * cell} width={3 * cell} height={3 * cell} r={3} color={theme.boardEdge} style="stroke" strokeWidth={1.5} />
+      </Group>
 
       {/* Soft diagonal sheen over the whole plate (plastic-board gloss). */}
       <Path path={`M 0 0 L ${size} 0 L 0 ${size * 0.55} Z`} color="rgba(255,255,255,0.05)" />
@@ -362,13 +413,18 @@ function topArc(cx: number, cy: number, r: number) {
 
 interface AnimatedPawnProps {
   waypoints: Spot2[];
+  /** True for a walkable forward move — hop cell-by-cell even for one cell. */
+  walk: boolean;
   posKey: string;
   r: number;
   color: string;
   stroke: string;
-  movable: boolean;
   /** Wait this many ms before animating — captured tokens wait for the mover. */
   delay: number;
+  /** True while this pawn is a legal move this turn — shows the bob + shadow cue. */
+  movable: boolean;
+  /** 0–3 stagger bucket so co-located movable pawns don't bob in lockstep. */
+  phase: number;
 }
 
 interface Spot2 {
@@ -376,28 +432,43 @@ interface Spot2 {
   y: number;
 }
 
-function AnimatedPawn({ waypoints, posKey, r, color, stroke, movable, delay }: AnimatedPawnProps) {
+function AnimatedPawn({ waypoints, walk, posKey, r, color, stroke, delay, movable, phase }: AnimatedPawnProps) {
   const last = waypoints[waypoints.length - 1]!;
   const tx = useSharedValue(last.x);
   const ty = useSharedValue(last.y);
-  const pulse = useSharedValue(0);
+  // The "tap me" cue: `bob` yo-yos 0→1 forever; `cue` fades the whole effect
+  // (lift + shadow) in and out with `movable` so it never pops on/off.
+  const bob = useSharedValue(0);
+  const cue = useSharedValue(0);
   const mounted = useRef(false);
   const prevKey = useRef(posKey);
+  const prevSpot = useRef(last);
   const wpRef = useRef(waypoints);
   wpRef.current = waypoints;
+  const walkRef = useRef(walk);
+  walkRef.current = walk;
+  const delayRef = useRef(delay);
+  delayRef.current = delay;
 
-  // Re-run only on a real position/spot change (not when `movable` toggles).
+  // Animate ONLY on a real position/spot change. Everything else (re-renders
+  // from toasts, highlight toggles, unrelated store writes) must leave the
+  // running animation alone — a captured token sits waiting out `delay` while
+  // its mover walks over, and that wait must survive intermediate renders
+  // (whose recomputed props would otherwise re-trigger this effect and cut the
+  // choreography short).
   useEffect(() => {
     if (!mounted.current) {
       mounted.current = true;
       prevKey.current = posKey;
+      prevSpot.current = last;
       tx.value = last.x;
       ty.value = last.y;
       return;
     }
-    const wps = wpRef.current;
     if (posKey !== prevKey.current) {
       prevKey.current = posKey;
+      prevSpot.current = last;
+      const wps = wpRef.current;
       // The hop sound fires from each landing's completion callback, so it is
       // locked to the animation itself — no setTimeout drift when several pawns
       // move at once. `finished` guards against interrupted moves.
@@ -405,14 +476,14 @@ function AnimatedPawn({ waypoints, posKey, r, color, stroke, movable, delay }: A
         "worklet";
         if (finished) runOnJS(hopFeedback)();
       };
-      if (wps.length <= 1) {
-        tx.value = withDelay(delay, withTiming(last.x, { duration: FLY_MS, easing: Easing.out(Easing.cubic) }));
-        ty.value = withDelay(delay, withTiming(last.y, { duration: FLY_MS, easing: Easing.out(Easing.cubic) }, onLand));
+      if (!walkRef.current) {
+        tx.value = withDelay(delayRef.current, withTiming(last.x, { duration: FLY_MS, easing: Easing.out(Easing.cubic) }));
+        ty.value = withDelay(delayRef.current, withTiming(last.y, { duration: FLY_MS, easing: Easing.out(Easing.cubic) }, onLand));
       } else {
         const HOP = r * 0.5;
-        tx.value = withDelay(delay, withSequence(...wps.map((p) => withTiming(p.x, { duration: HOP_STEP_MS, easing: Easing.linear }))));
+        tx.value = withDelay(delayRef.current, withSequence(...wps.map((p) => withTiming(p.x, { duration: HOP_STEP_MS, easing: Easing.linear }))));
         ty.value = withDelay(
-          delay,
+          delayRef.current,
           withSequence(
             ...wps.flatMap((p) => [
               withTiming(p.y - HOP, { duration: HOP_STEP_MS / 2, easing: Easing.out(Easing.quad) }),
@@ -421,34 +492,61 @@ function AnimatedPawn({ waypoints, posKey, r, color, stroke, movable, delay }: A
           ),
         );
       }
-    } else {
+    } else if (last.x !== prevSpot.current.x || last.y !== prevSpot.current.y) {
       // Same cell, fan offset shifted (a co-located token came or went).
+      prevSpot.current = last;
       tx.value = withTiming(last.x, { duration: 200 });
       ty.value = withTiming(last.y, { duration: 200 });
     }
-  }, [posKey, last.x, last.y, r, delay, tx, ty]);
+  }, [posKey, last.x, last.y, tx, ty]);
 
+  // Drive the bob only while this pawn is a legal move. It's a transform-only
+  // animation on the Skia Group (the same cheap path the hop uses), so an idle
+  // board's picture is still never re-recorded — only the matrix re-submits.
+  // The `phase` delay staggers co-located movers so they don't bob in lockstep.
   useEffect(() => {
-    pulse.value = movable ? withRepeat(withTiming(1, { duration: 1100 }), -1, true) : 0;
-  }, [movable, pulse]);
+    if (movable) {
+      // Reset to 0 FIRST: withRepeat(reverse) yoyos between the value at start
+      // and 1, so a bob frozen mid-cycle from a previous turn would otherwise
+      // give a short (or, if frozen at ~1, invisible) bounce. Starting from 0
+      // guarantees every mover swings the identical full 0→1→0 amplitude.
+      cancelAnimation(bob);
+      bob.value = 0;
+      cue.value = withTiming(1, { duration: 200 });
+      bob.value = withDelay(phase * 80, withRepeat(withTiming(1, { duration: 650, easing: Easing.inOut(Easing.sin) }), -1, true));
+    } else {
+      // Freeze bob where it is (don't reset here) and let `cue` fade to 0 so the
+      // lift eases down smoothly. The next activation resets bob to 0 itself.
+      cancelAnimation(bob);
+      cue.value = withTiming(0, { duration: 200 });
+    }
+    return () => {
+      cancelAnimation(bob);
+      cancelAnimation(cue);
+    };
+  }, [movable, phase, bob, cue]);
 
-  // Movable pawns pulsate — a gentle scale breath plus a white ground ring
-  // around the base (the piece stands inside it).
-  const transform = useDerivedValue(() => [
-    { translateX: tx.value },
-    { translateY: ty.value },
-    { scale: 1 + pulse.value * 0.12 },
-  ]);
-  const ringRect = useDerivedValue(() => {
-    const rw = r * 1.06 + pulse.value * 2.5;
-    const rh = rw * 0.4;
-    return Skia.XYWHRect(-rw, r * 0.45 - rh, rw * 2, rh * 2);
+  // Pawn: hop/fly position (tx/ty) plus the cued vertical lift.
+  const transform = useDerivedValue(() => [{ translateX: tx.value }, { translateY: ty.value - bob.value * cue.value * (r * 0.4) }]);
+
+  // Ground shadow: sits at the pawn's foot (not lifted), squashed into an
+  // ellipse, and shrinks + fades a touch as the pawn rises.
+  const shadowTransform = useDerivedValue(() => {
+    const s = 1 - bob.value * cue.value * 0.18;
+    return [{ translateX: tx.value }, { translateY: ty.value + r * 0.5 }, { scaleX: s }, { scaleY: 0.32 * s }];
   });
+  const shadowOpacity = useDerivedValue(() => cue.value * (1 - bob.value * cue.value * 0.4));
 
   return (
-    <Group transform={transform}>
-      {movable && <Oval rect={ringRect} color="#FFFFFF" style="stroke" strokeWidth={2.5} />}
-      <PawnShape r={r} color={color} stroke={stroke} />
+    <Group>
+      <Group transform={shadowTransform} opacity={shadowOpacity}>
+        <Circle cx={0} cy={0} r={r * 0.95}>
+          <RadialGradient c={vec(0, 0)} r={r * 0.95} colors={["rgba(9,12,16,0.55)", "rgba(9,12,16,0)"]} />
+        </Circle>
+      </Group>
+      <Group transform={transform}>
+        <PawnShape r={r} color={color} stroke={stroke} />
+      </Group>
     </Group>
   );
 }
@@ -547,20 +645,25 @@ function computeLayout(tokens: Token[], cell: number): Map<string, Spot> {
   return layout;
 }
 
-/** Pixel waypoints from a token's previous position to its new spot, cell by cell. */
+/**
+ * Pixel waypoints from a token's previous position to its new spot, cell by
+ * cell. `walk: true` marks a contiguous forward move (1–6 cells) that should
+ * hop through each point — a single-cell move still hops, it doesn't slide.
+ * Everything else (yard exits, capture returns, resync jumps) flies direct.
+ */
 function computeWaypoints(
   color: PlayerColor,
   prev: TokenPosition | undefined,
   current: TokenPosition,
   finalSpot: Spot,
   cell: number,
-): Spot2[] {
+): { points: Spot2[]; walk: boolean } {
   const dest: Spot2 = { x: finalSpot.x, y: finalSpot.y };
-  if (prev === undefined || prev === "home") return [dest]; // first render or leaving yard
+  if (prev === undefined || prev === "home") return { points: [dest], walk: false }; // first render or leaving yard
 
   const oldRel = prev === "finished" ? FINISH_REL_INDEX : toRelativeIndex(color, prev);
   const newRel = current === "home" ? -1 : current === "finished" ? FINISH_REL_INDEX : toRelativeIndex(color, current);
-  if (oldRel === null || newRel === null) return [dest];
+  if (oldRel === null || newRel === null) return { points: [dest], walk: false };
 
   if (newRel > oldRel && newRel - oldRel <= 6) {
     const pts: Spot2[] = [];
@@ -568,9 +671,9 @@ function computeWaypoints(
       pts.push(tokenCenterPx(color, fromRelativeIndex(color, rel), 0, cell));
     }
     pts.push(dest);
-    return pts;
+    return { points: pts, walk: true };
   }
-  return [dest];
+  return { points: [dest], walk: false };
 }
 
 /**

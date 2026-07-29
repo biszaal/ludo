@@ -4,16 +4,20 @@
  * doesn't flash a meaningless zero.
  */
 
-import { Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import { useWallet } from "../store/walletStore";
+import { formatCompact } from "../lib/format";
 import { font, palette, radius, space } from "../theme";
 
-export function CoinsPill({ compact = false }: { compact?: boolean }) {
+/** Pass `onPress` to make the pill a doorway to the Get Coins sheet. A dot
+ *  marks an unclaimed daily bonus so the balance itself is the entry point. */
+export function CoinsPill({ compact = false, onPress }: { compact?: boolean; onPress?: () => void }) {
   const balance = useWallet((s) => s.balance);
+  const bonusClaimable = useWallet((s) => s.bonusClaimable);
   if (balance === null) return null;
-  return (
+
+  const body = (pressed: boolean) => (
     <View
-      accessibilityLabel={`${balance} coins`}
       style={{
         flexDirection: "row",
         alignItems: "center",
@@ -24,13 +28,40 @@ export function CoinsPill({ compact = false }: { compact?: boolean }) {
         backgroundColor: palette.liftedSlate,
         borderTopWidth: 1,
         borderTopColor: "rgba(255,255,255,0.10)",
+        opacity: pressed ? 0.75 : 1,
       }}
     >
       <CoinGlyph size={compact ? 14 : 16} />
+      {/* Compact form here; the sheet this opens shows the exact number. */}
       <Text style={{ fontFamily: font.mono, fontSize: compact ? 13 : 15, color: palette.porcelain }}>
-        {balance}
+        {formatCompact(balance)}
       </Text>
+      {onPress && bonusClaimable ? (
+        <View
+          style={{
+            width: 7,
+            height: 7,
+            borderRadius: 3.5,
+            backgroundColor: "#F5C542",
+            marginLeft: 1,
+          }}
+        />
+      ) : null}
     </View>
+  );
+
+  if (!onPress) {
+    return <View accessibilityLabel={`${balance} coins`}>{body(false)}</View>;
+  }
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={bonusClaimable ? `${balance} coins, daily bonus ready` : `${balance} coins, get more`}
+      onPress={onPress}
+      hitSlop={8}
+    >
+      {({ pressed }) => body(pressed)}
+    </Pressable>
   );
 }
 

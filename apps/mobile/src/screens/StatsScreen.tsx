@@ -1,27 +1,32 @@
 /**
  * Stats — local totals per mode and recent match history (device-only; online
  * identity is anonymous, so there is nothing meaningful to sync). Zero state is
- * a composed card, never bare text.
+ * a composed card, never bare text. Hub language: Surface3D trays, drawn mode
+ * glyphs, and a thin win-rate bar; recent rows carry a neutral WIN/— badge
+ * (team colors stay board-only).
  */
 
+import type { ReactNode } from "react";
 import { ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { Canvas, Group } from "@shopify/react-native-skia";
 import { TableBackground } from "../components/TableBackground";
-import { Canvas } from "@shopify/react-native-skia";
-import { Button } from "../components/Button";
-import { BoardSurface } from "../components/Board";
+import { ScreenHeader } from "../components/ScreenHeader";
+import { ContentColumn } from "../components/ContentColumn";
+import { SectionLabel } from "../components/SectionLabel";
+import { Surface3D } from "../components/Surface3D";
+import { BoardSurface, PawnShape } from "../components/Board";
+import { CycleGlyph, PeopleGlyph } from "../components/HomeGlyphs";
 import { BOARD_THEMES } from "../render/boardThemes";
-import { useNav } from "../store/navStore";
 import { useSettings } from "../store/settingsStore";
 import { useStats, type MatchMode, type MatchRecord } from "../store/statsStore";
-import { font, palette, radius, space, teamColor } from "../theme";
+import { font, palette, radius, space } from "../theme";
 
 const MODE_LABEL: Record<MatchMode, string> = { ai: "vs AI", pass: "Pass & play", online: "Online" };
 
 export function StatsScreen() {
   const totals = useStats((s) => s.totals);
   const recent = useStats((s) => s.recent);
-  const pop = useNav((s) => s.pop);
   const boardTheme = BOARD_THEMES[useSettings((s) => s.boardThemeId)];
 
   const played = totals.ai.played + totals.pass.played + totals.online.played;
@@ -29,10 +34,7 @@ export function StatsScreen() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: palette.tableBlue }}>
       <TableBackground />
-      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: space.xl, paddingTop: space.sm }}>
-        <Text style={{ fontFamily: font.display, fontSize: 22, color: palette.porcelain }}>Stats</Text>
-        <Button label="Back" onPress={pop} variant="ghost" />
-      </View>
+      <ScreenHeader title="Stats" />
 
       {played === 0 ? (
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: space.xl, gap: space.lg }}>
@@ -47,52 +49,78 @@ export function StatsScreen() {
           </Text>
         </View>
       ) : (
-        <ScrollView contentContainerStyle={{ paddingHorizontal: space.xl, paddingTop: space.lg, paddingBottom: space.xxl, gap: space.xl }}>
+        <ScrollView contentContainerStyle={{ paddingTop: space.lg, paddingBottom: space.xxl, alignItems: "center" }}>
+        <ContentColumn style={{ paddingHorizontal: space.xl, gap: space.xl }}>
           {/* Totals per mode */}
           <View style={{ gap: space.sm }}>
-            <Text style={{ fontFamily: font.medium, fontSize: 13, color: palette.mutedSteel, letterSpacing: 0.5 }}>TOTALS</Text>
+            <SectionLabel>Totals</SectionLabel>
             {(Object.keys(MODE_LABEL) as MatchMode[])
               .filter((m) => totals[m].played > 0)
               .map((m) => (
-                <View
+                <ModeTray
                   key={m}
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    padding: space.md,
-                    borderRadius: radius.md,
-                    backgroundColor: palette.raisedSlate,
-                    borderWidth: 1,
-                    borderColor: palette.hairline,
-                    gap: space.md,
-                  }}
-                >
-                  <Text style={{ flex: 1, fontFamily: font.semibold, fontSize: 15, color: palette.porcelain }}>{MODE_LABEL[m]}</Text>
-                  <Stat label="played" value={`${totals[m].played}`} />
-                  {m !== "pass" ? <Stat label="won" value={`${totals[m].won}`} /> : null}
-                  {m !== "pass" ? (
-                    <Stat label="win rate" value={`${Math.round((totals[m].won / totals[m].played) * 100)}%`} />
-                  ) : null}
-                </View>
+                  mode={m}
+                  glyph={modeGlyph(m, boardTheme)}
+                  played={totals[m].played}
+                  won={m === "pass" ? null : totals[m].won}
+                />
               ))}
           </View>
 
           {/* Recent matches */}
           <View style={{ gap: space.sm }}>
-            <Text style={{ fontFamily: font.medium, fontSize: 13, color: palette.mutedSteel, letterSpacing: 0.5 }}>RECENT</Text>
+            <SectionLabel>Recent</SectionLabel>
             {recent.map((r) => (
               <MatchRow key={r.id} r={r} />
             ))}
           </View>
-        </ScrollView>
+        </ContentColumn>
+      </ScrollView>
       )}
     </SafeAreaView>
   );
 }
 
+/** Drawn per-mode mark: vs AI = two pawns squaring off, pass = hand-off loop,
+ *  online = two player silhouettes. */
+function modeGlyph(m: MatchMode, theme: (typeof BOARD_THEMES)[keyof typeof BOARD_THEMES]): ReactNode {
+  if (m === "pass") return <CycleGlyph size={22} />;
+  if (m === "online") return <PeopleGlyph size={22} />;
+  return (
+    <Canvas style={{ width: 26, height: 22 }}>
+      <Group transform={[{ translateX: 17 }, { translateY: 13 }]}>
+        <PawnShape r={6} color={theme.team.blue} stroke={theme.pawnStroke} />
+      </Group>
+      <Group transform={[{ translateX: 8 }, { translateY: 15 }]}>
+        <PawnShape r={7} color={theme.team.red} stroke={theme.pawnStroke} />
+      </Group>
+    </Canvas>
+  );
+}
+
+function ModeTray({ mode, glyph, played, won }: { mode: MatchMode; glyph: ReactNode; played: number; won: number | null }) {
+  const rate = won === null ? null : Math.round((won / played) * 100);
+  return (
+    <Surface3D rad={radius.lg} faceStyle={{ padding: space.md, gap: space.sm }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
+        <View style={{ width: 28, alignItems: "center" }}>{glyph}</View>
+        <Text style={{ flex: 1, fontFamily: font.semibold, fontSize: 15, color: palette.porcelain }}>{MODE_LABEL[mode]}</Text>
+        <Stat label="played" value={`${played}`} />
+        {won !== null ? <Stat label="won" value={`${won}`} /> : null}
+        {rate !== null ? <Stat label="win rate" value={`${rate}%`} /> : null}
+      </View>
+      {rate !== null ? (
+        <View style={{ height: 4, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.08)", overflow: "hidden" }}>
+          <View style={{ width: `${rate}%`, height: 4, borderRadius: 2, backgroundColor: palette.mutedSteel }} />
+        </View>
+      ) : null}
+    </Surface3D>
+  );
+}
+
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <View style={{ alignItems: "flex-end" }}>
+    <View style={{ alignItems: "flex-end", minWidth: 52 }}>
       <Text style={{ fontFamily: font.mono, fontSize: 15, color: palette.porcelain }}>{value}</Text>
       <Text style={{ fontFamily: font.regular, fontSize: 11, color: palette.mutedSteel }}>{label}</Text>
     </View>
@@ -100,31 +128,34 @@ function Stat({ label, value }: { label: string; value: string }) {
 }
 
 function MatchRow({ r }: { r: MatchRecord }) {
+  const won = r.didWin === true;
   return (
-    <View
-      style={{
-        flexDirection: "row",
-        alignItems: "center",
-        gap: space.md,
-        paddingVertical: space.sm,
-        paddingHorizontal: space.md,
-        borderRadius: radius.md,
-        backgroundColor: palette.raisedSlate,
-        borderWidth: 1,
-        borderColor: palette.hairline,
-      }}
-    >
-      <View style={{ width: 12, height: 12, borderRadius: radius.pill, backgroundColor: teamColor[r.winnerColor] }} />
+    <Surface3D edge={2} rad={radius.md} faceStyle={{ flexDirection: "row", alignItems: "center", gap: space.md, paddingVertical: space.sm, paddingHorizontal: space.md }}>
+      {/* Neutral outcome badge — team colors stay on the board. */}
+      <View
+        style={{
+          minWidth: 40,
+          paddingHorizontal: 6,
+          paddingVertical: 3,
+          borderRadius: radius.pill,
+          backgroundColor: won ? palette.porcelain : "rgba(255,255,255,0.08)",
+          alignItems: "center",
+        }}
+      >
+        <Text style={{ fontFamily: font.semibold, fontSize: 10, color: won ? palette.feltCharcoal : palette.mutedSteel }}>
+          {won ? "WIN" : "—"}
+        </Text>
+      </View>
       <View style={{ flex: 1 }}>
         <Text style={{ fontFamily: font.semibold, fontSize: 14, color: palette.porcelain }}>
-          {r.winnerLabel} won{r.didWin === true ? " — you!" : ""}
+          {r.winnerLabel} won{won ? " — you!" : ""}
         </Text>
         <Text style={{ fontFamily: font.regular, fontSize: 12, color: palette.mutedSteel }}>
           {MODE_LABEL[r.mode]} · {r.players} players
         </Text>
       </View>
       <Text style={{ fontFamily: font.mono, fontSize: 12, color: palette.mutedSteel }}>{when(r.finishedAt)}</Text>
-    </View>
+    </Surface3D>
   );
 }
 

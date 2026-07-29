@@ -10,6 +10,8 @@ export default defineConfig({
       "@react-native-async-storage/async-storage": fileURLToPath(
         new URL("./__tests__/mocks/asyncStorage.ts", import.meta.url),
       ),
+      // Native module — the wallet store imports lib/purchases transitively.
+      "react-native-purchases": fileURLToPath(new URL("./__tests__/mocks/purchases.ts", import.meta.url)),
     },
   },
   test: {

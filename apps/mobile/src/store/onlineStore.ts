@@ -54,6 +54,8 @@ interface OnlineStore {
   starting: boolean;
   /** Quick-match room: the lobby shows "finding an opponent", no room code. */
   isQuick: boolean;
+  /** Quick-match table size (2 = 1v1, 4 = free-for-all) — drives the lobby copy. */
+  quickSize: number;
   /** Coins each seat staked (0 = friendly). Winner takes stake × 2. */
   stake: number;
   lobby: api.LobbyPlayer[];
@@ -89,8 +91,8 @@ interface OnlineStore {
 
   create: () => Promise<void>;
   join: (code: string) => Promise<void>;
-  /** Play online: pair with a random opponent (a hidden bot fills a dry queue). */
-  quickMatch: () => Promise<void>;
+  /** Play online: pair into a 2- or 4-player table (hidden bots fill a dry queue). */
+  quickMatch: (size: 2 | 4, stake?: number) => Promise<void>;
   start: () => Promise<void>;
   roll: () => Promise<void>;
   selectToken: (tokenId: string) => Promise<void>;
@@ -117,6 +119,7 @@ const INITIAL = {
   isHost: false,
   starting: false,
   isQuick: false,
+  quickSize: 2,
   stake: 0,
   lobby: [] as api.LobbyPlayer[],
   profiles: {} as Record<string, api.Profile>,
@@ -189,10 +192,10 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
     }
   },
 
-  quickMatch: async () => {
+  quickMatch: async (size, stake) => {
     set({ status: "connecting", error: null });
     try {
-      const m = await api.quickMatch();
+      const m = await api.quickMatch(size, stake);
       syncMyProfile();
       subscribe(m.gameId);
       const lobby = await api.getLobby(m.gameId);
@@ -204,12 +207,15 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
         myPlayerId: m.myPlayerId,
         isHost: me?.is_host ?? false,
         isQuick: true,
+        quickSize: m.size ?? size,
         stake: m.stake ?? 0,
         lobby,
         status: "lobby",
       });
       void fetchProfiles(lobby);
       if (m.waiting) {
+        // The setup sheet lives on Home, so the lobby stacks on top of it —
+        // backing out of the lobby lands on the hub, never a stale picker.
         useNav.getState().push("lobby");
         armQuickFill(m.gameId);
       } else if (m.state) {
@@ -432,6 +438,13 @@ function armQuickFill(gameId: string): void {
       if (st.gameId !== gameId || st.status !== "lobby") return;
       try {
         const res = await api.quickBotFill(gameId);
+        // The bot just seated is a fresh row fetchProfiles has never seen —
+        // pull it in now, so its (server-assigned) name/avatar/dice skin are
+        // ready by the time this client's own GameView mounts, rather than
+        // waiting on the `players` realtime event to refresh them.
+        const freshLobby = await api.getLobby(gameId);
+        useOnlineStore.setState({ lobby: freshLobby });
+        void fetchProfiles(freshLobby);
         applyTurnResult(res, false);
       } catch {
         // The server refused (raced start, network blip) — the realtime row or
@@ -770,8 +783,8 @@ async function fetchProfiles(lobby: api.LobbyPlayer[]): Promise<void> {
 
 /** Push the local profile to the server once a session exists (create/join). */
 function syncMyProfile(): void {
-  const { displayName, avatarId } = useProfile.getState();
-  void api.upsertMyProfile(displayName, avatarId).catch(() => {});
+  const { displayName, avatarId, diceSkinId } = useProfile.getState();
+  void api.upsertMyProfile(displayName, avatarId, diceSkinId).catch(() => {});
 }
 
 /** Apply an authoritative GameState into the view and navigate when active. */
@@ -801,7 +814,9 @@ function applyState(state: GameState, rolled: boolean): void {
   });
   scheduleTimeout(active);
   armAutoPilot(active);
-  // Enter the game screen; replace a lobby entry so back never returns to a dead lobby.
+  // Enter the game screen; replace a lobby entry so back never returns to a
+  // dead lobby. A 2-player quick table can be dealt outright from the Home
+  // setup sheet (no lobby stop) — that lands in the push branch.
   const nav = useNav.getState();
   const top = nav.stack[nav.stack.length - 1]!.name;
   if (top === "lobby") nav.replace("onlineGame");

@@ -17,9 +17,12 @@ import { LobbyScreen } from "../screens/LobbyScreen";
 import { OnlineGameScreen } from "../screens/OnlineGameScreen";
 import { SettingsScreen } from "../screens/SettingsScreen";
 import { ProfileScreen } from "../screens/ProfileScreen";
+import { ShopScreen } from "../screens/ShopScreen";
 import { HowToPlayScreen } from "../screens/HowToPlayScreen";
 import { StatsScreen } from "../screens/StatsScreen";
 import { FriendsScreen } from "../screens/FriendsScreen";
+import { AddFriendScreen } from "../screens/AddFriendScreen";
+import { PlayerProfileScreen } from "../screens/PlayerProfileScreen";
 import { getBackInterceptor, useNav, type ScreenName } from "../store/navStore";
 
 const SCREENS: Partial<Record<ScreenName, ComponentType>> = {
@@ -29,9 +32,12 @@ const SCREENS: Partial<Record<ScreenName, ComponentType>> = {
   onlineGame: OnlineGameScreen,
   settings: SettingsScreen,
   profile: ProfileScreen,
+  shop: ShopScreen,
   howToPlay: HowToPlayScreen,
   stats: StatsScreen,
   friends: FriendsScreen,
+  addFriend: AddFriendScreen,
+  playerProfile: PlayerProfileScreen,
 };
 
 export function ScreenStack() {

@@ -23,7 +23,12 @@ export function AddFriendButton({ userId }: { userId: string }) {
   const disabled = rel.kind === "outgoing";
   const onPress = () => {
     if (rel.kind === "incoming") void accept(rel.id);
-    else if (rel.kind === "none") void sendRequest(userId);
+    // sendRequest goes through the edge function and rejects on a block or a
+    // rate limit. Swallowed here on purpose: this button rides inside a lobby
+    // or results row mid-game, with nowhere to put an error — the label simply
+    // won't advance to "Requested". The Friends and Add Friend screens do
+    // surface the reason.
+    else if (rel.kind === "none") void sendRequest(userId).catch(() => {});
   };
 
   return (

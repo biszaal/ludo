@@ -14,3 +14,9 @@ enabled = true
 # Anonymous sign-in must also be enabled in the dashboard
 # (Authentication → Sign In / Providers → Anonymous).
 enable_anonymous_sign_ins = true
+
+# AdMob calls the rewarded-ad verification endpoint server-to-server with no
+# JWT — the ECDSA signature on the payload is the authentication. Deploy with:
+#   npx supabase functions deploy ads-ssv --no-verify-jwt
+[functions.ads-ssv]
+verify_jwt = false

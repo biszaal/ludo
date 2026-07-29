@@ -1,20 +1,21 @@
 /**
- * Home header identity: avatar + first name in a Raised Slate pill (opens
- * Profile), and a drawn gear button (opens Settings). No icon fonts, no emojis.
+ * Home header identity: the avatar in a Raised Slate disc (opens Profile) and
+ * a drawn gear button (opens Settings). Avatar only — the name lives on the
+ * Profile screen; spelling it out here crowded the header off the screen edge.
+ * No icon fonts, no emojis.
  */
 
-import { Pressable, Text, View } from "react-native";
+import { Pressable, View } from "react-native";
 import { Canvas, Circle, Group, RoundedRect } from "@shopify/react-native-skia";
 import { AvatarGlyph } from "./Avatar";
 import { useNav } from "../store/navStore";
 import { useProfile } from "../store/profileStore";
-import { font, palette, radius, space } from "../theme";
+import { palette, radius, space } from "../theme";
 
 export function ProfileChip() {
   const displayName = useProfile((s) => s.displayName);
   const avatarId = useProfile((s) => s.avatarId);
   const push = useNav((s) => s.push);
-  const firstName = displayName.split(/\s+/)[0]!;
 
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
@@ -23,23 +24,18 @@ export function ProfileChip() {
         accessibilityLabel={`Profile: ${displayName}`}
         onPress={() => push("profile")}
         style={({ pressed }) => ({
-          flexDirection: "row",
-          alignItems: "center",
-          gap: space.sm,
-          paddingLeft: 6,
-          paddingRight: space.md,
+          width: 44,
           height: 44,
           borderRadius: radius.pill,
           backgroundColor: palette.raisedSlate,
           borderWidth: 1,
           borderColor: palette.hairline,
+          alignItems: "center",
+          justifyContent: "center",
           transform: [{ scale: pressed ? 0.96 : 1 }],
         })}
       >
-        <AvatarGlyph id={avatarId} size={32} />
-        <Text style={{ fontFamily: font.semibold, fontSize: 14, color: palette.porcelain }} numberOfLines={1}>
-          {firstName}
-        </Text>
+        <AvatarGlyph id={avatarId} size={34} />
       </Pressable>
 
       <Pressable

@@ -52,12 +52,16 @@ export const YARD_BLOCKS: Record<PlayerColor, { col: number; row: number; size: 
   blue: { col: 0, row: 9, size: 6 },
 };
 
-/** Four token rest slots inside each yard, as grid-unit centers [gx, gy]. */
+/**
+ * Four token rest slots inside each yard, as grid-unit centers [gx, gy].
+ * Each yard is a 6×6 block; slots sit ±1.25 from its centre (a snug 2×2 cluster
+ * pulled slightly in toward the middle of the house).
+ */
 export const YARD_SLOTS: Record<PlayerColor, ReadonlyArray<readonly [number, number]>> = {
-  red: [[1.5, 1.5], [4.5, 1.5], [1.5, 4.5], [4.5, 4.5]],
-  green: [[10.5, 1.5], [13.5, 1.5], [10.5, 4.5], [13.5, 4.5]],
-  yellow: [[10.5, 10.5], [13.5, 10.5], [10.5, 13.5], [13.5, 13.5]],
-  blue: [[1.5, 10.5], [4.5, 10.5], [1.5, 13.5], [4.5, 13.5]],
+  red: [[1.75, 1.75], [4.25, 1.75], [1.75, 4.25], [4.25, 4.25]],
+  green: [[10.75, 1.75], [13.25, 1.75], [10.75, 4.25], [13.25, 4.25]],
+  yellow: [[10.75, 10.75], [13.25, 10.75], [10.75, 13.25], [13.25, 13.25]],
+  blue: [[1.75, 10.75], [4.25, 10.75], [1.75, 13.25], [4.25, 13.25]],
 };
 
 /** Where each color's finished tokens cluster, just inside the center. */

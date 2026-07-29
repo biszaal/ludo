@@ -14,10 +14,10 @@ export function initProfileSync(): () => void {
   let timer: ReturnType<typeof setTimeout> | null = null;
 
   const unsub = useProfile.subscribe((s, prev) => {
-    if (s.displayName === prev.displayName && s.avatarId === prev.avatarId) return;
+    if (s.displayName === prev.displayName && s.avatarId === prev.avatarId && s.diceSkinId === prev.diceSkinId) return;
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
-      void upsertMyProfile(s.displayName, s.avatarId).catch(() => {});
+      void upsertMyProfile(s.displayName, s.avatarId, s.diceSkinId).catch(() => {});
     }, DEBOUNCE_MS);
   });
 

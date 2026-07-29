@@ -1,47 +1,78 @@
 /**
- * Home hub — identity + settings up top (left-aligned wordmark, per DESIGN.md
- * no centered hero), play-mode cards bottom-weighted with deliberately unequal
- * heights, then the online section. Local modes open the PlaySetupSheet.
+ * Home hub — a fixed, no-scroll arcade lobby in the app's own felt language:
+ * status header, the equipped-cosmetics diorama in the lamplight over one
+ * dominant PLAY CTA, a terse mode-tile row, and the drawn-glyph dock. Only
+ * the diorama flexes; everything else is fixed-height, so nothing can
+ * overlap on small phones and the ad strip's height variance is absorbed.
  */
 
-import { useEffect, useRef, useState } from "react";
-import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { useEffect, useState } from "react";
+import { Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { Canvas, Group } from "@shopify/react-native-skia";
 import { TableBackground } from "../components/TableBackground";
-import { Button } from "../components/Button";
-import { Logo } from "../components/Logo";
-import { ModeCard } from "../components/ModeCard";
+import { PawnShape } from "../components/Board";
+import { HeroDiorama } from "../components/HeroDiorama";
+import { PlayCta } from "../components/PlayCta";
+import { ModeTile } from "../components/ModeTile";
+import { HomeDock } from "../components/HomeDock";
+import { DailyChestTile } from "../components/DailyChestTile";
+import { RoomSheet } from "../components/RoomSheet";
+import { QuickSetupSheet } from "../components/QuickSetupSheet";
 import { PlaySetupSheet, type PlayMode } from "../components/PlaySetupSheet";
 import { ProfileChip } from "../components/ProfileChip";
 import { CoinsPill } from "../components/CoinsPill";
-import { QUICK_STAKE, useWallet } from "../store/walletStore";
+import { GemsPill } from "../components/GemsPill";
+import { GetCoinsSheet } from "../components/GetCoinsSheet";
+import { GetGemsSheet } from "../components/GetGemsSheet";
+import { AdSlot } from "../components/AdSlot";
+import { CycleGlyph, PeopleGlyph } from "../components/HomeGlyphs";
+import { ContentColumn } from "../components/ContentColumn";
+import { stillDieColors } from "../components/DieStill";
+import { useLayout } from "../lib/useLayout";
+import { useWallet } from "../store/walletStore";
+import { useConfig } from "../store/configStore";
 import { BOARD_THEMES } from "../render/boardThemes";
+import { resolveDiceSkin } from "../render/diceSkins";
 import { useGameStore } from "../store/gameStore";
 import { useOnlineStore } from "../store/onlineStore";
-import { useFriends } from "../store/friendsStore";
+import { pollPresence, useFriends } from "../store/friendsStore";
 import { useNav } from "../store/navStore";
+import { useProfile } from "../store/profileStore";
 import { useSettings } from "../store/settingsStore";
-import { incomingRequests } from "../lib/friendship";
-import { font, palette, radius, space, teamColor } from "../theme";
+import { incomingRequests, onlineFriendCount } from "../lib/friendship";
+import { nextDailyBonus } from "../lib/economy";
+import { font, palette, space } from "../theme";
 
 export function HomeScreen() {
   const [sheetMode, setSheetMode] = useState<PlayMode | null>(null);
-  const [code, setCode] = useState<string>("");
-  const scrollRef = useRef<ScrollView>(null);
+  const [coinsSheet, setCoinsSheet] = useState(false);
+  const [roomSheet, setRoomSheet] = useState(false);
+  const [quickSheet, setQuickSheet] = useState(false);
+  const [gemsSheet, setGemsSheet] = useState(false);
+  const [dioramaBox, setDioramaBox] = useState({ w: 0, h: 0 });
   const newLocalGame = useGameStore((s) => s.newLocalGame);
   const boardTheme = BOARD_THEMES[useSettings((s) => s.boardThemeId)];
+  const diceSkin = resolveDiceSkin(useProfile((s) => s.diceSkinId));
+  // Entry fee is server-tunable; the store's constant is only an offline floor.
+  const stake = useConfig((s) => s.config.economy.quickStake);
+  const economy = useConfig((s) => s.config.economy);
 
-  const createOnline = useOnlineStore((s) => s.create);
-  const joinOnline = useOnlineStore((s) => s.join);
-  const quickMatch = useOnlineStore((s) => s.quickMatch);
   const onlineStatus = useOnlineStore((s) => s.status);
-  const onlineError = useOnlineStore((s) => s.error);
   const connecting = onlineStatus === "connecting";
 
   const push = useNav((s) => s.push);
   const friendships = useFriends((s) => s.friendships);
   const myUserId = useFriends((s) => s.userId);
+  const presence = useFriends((s) => s.presence);
   const requestCount = incomingRequests(friendships, myUserId).length;
+  const onlineCount = onlineFriendCount(friendships, myUserId, presence, Date.now());
+
+  const streakDay = useWallet((s) => s.streakDay);
+  const bonusClaimable = useWallet((s) => s.bonusClaimable);
+
+  const { isTablet, scale } = useLayout();
+  const s = (n: number) => Math.round(n * scale);
 
   // Balance freshness: on mount, and again whenever a game hands us back home
   // (the online store refreshes on finish; this catches stake debits too).
@@ -50,118 +81,91 @@ export function HomeScreen() {
     void refreshWallet();
   }, [refreshWallet, onlineStatus]);
 
+  // Warm the presence map so the friends-online line is real, not stale.
+  useEffect(() => pollPresence(), []);
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: palette.tableBlue }}>
       <TableBackground />
-      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: space.xl, paddingTop: space.sm }}>
-        <Logo tile={36} />
+
+      {/* The whole hub sits in a centered column: on a tablet it holds a
+          comfortable width instead of stretching chips to the far edges; on a
+          phone the column is full-width (a no-op). */}
+      <ContentColumn style={{ flex: 1 }}>
+      {/* Status header — wallet left, identity + settings right. The wordmark
+          is dropped here (the diorama and app icon carry the brand; the
+          animated mark still opens on the loading screen), so the two edges
+          balance instead of piling four chips against the right. Fixed. */}
+      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: space.lg, paddingTop: space.md }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
-          <CoinsPill />
-          <ProfileChip />
+          <CoinsPill onPress={() => setCoinsSheet(true)} />
+          <GemsPill onPress={() => setGemsSheet(true)} />
+        </View>
+        <ProfileChip />
+      </View>
+
+      {/* Hero zone — the only part of the column that flexes. */}
+      <View style={{ flex: 1, paddingHorizontal: space.lg, paddingTop: space.md, gap: space.sm }}>
+        <DailyChestTile
+          onPress={() => setCoinsSheet(true)}
+          claimable={bonusClaimable}
+          streakDay={streakDay}
+          nextBonus={nextDailyBonus(streakDay, economy)}
+        />
+
+        <View
+          // Floor so the still-life never collapses when the ad claims its
+          // strip on a short phone; tablet cap so a tall screen doesn't strand
+          // acres of felt above and below a floating board.
+          style={{ flex: 1, minHeight: 160, maxHeight: isTablet ? 560 : undefined, alignSelf: "stretch", justifyContent: "center" }}
+          onLayout={(e) => {
+            const { width, height } = e.nativeEvent.layout;
+            setDioramaBox({ w: width, h: height });
+          }}
+        >
+          <HeroDiorama theme={boardTheme} diceSkin={diceSkin} width={dioramaBox.w} height={dioramaBox.h} scale={scale} />
+        </View>
+
+        <PlayCta stake={stake} busy={connecting} onPress={() => setQuickSheet(true)} />
+
+        {/* Real presence only — invisible (not collapsed) at zero so the
+            layout never reflows and the number is never faked. */}
+        <View style={{ height: s(18), flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, opacity: onlineCount > 0 ? 1 : 0 }}>
+          <View style={{ width: 7, height: 7, borderRadius: 3.5, backgroundColor: "#4ADE80" }} />
+          <Text style={{ fontFamily: font.medium, fontSize: s(13), color: palette.mutedSteel }}>
+            {onlineCount === 1 ? "1 friend online" : `${onlineCount} friends online`}
+          </Text>
         </View>
       </View>
 
-      <ScrollView
-        ref={scrollRef}
-        // Keep the room-code input visible above the keyboard: iOS grows the
-        // scroll insets by the keyboard height (Android's adjustResize already
-        // pans the focused field), and focusing the code field scrolls to it.
-        automaticallyAdjustKeyboardInsets
-        keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{ flexGrow: 1, paddingHorizontal: space.xl, paddingTop: space.xl, paddingBottom: space.xl, gap: space.xl }}
-      >
-        <Text style={{ fontFamily: font.regular, fontSize: 15, color: palette.mutedSteel }}>The classic board game.</Text>
+      {/* Mode tiles — three across, deliberately equal (hub-only allowance). */}
+      <View style={{ flexDirection: "row", gap: space.sm, paddingHorizontal: space.lg, paddingTop: space.sm }}>
+        <ModeTile
+          label="Vs AI"
+          glyph={<VsAiGlyph theme={boardTheme} scale={scale} />}
+          onPress={() => setSheetMode("ai")}
+        />
+        <ModeTile label="Pass & play" glyph={<CycleGlyph size={s(28)} />} onPress={() => setSheetMode("pass")} />
+        <ModeTile label="Friends room" glyph={<PeopleGlyph size={s(28)} />} onPress={() => setRoomSheet(true)} />
+      </View>
 
-        {/* Spacer pushes play actions into the thumb zone. */}
-        <View style={{ flex: 1 }} />
+      {/* Dock — doorways to everything that isn't playing. */}
+      <View style={{ paddingHorizontal: space.lg, paddingTop: space.sm, paddingBottom: space.sm }}>
+        <HomeDock
+          onShop={() => push("shop")}
+          onFriends={() => push("friends")}
+          onStats={() => push("stats")}
+          onHowToPlay={() => push("howToPlay")}
+          requestCount={requestCount}
+          onlineCount={onlineCount}
+          equipped={stillDieColors(diceSkin, boardTheme)}
+        />
+      </View>
+      </ContentColumn>
 
-        {/* Local play */}
-        <View style={{ gap: space.md }}>
-          <Text style={{ fontFamily: font.medium, fontSize: 13, color: palette.mutedSteel }}>PLAY ON THIS DEVICE</Text>
-          <ModeCard
-            title="Play vs AI"
-            subtitle="You against 1–3 bots"
-            minHeight={112}
-            piecesArt={boardTheme}
-            onPress={() => setSheetMode("ai")}
-          />
-          <ModeCard title="Pass & play" subtitle="Share this phone around the table" onPress={() => setSheetMode("pass")} />
-        </View>
-
-        {/* Online quick match */}
-        <View style={{ gap: space.md }}>
-          <Text style={{ fontFamily: font.medium, fontSize: 13, color: palette.mutedSteel }}>PLAY ONLINE</Text>
-          <ModeCard
-            title={connecting ? "Finding a match…" : "Quick match"}
-            subtitle={`Play a random opponent, 1 vs 1 · Entry ${QUICK_STAKE} coins, winner takes ${QUICK_STAKE * 2}`}
-            minHeight={112}
-            piecesArt={boardTheme}
-            onPress={() => {
-              if (!connecting) void quickMatch();
-            }}
-          />
-        </View>
-
-        {/* Online play */}
-        <View style={{ gap: space.md }}>
-          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-            <Text style={{ fontFamily: font.medium, fontSize: 13, color: palette.mutedSteel }}>PLAY WITH FRIENDS</Text>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={requestCount > 0 ? `Friends, ${requestCount} requests` : "Friends"}
-              onPress={() => push("friends")}
-              style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 6, opacity: pressed ? 0.7 : 1 })}
-            >
-              <Text style={{ fontFamily: font.semibold, fontSize: 14, color: palette.porcelain }}>Friends</Text>
-              {requestCount > 0 ? (
-                <View style={{ minWidth: 18, height: 18, paddingHorizontal: 5, borderRadius: radius.pill, backgroundColor: teamColor.red, alignItems: "center", justifyContent: "center" }}>
-                  <Text style={{ fontFamily: font.semibold, fontSize: 11, color: palette.porcelain }}>{requestCount}</Text>
-                </View>
-              ) : null}
-            </Pressable>
-          </View>
-          <Button label={connecting ? "Creating…" : "Create a room"} onPress={() => void createOnline()} />
-          <View style={{ flexDirection: "row", gap: space.sm, alignItems: "center" }}>
-            <TextInput
-              accessibilityLabel="Room code"
-              value={code}
-              onChangeText={(t) => setCode(t.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4))}
-              // Wait out the keyboard-show animation so scrollToEnd measures
-              // the final (inset-shrunk) viewport.
-              onFocus={() => setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 300)}
-              placeholder="CODE"
-              placeholderTextColor={palette.mutedSteel}
-              autoCapitalize="characters"
-              autoCorrect={false}
-              maxLength={4}
-              style={{
-                flex: 1,
-                minHeight: 56,
-                borderRadius: radius.md,
-                borderWidth: 1,
-                borderColor: palette.hairline,
-                color: palette.porcelain,
-                fontFamily: font.mono,
-                fontSize: 22,
-                letterSpacing: 6,
-                textAlign: "center",
-              }}
-            />
-            <View style={{ width: 130 }}>
-              <Button
-                label="Join"
-                variant="ghost"
-                onPress={() => {
-                  if (code.length >= 3) void joinOnline(code);
-                }}
-              />
-            </View>
-          </View>
-          {onlineError ? (
-            <Text style={{ fontFamily: font.regular, fontSize: 13, color: teamColor.red }}>{onlineError}</Text>
-          ) : null}
-        </View>
-      </ScrollView>
+      {/* Anchored to the bottom edge: never rides over the hub, collapses to
+          nothing unfilled (the diorama flex absorbs the difference). */}
+      <AdSlot slot="home" />
 
       {sheetMode && (
         <PlaySetupSheet
@@ -173,6 +177,35 @@ export function HomeScreen() {
           }}
         />
       )}
+
+      {coinsSheet && <GetCoinsSheet onClose={() => setCoinsSheet(false)} />}
+      {gemsSheet && <GetGemsSheet onClose={() => setGemsSheet(false)} />}
+      {roomSheet && <RoomSheet onClose={() => setRoomSheet(false)} />}
+      {quickSheet && (
+        <QuickSetupSheet
+          onClose={() => setQuickSheet(false)}
+          onNeedCoins={() => {
+            setQuickSheet(false);
+            setCoinsSheet(true);
+          }}
+        />
+      )}
     </SafeAreaView>
+  );
+}
+
+/** Two pawns squaring off — the vs-AI tile art, in the equipped theme. */
+function VsAiGlyph({ theme, scale = 1 }: { theme: (typeof BOARD_THEMES)[keyof typeof BOARD_THEMES]; scale?: number }) {
+  return (
+    <Canvas style={{ width: 44 * scale, height: 32 * scale }}>
+      <Group transform={[{ scale }]}>
+        <Group transform={[{ translateX: 30 }, { translateY: 20 }]}>
+          <PawnShape r={9} color={theme.team.blue} stroke={theme.pawnStroke} />
+        </Group>
+        <Group transform={[{ translateX: 14 }, { translateY: 22 }]}>
+          <PawnShape r={11} color={theme.team.red} stroke={theme.pawnStroke} />
+        </Group>
+      </Group>
+    </Canvas>
   );
 }

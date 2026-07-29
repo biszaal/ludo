@@ -40,6 +40,6 @@ describe("board themes", () => {
   });
 
   it("theme ids are the four skins, uniquely keyed", () => {
-    expect(Object.keys(BOARD_THEMES).sort()).toEqual(["classic", "night", "sand", "walnut"]);
+    expect(Object.keys(BOARD_THEMES).sort()).toEqual(["aurora", "classic", "night", "sand", "walnut"]);
   });
 });

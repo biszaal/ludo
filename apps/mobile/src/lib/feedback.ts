@@ -148,12 +148,17 @@ export function initFeedback(): () => void {
   const unOnline = useOnlineStore.subscribe((s, prevS) => {
     diffAndFire(prevS.state, s.state, s.myPlayerId);
     if (justFinished(prevS.state, s.state)) recordOnline(s.state, s.myPlayerId);
-    // Incoming chatter: reactions play their own voice (laugh, cry, …),
-    // texts a soft two-tone; own sends stay silent.
+    // Chatter: reactions play their own voice (laugh, cry, …) for everyone —
+    // sender included, matching local play, where hearing your own emoji IS
+    // the feedback. Texts chime on the receiving side only.
     if (s.chatSeq !== prevS.chatSeq) {
       const ev = s.chat[s.chat.length - 1];
-      if (ev && ev.fromUserId !== s.userId) {
-        playSound(ev.kind === "reaction" ? resolveEmoji(ev.value)?.sound ?? "pop" : "msg");
+      if (!ev) return;
+      if (ev.kind === "reaction") {
+        playSound(resolveEmoji(ev.value)?.sound ?? "pop");
+        if (ev.fromUserId !== s.userId) haptics.tapLight();
+      } else if (ev.fromUserId !== s.userId) {
+        playSound("msg");
         haptics.tapLight();
       }
     }
