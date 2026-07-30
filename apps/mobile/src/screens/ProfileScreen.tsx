@@ -11,7 +11,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { ScrollView, Text, View } from "react-native";
+import { Alert, Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { TableBackground } from "../components/TableBackground";
 import { ScreenHeader } from "../components/ScreenHeader";
@@ -26,7 +26,7 @@ import { GemsPill } from "../components/GemsPill";
 import { CosmeticsBrowser } from "../components/CosmeticsBrowser";
 import { AccountSheet } from "../components/AccountSheet";
 import { isNameTaken } from "../net/api";
-import { getIdentity, signOutToGuest, type AuthIdentity } from "../lib/auth";
+import { deleteAccount, getIdentity, signOutToGuest, type AuthIdentity } from "../lib/auth";
 import { MAX_NAME_LENGTH, useProfile } from "../store/profileStore";
 import { font, palette, radius, space, teamColor } from "../theme";
 
@@ -153,6 +153,25 @@ export function ProfileScreen() {
                 </View>
               </>
             )}
+
+            <View style={{ height: 1, backgroundColor: palette.hairline }} />
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Delete account and data"
+              onPress={() =>
+                Alert.alert(
+                  "Delete account?",
+                  "This permanently deletes your account and all data — coins, gems, purchases, cosmetics and friends. This can't be undone.",
+                  [
+                    { text: "Cancel", style: "cancel" },
+                    { text: "Delete", style: "destructive", onPress: () => void deleteAccount().then(refreshIdentity) },
+                  ],
+                )
+              }
+              style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, alignSelf: "flex-start" })}
+            >
+              <Text style={{ fontFamily: font.medium, fontSize: 14, color: teamColor.red }}>Delete account</Text>
+            </Pressable>
           </Surface3D>
         </View>
 

@@ -192,6 +192,8 @@ Deno.serve(async (req: Request) => {
         return await opFriendRequest(admin, userId, String(body.toUserId ?? ""));
       case "friendsRecent":
         return await opFriendsRecent(admin, userId);
+      case "deleteAccount":
+        return await opDeleteAccount(admin, userId);
       default:
         return json({ error: "Unknown op." });
     }
@@ -199,6 +201,20 @@ Deno.serve(async (req: Request) => {
     return json({ error: e instanceof Error ? e.message : String(e) });
   }
 });
+
+/**
+ * Permanently delete the caller's account and every trace of their data. Each
+ * app table references auth.users(id) ON DELETE CASCADE, so removing the auth
+ * user removes their wallet, gems, entitlements, purchases, profile, friends,
+ * blocks, and seats in one transaction. Required by the App Store and Google
+ * Play for any app that lets a user create an account. The caller can only ever
+ * delete themselves — userId comes from the verified JWT, never the request body.
+ */
+async function opDeleteAccount(admin: SupabaseClient, userId: string): Promise<Response> {
+  const { error } = await admin.auth.admin.deleteUser(userId);
+  if (error) return json({ error: "Could not delete your account. Please try again." });
+  return json({ ok: true });
+}
 
 async function opCreate(admin: SupabaseClient, userId: string): Promise<Response> {
   const roomCode = genCode();

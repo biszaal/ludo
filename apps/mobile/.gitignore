@@ -18,6 +18,11 @@ expo-env.d.ts
 *.key
 *.mobileprovision
 
+# Store submission secrets (Google Play service account for EAS Submit / RevenueCat)
+play-service-account.json
+*-service-account.json
+*.p8.json
+
 # Metro
 .metro-health-check*
 

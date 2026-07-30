@@ -13,7 +13,7 @@
 
 import { getSupabase } from "./supabase";
 import { syncPurchasesUser } from "./purchases";
-import { getProfiles } from "../net/api";
+import { getProfiles, deleteAccount as apiDeleteAccount } from "../net/api";
 import { useWallet } from "../store/walletStore";
 import { useEntitlements } from "../store/entitlementsStore";
 import { useProfile } from "../store/profileStore";
@@ -63,6 +63,42 @@ export async function signOutToGuest(): Promise<void> {
   await supabase.auth.signOut();
   await supabase.auth.signInAnonymously();
   await rehydrateAfterAuth();
+}
+
+/** Permanently delete the account and all its server data, then drop the player
+ *  back to a clean guest on this device. Required by the app stores for any app
+ *  that lets you create an account. Irreversible — the caller confirms first. */
+export async function deleteAccount(): Promise<AuthResult> {
+  try {
+    await apiDeleteAccount();
+  } catch {
+    return { ok: false, error: "Could not delete your account. Please try again." };
+  }
+  // Server data is gone (auth user + cascade). Reset this device to a fresh
+  // guest so nothing from the deleted account lingers locally.
+  const supabase = getSupabase();
+  await supabase.auth.signOut().catch(() => {});
+  resetLocalIdentity();
+  await supabase.auth.signInAnonymously().catch(() => {});
+  await rehydrateAfterAuth();
+  return { ok: true, needsConfirm: false };
+}
+
+/** Wipe the on-device identity + cached balances back to first-launch defaults. */
+function resetLocalIdentity(): void {
+  const p = useProfile.getState();
+  p.setName(""); // empty falls back to this device's guest handle
+  p.setAvatar("leo");
+  p.setDiceSkin("classic");
+  useWallet.setState({
+    balance: null,
+    gems: null,
+    purchasedBalance: 0,
+    streakDay: 0,
+    bonusClaimable: false,
+    pityAvailable: false,
+  });
+  useEntitlements.setState({ owned: [], prices: {}, currencies: {}, buying: null });
 }
 
 /** After the signed-in user changes, resync everything keyed to the user id.

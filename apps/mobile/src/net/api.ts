@@ -257,6 +257,13 @@ export async function shopBuy(sku: string): Promise<{ sku: string; balance: numb
   return await callGame<{ sku: string; balance: number; gems?: number }>("shopBuy", { sku });
 }
 
+/** Permanently delete the caller's account and all data keyed to it (cascade).
+ *  The server derives the user from the JWT, so this only ever deletes yourself. */
+export async function deleteAccount(): Promise<void> {
+  await ensureSignedIn();
+  await callGame<{ ok: boolean }>("deleteAccount");
+}
+
 /** Buy a gem pack (stub provider until real billing ships — server-gated). */
 export async function gemsBuy(productId: string): Promise<{ gems: number; purchaseId: string }> {
   await ensureSignedIn();
