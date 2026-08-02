@@ -7,14 +7,14 @@
 import type { ReactNode } from "react";
 import { Pressable, Text, View } from "react-native";
 import { Surface3D } from "./Surface3D";
-import { BagGlyph, BarChartGlyph, BookGlyph, PeopleGlyph } from "./HomeGlyphs";
+import { BagGlyph, BookGlyph, PeopleGlyph, UserGlyph } from "./HomeGlyphs";
 import { useLayout } from "../lib/useLayout";
 import { font, palette, radius, space, teamColor } from "../theme";
 
 interface HomeDockProps {
   onShop: () => void;
   onFriends: () => void;
-  onStats: () => void;
+  onAccount: () => void;
   onHowToPlay: () => void;
   /** Pending friend requests → red badge on Friends. */
   requestCount: number;
@@ -24,7 +24,7 @@ interface HomeDockProps {
   equipped: { face: string; pip: string };
 }
 
-export function HomeDock({ onShop, onFriends, onStats, onHowToPlay, requestCount, onlineCount, equipped }: HomeDockProps) {
+export function HomeDock({ onShop, onFriends, onAccount, onHowToPlay, requestCount, onlineCount, equipped }: HomeDockProps) {
   const { scale } = useLayout();
   const g = Math.round(24 * scale);
   const lbl = Math.round(11 * scale);
@@ -72,8 +72,8 @@ export function HomeDock({ onShop, onFriends, onStats, onHowToPlay, requestCount
         ) : null}
       </DockItem>
 
-      <DockItem label="Stats" onPress={onStats} labelSize={lbl}>
-        <BarChartGlyph size={g} />
+      <DockItem label="Account" onPress={onAccount} labelSize={lbl}>
+        <UserGlyph size={g} />
       </DockItem>
 
       <DockItem label="How to play" onPress={onHowToPlay} labelSize={lbl}>

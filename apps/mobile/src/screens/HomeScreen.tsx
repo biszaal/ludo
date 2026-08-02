@@ -154,7 +154,7 @@ export function HomeScreen() {
         <HomeDock
           onShop={() => push("shop")}
           onFriends={() => push("friends")}
-          onStats={() => push("stats")}
+          onAccount={() => push("account")}
           onHowToPlay={() => push("howToPlay")}
           requestCount={requestCount}
           onlineCount={onlineCount}

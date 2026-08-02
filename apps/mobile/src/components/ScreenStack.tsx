@@ -19,7 +19,7 @@ import { SettingsScreen } from "../screens/SettingsScreen";
 import { ProfileScreen } from "../screens/ProfileScreen";
 import { ShopScreen } from "../screens/ShopScreen";
 import { HowToPlayScreen } from "../screens/HowToPlayScreen";
-import { StatsScreen } from "../screens/StatsScreen";
+import { AccountScreen } from "../screens/AccountScreen";
 import { FriendsScreen } from "../screens/FriendsScreen";
 import { AddFriendScreen } from "../screens/AddFriendScreen";
 import { PlayerProfileScreen } from "../screens/PlayerProfileScreen";
@@ -34,7 +34,7 @@ const SCREENS: Partial<Record<ScreenName, ComponentType>> = {
   profile: ProfileScreen,
   shop: ShopScreen,
   howToPlay: HowToPlayScreen,
-  stats: StatsScreen,
+  account: AccountScreen,
   friends: FriendsScreen,
   addFriend: AddFriendScreen,
   playerProfile: PlayerProfileScreen,

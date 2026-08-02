@@ -42,6 +42,24 @@ export function PeopleGlyph({ size, color = palette.mutedSteel }: { size: number
   );
 }
 
+/** Account: a single pawn silhouette — one person, you. */
+export function UserGlyph({ size, color = palette.mutedSteel }: { size: number; color?: string }) {
+  const s = size;
+  const cx = s * 0.5;
+  const cy = s * 0.6;
+  const r = s * 0.3;
+  return (
+    <Canvas style={{ width: s, height: s }}>
+      <Group color={color}>
+        <Circle cx={cx} cy={cy - r * 1.35} r={r * 0.62} />
+        <Path
+          path={`M ${cx - r} ${cy + r * 0.9} Q ${cx - r * 0.5} ${cy - r * 0.9} ${cx} ${cy - r * 0.9} Q ${cx + r * 0.5} ${cy - r * 0.9} ${cx + r} ${cy + r * 0.9} Z`}
+        />
+      </Group>
+    </Canvas>
+  );
+}
+
 /** Stats: three bars at deliberately unequal heights. View-only. */
 export function BarChartGlyph({ size, color = palette.mutedSteel }: { size: number; color?: string }) {
   const bar = (h: number) => (

@@ -50,8 +50,8 @@ describe("nav stack", () => {
 
   it("popTo resets when the target is not on the stack", () => {
     nav.getState().push("settings");
-    nav.getState().popTo("stats");
-    expect(names()).toEqual(["stats"]);
+    nav.getState().popTo("account");
+    expect(names()).toEqual(["account"]);
     expect(nav.getState().lastOp).toBe("reset");
   });
 
