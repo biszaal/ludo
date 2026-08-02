@@ -38,6 +38,7 @@ export function OnlineGameScreen() {
   const takeControl = useOnlineStore((s) => s.takeControl);
   const stake = useOnlineStore((s) => s.stake);
   const myName = useProfile((s) => s.displayName);
+  const myAvatar = useProfile((s) => s.avatarId);
   const myDiceSkin = useProfile((s) => s.diceSkinId);
 
   if (!state) return null;
@@ -84,7 +85,9 @@ export function OnlineGameScreen() {
       onRematch={isHost ? () => void rematch() : undefined}
       resultsFootnote={isHost ? null : "Waiting for the host to start a rematch…"}
       nameFor={(playerId) => profileOf(playerId)?.display_name ?? (playerId === myPlayerId ? myName : null)}
-      avatarFor={(playerId) => profileOf(playerId)?.avatar_id ?? null}
+      // Local-first for my own seat (like nameFor / diceSkinFor): my profile row
+      // may not be in the fetched cache yet, and I always know my own avatar.
+      avatarFor={(playerId) => (playerId === myPlayerId ? myAvatar : (profileOf(playerId)?.avatar_id ?? null))}
       // Local-first for my own seat: the profiles cache is fetched once per
       // user per session and skips users already cached (onlineStore's
       // fetchProfiles), so it can go stale if I re-equip a skin mid-session.
