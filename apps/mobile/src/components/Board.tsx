@@ -6,7 +6,7 @@
  * share a cell. Taps are captured by transparent RN overlays.
  */
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { Pressable, View } from "react-native";
 import { Canvas, Circle, Group, Line, LinearGradient, Path, RadialGradient, RoundedRect, Skia, vec } from "@shopify/react-native-skia";
 import {
@@ -21,10 +21,7 @@ import {
   withTiming,
 } from "react-native-reanimated";
 import {
-  FINISH_REL_INDEX,
   SAFE_SQUARES,
-  fromRelativeIndex,
-  toRelativeIndex,
   type Color as PlayerColor,
   type GameState,
   type Token,
@@ -32,7 +29,7 @@ import {
 } from "@ludo/engine";
 import { playHop } from "../lib/sound";
 import { hopTick } from "../lib/haptics";
-import { FLY_MS, HOP_STEP_MS } from "../lib/moveTiming";
+import { FLY_MS, computeWaypoints, walkDurationMs } from "../render/waypoints";
 import { shade } from "../theme";
 import type { BoardTheme } from "../render/boardThemes";
 import {
@@ -137,8 +134,13 @@ export function Board({ size, state, theme, isMovable, onSelectToken, viewColor 
   const layout = useMemo(() => computeLayout(state.tokens, cell), [state.tokens, cell]);
 
   // Remember each token's last position so a move can be animated cell-by-cell.
+  // A LAYOUT effect (not a passive one): it commits synchronously before the
+  // next paint, so a burst of state updates — the online row queue applying
+  // several authoritative states back-to-back — can't leave `prev` a render
+  // behind. A stale/missing `prev` makes computeWaypoints fall back to a
+  // straight fly, which is why every move looked like a slide instead of a hop.
   const prevPos = useRef<Map<string, TokenPosition>>(new Map());
-  useEffect(() => {
+  useLayoutEffect(() => {
     const m = prevPos.current;
     for (const t of state.tokens) m.set(t.id, t.position);
   });
@@ -153,15 +155,23 @@ export function Board({ size, state, theme, isMovable, onSelectToken, viewColor 
     });
     const rotated = rotatePt(spot.x, spot.y);
     const seat = insetPt(rotated.x, rotated.y);
-    return { token, spot: { x: seat.x, y: seat.y, r: spot.r * BOARD_INTERIOR_SCALE }, prev, waypoints, walk: walked.walk };
+    return {
+      token,
+      spot: { x: seat.x, y: seat.y, r: spot.r * BOARD_INTERIOR_SCALE },
+      prev,
+      waypoints,
+      walk: walked.walk,
+      stepMs: walked.stepMs,
+      retrace: walked.retrace,
+    };
   });
 
   // How long each capturing mover takes to reach a track cell, so a captured
-  // token can wait until the mover arrives before animating home.
+  // token can wait until the mover arrives before starting its walk home.
   const moverHopMs = new Map<number, number>();
-  for (const { token, prev, waypoints, walk } of renderData) {
+  for (const { token, prev } of renderData) {
     if (prev && positionKey(prev) !== positionKey(token.position) && typeof token.position === "object" && token.position.type === "track") {
-      const ms = walk ? waypoints.length * HOP_STEP_MS : FLY_MS;
+      const ms = walkDurationMs(token.color, prev, token.position);
       moverHopMs.set(token.position.index, Math.max(moverHopMs.get(token.position.index) ?? 0, ms));
     }
   }
@@ -201,11 +211,13 @@ export function Board({ size, state, theme, isMovable, onSelectToken, viewColor 
               a tall piece overlapping the cell behind it reads as standing depth. */}
           {[...renderData]
             .sort((a, b) => a.spot.y - b.spot.y)
-            .map(({ token, spot, prev, waypoints, walk }) => (
+            .map(({ token, spot, prev, waypoints, walk, stepMs, retrace }) => (
               <AnimatedPawn
                 key={token.id}
                 waypoints={waypoints}
                 walk={walk}
+                stepMs={stepMs}
+                retrace={retrace}
                 posKey={positionKey(token.position)}
                 r={spot.r}
                 color={theme.team[token.color]}
@@ -413,8 +425,13 @@ function topArc(cx: number, cy: number, r: number) {
 
 interface AnimatedPawnProps {
   waypoints: Spot2[];
-  /** True for a walkable forward move — hop cell-by-cell even for one cell. */
+  /** True for a walkable move — hop cell-by-cell even for one cell. */
   walk: boolean;
+  /** Duration of each hop. Forward moves are leisurely; a capture retrace is
+   *  a fast scurry, since it can cover the whole lap back to the yard. */
+  stepMs: number;
+  /** This walk is a captured pawn's trip home — one thock on arrival, not 50. */
+  retrace: boolean;
   posKey: string;
   r: number;
   color: string;
@@ -432,7 +449,7 @@ interface Spot2 {
   y: number;
 }
 
-function AnimatedPawn({ waypoints, walk, posKey, r, color, stroke, delay, movable, phase }: AnimatedPawnProps) {
+function AnimatedPawn({ waypoints, walk, stepMs, retrace, posKey, r, color, stroke, delay, movable, phase }: AnimatedPawnProps) {
   const last = waypoints[waypoints.length - 1]!;
   const tx = useSharedValue(last.x);
   const ty = useSharedValue(last.y);
@@ -443,12 +460,19 @@ function AnimatedPawn({ waypoints, walk, posKey, r, color, stroke, delay, movabl
   const mounted = useRef(false);
   const prevKey = useRef(posKey);
   const prevSpot = useRef(last);
-  const wpRef = useRef(waypoints);
-  wpRef.current = waypoints;
-  const walkRef = useRef(walk);
-  walkRef.current = walk;
-  const delayRef = useRef(delay);
-  delayRef.current = delay;
+  // Latch the animation intent for THIS posKey the first time we see it. The
+  // render that first detects a position change still holds the true `prev`
+  // (a captured pawn's last track cell), so its retrace waypoints are correct.
+  // A later re-render for the SAME posKey recomputes prev = current and would
+  // flatten the walk into a straight fly — the "captured pawn teleports home"
+  // bug. Keying by posKey preserves the cell-by-cell intent even if React
+  // defers this effect until after that recompute.
+  const intentKey = useRef(posKey);
+  const intent = useRef({ waypoints, walk, stepMs, retrace, delay });
+  if (posKey !== intentKey.current) {
+    intentKey.current = posKey;
+    intent.current = { waypoints, walk, stepMs, retrace, delay };
+  }
 
   // Animate ONLY on a real position/spot change. Everything else (re-renders
   // from toasts, highlight toggles, unrelated store writes) must leave the
@@ -468,7 +492,8 @@ function AnimatedPawn({ waypoints, walk, posKey, r, color, stroke, delay, movabl
     if (posKey !== prevKey.current) {
       prevKey.current = posKey;
       prevSpot.current = last;
-      const wps = wpRef.current;
+      const { waypoints: wps, walk: doWalk, stepMs: step, retrace: isRetrace, delay: startDelay } = intent.current;
+      const target = wps[wps.length - 1]!;
       // The hop sound fires from each landing's completion callback, so it is
       // locked to the animation itself — no setTimeout drift when several pawns
       // move at once. `finished` guards against interrupted moves.
@@ -476,18 +501,30 @@ function AnimatedPawn({ waypoints, walk, posKey, r, color, stroke, delay, movabl
         "worklet";
         if (finished) runOnJS(hopFeedback)();
       };
-      if (!walkRef.current) {
-        tx.value = withDelay(delayRef.current, withTiming(last.x, { duration: FLY_MS, easing: Easing.out(Easing.cubic) }));
-        ty.value = withDelay(delayRef.current, withTiming(last.y, { duration: FLY_MS, easing: Easing.out(Easing.cubic) }, onLand));
+      // A retrace can cross 50 cells; thocking each one is a machine-gun. Only
+      // the arrival in the yard sounds.
+      const silent = () => {
+        "worklet";
+      };
+      if (!doWalk) {
+        tx.value = withDelay(startDelay, withTiming(target.x, { duration: FLY_MS, easing: Easing.out(Easing.cubic) }));
+        ty.value = withDelay(startDelay, withTiming(target.y, { duration: FLY_MS, easing: Easing.out(Easing.cubic) }, onLand));
       } else {
-        const HOP = r * 0.5;
-        tx.value = withDelay(delayRef.current, withSequence(...wps.map((p) => withTiming(p.x, { duration: HOP_STEP_MS, easing: Easing.linear }))));
+        // The bounce shrinks with the step so a fast retrace skims rather than
+        // pogo-sticks its way back.
+        const HOP = r * (isRetrace ? 0.28 : 0.5);
+        const lastIndex = wps.length - 1;
+        tx.value = withDelay(startDelay, withSequence(...wps.map((p) => withTiming(p.x, { duration: step, easing: Easing.linear }))));
         ty.value = withDelay(
-          delayRef.current,
+          startDelay,
           withSequence(
-            ...wps.flatMap((p) => [
-              withTiming(p.y - HOP, { duration: HOP_STEP_MS / 2, easing: Easing.out(Easing.quad) }),
-              withTiming(p.y, { duration: HOP_STEP_MS / 2, easing: Easing.in(Easing.quad) }, onLand),
+            ...wps.flatMap((p, i) => [
+              withTiming(p.y - HOP, { duration: step / 2, easing: Easing.out(Easing.quad) }),
+              withTiming(
+                p.y,
+                { duration: step / 2, easing: Easing.in(Easing.quad) },
+                isRetrace && i < lastIndex ? silent : onLand,
+              ),
             ]),
           ),
         );
@@ -646,39 +683,8 @@ function computeLayout(tokens: Token[], cell: number): Map<string, Spot> {
 }
 
 /**
- * Pixel waypoints from a token's previous position to its new spot, cell by
- * cell. `walk: true` marks a contiguous forward move (1–6 cells) that should
- * hop through each point — a single-cell move still hops, it doesn't slide.
- * Everything else (yard exits, capture returns, resync jumps) flies direct.
- */
-function computeWaypoints(
-  color: PlayerColor,
-  prev: TokenPosition | undefined,
-  current: TokenPosition,
-  finalSpot: Spot,
-  cell: number,
-): { points: Spot2[]; walk: boolean } {
-  const dest: Spot2 = { x: finalSpot.x, y: finalSpot.y };
-  if (prev === undefined || prev === "home") return { points: [dest], walk: false }; // first render or leaving yard
-
-  const oldRel = prev === "finished" ? FINISH_REL_INDEX : toRelativeIndex(color, prev);
-  const newRel = current === "home" ? -1 : current === "finished" ? FINISH_REL_INDEX : toRelativeIndex(color, current);
-  if (oldRel === null || newRel === null) return { points: [dest], walk: false };
-
-  if (newRel > oldRel && newRel - oldRel <= 6) {
-    const pts: Spot2[] = [];
-    for (let rel = oldRel + 1; rel < newRel; rel++) {
-      pts.push(tokenCenterPx(color, fromRelativeIndex(color, rel), 0, cell));
-    }
-    pts.push(dest);
-    return { points: pts, walk: true };
-  }
-  return { points: [dest], walk: false };
-}
-
-/**
- * Delay (ms) before a captured token animates home: it waits until the capturing
- * mover reaches its cell. Zero for ordinary moves.
+ * Delay (ms) before a captured token starts walking home: it waits until the
+ * capturing mover reaches its cell. Zero for ordinary moves.
  */
 function capturedDelay(token: Token, prev: TokenPosition | undefined, moverHopMs: Map<number, number>): number {
   if (prev && typeof prev === "object" && prev.type === "track" && token.position === "home") {
