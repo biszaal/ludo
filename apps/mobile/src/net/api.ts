@@ -60,16 +60,36 @@ export async function ensureSignedIn(): Promise<string> {
   return data.user.id;
 }
 
-/** Give up on a stalled call well before fetch's own timeout — the caller
- *  resyncs, and a write that lands late anyway dedupes via its version. */
-const CALL_TIMEOUT_MS = 8000;
+/**
+ * Give up WAITING on a stalled call. Note what this does not do: the request
+ * itself is not aborted and keeps travelling, so a timeout means "outcome
+ * unknown", never "it didn't happen". Callers must not treat it as a failure
+ * and undo optimistic work — a write that lands late still arrives over
+ * realtime and dedupes on its version. See TimeoutError below.
+ *
+ * Congested mobile networks routinely push a round trip past 8s, which is what
+ * this used to allow; the old budget turned ordinary lag into a phantom
+ * failure several times a match.
+ */
+const CALL_TIMEOUT_MS = 20000;
+
+/** Thrown when the wait elapsed with the request still in flight. The action
+ *  may well have succeeded — reconcile against the server, don't roll back. */
+export class TimeoutError extends Error {
+  constructor() {
+    super("Still waiting on the server — check your connection.");
+    this.name = "TimeoutError";
+  }
+}
+
+export const isTimeout = (e: unknown): boolean => e instanceof TimeoutError;
 
 /** Invoke the `game` Edge Function and surface its `{ error }` payload as a throw. */
 async function callGame<T>(op: string, payload: Record<string, unknown> = {}): Promise<T> {
   const supabase = getSupabase();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error("The server took too long — check your connection.")), CALL_TIMEOUT_MS);
+    timer = setTimeout(() => reject(new TimeoutError()), CALL_TIMEOUT_MS);
   });
   const { data, error } = await Promise.race([
     supabase.functions.invoke("game", { body: { op, ...payload } }),
@@ -329,25 +349,41 @@ export async function getProfiles(userIds: string[]): Promise<Profile[]> {
   return (data ?? []) as Profile[];
 }
 
-/** Upsert the caller's own profile row (RLS: self-write only). Best-effort —
- *  a display name already registered to another user is rejected by the DB's
- *  unique index, and the previous server-side name simply stays. A priced
- *  dice skin the caller doesn't own is silently stripped server-side (see the
- *  profiles_enforce_dice_skin trigger) rather than rejecting the whole write. */
-export async function upsertMyProfile(displayName: string, avatarId: string, diceSkinId: string): Promise<void> {
+/**
+ * Upsert the caller's own profile row (RLS: self-write only). Best-effort — a
+ * display name already registered to another user is rejected by the DB's
+ * unique index, and the previous server-side name simply stays. A priced dice
+ * skin the caller doesn't own is silently stripped server-side (see the
+ * profiles_enforce_dice_skin trigger) rather than rejecting the whole write.
+ *
+ * Returns what the server ACTUALLY stored, so the caller can reconcile. Without
+ * this readback the strip is invisible: the owner keeps seeing their skin while
+ * every opponent sees classic, and nothing anywhere reports a problem.
+ */
+export async function upsertMyProfile(
+  displayName: string,
+  avatarId: string,
+  diceSkinId: string,
+): Promise<{ diceSkin: string | null } | null> {
   const supabase = getSupabase();
   const { data: sessionData } = await supabase.auth.getSession();
   const userId = sessionData.session?.user.id;
-  if (!userId) return; // not signed in yet — create/join will sync it
-  await supabase.from("profiles").upsert(
-    {
-      user_id: userId,
-      display_name: displayName.slice(0, 20),
-      avatar_id: avatarId,
-      dice_skin: diceSkinId === "classic" ? null : diceSkinId,
-    },
-    { onConflict: "user_id" },
-  );
+  if (!userId) return null; // not signed in yet — create/join will sync it
+  const { data, error } = await supabase
+    .from("profiles")
+    .upsert(
+      {
+        user_id: userId,
+        display_name: displayName.slice(0, 20),
+        avatar_id: avatarId,
+        dice_skin: diceSkinId === "classic" ? null : diceSkinId,
+      },
+      { onConflict: "user_id" },
+    )
+    .select("dice_skin")
+    .maybeSingle();
+  if (error || !data) return null;
+  return { diceSkin: (data.dice_skin as string | null) ?? null };
 }
 
 /** Is this display name already registered to ANOTHER user? Best-effort: false

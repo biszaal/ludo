@@ -17,6 +17,7 @@ import {
 import { chooseMove } from "@ludo/bot";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import * as api from "../net/api";
+import { pushProfile } from "../net/profileSync";
 import { applyChatEvent, type ChatEvent } from "../lib/chat";
 import { stateAnimationMs } from "../lib/moveTiming";
 import { bustedRollDice, colorOf, project } from "../lib/projection";
@@ -144,7 +145,7 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
     set({ status: "connecting", error: null });
     try {
       const m = await api.createGame();
-      syncMyProfile();
+      const synced = syncMyProfile();
       subscribe(m.gameId);
       const lobby = await api.getLobby(m.gameId);
       set({
@@ -156,7 +157,7 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
         lobby,
         status: "lobby",
       });
-      void fetchProfiles(lobby);
+      void syncThenFetchProfiles(synced, lobby);
       useNav.getState().push("lobby");
     } catch (e) {
       set({ status: "error", error: errorText(e) });
@@ -167,7 +168,7 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
     set({ status: "connecting", error: null });
     try {
       const m = await api.joinGame(code);
-      syncMyProfile();
+      const synced = syncMyProfile();
       subscribe(m.gameId);
       const lobby = await api.getLobby(m.gameId);
       const me = lobby.find((p) => p.user_id === m.userId);
@@ -179,7 +180,7 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
         isHost: me?.is_host ?? false,
         lobby,
       });
-      void fetchProfiles(lobby);
+      void syncThenFetchProfiles(synced, lobby);
       const row = await api.fetchGame(m.gameId);
       if (row.status === "active" && row.state) {
         applyGameRow(row);
@@ -196,7 +197,7 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
     set({ status: "connecting", error: null });
     try {
       const m = await api.quickMatch(size, stake);
-      syncMyProfile();
+      const synced = syncMyProfile();
       subscribe(m.gameId);
       const lobby = await api.getLobby(m.gameId);
       const me = lobby.find((p) => p.user_id === m.userId);
@@ -212,7 +213,7 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
         lobby,
         status: "lobby",
       });
-      void fetchProfiles(lobby);
+      void syncThenFetchProfiles(synced, lobby);
       if (m.waiting) {
         // The setup sheet lives on Home, so the lobby stacks on top of it —
         // backing out of the lobby lands on the hub, never a stale picker.
@@ -279,9 +280,11 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
         }
       }
     } catch (e) {
-      rollBumped = false;
-      set({ error: errorText(e) });
-      scheduleResync(gameId);
+      // On a timeout the roll may already be recorded; leave the die airborne
+      // and let the arriving state land its face rather than flashing an error
+      // and re-triggering the tumble.
+      if (!api.isTimeout(e)) rollBumped = false;
+      onActionFailed(e, gameId);
     } finally {
       rollInFlight = false;
     }
@@ -309,9 +312,7 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
       const res = await enqueueSend(() => api.moveAction(gameId, tokenId));
       applyTurnResult(res, false);
     } catch (e) {
-      pending = null;
-      set({ error: errorText(e) });
-      scheduleResync(gameId);
+      onActionFailed(e, gameId);
     }
   },
 
@@ -334,9 +335,7 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
       const res = await enqueueSend(() => api.passAction(gameId));
       applyTurnResult(res, false);
     } catch (e) {
-      pending = null;
-      set({ error: errorText(e) });
-      scheduleResync(gameId);
+      onActionFailed(e, gameId);
     }
   },
 
@@ -511,6 +510,32 @@ function applyTurnResult(res: api.TurnResult, rolled: boolean): void {
   applyState(state, rolled);
 }
 
+/**
+ * A turn op didn't come back cleanly. What happens next hinges on WHY.
+ *
+ * A timeout is not a failure — the request was never aborted, so it is very
+ * likely still in flight and about to be applied. Undoing the optimistic move
+ * here is what made a laggy connection eat a move: the pawn snapped back, the
+ * player moved again, and the original write landed anyway. So on a timeout we
+ * keep the prediction on screen, say nothing, and let reconciliation decide —
+ * the realtime echo confirms it (dedupes to a no-op) or the resync corrects it.
+ *
+ * The resync is deliberately slow in that case: at the normal 500ms it would
+ * refetch a pre-move state and cause the very snap-back we're avoiding.
+ *
+ * A real rejection ("Not your turn", "Illegal move") is different: the server
+ * has spoken, so drop the prediction and surface it immediately.
+ */
+function onActionFailed(e: unknown, gameId: string): void {
+  if (api.isTimeout(e)) {
+    slowResync(gameId);
+    return;
+  }
+  pending = null;
+  useOnlineStore.setState({ error: errorText(e) });
+  scheduleResync(gameId);
+}
+
 /** Forget all per-game optimistic/sync bookkeeping (leave, new subscribe). */
 function resetSyncState(): void {
   lastAppliedV = -1;
@@ -549,10 +574,10 @@ async function requestTimeout(): Promise<void> {
   if (!gameId || state?.status !== "active") return;
   try {
     const res = await api.timeoutAction(gameId);
-    // The response is the state AFTER the server bot's whole turn; the turn's
-    // individual writes stream in as realtime rows. Queue it rather than apply
-    // it directly, so it can't leap ahead of their animations (it dedupes to a
-    // no-op when realtime already delivered everything).
+    // The response carries the stall bot's FIRST action; any extra turns it
+    // earns are written server-side afterwards and stream in as realtime rows.
+    // Queue it rather than apply it directly, so it can't leap ahead of their
+    // animations (it dedupes to a no-op when realtime got here first).
     enqueueGameRow({ state: res.state, status: res.state.status, state_version: res.v });
   } catch {
     // transient — realtime or the next resync will correct us
@@ -765,7 +790,9 @@ async function doRefreshLobby(): Promise<void> {
 
 /** Merge profiles for these players into the store (best-effort, cosmetic).
  *  Already-cached users are skipped — profiles barely change mid-game, and
- *  presence churn shouldn't cost a fetch. */
+ *  presence churn shouldn't cost a fetch. A user whose row didn't come back
+ *  stays "missing", so the next lobby refresh asks for them again: on a first
+ *  session my own row may not exist yet when the first fetch goes out. */
 async function fetchProfiles(lobby: api.LobbyPlayer[]): Promise<void> {
   try {
     const known = useOnlineStore.getState().profiles;
@@ -781,10 +808,18 @@ async function fetchProfiles(lobby: api.LobbyPlayer[]): Promise<void> {
   }
 }
 
-/** Push the local profile to the server once a session exists (create/join). */
-function syncMyProfile(): void {
+/** Publish my own profile BEFORE reading the table's, so the very first fetch
+ *  of a fresh account can actually see my row instead of racing past it. */
+async function syncThenFetchProfiles(synced: Promise<void>, lobby: api.LobbyPlayer[]): Promise<void> {
+  await synced;
+  await fetchProfiles(lobby);
+}
+
+/** Push the local profile to the server once a session exists (create/join),
+ *  adopting whatever the server kept — see pushProfile. */
+function syncMyProfile(): Promise<void> {
   const { displayName, avatarId, diceSkinId } = useProfile.getState();
-  void api.upsertMyProfile(displayName, avatarId, diceSkinId).catch(() => {});
+  return pushProfile(displayName, avatarId, diceSkinId).catch(() => {});
 }
 
 /** Apply an authoritative GameState into the view and navigate when active. */
@@ -851,6 +886,9 @@ function applyGameRow(row: GameSnapshot): void {
 
 const RESYNC_COALESCE_MS = 500;
 const RESYNC_BACKOFF_MAX_MS = 4000;
+/** Grace given to a request that timed out but is still travelling, before we
+ *  refetch and risk reading a state it hasn't been written into yet. */
+const RESYNC_AFTER_TIMEOUT_MS = 6000;
 let resyncTimer: ReturnType<typeof setTimeout> | null = null;
 let resyncRunning = false;
 let resyncAgain = false;
@@ -883,6 +921,22 @@ function scheduleResync(gameId: string, withLobby = false): void {
     },
     Math.max(RESYNC_COALESCE_MS, resyncBackoffMs),
   );
+}
+
+/**
+ * Resync on a long fuse, for when an action timed out with its write still in
+ * flight. Any authoritative state arriving first (the realtime echo of that
+ * very write) cancels it — there is nothing left to reconcile.
+ */
+function slowResync(gameId: string): void {
+  if (resyncTimer || resyncRunning) return;
+  resyncTimer = setTimeout(() => {
+    resyncTimer = null;
+    const st = useOnlineStore.getState();
+    if (st.gameId !== gameId) return;
+    if (!pending) return; // already reconciled by the echo
+    void runResync(gameId);
+  }, RESYNC_AFTER_TIMEOUT_MS);
 }
 
 async function runResync(gameId: string): Promise<void> {

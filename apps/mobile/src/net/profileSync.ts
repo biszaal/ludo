@@ -10,6 +10,23 @@ import { upsertMyProfile } from "./api";
 
 const DEBOUNCE_MS = 1200;
 
+/**
+ * Push the profile, then adopt whatever the server kept.
+ *
+ * The dice skin is the one field the server may overrule (it strips a priced
+ * skin you don't own). Taking its answer back is what keeps "what I see" and
+ * "what my opponents see" the same object — the alternative is a skin that
+ * looks equipped forever on this device and nowhere else.
+ */
+export async function pushProfile(displayName: string, avatarId: string, diceSkinId: string): Promise<void> {
+  const stored = await upsertMyProfile(displayName, avatarId, diceSkinId);
+  if (!stored) return; // offline or signed out — try again on the next edit
+  const wanted = diceSkinId === "classic" ? null : diceSkinId;
+  if (stored.diceSkin !== wanted) {
+    useProfile.getState().setDiceSkin(stored.diceSkin ?? "classic");
+  }
+}
+
 export function initProfileSync(): () => void {
   let timer: ReturnType<typeof setTimeout> | null = null;
 
@@ -17,7 +34,7 @@ export function initProfileSync(): () => void {
     if (s.displayName === prev.displayName && s.avatarId === prev.avatarId && s.diceSkinId === prev.diceSkinId) return;
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
-      void upsertMyProfile(s.displayName, s.avatarId, s.diceSkinId).catch(() => {});
+      void pushProfile(s.displayName, s.avatarId, s.diceSkinId).catch(() => {});
     }, DEBOUNCE_MS);
   });
 

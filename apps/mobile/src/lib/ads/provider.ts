@@ -20,6 +20,31 @@ import { interstitialUnitId, rewardedUnitId, TEST_DEVICE_IDS } from "./units";
 let initialized = false;
 let canRequestAds = false;
 
+/**
+ * Readiness is asynchronous — UMP consent, the ATT prompt and SDK startup can
+ * take seconds — so it has to be *observable*, not just readable.
+ *
+ * Every ad surface mounts long before initAds() resolves. When this was a bare
+ * function call, those components read `false` once and were never re-rendered
+ * by anything, so the banners stayed hidden for the whole session even after
+ * the SDK came up. useSyncExternalStore + this listener set is what turns
+ * "ready" into something React can actually react to.
+ */
+const listeners = new Set<() => void>();
+
+function setReady(next: { initialized?: boolean; canRequestAds?: boolean }): void {
+  const was = adsReady();
+  if (next.initialized !== undefined) initialized = next.initialized;
+  if (next.canRequestAds !== undefined) canRequestAds = next.canRequestAds;
+  if (adsReady() !== was) for (const l of listeners) l();
+}
+
+/** Subscribe to readiness changes. Pair with adsReady in useSyncExternalStore. */
+export function subscribeAdsReady(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
 /** Whether the SDK is up and consent allows requests. */
 export function adsReady(): boolean {
   return initialized && canRequestAds;
@@ -41,11 +66,11 @@ export async function initAds(): Promise<void> {
       const info = await sdk.AdsConsent.gatherConsent({
         testDeviceIdentifiers: TEST_DEVICE_IDS,
       });
-      canRequestAds = info.canRequestAds;
+      setReady({ canRequestAds: info.canRequestAds });
     } catch {
       // Consent flow unavailable (offline, misconfigured form). Fall back to
       // requesting ads without personalization rather than showing nothing.
-      canRequestAds = true;
+      setReady({ canRequestAds: true });
     }
 
     // 2. iOS ATT. UMP usually presents this itself when the AdMob console is
@@ -64,9 +89,11 @@ export async function initAds(): Promise<void> {
       await sdk.default().setRequestConfiguration({ testDeviceIdentifiers: TEST_DEVICE_IDS });
     }
     await sdk.default().initialize();
-    initialized = true;
+    setReady({ initialized: true });
+    // Warm the first interstitial now that requests are legal.
+    preloadInterstitial();
   } catch {
-    initialized = false;
+    setReady({ initialized: false });
   }
 }
 

@@ -17,7 +17,7 @@ import { Surface3D } from "./Surface3D";
 import { useWallet } from "../store/walletStore";
 import { useConfig } from "../store/configStore";
 import { watchForReward } from "../lib/ads/rewarded";
-import { adsReady } from "../lib/ads/provider";
+import { useAdsReady } from "../lib/ads/useAdsReady";
 import { nextDailyBonus } from "../lib/economy";
 import { formatExact } from "../lib/format";
 import { playSound } from "../lib/sound";
@@ -32,6 +32,7 @@ export function GetCoinsSheet({ onClose }: { onClose: () => void }) {
   const claimPity = useWallet((s) => s.claimPity);
   const economy = useConfig((s) => s.config.economy);
   const rewarded = useConfig((s) => s.config.ads.rewarded);
+  const adsAvailable = useAdsReady();
 
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
@@ -87,7 +88,7 @@ export function GetCoinsSheet({ onClose }: { onClose: () => void }) {
 
       {/* Rewarded video. Buys coins for match entry and cosmetics only —
           never an in-game advantage. */}
-      {rewarded.coinGrant && adsReady() ? (
+      {rewarded.coinGrant && adsAvailable ? (
         <CoinRow
           title="Watch an ad"
           subtitle={busy ? "Loading…" : "A short video for coins"}

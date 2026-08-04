@@ -53,10 +53,23 @@ describe("isUnlocked", () => {
     expect(isUnlocked(["theme.night"], prices, "theme.night")).toBe(true);
   });
 
-  it("treats an unknown sku as free rather than locking it", () => {
-    // A failed catalog fetch must not lock the player out of their own board.
-    expect(isUnlocked([], {}, "theme.walnut")).toBe(true);
+  it("treats an unknown sku in a KNOWN catalog as free", () => {
+    // Mirrors the server: profiles_enforce_dice_skin lets an unpriced sku
+    // through, so a client ahead of the seed still works.
+    expect(isUnlocked([], prices, "theme.walnut")).toBe(true);
     expect(priceOf({}, "theme.walnut")).toBe(0);
+  });
+
+  it("offers nothing unowned before the catalog has loaded", () => {
+    // The bug this closes: an empty price map read as "everything is free", so
+    // the locker offered every dice skin. Equipping one looked fine locally and
+    // was then silently stripped server-side — owner saw it, opponents didn't.
+    expect(isUnlocked([], {}, "dice.gold")).toBe(false);
+  });
+
+  it("still never locks the player out of something they own", () => {
+    // The original reason for being lenient — preserved where it matters.
+    expect(isUnlocked(["dice.gold"], {}, "dice.gold")).toBe(true);
   });
 });
 

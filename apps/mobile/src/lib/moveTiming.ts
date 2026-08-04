@@ -1,37 +1,31 @@
 /**
- * Timing of a token's move animation, shared by Board.tsx (which drives the
- * hops) and feedback.ts (which must not fire landing sounds — capture, safe
- * chime, finish — before the pawn visibly arrives). Pure module with engine
- * imports only, so the Node test suite can pin the math.
+ * How long a state transition takes to play out on the Board.
+ *
+ * feedback.ts uses this so landing sounds (capture, safe chime, finish) fire
+ * when the pawn visibly arrives, and onlineStore uses it to pace bunched
+ * realtime updates — a laggy connection that delivers several writes at once
+ * must still show each move rather than collapsing them into one jump.
+ *
+ * The durations are derived from render/waypoints.ts — the same function the
+ * Board actually animates — rather than re-deriving them here. This used to be
+ * a hand-kept mirror, and a mirror that drifts under-reports the animation,
+ * which lets the next queued state land mid-hop and cut the move short.
  */
 
-import { FINISH_REL_INDEX, toRelativeIndex, type Color, type GameState, type TokenPosition } from "@ludo/engine";
+import type { Color, GameState, TokenPosition } from "@ludo/engine";
+import { walkDurationMs } from "../render/waypoints";
 
-/** Per-cell hop duration (ms). Slower = more playful, child's-game pacing. */
-export const HOP_STEP_MS = 150;
-/** Single-fly duration (ms) for non-walkable moves: yard exits, capture returns. */
-export const FLY_MS = 240;
+export { FLY_MS, HOP_STEP_MS } from "../render/waypoints";
 
-/**
- * How long the Board animates a token from `was` to `now`. Mirror of Board's
- * computeWaypoints: a contiguous forward path of ≤6 cells hops cell-by-cell;
- * everything else (yard exits, capture returns, resync jumps) is one fly.
- */
+/** How long the Board animates a token from `was` to `now`. */
 export function moveDurationMs(color: Color, was: TokenPosition, now: TokenPosition): number {
-  if (was === "home") return FLY_MS;
-  const oldRel = was === "finished" ? FINISH_REL_INDEX : toRelativeIndex(color, was);
-  const newRel = now === "home" ? -1 : now === "finished" ? FINISH_REL_INDEX : toRelativeIndex(color, now);
-  if (oldRel === null || newRel === null) return FLY_MS;
-  if (newRel > oldRel && newRel - oldRel <= 6) return (newRel - oldRel) * HOP_STEP_MS;
-  return FLY_MS;
+  return walkDurationMs(color, was, now);
 }
 
 /**
- * How long the Board animates the transition `prev -> next` overall: the
- * slowest mover, plus a captured token's fly home (Board delays it until the
- * capturing mover lands). Drives the online store's pacing of bunched realtime
- * updates: a laggy connection that delivers several writes at once must still
- * show each move, not collapse them into one jump.
+ * How long the Board animates `prev -> next` overall: the slowest mover, plus a
+ * captured token's retrace home (the Board holds that back until the capturing
+ * mover lands, so the two are sequential, not concurrent).
  */
 export function stateAnimationMs(prev: GameState, next: GameState): number {
   if (prev.gameId !== next.gameId) return 0;
@@ -41,8 +35,8 @@ export function stateAnimationMs(prev: GameState, next: GameState): number {
   for (const t of next.tokens) {
     const was = prevPos.get(t.id);
     if (was === undefined || JSON.stringify(was) === JSON.stringify(t.position)) continue;
-    if (t.position === "home") captureMs = FLY_MS; // captured — flies after the mover lands
-    else moverMs = Math.max(moverMs, moveDurationMs(t.color, was, t.position));
+    if (t.position === "home") captureMs = Math.max(captureMs, walkDurationMs(t.color, was, t.position));
+    else moverMs = Math.max(moverMs, walkDurationMs(t.color, was, t.position));
   }
   return moverMs + captureMs;
 }

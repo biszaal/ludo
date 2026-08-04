@@ -31,11 +31,13 @@ vi.mock("../src/net/api", () => ({
   getLobby: vi.fn().mockResolvedValue([]),
   fetchGame: vi.fn(),
   getProfiles: vi.fn().mockResolvedValue([]),
-  upsertMyProfile: vi.fn().mockResolvedValue(undefined),
+  upsertMyProfile: vi.fn().mockResolvedValue(null),
   setConnected: vi.fn().mockResolvedValue(undefined),
   subscribeGame: vi.fn(),
   unsubscribe: vi.fn(),
   sendChat: vi.fn(),
+  TimeoutError: class TimeoutError extends Error {},
+  isTimeout: (e: unknown) => e instanceof Error && e.name === "TimeoutError",
 }));
 
 import * as api from "../src/net/api";
@@ -84,7 +86,7 @@ let subs: api.GameSubscription;
 async function joinActiveGame(state: GameState, v = 1): Promise<void> {
   vi.mocked(api.getLobby).mockResolvedValue([]);
   vi.mocked(api.getProfiles).mockResolvedValue([]);
-  vi.mocked(api.upsertMyProfile).mockResolvedValue(undefined);
+  vi.mocked(api.upsertMyProfile).mockResolvedValue(null);
   vi.mocked(api.setConnected).mockResolvedValue(undefined);
   vi.mocked(api.leaveAction).mockResolvedValue(undefined);
   vi.mocked(api.joinGame).mockResolvedValue({
@@ -189,6 +191,54 @@ describe("optimistic moves", () => {
     d.resolve({ state: serverTruth, v: 2 });
     await done;
     expect(store.getState().state).toEqual(serverTruth);
+  });
+});
+
+describe("slow connections", () => {
+  const timeout = () => Object.assign(new Error("too long"), { name: "TimeoutError" });
+
+  it("keeps the move on screen when the request times out", async () => {
+    // The request is never aborted, so a timeout means "unknown", not "failed".
+    // Rolling the pawn back here is what made a laggy match eat a move: it
+    // snapped home, the player moved again, and the first write landed anyway.
+    const rolled = rolledSix();
+    await joinActiveGame(rolled);
+    const tokenId = store.getState().validMoves[0]!.tokenId;
+    const predicted = applyMove(rolled, { tokenId });
+
+    vi.mocked(api.moveAction).mockRejectedValue(timeout());
+    await store.getState().selectToken(tokenId);
+
+    expect(store.getState().state).toEqual(predicted);
+    expect(store.getState().error).toBeNull(); // nothing scary to show yet
+  });
+
+  it("settles silently when the slow write's echo finally arrives", async () => {
+    const rolled = rolledSix();
+    await joinActiveGame(rolled);
+    const tokenId = store.getState().validMoves[0]!.tokenId;
+    const predicted = applyMove(rolled, { tokenId });
+
+    vi.mocked(api.moveAction).mockRejectedValue(timeout());
+    await store.getState().selectToken(tokenId);
+    const turnSeqAfterOptimistic = store.getState().turnSeq;
+
+    // The write did land after all — its echo confirms what's already shown.
+    subs.onGame(row(structuredClone(predicted), 2));
+    expect(store.getState().state).toEqual(predicted);
+    expect(store.getState().turnSeq).toBe(turnSeqAfterOptimistic);
+  });
+
+  it("still reverts immediately when the server actually rejects the move", async () => {
+    const rolled = rolledSix();
+    await joinActiveGame(rolled);
+    const tokenId = store.getState().validMoves[0]!.tokenId;
+
+    vi.mocked(api.moveAction).mockRejectedValue(new Error("Not your turn."));
+    vi.mocked(api.fetchGame).mockResolvedValue(row(rolled, 1));
+    await store.getState().selectToken(tokenId);
+
+    expect(store.getState().error).toBe("Not your turn.");
   });
 });
 

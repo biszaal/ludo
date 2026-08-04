@@ -100,17 +100,37 @@ export const useEntitlements = create<EntitlementsStore>()(
 /**
  * Price of a SKU, or 0 when the catalog hasn't loaded or doesn't list it.
  *
- * Unknown-means-free is deliberate: a failed catalog fetch should leave the
- * player able to use their cosmetics, not lock the ones they already own behind
- * a phantom price. The server rejects any purchase that shouldn't happen.
+ * Unknown-means-free mirrors the server: profiles_enforce_dice_skin also lets
+ * an unpriced sku through, so a client that knows a skin the server hasn't
+ * seeded yet still works.
  */
 export function priceOf(prices: Record<string, number>, sku: string): number {
   return prices[sku] ?? 0;
 }
 
-/** Owned, free, or not yet priced — anything the player may select. */
+/** Has a catalog ever been fetched (or restored from disk)? */
+export function catalogKnown(prices: Record<string, number>): boolean {
+  return Object.keys(prices).length > 0;
+}
+
+/**
+ * May the player select this? Owned, or free according to a catalog we
+ * actually have.
+ *
+ * That last clause matters more than it looks. `prices` starts empty, and
+ * treating empty as "everything is free" let the locker offer every dice skin
+ * before the catalog landed. Equipping one felt fine locally — and then
+ * profiles_enforce_dice_skin silently nulled it on write, so the owner saw
+ * their skin and every opponent saw plain classic, with no error anywhere.
+ * Unverifiable is not the same as free.
+ *
+ * Anything already owned stays unlocked regardless, so a failed fetch still
+ * can't lock someone out of cosmetics they paid for.
+ */
 export function isUnlocked(owned: string[], prices: Record<string, number>, sku: string): boolean {
-  return priceOf(prices, sku) === 0 || owned.includes(sku);
+  if (owned.includes(sku)) return true;
+  if (!catalogKnown(prices)) return false;
+  return priceOf(prices, sku) === 0;
 }
 
 /** Which wallet a SKU charges. Unknown means coins (old server / no catalog). */

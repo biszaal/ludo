@@ -8,7 +8,7 @@ import { useState } from "react";
 import { View } from "react-native";
 import { adsSdk } from "../lib/ads/native";
 import { bannerUnitId, type BannerSlot } from "../lib/ads/units";
-import { adsReady } from "../lib/ads/provider";
+import { useAdsReady } from "../lib/ads/useAdsReady";
 import { useConfig } from "../store/configStore";
 import { adsEnabled } from "../store/adsStore";
 
@@ -19,13 +19,16 @@ interface AdSlotProps {
 export function AdSlot({ slot }: AdSlotProps) {
   const config = useConfig((s) => s.config);
   const [failed, setFailed] = useState(false);
+  // Subscribed, not just read: this mounts well before initAds() resolves, and
+  // a plain adsReady() call left the slot stuck on its first `false`.
+  const ready = useAdsReady();
 
   // TODO(phase-8): swap `false` for the real `noads` entitlement once coin
   // packs ship. Wired through now so nothing has to be re-plumbed then.
   const entitled = false;
 
   const allowed =
-    adsSdk !== null && adsEnabled(config, entitled) && config.ads.banner[slot] && adsReady() && !failed;
+    adsSdk !== null && adsEnabled(config, entitled) && config.ads.banner[slot] && ready && !failed;
 
   if (!allowed || !adsSdk) return null;
   const { BannerAd, BannerAdSize } = adsSdk;

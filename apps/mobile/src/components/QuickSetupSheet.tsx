@@ -20,7 +20,7 @@ import { formatCompact } from "../lib/format";
 import { canAfford, potFor } from "../lib/economy";
 import { seatColors } from "../lib/seating";
 import { watchForReward } from "../lib/ads/rewarded";
-import { adsReady } from "../lib/ads/provider";
+import { useAdsReady } from "../lib/ads/useAdsReady";
 import { useWallet } from "../store/walletStore";
 import { useConfig } from "../store/configStore";
 import { useOnlineStore } from "../store/onlineStore";
@@ -36,6 +36,7 @@ export function QuickSetupSheet({ onClose, onNeedCoins }: QuickSetupSheetProps) 
   const balance = useWallet((s) => s.balance);
   const tiers = useConfig((s) => s.config.economy.stakeTiers);
   const freeEntryOn = useConfig((s) => s.config.ads.rewarded.freeEntry);
+  const adsAvailable = useAdsReady();
   const quickMatch = useOnlineStore((s) => s.quickMatch);
   const connecting = useOnlineStore((s) => s.status === "connecting");
   const error = useOnlineStore((s) => s.error);
@@ -47,7 +48,7 @@ export function QuickSetupSheet({ onClose, onNeedCoins }: QuickSetupSheetProps) 
 
   const lowest = tiers[0] ?? 100;
   const broke = !canAfford(balance, lowest);
-  const canWatchIn = broke && freeEntryOn && adsReady();
+  const canWatchIn = broke && freeEntryOn && adsAvailable;
   const stakeAffordable = canAfford(balance, stake);
 
   const watchForEntry = async () => {

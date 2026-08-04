@@ -6,6 +6,7 @@
 import { describe, it, expect } from "vitest";
 import { createGame, fromRelativeIndex, type GameState, type TokenPosition } from "@ludo/engine";
 import { FLY_MS, HOP_STEP_MS, moveDurationMs, stateAnimationMs } from "../src/lib/moveTiming";
+import { RETURN_TOTAL_MS } from "../src/render/waypoints";
 
 describe("moveDurationMs", () => {
   it("walks contiguous track moves cell-by-cell", () => {
@@ -30,8 +31,13 @@ describe("moveDurationMs", () => {
     expect(moveDurationMs("yellow", "home", fromRelativeIndex("yellow", 0))).toBe(FLY_MS);
   });
 
-  it("flies a captured token back home", () => {
-    expect(moveDurationMs("red", fromRelativeIndex("red", 20), "home")).toBe(FLY_MS);
+  it("walks a captured token back home the way it came", () => {
+    // 20 cells behind it plus the yard slot, paced to the retrace budget —
+    // much longer than the old straight fly, which is the point: sounds timed
+    // off this must wait for the pawn to actually get home.
+    const ms = moveDurationMs("red", fromRelativeIndex("red", 20), "home");
+    expect(ms).toBeGreaterThan(FLY_MS);
+    expect(ms).toBe(21 * Math.round(RETURN_TOTAL_MS / 21));
   });
 });
 
@@ -67,14 +73,19 @@ describe("stateAnimationMs", () => {
     expect(stateAnimationMs(prev, next)).toBe(4 * HOP_STEP_MS);
   });
 
-  it("adds the captured token's fly home after the mover lands", () => {
-    // Yellow sits where red will land: red hops 3 cells, then yellow flies home.
+  it("adds the captured token's walk home after the mover lands", () => {
+    // Yellow sits where red will land: red hops 3 cells, THEN yellow retraces.
+    // Red's cell 8 is 34 cells along yellow's own route, so yellow has a long
+    // way back — and the hold must cover all of it or the next queued state
+    // lands mid-retrace and snaps the pawn into its yard.
     const landing = fromRelativeIndex("red", 8);
     let prev = withToken(base(), "red-0", fromRelativeIndex("red", 5));
     prev = withToken(prev, "yellow-0", landing);
     let next = withToken(prev, "red-0", landing);
     next = withToken(next, "yellow-0", "home");
-    expect(stateAnimationMs(prev, next)).toBe(3 * HOP_STEP_MS + FLY_MS);
+
+    const retrace = moveDurationMs("yellow", landing, "home");
+    expect(stateAnimationMs(prev, next)).toBe(3 * HOP_STEP_MS + retrace);
   });
 
   it("uses the fly time for a resync-style jump (>6 cells)", () => {

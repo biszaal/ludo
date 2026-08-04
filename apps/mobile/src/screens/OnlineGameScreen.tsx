@@ -52,11 +52,27 @@ export function OnlineGameScreen() {
     return player ? profiles[player.userId] : undefined;
   };
 
+  /**
+   * Is this seat mine? Checked against the auth user id as well as myPlayerId.
+   *
+   * myPlayerId is a per-game handle handed out at join time; userId comes
+   * straight from the session and can't drift. When only the handle was
+   * consulted and it didn't line up, my own seat fell through to the
+   * "stranger" branch below — no local profile, and if the profiles cache
+   * hadn't picked my row up either, the chip rendered a bare color disc
+   * labelled "Red"/"Yellow" while everyone else's showed normally.
+   */
+  const isMe = (playerId: string): boolean => {
+    if (playerId === myPlayerId) return true;
+    const player = state.players.find((p) => p.id === playerId);
+    return !!userId && player?.userId === userId;
+  };
+
   // Presence comes from the live players table (fresh via realtime), not the
   // game-state snapshot. Never flag my own seat.
   const offlineOf = (playerId: string): boolean => {
     const player = state.players.find((p) => p.id === playerId);
-    if (!player || player.id === myPlayerId) return false;
+    if (!player || isMe(playerId)) return false;
     const row = lobby.find((l) => l.user_id === player.userId);
     return row ? !row.is_connected : false;
   };
@@ -84,16 +100,16 @@ export function OnlineGameScreen() {
       confirmLeave
       onRematch={isHost ? () => void rematch() : undefined}
       resultsFootnote={isHost ? null : "Waiting for the host to start a rematch…"}
-      nameFor={(playerId) => profileOf(playerId)?.display_name ?? (playerId === myPlayerId ? myName : null)}
+      nameFor={(playerId) => (isMe(playerId) ? myName : null) ?? profileOf(playerId)?.display_name ?? null}
       // Local-first for my own seat (like nameFor / diceSkinFor): my profile row
       // may not be in the fetched cache yet, and I always know my own avatar.
-      avatarFor={(playerId) => (playerId === myPlayerId ? myAvatar : (profileOf(playerId)?.avatar_id ?? null))}
+      avatarFor={(playerId) => (isMe(playerId) ? myAvatar : (profileOf(playerId)?.avatar_id ?? null))}
       // Local-first for my own seat: the profiles cache is fetched once per
       // user per session and skips users already cached (onlineStore's
       // fetchProfiles), so it can go stale if I re-equip a skin mid-session.
       // Everyone else — bots included, they carry an ordinary profiles row —
       // resolves the same way a name or avatar does.
-      diceSkinFor={(playerId) => (playerId === myPlayerId ? myDiceSkin : (profileOf(playerId)?.dice_skin ?? null))}
+      diceSkinFor={(playerId) => (isMe(playerId) ? myDiceSkin : (profileOf(playerId)?.dice_skin ?? null))}
       offlineFor={offlineOf}
       leftFor={leftOf}
       turnTimer={state.status === "active" ? { seq: turnSeq, seconds: TURN_SECONDS } : null}
