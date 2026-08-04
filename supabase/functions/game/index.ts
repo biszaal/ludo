@@ -26,7 +26,7 @@
  *   social       friend discovery, account deletion
  */
 
-import { adminClient, authUserId, json } from "./lib.ts";
+import { adminClient, authUserId, json, safeError } from "./lib.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import { opCreate, opJoin, opLeave, opRematch, opStart } from "./room.ts";
 import { opTimeout, opTurn } from "./turn.ts";
@@ -127,6 +127,9 @@ Deno.serve(async (req: Request) => {
         return json({ error: "Unknown op." });
     }
   } catch (e) {
-    return json({ error: e instanceof Error ? e.message : String(e) });
+    // Last resort: an op threw rather than returning. Whatever it says is
+    // internal (a Postgres message, a parse failure on a hand-crafted body) and
+    // reaches any signed-in caller, so it goes to the logs, not the response.
+    return safeError("router", e);
   }
 });

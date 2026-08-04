@@ -20,9 +20,11 @@ import {
   cryptoRng,
   freshState,
   json,
+  safeError,
   sleep,
   turnDeadline,
   type SupabaseClient,
+  WRITE_FAILED,
 } from "./lib.ts";
 import { afterGameWrite, BOT_MAX_ACTIONS, BOT_STEP_PAUSE_MS } from "./bots.ts";
 import { recordFinishStats, settleIfFinished } from "./finish.ts";
@@ -83,7 +85,7 @@ export async function opTurn(
     .eq("state_version", v)
     .select("id")
     .maybeSingle();
-  if (error) return json({ error: error.message });
+  if (error) return safeError("turn.write", error, WRITE_FAILED);
   if (!updated) return await freshState(admin, gameId, state);
 
   afterResponse(
@@ -279,7 +281,7 @@ export async function opTimeout(admin: SupabaseClient, userId: string, gameId: s
         .eq("state_version", v)
         .select("id")
         .maybeSingle();
-      if (error) return json({ error: error.message });
+      if (error) return safeError("turn.write", error, WRITE_FAILED);
       if (!updated) return await freshState(admin, gameId, state);
       afterResponse(admin.from("moves").insert({ game_id: gameId, player_id: awayPlayerId, action: { action: "auto-leave", missed } }));
       await finishStalledTurn(admin, gameId, hasBots, next);

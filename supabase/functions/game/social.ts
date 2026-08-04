@@ -14,7 +14,7 @@
  * Errors follow the file convention: HTTP 200 with an { error } body.
  */
 
-import { afterResponse, json, type SupabaseClient } from "./lib.ts";
+import { afterResponse, json, rateOk, type SupabaseClient } from "./lib.ts";
 
 const FRIEND_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const FRIEND_LOOKUPS_PER_HOUR = 40;
@@ -33,17 +33,6 @@ export async function opDeleteAccount(admin: SupabaseClient, userId: string): Pr
   const { error } = await admin.auth.admin.deleteUser(userId);
   if (error) return json({ error: "Could not delete your account. Please try again." });
   return json({ ok: true });
-}
-
-/** True when the call is within its hourly budget. */
-async function rateOk(admin: SupabaseClient, userId: string, bucket: string, limit: number): Promise<boolean> {
-  const { data, error } = await admin.rpc("rate_limit_hit", {
-    p_user: userId,
-    p_bucket: bucket,
-    p_limit: limit,
-  });
-  if (error) return true; // never lock players out of the app on a counter failure
-  return data !== false;
 }
 
 /** Delete bot-targeted requests whose randomized decline delay has elapsed.

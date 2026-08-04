@@ -6,7 +6,7 @@
 
 // @deno-types="../_shared/engine/index.d.ts"
 import { createGame as engineCreateGame, type GameState } from "../_shared/engine/index.js";
-import { afterResponse, seatColors, turnDeadline, type SupabaseClient } from "./lib.ts";
+import { afterResponse, seatColors, turnDeadline, type SupabaseClient, WRITE_FAILED } from "./lib.ts";
 import { afterGameWrite } from "./bots.ts";
 
 export type StartResult = { state: GameState; v: number } | { error: string };
@@ -42,7 +42,10 @@ export async function startGameNow(admin: SupabaseClient, gameId: string): Promi
     .eq("state_version", v)
     .select("id")
     .maybeSingle();
-  if (error) return { error: error.message };
+  if (error) {
+    console.error("[deal.write]", error.message);
+    return { error: WRITE_FAILED };
+  }
   if (!updated) {
     const { data } = await admin.from("games").select("state, state_version").eq("id", gameId).single();
     return data?.state

@@ -13,7 +13,9 @@ import { JetBrainsMono_500Medium } from "@expo-google-fonts/jetbrains-mono";
 import { ScreenStack } from "./src/components/ScreenStack";
 import { InviteBanner } from "./src/components/InviteBanner";
 import { LoadingScreen } from "./src/components/LoadingScreen";
+import { ErrorBoundary } from "./src/components/ErrorBoundary";
 import { useOnlineStore } from "./src/store/onlineStore";
+import { useNav } from "./src/store/navStore";
 import { initSound, setMusicActive } from "./src/lib/sound";
 import { initFeedback } from "./src/lib/feedback";
 import { initDeepLinks } from "./src/lib/invite";
@@ -24,6 +26,24 @@ import { initAds } from "./src/lib/ads/provider";
 import { initProfileSync } from "./src/net/profileSync";
 import { initPurchases, syncPurchasesUser } from "./src/lib/purchases";
 import { ensureSignedIn } from "./src/net/api";
+
+/**
+ * Put the app somewhere known-good before remounting after a render crash.
+ *
+ * An online game is the likeliest thing to have thrown (it is the only screen
+ * driven by state a remote peer can change), and remounting straight back into
+ * it would just throw again. Leaving the room also tells the server, so the
+ * other players see us go rather than waiting out a turn clock.
+ */
+function recoverFromCrash(): void {
+  try {
+    const online = useOnlineStore.getState();
+    if (online.gameId) online.leave();
+    else useNav.getState().popTo("home");
+  } catch {
+    // Recovery must never throw — worst case the player lands wherever they were.
+  }
+}
 
 export default function App() {
   const [fontsLoaded, fontError] = useFonts({
@@ -101,10 +121,10 @@ export default function App() {
     <SafeAreaProvider>
       <StatusBar style="light" />
       {ready && (
-        <>
+        <ErrorBoundary onReset={recoverFromCrash}>
           <ScreenStack />
           <InviteBanner />
-        </>
+        </ErrorBoundary>
       )}
       {!launched && <LoadingScreen done={ready} onHidden={onLaunched} />}
     </SafeAreaProvider>

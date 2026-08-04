@@ -8,7 +8,7 @@
     "apps/*"
   ],
   "scripts": {
-    "test": "npm test --workspace packages/engine && npm test --workspace packages/bot && npm test --workspace mobile",
+    "test": "npm test --workspace packages/engine && npm test --workspace packages/bot && npm test --workspace mobile && npm run test:edge",
     "test:engine": "npm test --workspace packages/engine",
     "test:bot": "npm test --workspace packages/bot",
     "test:app": "npm test --workspace mobile",
@@ -20,7 +20,8 @@
     "build:edge": "npm run build:packages && node scripts/build-edge.mjs",
     "mobile": "npm start --workspace mobile",
     "ios": "npm run run:ios --workspace mobile",
-    "android": "npm run run:android --workspace mobile"
+    "android": "npm run run:android --workspace mobile",
+    "test:edge": "SUPABASE_URL=https://example.supabase.co SUPABASE_SERVICE_ROLE_KEY=test npx --yes deno@2.1.4 test --no-check --allow-env --allow-net supabase/functions/game/"
   },
   "engines": {
     "node": ">=20"

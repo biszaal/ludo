@@ -58,6 +58,26 @@ export function json(body: unknown, status = 200): Response {
   });
 }
 
+/**
+ * Log the real failure, return something safe to show a player.
+ *
+ * Postgres error text names constraints, columns and functions — a free map of
+ * the schema for anyone who can provoke a failure, and every op here is
+ * reachable by any signed-in user. The detail belongs in the function logs,
+ * where we can actually read it; the client gets a sentence it can act on.
+ *
+ * `where` is a short tag ("turn.write", "room.rematch") so a report of the
+ * generic message can still be traced to one call site in the logs.
+ */
+export function safeError(where: string, err: unknown, message = "Something went wrong. Try again."): Response {
+  console.error(`[${where}]`, err instanceof Error ? err.message : err);
+  return json({ error: message });
+}
+
+/** The message every version-guarded write shares: someone else's write landed
+ *  first, or the write itself failed. Either way the client resyncs. */
+export const WRITE_FAILED = "Couldn't save that move — reconnecting.";
+
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void } | undefined;
 
 /** Work that must not block the response: bookkeeping writes (audit log,
@@ -94,6 +114,58 @@ export async function authUserId(admin: SupabaseClient, token: string): Promise<
   }
   const { data, error } = await admin.auth.getUser(token);
   return error || !data.user ? null : data.user.id;
+}
+
+// --- Rate limiting -----------------------------------------------------------
+// One hourly counter per (user, bucket), in Postgres so it survives isolate
+// recycling and applies across a user's devices.
+//
+// These are ABUSE ceilings, not game balance. The economy's real protection is
+// elsewhere and unchanged: grants are per-UTC-day, rewarded coins only move on
+// a signed AdMob callback, and prices come from the catalog. What was missing
+// is a bound on how fast a script can hammer the ops at all — every one of them
+// writes rows and costs edge invocations, and only friend lookup had a limit.
+//
+// Numbers are set well above what a human can reach: a player who trips one is
+// not playing.
+
+/** Hourly ceilings per op. */
+export const LIMITS = {
+  adReward: 30,
+  dailyBonus: 10,
+  walletTopup: 10,
+  shopBuy: 30,
+  gemsExchange: 20,
+  gemsBuy: 20,
+  roomCreate: 30,
+  quickMatch: 60,
+} as const;
+
+/**
+ * True when the call is within its hourly budget.
+ *
+ * Fails OPEN: if the counter itself errors we allow the call. A limiter that
+ * locks players out of their own wallet when a table hiccups is worse than the
+ * abuse it prevents — and the per-day economic caps still hold underneath.
+ */
+export async function rateOk(
+  admin: SupabaseClient,
+  userId: string,
+  bucket: string,
+  limit: number,
+): Promise<boolean> {
+  const { data, error } = await admin.rpc("rate_limit_hit", {
+    p_user: userId,
+    p_bucket: bucket,
+    p_limit: limit,
+  });
+  if (error) return true;
+  return data !== false;
+}
+
+/** Standard refusal for a tripped limit. */
+export function rateLimited(): Response {
+  return json({ error: "You're doing that too fast. Give it a minute." });
 }
 
 /** A racing write beat ours — return the current authoritative row instead. */

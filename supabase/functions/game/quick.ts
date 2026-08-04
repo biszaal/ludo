@@ -12,7 +12,10 @@ import {
   afterResponse,
   genCode,
   json,
+  LIMITS,
   QUICK_STAKE,
+  rateLimited,
+  rateOk,
   seatColors,
   serverConfig,
   STAKE_TIERS,
@@ -36,6 +39,7 @@ export async function opQuickMatch(
   rawSize: number,
   rawStake: number | null,
 ): Promise<Response> {
+  if (!(await rateOk(admin, userId, "quickMatch", LIMITS.quickMatch))) return rateLimited();
   const size = rawSize === 4 ? 4 : 2;
 
   // Tier must be on the server's list — a hacked client can't invent a pool.

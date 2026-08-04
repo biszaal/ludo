@@ -13,7 +13,10 @@ import type { GameState } from "../_shared/engine/index.js";
 import {
   deepMerge,
   json,
+  LIMITS,
   QUICK_STAKE,
+  rateLimited,
+  rateOk,
   serverConfig,
   utcDay,
   type Json,
@@ -94,6 +97,7 @@ export async function opWalletState(admin: SupabaseClient, userId: string): Prom
 // mint unpaid gems. A real store receipt later swaps the stub branch for
 // verification and credits through the exact same table + rpc.
 export async function opGemsBuy(admin: SupabaseClient, userId: string, productId: string): Promise<Response> {
+  if (!(await rateOk(admin, userId, "gemsBuy", LIMITS.gemsBuy))) return rateLimited();
   const cfg = await serverConfig(admin);
   const gems = (cfg.gems ?? {}) as Json;
   if (gems.enabled !== true || gems.purchasesEnabled !== true) {
@@ -133,6 +137,7 @@ export async function opGemsExchange(
   gemsWanted: number,
   key: string | null,
 ): Promise<Response> {
+  if (!(await rateOk(admin, userId, "gemsExchange", LIMITS.gemsExchange))) return rateLimited();
   const cfg = await serverConfig(admin);
   const gemsCfg = (cfg.gems ?? {}) as Json;
   if (gemsCfg.enabled !== true) return json({ error: "Exchange isn't available." });
@@ -161,6 +166,7 @@ export async function opGemsExchange(
 /** Once per UTC day, growing with the streak. Idempotent by date: the claim is
  *  a conditional update, so a double-tap or a retry can't pay twice. */
 export async function opDailyBonus(admin: SupabaseClient, userId: string): Promise<Response> {
+  if (!(await rateOk(admin, userId, "dailyBonus", LIMITS.dailyBonus))) return rateLimited();
   const today = utcDay();
   const w = await readWallet(admin, userId);
   if (w.last_bonus_on === today) {
@@ -188,6 +194,7 @@ export async function opDailyBonus(admin: SupabaseClient, userId: string): Promi
 }
 
 export async function opWalletTopup(admin: SupabaseClient, userId: string): Promise<Response> {
+  if (!(await rateOk(admin, userId, "walletTopup", LIMITS.walletTopup))) return rateLimited();
   const w = await readWallet(admin, userId);
   if (!pityReady(w)) return json({ balance: w.balance, granted: 0 });
 
@@ -215,6 +222,7 @@ export async function opAdRewardIntent(
   placement: string,
   gameId: string | null,
 ): Promise<Response> {
+  if (!(await rateOk(admin, userId, "adReward", LIMITS.adReward))) return rateLimited();
   if (!(placement in REWARD_COINS)) return json({ error: "Unknown placement." });
 
   const since = new Date(Date.now() - 86_400_000).toISOString();
@@ -298,6 +306,7 @@ export async function opEntitlementsGet(admin: SupabaseClient, userId: string): 
 /** Buy a cosmetic. Price AND currency come from the catalog, never from the
  *  client, and the debit is what gates the grant — no debit, no entitlement. */
 export async function opShopBuy(admin: SupabaseClient, userId: string, sku: string): Promise<Response> {
+  if (!(await rateOk(admin, userId, "shopBuy", LIMITS.shopBuy))) return rateLimited();
   const { data: item } = await admin
     .from("catalog")
     .select("sku, price, currency, active")

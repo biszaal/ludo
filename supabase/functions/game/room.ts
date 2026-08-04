@@ -15,8 +15,13 @@ import {
   FULL_ORDER,
   genCode,
   json,
+  LIMITS,
+  rateLimited,
+  rateOk,
+  safeError,
   turnDeadline,
   type SupabaseClient,
+  WRITE_FAILED,
 } from "./lib.ts";
 import { afterGameWrite } from "./bots.ts";
 import { startGameNow } from "./deal.ts";
@@ -24,6 +29,7 @@ import { recordFinishStats, settleIfFinished } from "./finish.ts";
 import { walletApply } from "./wallet.ts";
 
 export async function opCreate(admin: SupabaseClient, userId: string): Promise<Response> {
+  if (!(await rateOk(admin, userId, "roomCreate", LIMITS.roomCreate))) return rateLimited();
   const roomCode = genCode();
   const { data: game, error } = await admin
     .from("games")
@@ -128,7 +134,7 @@ export async function opLeave(admin: SupabaseClient, userId: string, gameId: str
     .eq("state_version", v)
     .select("id")
     .maybeSingle();
-  if (error) return json({ error: error.message });
+  if (error) return safeError("room.write", error, WRITE_FAILED);
   if (!updated) return await freshState(admin, gameId, state);
 
   afterResponse(admin.from("moves").insert({ game_id: gameId, player_id: me.id, action: { action: "leave" } }));
@@ -167,7 +173,7 @@ export async function opRematch(admin: SupabaseClient, userId: string, gameId: s
     .eq("state_version", v)
     .select("id")
     .maybeSingle();
-  if (error) return json({ error: error.message });
+  if (error) return safeError("room.write", error, WRITE_FAILED);
   if (!updated) return await freshState(admin, gameId, prev);
 
   afterResponse(admin.from("players").update({ missed_turns: 0 }).eq("game_id", gameId));
