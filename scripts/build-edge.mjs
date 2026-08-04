@@ -25,12 +25,21 @@ function copyPackage(name, transform) {
   rmSync(dest, { recursive: true, force: true });
   mkdirSync(dest, { recursive: true });
   cpSync(src, dest, { recursive: true });
-  if (transform) {
-    for (const file of readdirSync(dest)) {
-      if (!file.endsWith(".js") && !file.endsWith(".d.ts")) continue;
-      const path = join(dest, file);
-      writeFileSync(path, transform(readFileSync(path, "utf8")));
-    }
+  for (const file of readdirSync(dest)) {
+    const isJs = file.endsWith(".js");
+    const isDts = file.endsWith(".d.ts");
+    if (!isJs && !isDts) continue;
+    const path = join(dest, file);
+    let source = readFileSync(path, "utf8");
+    if (transform) source = transform(source);
+    // tsc emits declarations that import their siblings as "./x.js" — correct
+    // for tsc, which maps a .js specifier to the .d.ts beside it, but Deno
+    // takes it literally, finds an untyped .js, and every type in the graph
+    // silently collapses to `any`. That is why `deno check` on the edge
+    // function used to report a wall of implicit-any errors. Point the
+    // declarations at each other directly.
+    if (isDts) source = source.replaceAll(/(from\s+"\.[^"]*)\.js"/g, '$1.d.ts"');
+    writeFileSync(path, source);
   }
   console.log(`Copied ${name} -> ${dest}`);
 }

@@ -37,6 +37,8 @@ supabase/.temp/
 # Generated: engine + bot copied for Deno (run `npm run build:edge`)
 supabase/functions/_shared/engine/
 supabase/functions/_shared/bot/
+# Written by `npm run typecheck:edge`; the pinned deno version is the contract
+deno.lock
 
 # Logs
 *.log

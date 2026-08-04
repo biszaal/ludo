@@ -13,6 +13,7 @@
     "test:bot": "npm test --workspace packages/bot",
     "test:app": "npm test --workspace mobile",
     "typecheck": "npm run typecheck --workspaces --if-present",
+    "typecheck:edge": "npm run build:edge && npx --yes deno@2.1.4 check supabase/functions/game/index.ts supabase/functions/ads-ssv/index.ts supabase/functions/rc-webhook/index.ts",
     "build:engine": "npm run build --workspace packages/engine",
     "build:bot": "npm run build --workspace packages/bot",
     "build:packages": "npm run build:engine && npm run build:bot",

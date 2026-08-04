@@ -28,9 +28,10 @@ npm run build:engine   # the app consumes the engine's built output
 ## Test (no device needed)
 
 ```bash
-npm test            # engine (56) + client store flow (7), all in Node
-npm run test:engine # engine only
-npm run typecheck   # type-check every workspace
+npm test              # engine (56) + client store flow (7), all in Node
+npm run test:engine   # engine only
+npm run typecheck     # type-check every workspace
+npm run typecheck:edge # type-check the Deno edge functions (downloads deno on first run)
 ```
 
 The store tests drive a full hot-seat game through the exact UI intents

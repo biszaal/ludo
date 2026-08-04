@@ -21,7 +21,7 @@
  * moves currency; it can never touch a match outcome.
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 
 type Json = Record<string, unknown>;
@@ -51,9 +51,9 @@ function json(body: Json, status = 200): Response {
 }
 
 /** gems.products from the default app_config row → { productId: gems }. */
-async function productGems(admin: ReturnType<typeof createClient>): Promise<Record<string, number>> {
+async function productGems(admin: SupabaseClient): Promise<Record<string, number>> {
   const { data } = await admin.from("app_config").select("value").eq("key", "default").maybeSingle();
-  const gems = ((data?.value as Json | undefined)?.gems ?? {}) as Json;
+  const gems = (((data as { value?: Json } | null)?.value)?.gems ?? {}) as Json;
   const products = Array.isArray(gems.products) ? (gems.products as { id?: string; gems?: number }[]) : [];
   const map: Record<string, number> = { ...GEM_PRODUCTS };
   for (const p of products) if (p.id && typeof p.gems === "number") map[p.id] = p.gems;

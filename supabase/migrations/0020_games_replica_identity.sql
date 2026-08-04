@@ -1,0 +1,27 @@
+-- Halve the WAL written by the hottest table in the app.
+--
+-- 0001 set REPLICA IDENTITY FULL on `games` so Realtime could carry full rows.
+-- FULL means every UPDATE logs the entire OLD tuple alongside the new one — and
+-- the old tuple includes `state`, which is ~1.9 KB of JSONB for a 4-player game.
+-- At ~250 writes a game that is ~1 MB of WAL per game, half of it for a row
+-- nobody reads.
+--
+-- Nothing needs the old tuple here:
+--   - the client subscribes to UPDATE only, and reads `payload.new`
+--     (net/api.ts subscribeGame),
+--   - the subscription filter is `id=eq.<uuid>` — the primary key, which is
+--     present in the default replica identity,
+--   - the RLS policy (0019) keys off `id` as well.
+--
+-- `players` deliberately KEEPS full identity: its filter is `game_id`, a
+-- non-key column, and its DELETE events (a seat freed when someone leaves the
+-- lobby) would otherwise arrive with nothing but the primary key and never
+-- match the filter.
+--
+-- Shipped separately from 0019 on purpose. Both touch what Realtime delivers,
+-- and if state updates stop arriving on clients it should be obvious which of
+-- the two to roll back. After applying, verify a live game still syncs between
+-- two devices before considering this done.
+--
+-- Rollback: alter table public.games replica identity full;
+alter table public.games replica identity default;
