@@ -14,6 +14,16 @@ import { font, palette, space } from "../theme";
 
 type Mode = "save" | "signin";
 
+/**
+ * Minimum for a NEW password. Above Supabase's default 6 on purpose: breached-
+ * password checking (HaveIBeenPwned) is a Pro-plan feature and this project is
+ * on Free, so length is the only lever available. Modest by design — the
+ * account guards a coin balance and cosmetics, holds no payment details, and is
+ * optional in the first place, so a wall of complexity rules would cost more
+ * sign-ups than it prevents takeovers.
+ */
+const MIN_NEW_PASSWORD = 8;
+
 export function AccountSheet({ initialMode, onClose }: { initialMode: Mode; onClose: () => void }) {
   const [mode, setMode] = useState<Mode>(initialMode);
   const [email, setEmail] = useState("");
@@ -34,8 +44,12 @@ export function AccountSheet({ initialMode, onClose }: { initialMode: Mode; onCl
       setError("Enter your email and password.");
       return;
     }
-    if (password.length < 6) {
-      setError("Password must be at least 6 characters.");
+    // Only gate NEW passwords on length. Applying this to sign-in too would
+    // lock out anyone who registered under the old 6-character minimum — they
+    // could no longer reach the account they already have. Wrong credentials
+    // are the server's call to make, not a length check's.
+    if (saving && password.length < MIN_NEW_PASSWORD) {
+      setError(`Password must be at least ${MIN_NEW_PASSWORD} characters.`);
       return;
     }
     setBusy(true);
