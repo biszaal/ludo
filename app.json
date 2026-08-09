@@ -1,3 +1,12 @@
 {
-  "expo": {}
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "aa506900-7563-476a-a26b-899cf733621a"
+      }
+    },
+    "android": {
+      "package": "com.biszaaltech.ludo"
+    }
+  }
 }

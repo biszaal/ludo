@@ -7,7 +7,14 @@
  * against the wrong frame.
  */
 
-import { FINISH_REL_INDEX, fromRelativeIndex, toRelativeIndex, type Color, type TokenPosition } from "@ludo/engine";
+import {
+  FINISH_REL_INDEX,
+  fromRelativeIndex,
+  toRelativeIndex,
+  type Color,
+  type GameState,
+  type TokenPosition,
+} from "@ludo/engine";
 import { tokenCenterPx, type Point } from "./boardLayout";
 
 /** Per-cell hop duration (ms) for an ordinary forward move. */
@@ -93,4 +100,56 @@ export function computeWaypoints(
 export function walkDurationMs(color: Color, was: TokenPosition, now: TokenPosition): number {
   const w = computeWaypoints(color, was, now, { x: 0, y: 0 }, 1);
   return w.walk ? w.points.length * w.stepMs : FLY_MS;
+}
+
+/**
+ * Where each token stood immediately BEFORE this state, read out of the state's
+ * own `lastAction`.
+ *
+ * Board used to answer this from a ref updated in an effect after every render
+ * — "whatever I drew last time". That is a cache of render history, and it only
+ * has to be wrong once for a move to lose its animation: a wiped ref reads as
+ * `undefined` (no previous cell), and a ref that has already run ahead reads as
+ * "it was always here". Both collapse computeWaypoints to a straight fly, which
+ * is exactly what a capture looked like on device — a five-cell move crossing
+ * the board diagonally in 240ms, ignoring the track's corner.
+ *
+ * A move is already recorded authoritatively, so derive it instead:
+ *
+ *   lastAction = { type: "move", payload: { tokenId, to, captures, dice } }
+ *
+ * The mover came from `dice` steps back along its own path, and anything it
+ * captured was standing on the cell it landed on. Same answer on every re-render
+ * of the same state, so render order, effect timing and remounts stop mattering.
+ *
+ * Tokens not named by the action are absent from the map; the caller treats that
+ * as "no travel", which is the correct fallback for a resync jump (the pawn
+ * still moves to its seat, it just doesn't pretend to walk a path it may not
+ * have taken).
+ */
+export function originsFromLastAction(state: GameState): Map<string, TokenPosition> {
+  const out = new Map<string, TokenPosition>();
+  const action = state.lastAction;
+  if (!action || action.type !== "move") return out;
+
+  const payload = action.payload as
+    | { tokenId?: string; to?: TokenPosition; captures?: string[]; dice?: number }
+    | null;
+  if (!payload?.tokenId || payload.to === undefined || typeof payload.dice !== "number") return out;
+
+  const mover = state.tokens.find((t) => t.id === payload.tokenId);
+  if (mover) {
+    const toRel = toRelativeIndex(mover.color, payload.to);
+    if (toRel !== null) {
+      const fromRel = toRel - payload.dice;
+      // Below 0 means it came out of the yard — there is no path cell to walk
+      // back to, and computeWaypoints flies a yard exit anyway.
+      out.set(mover.id, fromRel >= 0 ? fromRelativeIndex(mover.color, fromRel) : "home");
+    }
+  }
+
+  // Captured tokens were, by definition, on the cell the mover just landed on.
+  for (const id of payload.captures ?? []) out.set(id, payload.to);
+
+  return out;
 }

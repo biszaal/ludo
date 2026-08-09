@@ -166,7 +166,7 @@
       }
     },
     "android": {
-      "package": "com.biszaal.mobile",
+      "package": "com.biszaaltech.ludo",
       "adaptiveIcon": {
         "backgroundColor": "#1B3FA6",
         "foregroundImage": "./assets/android-icon-foreground.png",

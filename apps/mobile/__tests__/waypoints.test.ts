@@ -7,7 +7,13 @@
 import { describe, it, expect } from "vitest";
 import { applyMove, createGame, fromRelativeIndex, type GameState, type TokenPosition } from "@ludo/engine";
 import { tokenCenterPx } from "../src/render/boardLayout";
-import { computeWaypoints, FLY_MS, HOP_STEP_MS, RETURN_TOTAL_MS } from "../src/render/waypoints";
+import {
+  computeWaypoints,
+  FLY_MS,
+  HOP_STEP_MS,
+  originsFromLastAction,
+  RETURN_TOTAL_MS,
+} from "../src/render/waypoints";
 
 const CELL = 20;
 const dest = { x: 0, y: 0 };
@@ -106,5 +112,69 @@ describe("computeWaypoints — the captured token", () => {
   it("retraces from the home column too", () => {
     const w = computeWaypoints("blue", fromRelativeIndex("blue", 53), "home", dest, CELL);
     expect(w.retrace).toBe(true);
+  });
+});
+
+describe("originsFromLastAction", () => {
+  function play(setup: (s: GameState) => GameState, tokenId: string, dice: number) {
+    let state = twoPlayer();
+    state = setup(state);
+    state = { ...state, diceValue: dice, phase: "awaiting-move" };
+    return applyMove(state, { tokenId });
+  }
+
+  it("recovers the mover's origin from `to` and the dice", () => {
+    const from = fromRelativeIndex("red", 5);
+    const next = play((s) => withToken(s, "red-0", from), "red-0", 3);
+    expect(originsFromLastAction(next).get("red-0")).toEqual(from);
+  });
+
+  it("puts a captured token on the cell the mover landed on", () => {
+    // This is the pair the bug destroyed: the mover flew instead of hopping,
+    // and the victim teleported instead of retracing.
+    const next = play(
+      (s) => withToken(withToken(s, "yellow-0", { type: "track", index: 5 }), "red-0", { type: "track", index: 3 }),
+      "red-0",
+      2,
+    );
+    const origins = originsFromLastAction(next);
+    expect(origins.get("red-0")).toEqual({ type: "track", index: 3 });
+    expect(origins.get("yellow-0")).toEqual({ type: "track", index: 5 });
+
+    // And that origin is what makes each animation walk rather than fly.
+    const mover = computeWaypoints("red", origins.get("red-0"), { type: "track", index: 5 }, dest, CELL);
+    expect(mover.walk).toBe(true);
+    const victim = computeWaypoints("yellow", origins.get("yellow-0"), "home", dest, CELL);
+    expect(victim).toMatchObject({ walk: true, retrace: true });
+  });
+
+  it("reports a yard exit as coming from home, not a negative cell", () => {
+    const next = play((s) => s, "red-0", 6); // out of the yard onto the start cell
+    expect(originsFromLastAction(next).get("red-0")).toBe("home");
+  });
+
+  it("is empty when the last action was not a move", () => {
+    const rolled = { ...twoPlayer(), lastAction: { type: "roll" as const, payload: { dice: 4 }, timestamp: 0 } };
+    expect(originsFromLastAction(rolled).size).toBe(0);
+    expect(originsFromLastAction(twoPlayer()).size).toBe(0);
+  });
+
+  it("gives the same answer however many times it is called", () => {
+    // The whole point of deriving from state: a re-render cannot change it,
+    // which is what a ref updated in an effect could not promise.
+    const next = play((s) => withToken(s, "red-0", fromRelativeIndex("red", 5)), "red-0", 4);
+    const a = originsFromLastAction(next);
+    const b = originsFromLastAction(next);
+    expect([...a.entries()]).toEqual([...b.entries()]);
+  });
+
+  it("never invents a walk longer than the dice roll", () => {
+    for (const dice of [1, 2, 3, 4, 5, 6]) {
+      const start = fromRelativeIndex("red", 10);
+      const next = play((s) => withToken(s, "red-0", start), "red-0", dice);
+      const origin = originsFromLastAction(next).get("red-0");
+      const w = computeWaypoints("red", origin, next.tokens.find((t) => t.id === "red-0")!.position, dest, CELL);
+      expect(w.points.length).toBe(dice);
+    }
   });
 });

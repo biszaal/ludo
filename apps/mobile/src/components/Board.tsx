@@ -6,7 +6,7 @@
  * share a cell. Taps are captured by transparent RN overlays.
  */
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Pressable, View } from "react-native";
 import { Canvas, Circle, Group, Line, LinearGradient, Path, RadialGradient, RoundedRect, Skia, vec } from "@shopify/react-native-skia";
 import {
@@ -29,7 +29,7 @@ import {
 } from "@ludo/engine";
 import { playHop } from "../lib/sound";
 import { hopTick } from "../lib/haptics";
-import { FLY_MS, computeWaypoints, walkDurationMs } from "../render/waypoints";
+import { FLY_MS, computeWaypoints, originsFromLastAction, walkDurationMs } from "../render/waypoints";
 import { shade } from "../theme";
 import type { BoardTheme } from "../render/boardThemes";
 import {
@@ -133,21 +133,17 @@ export function Board({ size, state, theme, isMovable, onSelectToken, viewColor 
   const staticBoard = useMemo(() => <BoardSurface size={size} theme={theme} />, [size, theme]);
   const layout = useMemo(() => computeLayout(state.tokens, cell), [state.tokens, cell]);
 
-  // Remember each token's last position so a move can be animated cell-by-cell.
-  // A LAYOUT effect (not a passive one): it commits synchronously before the
-  // next paint, so a burst of state updates — the online row queue applying
-  // several authoritative states back-to-back — can't leave `prev` a render
-  // behind. A stale/missing `prev` makes computeWaypoints fall back to a
-  // straight fly, which is why every move looked like a slide instead of a hop.
-  const prevPos = useRef<Map<string, TokenPosition>>(new Map());
-  useLayoutEffect(() => {
-    const m = prevPos.current;
-    for (const t of state.tokens) m.set(t.id, t.position);
-  });
+  // Where each pawn came from, read out of the state's own lastAction rather
+  // than remembered across renders. See originsFromLastAction: a ref updated in
+  // an effect is a cache of render history, and it only has to be wrong once —
+  // wiped, or already run ahead — to flatten a move into a straight fly. This
+  // derivation gives the same answer on every re-render of the same state, so
+  // render order, effect timing and remounts stop being able to break it.
+  const origins = useMemo(() => originsFromLastAction(state), [state]);
 
   const renderData = state.tokens.map((token) => {
     const spot = layout.get(token.id)!;
-    const prev = prevPos.current.get(token.id);
+    const prev = origins.get(token.id);
     const walked = computeWaypoints(token.color, prev, token.position, spot, cell);
     const waypoints = walked.points.map((p) => {
       const r = rotatePt(p.x, p.y);
@@ -165,23 +161,6 @@ export function Board({ size, state, theme, isMovable, onSelectToken, viewColor 
       retrace: walked.retrace,
     };
   });
-
-  // TEMPORARY (1.0.1 capture investigation). Both the mover and the captured
-  // pawn skip their animation on a capture, in local AND online games, which
-  // means the whole render lost its previous positions rather than anything
-  // mode-specific. This prints what each moving pawn actually decided, so we
-  // can tell a stale `prev` (walk=false because prev===now) apart from a
-  // remount (mounted=false in the pawn's own log line). Dev builds only.
-  // Remove once the cause is known.
-  if (__DEV__) {
-    for (const { token, prev, walk, waypoints } of renderData) {
-      if (!prev || positionKey(prev) === positionKey(token.position)) continue;
-      console.warn(
-        `[capture-probe] ${token.id} ${positionKey(prev)} -> ${positionKey(token.position)} ` +
-          `walk=${walk} points=${waypoints.length}`,
-      );
-    }
-  }
 
   // How long each capturing mover takes to reach a track cell, so a captured
   // token can wait until the mover arrives before starting its walk home.
@@ -504,10 +483,6 @@ function AnimatedPawn({ waypoints, walk, stepMs, retrace, posKey, r, color, stro
       prevSpot.current = last;
       tx.value = last.x;
       ty.value = last.y;
-      // TEMPORARY (1.0.1 capture investigation). A pawn that MOUNTS mid-game
-      // snaps to its seat with no animation — if this fires during a capture,
-      // the pawns are being remounted and the waypoints were never the issue.
-      if (__DEV__) console.warn(`[capture-probe] MOUNT ${posKey}`);
       return;
     }
     if (posKey !== prevKey.current) {
