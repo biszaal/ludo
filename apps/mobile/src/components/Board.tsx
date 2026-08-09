@@ -166,6 +166,23 @@ export function Board({ size, state, theme, isMovable, onSelectToken, viewColor 
     };
   });
 
+  // TEMPORARY (1.0.1 capture investigation). Both the mover and the captured
+  // pawn skip their animation on a capture, in local AND online games, which
+  // means the whole render lost its previous positions rather than anything
+  // mode-specific. This prints what each moving pawn actually decided, so we
+  // can tell a stale `prev` (walk=false because prev===now) apart from a
+  // remount (mounted=false in the pawn's own log line). Dev builds only.
+  // Remove once the cause is known.
+  if (__DEV__) {
+    for (const { token, prev, walk, waypoints } of renderData) {
+      if (!prev || positionKey(prev) === positionKey(token.position)) continue;
+      console.warn(
+        `[capture-probe] ${token.id} ${positionKey(prev)} -> ${positionKey(token.position)} ` +
+          `walk=${walk} points=${waypoints.length}`,
+      );
+    }
+  }
+
   // How long each capturing mover takes to reach a track cell, so a captured
   // token can wait until the mover arrives before starting its walk home.
   const moverHopMs = new Map<number, number>();
@@ -487,6 +504,10 @@ function AnimatedPawn({ waypoints, walk, stepMs, retrace, posKey, r, color, stro
       prevSpot.current = last;
       tx.value = last.x;
       ty.value = last.y;
+      // TEMPORARY (1.0.1 capture investigation). A pawn that MOUNTS mid-game
+      // snaps to its seat with no animation — if this fires during a capture,
+      // the pawns are being remounted and the waypoints were never the issue.
+      if (__DEV__) console.warn(`[capture-probe] MOUNT ${posKey}`);
       return;
     }
     if (posKey !== prevKey.current) {
