@@ -17,6 +17,34 @@ export function potFor(stake: number, seatCount: number): number {
   return stake * seatCount;
 }
 
+/**
+ * How the pot divides by finishing place, longest-first (index 0 = winner).
+ *
+ * DISPLAY ONLY. The money is moved by payoutSplit in
+ * supabase/functions/game/finish.ts; this mirrors it so the setup sheet and the
+ * results screen can show what each place is worth. Keep the weights in step —
+ * __tests__/economy.test.ts pins the exact figures for every stake tier.
+ *
+ *   2 seats  winner takes all
+ *   3 seats  200 / 100 of a 300 pot
+ *   4 seats  250 / 100 / 50 of a 400 pot
+ */
+const PLACE_WEIGHTS: Record<number, number[]> = {
+  2: [1],
+  3: [2, 1],
+  4: [5, 2, 1],
+};
+
+export function payoutSplit(stake: number, seatCount: number): number[] {
+  if (stake <= 0 || seatCount <= 0) return [];
+  const pot = potFor(stake, seatCount);
+  const weights = PLACE_WEIGHTS[seatCount] ?? [1];
+  const total = weights.reduce((a, b) => a + b, 0);
+  const shares = weights.map((w) => Math.floor((pot * w) / total));
+  shares[0] = (shares[0] ?? 0) + (pot - shares.reduce((a, b) => a + b, 0));
+  return shares;
+}
+
 /** Whether a known balance covers an entry fee. An unread balance can't. */
 export function canAfford(balance: number | null, stake: number): boolean {
   if (stake <= 0) return true;

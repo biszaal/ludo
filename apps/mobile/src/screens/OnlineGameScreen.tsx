@@ -35,6 +35,7 @@ export function OnlineGameScreen() {
   const markChatRead = useOnlineStore((s) => s.markChatRead);
   const turnSeq = useOnlineStore((s) => s.turnSeq);
   const autoPilot = useOnlineStore((s) => s.autoPilot);
+  const bustHold = useOnlineStore((s) => s.bustHold);
   const takeControl = useOnlineStore((s) => s.takeControl);
   const stake = useOnlineStore((s) => s.stake);
   const myName = useProfile((s) => s.displayName);
@@ -88,7 +89,7 @@ export function OnlineGameScreen() {
       lastRoll={lastRoll}
       rollSeq={rollSeq}
       message={message}
-      canAct={myTurn && !autoPilot}
+      canAct={myTurn && !autoPilot && !bustHold}
       waitingLabel={
         autoPilot && myTurn
           ? "Bot is playing for you — tap your avatar to take control"

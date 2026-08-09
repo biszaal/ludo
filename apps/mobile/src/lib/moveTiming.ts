@@ -14,6 +14,7 @@
 
 import type { Color, GameState, TokenPosition } from "@ludo/engine";
 import { walkDurationMs } from "../render/waypoints";
+import { BUST_HOLD_MS, isBustHandoff } from "./projection";
 
 export { FLY_MS, HOP_STEP_MS } from "../render/waypoints";
 
@@ -29,6 +30,10 @@ export function moveDurationMs(color: Color, was: TokenPosition, now: TokenPosit
  */
 export function stateAnimationMs(prev: GameState, next: GameState): number {
   if (prev.gameId !== next.gameId) return 0;
+  // A busted third six moves no token, but the board still holds on the
+  // roller's six before handing over. Without this the queue would consider the
+  // transition instant and drop the next state on top of the hold.
+  if (isBustHandoff(prev, next)) return BUST_HOLD_MS;
   const prevPos = new Map(prev.tokens.map((t) => [t.id, t.position]));
   let moverMs = 0;
   let captureMs = 0;

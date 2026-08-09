@@ -6,7 +6,7 @@
 
 import { Circle, Group, RoundedRect } from "@shopify/react-native-skia";
 import type { BoardTheme } from "../render/boardThemes";
-import type { DiceSkin } from "../render/diceSkins";
+import { DEFAULT_DIE, type DiceSkin } from "../render/diceSkins";
 
 /** Pip centers on a unit face for a rolled 6 (mirrors Dice.tsx PIP_XY). */
 const SIX_PIPS: [number, number][] = [
@@ -14,14 +14,19 @@ const SIX_PIPS: [number, number][] = [
 ];
 
 /** Flat face/pip colors for a still die: the equipped skin's colors when set,
- *  else the board theme's die (classic keeps the original themed look). */
-export function stillDieColors(diceSkin: DiceSkin | undefined, theme: BoardTheme): { face: string; pip: string } {
+ *  else the default die. Deliberately independent of the board theme — see
+ *  DEFAULT_DIE. `theme` is kept in the signature so callers reading a themed
+ *  surface don't have to change; it no longer affects the die. */
+export function stillDieColors(
+  diceSkin: DiceSkin | undefined,
+  _theme?: BoardTheme,
+): { face: string; pip: string } {
   const face = diceSkin?.face
     ? diceSkin.face.type === "solid"
       ? diceSkin.face.color
       : diceSkin.face.colors[0]!
-    : theme.dice.face;
-  const pip = diceSkin?.pip?.color ?? theme.dice.pip;
+    : DEFAULT_DIE.face;
+  const pip = diceSkin?.pip?.color ?? DEFAULT_DIE.pip;
   return { face, pip };
 }
 

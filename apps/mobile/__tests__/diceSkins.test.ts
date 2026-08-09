@@ -11,7 +11,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { BOARD_THEMES } from "../src/render/boardThemes";
-import { DEFAULT_DICE_SKIN, DICE_SKINS, diceRenderParams, resolveDiceSkin } from "../src/render/diceSkins";
+import { DEFAULT_DICE_SKIN, DEFAULT_DIE, DICE_SKINS, diceRenderParams, resolveDiceSkin } from "../src/render/diceSkins";
 
 const HEX = /^#[0-9A-Fa-f]{6}$/;
 const ALLOWED_KEYS = ["id", "label", "price", "currency", "face", "pip", "edge", "frame", "overlay"];
@@ -42,7 +42,7 @@ describe("dice skin registry", () => {
     expect(prices).toEqual(sorted);
   });
 
-  it("makes classic free and the default, inheriting the board theme's dice", () => {
+  it("makes classic free and the default, with no face/pip of its own", () => {
     const c = DICE_SKINS.classic;
     expect(c.price).toBe(0);
     expect(c.face).toBeNull();
@@ -105,12 +105,27 @@ describe("resolveDiceSkin", () => {
 });
 
 describe("diceRenderParams", () => {
-  it("inherits the board theme's dice colors for classic", () => {
-    const p = diceRenderParams(DICE_SKINS.classic, BOARD_THEMES.night);
-    expect(p.faceRGB).toEqual(rgbOf(BOARD_THEMES.night.dice.face));
-    expect(p.pipRGB).toEqual(rgbOf(BOARD_THEMES.night.dice.pip));
-    expect(p.gradient).toBeNull();
-    expect(p.pipShape).toBe("dot");
+  it("gives classic the default die REGARDLESS of the viewer's board theme", () => {
+    // The rule this pins: a die looks like its owner's skin, never like the
+    // table it lands on. Previously classic resolved from the viewer's theme,
+    // so on a Walnut board every opponent without a skin appeared to roll a
+    // Walnut die — the default was the one "skin" that changed per viewer.
+    const onNight = diceRenderParams(DICE_SKINS.classic, BOARD_THEMES.night);
+    const onWalnut = diceRenderParams(DICE_SKINS.classic, BOARD_THEMES.walnut);
+
+    expect(onNight.faceRGB).toEqual(rgbOf(DEFAULT_DIE.face));
+    expect(onNight.pipRGB).toEqual(rgbOf(DEFAULT_DIE.pip));
+    expect(onWalnut.faceRGB).toEqual(onNight.faceRGB);
+    expect(onWalnut.pipRGB).toEqual(onNight.pipRGB);
+    expect(onNight.gradient).toBeNull();
+    expect(onNight.pipShape).toBe("dot");
+  });
+
+  it("keeps the default die identical to the pre-themes literals", () => {
+    // BOARD_THEMES.classic.dice is what the die looked like before themes
+    // existed; DEFAULT_DIE must not drift from it.
+    expect(DEFAULT_DIE.face).toBe(BOARD_THEMES.classic.dice.face);
+    expect(DEFAULT_DIE.pip).toBe(BOARD_THEMES.classic.dice.pip);
   });
 
   it("falls back to the original white/ink literals with no skin and no theme", () => {

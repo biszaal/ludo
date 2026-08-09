@@ -39,6 +39,45 @@ export function bustedRollDice(state: GameState): number | null {
   return payload?.busted ? (payload.dice ?? 6) : null;
 }
 
+/**
+ * How long the third six stays on screen before the turn actually changes hands.
+ *
+ * Long enough to read the face after the ~700ms tumble settles. The forfeit is
+ * the harshest thing the rules do to a player, and it should be something they
+ * watch happen rather than something they infer afterwards.
+ */
+export const BUST_HOLD_MS = 1400;
+
+/**
+ * Is `next` the hand-off that a busted third six caused?
+ *
+ * rollDice bundles the bust and the hand-off into ONE transition: it stamps
+ * lastAction, then calls advanceTurn, which clears diceValue and moves
+ * currentTurnPlayerId on. So by the time this state reaches a client, the six
+ * has no die to appear on and the seat has already changed — and since the
+ * board only draws a die beside the ACTIVE player, the 6 flashes at the next
+ * player's corner, as though they rolled it.
+ */
+export function isBustHandoff(prev: GameState, next: GameState): boolean {
+  return (
+    prev.gameId === next.gameId &&
+    bustedRollDice(next) !== null &&
+    prev.currentTurnPlayerId !== next.currentTurnPlayerId
+  );
+}
+
+// How the hold is painted: the store simply DOESN'T apply the busted state
+// yet. The previous state stays on screen, so the roller is still the current
+// player and the die still sits at their corner; `lastRoll` carries the six and
+// a `bustHold` flag freezes input until the real state lands.
+//
+// Deliberately not done by synthesising a state like
+// `{ ...prev, diceValue: 6, phase: "awaiting-move" }`. That reads fine but is a
+// lie the engine can be asked to act on: pass() would see awaiting-move with no
+// cached moves, call endTurn(), and the engine — recomputing from the six —
+// would throw "Cannot end turn while a legal move is available". A display
+// concern must never be smuggled into an authoritative state.
+
 /** Map an authoritative GameState to what this client should display. */
 export function project(state: GameState, myPlayerId: string | null): Projection {
   const bustedDice = bustedRollDice(state);

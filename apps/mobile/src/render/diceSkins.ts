@@ -35,13 +35,28 @@ export type DiceSkinId =
   | "prism";
 
 export type DiceFaceSpec =
-  | null // inherit the viewer's board theme (classic only)
+  | null // the default die (classic only) — see DEFAULT_DIE
   | { type: "solid"; color: string }
   | { type: "linear"; colors: string[]; stops?: number[] };
 
 export type DicePipSpec =
-  | null // inherit the viewer's board theme, dot shape (classic only)
+  | null // the default die, dot shape (classic only)
   | { color: string; shape: PipShape; glow?: string };
+
+/**
+ * What "classic" actually looks like: the original pre-cosmetics die.
+ *
+ * This used to be resolved from the VIEWER's board theme, which made a die's
+ * appearance depend on who was looking at it. On a Walnut board, every
+ * opponent who had never bought a skin appeared to be rolling a Walnut die —
+ * so the one thing a skin is for, being recognisably yours, broke for the
+ * default. A die belongs to its owner, not to the table it lands on, so the
+ * default is now a constant like every other skin.
+ *
+ * Same literals as BOARD_THEMES.classic.dice, which is what the die looked
+ * like before themes existed.
+ */
+export const DEFAULT_DIE = { face: "#FFFFFF", pip: "#17181C" } as const;
 
 export interface DiceSkin {
   id: DiceSkinId;
@@ -240,11 +255,11 @@ function hashSeed(id: string): number {
 /** Resolves a skin (classic's nulls included) against the viewer's board
  *  theme into plain render data. `skin` undefined behaves exactly like
  *  classic with no theme — the original Dice.tsx literals. */
-export function diceRenderParams(skin: DiceSkin | undefined, theme: BoardTheme | undefined): DiceRenderParams {
+export function diceRenderParams(skin: DiceSkin | undefined, _theme?: BoardTheme): DiceRenderParams {
   const face = skin?.face ?? null;
   const pip = skin?.pip ?? null;
-  const faceHex = face ? (face.type === "solid" ? face.color : face.colors[0]!) : (theme?.dice.face ?? "#FFFFFF");
-  const pipHex = pip ? pip.color : (theme?.dice.pip ?? "#17181C");
+  const faceHex = face ? (face.type === "solid" ? face.color : face.colors[0]!) : DEFAULT_DIE.face;
+  const pipHex = pip ? pip.color : DEFAULT_DIE.pip;
   return {
     faceRGB: hexRGB(faceHex),
     pipRGB: hexRGB(pipHex),

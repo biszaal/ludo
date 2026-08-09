@@ -22,6 +22,7 @@ export function GameScreen() {
   const validMoves = useGameStore((s) => s.validMoves);
   const lastRoll = useGameStore((s) => s.lastRoll);
   const rollSeq = useGameStore((s) => s.rollSeq);
+  const bustHold = useGameStore((s) => s.bustHold);
   const message = useGameStore((s) => s.message);
   const botIds = useGameStore((s) => s.botIds);
   const lastConfig = useGameStore((s) => s.lastConfig);
@@ -86,7 +87,7 @@ export function GameScreen() {
       lastRoll={lastRoll}
       rollSeq={rollSeq}
       message={message}
-      canAct={!botTurn && state.status === "active"}
+      canAct={!botTurn && !bustHold && state.status === "active"}
       waitingLabel={botTurn ? botLabel : null}
       onRoll={roll}
       onSelectToken={selectToken}

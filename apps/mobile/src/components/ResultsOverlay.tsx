@@ -14,7 +14,7 @@ import { AvatarGlyph } from "./Avatar";
 import { AddFriendButton } from "./AddFriendButton";
 import { Surface3D } from "./Surface3D";
 import { computeStandings } from "../lib/standings";
-import { potFor } from "../lib/economy";
+import { payoutSplit } from "../lib/economy";
 import { useLayout } from "../lib/useLayout";
 import { font, palette, radius, space, teamColor, teamTint } from "../theme";
 
@@ -54,6 +54,9 @@ export function ResultsOverlay({ state, nameFor, avatarFor, onRematch, footnote,
   // instead of stretching them across the whole screen.
   const col = { width: "100%" as const, maxWidth, alignSelf: "center" as const };
   const standings = computeStandings(state);
+  // What each place is actually credited — see payoutSplit. Index 0 is the
+  // winner, so a row at rank N reads shares[N - 1].
+  const shares = payoutSplit(stake, state.players.length);
   const winner = standings[0]!;
   const winnerName = nameFor?.(winner.playerId) ?? COLOR_LABEL[winner.color];
   const winnerAvatar = avatarFor?.(winner.playerId) ?? null;
@@ -116,7 +119,7 @@ export function ResultsOverlay({ state, nameFor, avatarFor, onRematch, footnote,
         </View>
         <Text style={{ fontFamily: font.display, fontSize: 26, color: palette.porcelain }}>{winnerName}</Text>
         <Text style={{ fontFamily: font.medium, fontSize: 15, color: palette.mutedSteel }}>
-          {stake > 0 ? `wins the pot — +${potFor(stake, state.players.length)} coins` : "wins the game"}
+          {stake > 0 ? `takes the top share — +${shares[0] ?? 0} coins` : "wins the game"}
         </Text>
       </Animated.View>
 
@@ -146,8 +149,22 @@ export function ResultsOverlay({ state, nameFor, avatarFor, onRematch, footnote,
                 {nameFor?.(s.playerId) ?? COLOR_LABEL[s.color]}
               </Text>
               {!gone && canAddFriends && userIdOf(s.playerId) ? <AddFriendButton userId={userIdOf(s.playerId)!} /> : null}
-              <Text style={{ fontFamily: font.mono, fontSize: 13, color: palette.mutedSteel }}>
-                {gone ? "Left" : stake > 0 ? `−${stake}` : `${s.finished}/4`}
+              <Text
+                style={{
+                  fontFamily: font.mono,
+                  fontSize: 13,
+                  // A paid place is the point of playing a losing game out —
+                  // give it the winner's colour rather than the loss grey.
+                  color: !gone && stake > 0 && (shares[s.rank - 1] ?? 0) > 0 ? palette.porcelain : palette.mutedSteel,
+                }}
+              >
+                {gone
+                  ? "Left"
+                  : stake > 0
+                    ? (shares[s.rank - 1] ?? 0) > 0
+                      ? `+${shares[s.rank - 1]}`
+                      : `−${stake}`
+                    : `${s.finished}/4`}
               </Text>
             </Surface3D>
           );

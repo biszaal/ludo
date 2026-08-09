@@ -23,6 +23,7 @@ import {
 } from "@ludo/engine";
 import { chooseMove } from "@ludo/bot";
 import { seatColors } from "../lib/seating";
+import { BUST_HOLD_MS } from "../lib/projection";
 import { ordinal } from "../lib/standings";
 import { useNav } from "./navStore";
 
@@ -56,6 +57,9 @@ interface GameStore {
   lastRoll: number | null;
   /** Increments on every roll — drives the dice tumble animation. */
   rollSeq: number;
+  /** A busted third six is being shown on the roller's own die; the seat has
+   *  not changed hands yet and no input should be accepted. */
+  bustHold: boolean;
   message: string;
   /** Player ids controlled by the bot (the trailing seats in "vs AI" mode). */
   botIds: string[];
@@ -78,6 +82,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   validMoves: [],
   lastRoll: null,
   rollSeq: 0,
+  bustHold: false,
   message: "",
   botIds: [],
   lastConfig: null,
@@ -97,6 +102,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       validMoves: [],
       lastRoll: null,
       rollSeq: 0,
+      bustHold: false,
       botIds,
       lastConfig: config,
       message: `${COLOR_LABEL[colors[0]!]} to roll`,
@@ -115,14 +121,31 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const rollSeq = get().rollSeq + 1;
 
     if (busted) {
+      // Show the six landing on the roller's own die BEFORE the seat changes.
+      // rollDice advances the turn in the same transition, so applying newState
+      // straight away moved the die to the next player's corner mid-tumble —
+      // the forfeit read as "my turn vanished", not "I rolled a third six".
+      // `state` is deliberately left untouched (still the pre-roll state, still
+      // the roller's turn); only the display carries the six.
       set({
-        state: newState,
         validMoves: [],
         lastRoll: diceValue,
         rollSeq,
+        bustHold: true,
         message: `${COLOR_LABEL[color]} rolled three 6s — turn forfeited`,
       });
-      kickBots();
+      bustTimer = setTimeout(() => {
+        bustTimer = null;
+        // Re-check: the player may have left or restarted during the hold.
+        if (get().state?.gameId !== newState.gameId) return;
+        set({
+          state: newState,
+          validMoves: [],
+          bustHold: false,
+          message: `${COLOR_LABEL[playerColor(newState, newState.currentTurnPlayerId)]} to roll`,
+        });
+        kickBots();
+      }, BUST_HOLD_MS);
       return;
     }
 
@@ -199,6 +222,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       state: null,
       validMoves: [],
       lastRoll: null,
+      bustHold: false,
       botIds: [],
       message: "",
     });
@@ -237,10 +261,17 @@ function isDriven(playerId: string): boolean {
 // as the die lands. Manual actions cancel the pending timer.
 
 let autoTimer: ReturnType<typeof setTimeout> | null = null;
+/** Runs while a busted third six is held on screen (see BUST_HOLD_MS). */
+let bustTimer: ReturnType<typeof setTimeout> | null = null;
 
 function clearAutoTimer(): void {
   if (autoTimer) clearTimeout(autoTimer);
   autoTimer = null;
+  // A bust hold is a pending hand-off, so anything that cancels the turn's
+  // automation must cancel it too — otherwise a restart mid-hold would apply a
+  // dead game's state over the fresh one.
+  if (bustTimer) clearTimeout(bustTimer);
+  bustTimer = null;
 }
 
 function scheduleHumanAuto(): void {

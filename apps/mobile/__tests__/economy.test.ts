@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { potFor, canAfford, nextDailyBonus } from "../src/lib/economy";
+import { canAfford, nextDailyBonus, payoutSplit, potFor } from "../src/lib/economy";
 
 const economy = { dailyBonusBase: 50, streakStep: 25, streakMaxDay: 7 };
 
@@ -56,5 +56,53 @@ describe("canAfford", () => {
 
   it("always clears a friendly game, even unread", () => {
     expect(canAfford(null, 0)).toBe(true);
+  });
+});
+
+describe("payoutSplit", () => {
+  it("pays the exact figures the design calls for at the base tier", () => {
+    // 4 players staking 100 => 400 pot.
+    expect(payoutSplit(100, 4)).toEqual([250, 100, 50]);
+    // 3 players staking 100 => 300 pot.
+    expect(payoutSplit(100, 3)).toEqual([200, 100]);
+    // Heads-up stays winner-take-all — there is no podium to share.
+    expect(payoutSplit(100, 2)).toEqual([200]);
+  });
+
+  it("always distributes the whole pot, at every stake tier", () => {
+    // Nothing may evaporate: the shares are what the seats paid in.
+    for (const stake of [100, 1000, 10000]) {
+      for (const seats of [2, 3, 4]) {
+        const shares = payoutSplit(stake, seats);
+        const paid = shares.reduce((a, b) => a + b, 0);
+        expect(paid).toBe(potFor(stake, seats));
+      }
+    }
+  });
+
+  it("keeps places strictly descending, so finishing higher always pays more", () => {
+    for (const seats of [3, 4]) {
+      const shares = payoutSplit(1000, seats);
+      for (let i = 1; i < shares.length; i++) {
+        expect(shares[i]!).toBeLessThan(shares[i - 1]!);
+      }
+      expect(shares[shares.length - 1]!).toBeGreaterThan(0);
+    }
+  });
+
+  it("leaves the last place unpaid — someone has to lose their entry", () => {
+    // Paying every seat would make a staked match risk-free and meaningless.
+    expect(payoutSplit(100, 4).length).toBe(3);
+    expect(payoutSplit(100, 3).length).toBe(2);
+  });
+
+  it("never pays out on a friendly (unstaked) game", () => {
+    expect(payoutSplit(0, 4)).toEqual([]);
+  });
+
+  it("a winner still beats their own entry fee at every table size", () => {
+    for (const seats of [2, 3, 4]) {
+      expect(payoutSplit(100, seats)[0]!).toBeGreaterThan(100);
+    }
   });
 });

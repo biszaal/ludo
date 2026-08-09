@@ -20,7 +20,7 @@ import * as api from "../net/api";
 import { pushProfile } from "../net/profileSync";
 import { applyChatEvent, type ChatEvent } from "../lib/chat";
 import { stateAnimationMs } from "../lib/moveTiming";
-import { bustedRollDice, colorOf, project } from "../lib/projection";
+import { BUST_HOLD_MS, bustedRollDice, colorOf, isBustHandoff, project } from "../lib/projection";
 import { useNav } from "./navStore";
 import { useProfile } from "./profileStore";
 import { useWallet } from "./walletStore";
@@ -82,6 +82,9 @@ interface OnlineStore {
   turnStartedAt: number | null;
   /** Bumps each time the turn clock resets — re-keys the countdown animation. */
   turnSeq: number;
+  /** A busted third six is being shown on the roller's own die; the seat has
+   *  not changed hands yet and no input should be accepted. */
+  bustHold: boolean;
   /** I idled out my turn clock, so the bot policy plays my seat from this
    *  device until I take back control. Local-only — opponents just see moves. */
   autoPilot: boolean;
@@ -135,6 +138,7 @@ const INITIAL = {
   latestBubbles: {} as Record<string, { value: string; kind: ChatEvent["kind"]; seq: number }>,
   turnStartedAt: null,
   turnSeq: 0,
+  bustHold: false,
   autoPilot: false,
 };
 
@@ -538,6 +542,7 @@ function onActionFailed(e: unknown, gameId: string): void {
 
 /** Forget all per-game optimistic/sync bookkeeping (leave, new subscribe). */
 function resetSyncState(): void {
+  clearBustHold();
   lastAppliedV = -1;
   pending = null;
   rollInFlight = false;
@@ -822,8 +827,52 @@ function syncMyProfile(): Promise<void> {
   return pushProfile(displayName, avatarId, diceSkinId).catch(() => {});
 }
 
-/** Apply an authoritative GameState into the view and navigate when active. */
+/** Runs while a busted third six is held on screen before the seat changes. */
+let bustTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearBustHold(): void {
+  if (bustTimer) clearTimeout(bustTimer);
+  bustTimer = null;
+}
+
+/**
+ * Apply an authoritative GameState, pausing first on a busted third six.
+ *
+ * The server bundles the bust and the hand-off into one write, so this state
+ * already belongs to the NEXT player and carries no die. Applied straight
+ * through, the six flashed at the wrong corner and the roller just lost their
+ * turn with nothing to look at. Paint the roller's own six first, then the
+ * truth — everyone at the table sees the same beat.
+ */
 function applyState(state: GameState, rolled: boolean): void {
+  const st = useOnlineStore.getState();
+  const prev = st.state;
+  const busted = prev ? bustedRollDice(state) : null;
+  if (prev && busted !== null && isBustHandoff(prev, state)) {
+    clearBustHold();
+    // Don't apply anything yet — `prev` stays on screen, so the roller is still
+    // the current player and the die still sits at their corner. Only lastRoll
+    // and the freeze flag change.
+    useOnlineStore.setState({
+      lastRoll: busted,
+      validMoves: [],
+      bustHold: true,
+      rollSeq: st.rollSeq + (rolled && !rollBumped ? 1 : 0),
+    });
+    if (rolled) rollBumped = false;
+    bustTimer = setTimeout(() => {
+      bustTimer = null;
+      // The room may have moved on (resync, leave) during the hold.
+      if (useOnlineStore.getState().state?.gameId !== state.gameId) return;
+      applyStateNow(state, false);
+    }, BUST_HOLD_MS);
+    return;
+  }
+  clearBustHold(); // any newer authoritative state wins over a pending hold
+  applyStateNow(state, rolled);
+}
+
+function applyStateNow(state: GameState, rolled: boolean): void {
   const st = useOnlineStore.getState();
   const proj = project(state, st.myPlayerId);
   // Reset the per-turn countdown on every active write (mirrors the server, which
@@ -839,6 +888,7 @@ function applyState(state: GameState, rolled: boolean): void {
   if (rolled) rollBumped = false;
   useOnlineStore.setState({
     state,
+    bustHold: false,
     validMoves: proj.validMoves,
     lastRoll: proj.lastRoll,
     message: proj.message,
