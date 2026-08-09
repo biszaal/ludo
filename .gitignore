@@ -58,3 +58,9 @@ coverage/
 
 # Qodo (unused)
 .qodo/
+
+# Expo/EAS config belongs to the app, not the workspace root. Running `expo` or
+# `eas` from here mints stub /app.json + /eas.json files that shadow the real
+# ones in apps/mobile and break `require("../../app.json")` in SettingsScreen.
+/app.json
+/eas.json
