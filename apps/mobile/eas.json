@@ -15,11 +15,12 @@
     },
     "preview": {
       "distribution": "internal",
-      "ios": { "simulator": true }
+      "ios": { "simulator": true, "image": "macos-tahoe-26.4-xcode-26.4" }
     },
     "production": {
       "autoIncrement": true,
-      "environment": "production"
+      "environment": "production",
+      "ios": { "image": "macos-tahoe-26.4-xcode-26.4" }
     }
   },
   "submit": {
