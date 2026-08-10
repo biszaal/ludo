@@ -1,8 +1,13 @@
 /**
  * Where gems come from and where they go: real-money packs (dark behind the
- * remote flag until real billing ships — rows read "Coming soon") and the
- * one-way gems→coins exchange. The balance line shows the EXACT number — the
- * compact pill's tap-to-reveal lands here.
+ * remote flag until real billing ships — rows read "Coming soon"), a rare
+ * rewarded-ad drip, and the one-way gems→coins exchange. The balance line shows
+ * the EXACT number — the compact pill's tap-to-reveal lands here.
+ *
+ * The ad row is deliberately the smallest thing on this sheet. Gems are the
+ * premium tier; if watching a video were a serious way to accumulate them,
+ * buying them would be for fools and the tier would stop meaning anything. The
+ * server caps it at one grant a day and owns the amount.
  *
  * Everything gems buy is access or appearance. Nothing here, now or later,
  * may improve anyone's chance of winning a match.
@@ -18,6 +23,8 @@ import { CoinGlyph } from "./CoinsPill";
 import { formatCompact, formatExact } from "../lib/format";
 import { playSound } from "../lib/sound";
 import { getGemProducts, isPurchasesConfigured } from "../lib/purchases";
+import { watchForReward } from "../lib/ads/rewarded";
+import { useAdsReady } from "../lib/ads/useAdsReady";
 import { useWallet } from "../store/walletStore";
 import { useConfig } from "../store/configStore";
 import { font, palette, space } from "../theme";
@@ -29,6 +36,8 @@ export function GetGemsSheet({ onClose }: { onClose: () => void }) {
   const buyGems = useWallet((s) => s.buyGems);
   const exchangeGems = useWallet((s) => s.exchangeGems);
   const cfg = useConfig((s) => s.config.gems);
+  const rewarded = useConfig((s) => s.config.ads.rewarded);
+  const adsAvailable = useAdsReady();
 
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
@@ -52,7 +61,10 @@ export function GetGemsSheet({ onClose }: { onClose: () => void }) {
     };
   }, [cfg.products]);
 
-  const run = async (op: () => Promise<number>, gained: (n: number) => string, none: string) => {
+  /** `none` is the message for a zero outcome; pass undefined to keep whatever
+   *  note the op already set for itself (the ad row explains its own failures).
+   *  Matches GetCoinsSheet.run. */
+  const run = async (op: () => Promise<number>, gained: (n: number) => string, none?: string) => {
     if (busy) return;
     setBusy(true);
     setNote(null);
@@ -61,7 +73,7 @@ export function GetGemsSheet({ onClose }: { onClose: () => void }) {
       if (got > 0) {
         playSound("ding");
         setNote(gained(got));
-      } else {
+      } else if (none !== undefined) {
         setNote(none);
       }
     } finally {
@@ -91,6 +103,34 @@ export function GetGemsSheet({ onClose }: { onClose: () => void }) {
           onPress={() => void run(() => buyGems(p.id), (n) => `+${n} gems`, "Purchase didn't go through")}
         />
       ))}
+
+      {rewarded.gemGrant && cfg.enabled && adsAvailable ? (
+        <GemRow
+          title="Watch an ad"
+          subtitle={
+            busy
+              ? "Loading…"
+              : `${cfg.adGrant.amount} gem${cfg.adGrant.amount === 1 ? "" : "s"} · once a day`
+          }
+          disabled={busy}
+          onPress={() =>
+            void run(
+              async () => {
+                const res = await watchForReward("gems");
+                if (res.status === "granted") return res.coins; // amount, in gems
+                if (res.status === "pending") {
+                  setNote("Reward on its way — it'll appear shortly");
+                  return 0;
+                }
+                if (res.status === "unavailable") setNote(res.message ?? "No ad available right now");
+                return 0;
+              },
+              (n) => `+${n} gem${n === 1 ? "" : "s"}`,
+              "",
+            )
+          }
+        />
+      ) : null}
 
       <SectionLabel>Exchange for coins</SectionLabel>
       <Text style={{ fontFamily: font.regular, fontSize: 12, color: palette.mutedSteel, marginTop: -4 }}>

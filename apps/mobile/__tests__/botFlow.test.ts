@@ -45,4 +45,32 @@ describe("bot auto-play loop", () => {
     store.getState().newLocalGame({ players: 2, bots: 0 });
     expect(vi.getTimerCount()).toBe(0);
   });
+
+  /**
+   * A busted third six deliberately leaves `state` on the PRE-roll state for
+   * BUST_HOLD_MS so the six can be seen landing on the roller's own die. That
+   * held state still reads as "this bot's turn, awaiting-roll" — and the bot
+   * loop steps every BOT_DELAY, which is shorter than the hold. Nothing may
+   * act into that window: rolling again both cancels the pending forfeit and
+   * hands the bot the extra turn the rule just took away.
+   */
+  it("forfeits a bot's turn on three sixes instead of rolling again", () => {
+    vi.spyOn(Math, "random").mockReturnValue(0.9); // every roll is a 6
+    vi.useFakeTimers();
+
+    store.getState().newLocalGame({ players: 2, bots: 2 });
+
+    // Every seat busts on its third roll, so the turn must keep rotating. Under
+    // the old behaviour the first bot rolled sixes forever and the seat never
+    // moved off p1 at all.
+    const handOffs: string[] = [];
+    for (let i = 0; i < 100; i++) {
+      vi.advanceTimersByTime(100);
+      const cur = store.getState().state!.currentTurnPlayerId;
+      if (cur !== handOffs.at(-1)) handOffs.push(cur);
+    }
+
+    expect(handOffs.length).toBeGreaterThan(2);
+    expect(new Set(handOffs)).toEqual(new Set(["p1", "p2"]));
+  });
 });

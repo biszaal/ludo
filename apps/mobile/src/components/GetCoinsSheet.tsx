@@ -6,7 +6,9 @@
  * Everything offered here buys ACCESS (match entry) or APPEARANCE. Nothing on
  * this sheet, now or later, may improve anyone's chance of winning a match.
  *
- * The rewarded-ad row lands in Phase 5; the layout leaves room for it.
+ * The daily bonus is NOT claimed here. It has its own calendar (DailyBonusSheet)
+ * where the streak is legible, and one claim surface means one set of edge
+ * cases — this row is a doorway to it.
  */
 
 import { useState } from "react";
@@ -23,12 +25,17 @@ import { formatExact } from "../lib/format";
 import { playSound } from "../lib/sound";
 import { depth, font, palette, radius, space } from "../theme";
 
-export function GetCoinsSheet({ onClose }: { onClose: () => void }) {
+interface GetCoinsSheetProps {
+  onClose: () => void;
+  /** Opens the streak calendar, which owns the claim. */
+  onDailyBonus?: () => void;
+}
+
+export function GetCoinsSheet({ onClose, onDailyBonus }: GetCoinsSheetProps) {
   const balance = useWallet((s) => s.balance);
   const streakDay = useWallet((s) => s.streakDay);
   const bonusClaimable = useWallet((s) => s.bonusClaimable);
   const pityAvailable = useWallet((s) => s.pityAvailable);
-  const claimDailyBonus = useWallet((s) => s.claimDailyBonus);
   const claimPity = useWallet((s) => s.claimPity);
   const economy = useConfig((s) => s.config.economy);
   const rewarded = useConfig((s) => s.config.ads.rewarded);
@@ -77,13 +84,13 @@ export function GetCoinsSheet({ onClose }: { onClose: () => void }) {
         subtitle={
           bonusClaimable
             ? streakDay > 0
-              ? `Day ${Math.min(streakDay + 1, economy.streakMaxDay)} streak — claim ${nextBonus}`
-              : `Claim ${nextBonus} coins`
+              ? `Day ${Math.min(streakDay + 1, economy.streakMaxDay)} streak — open to claim`
+              : "Open to claim your first day"
             : "Come back tomorrow to keep the streak"
         }
         amount={bonusClaimable ? nextBonus : null}
-        disabled={!bonusClaimable || busy}
-        onPress={() => void run(claimDailyBonus, "Already claimed today")}
+        disabled={!onDailyBonus}
+        onPress={() => onDailyBonus?.()}
       />
 
       {/* Rewarded video. Buys coins for match entry and cosmetics only —

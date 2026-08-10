@@ -62,3 +62,47 @@ export function nextDailyBonus(
 ): number {
   return economy.dailyBonusBase + economy.streakStep * Math.min(streakDay, economy.streakMaxDay - 1);
 }
+
+export interface BonusDay {
+  /** 1-based day in the streak, matching the server's `streak` value. */
+  day: number;
+  coins: number;
+  /** Gems paid on this day; 0 on every day but the streak finale. */
+  gems: number;
+}
+
+/**
+ * The whole streak ladder, one row per day — what the calendar draws.
+ *
+ * Note the off-by-one against nextDailyBonus: that helper takes BANKED days
+ * (what you've already claimed) while the server pays on the INCREMENTED streak
+ * (`base + step * (streak - 1)`, economy.ts opDailyBonus). Day N here is the
+ * server's `streak = N`, so the two agree — nextDailyBonus(k) === ladder[k].coins.
+ *
+ * Gems land only on the final day: they are the premium currency and the streak
+ * payoff, and spreading them thinner would undercut the smallest gem pack. The
+ * day and amount are remote-config so they can be tuned without a release.
+ */
+export function dailyBonusLadder(economy: {
+  dailyBonusBase: number;
+  streakStep: number;
+  streakMaxDay: number;
+  gemDay: number;
+  gemAmount: number;
+}): BonusDay[] {
+  const days: BonusDay[] = [];
+  for (let day = 1; day <= economy.streakMaxDay; day++) {
+    days.push({
+      day,
+      coins: economy.dailyBonusBase + economy.streakStep * (day - 1),
+      gems: day === economy.gemDay ? economy.gemAmount : 0,
+    });
+  }
+  return days;
+}
+
+/** The current UTC calendar day as YYYY-MM-DD. Matches the server's utcDay(),
+ *  which is what `bonusClaimable` and the claim's idempotency key turn on. */
+export function utcDay(at: Date = new Date()): string {
+  return at.toISOString().slice(0, 10);
+}

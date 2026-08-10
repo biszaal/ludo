@@ -10,7 +10,9 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import Animated, { Easing, FadeInUp, FadeOut } from "react-native-reanimated";
 import { AvatarGlyph } from "./Avatar";
 import { Button } from "./Button";
+import { CoinGlyph } from "./CoinsPill";
 import { useFriends } from "../store/friendsStore";
+import { formatCompact } from "../lib/format";
 import { depth, font, palette, radius, space } from "../theme";
 
 export function InviteBanner() {
@@ -52,9 +54,24 @@ export function InviteBanner() {
             <Text style={{ fontFamily: font.semibold, fontSize: 15, color: palette.porcelain }} numberOfLines={1}>
               {name} invited you
             </Text>
-            <Text style={{ fontFamily: font.mono, fontSize: 13, color: palette.mutedSteel, letterSpacing: 2 }}>
-              Room {invite.room_code}
-            </Text>
+            {/* The pot is on the banner deliberately: Join is one tap from
+                here, and nobody should be able to walk a friend into a
+                10,000-coin table with a message that just says "Room ABCD". */}
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <Text style={{ fontFamily: font.mono, fontSize: 13, color: palette.mutedSteel, letterSpacing: 2 }}>
+                {invite.room_code}
+              </Text>
+              {invite.stake > 0 ? (
+                <>
+                  <CoinGlyph size={11} />
+                  <Text style={{ fontFamily: font.mono, fontSize: 12, color: "#F5C542" }}>
+                    {formatCompact(invite.stake)}
+                  </Text>
+                </>
+              ) : (
+                <Text style={{ fontFamily: font.regular, fontSize: 12, color: palette.mutedSteel }}>Friendly</Text>
+              )}
+            </View>
           </View>
           <View style={{ width: 92 }}>
             <Button label="Join" onPress={() => void acceptInvite(invite)} />

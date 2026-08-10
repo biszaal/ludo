@@ -169,11 +169,11 @@ Deno.serve(async (req: Request) => {
       { auth: { persistSession: false } },
     );
 
-    // custom_data is the ad_rewards row id we minted at intent time. The coin
-    // amount comes from that row — never from the callback.
+    // custom_data is the ad_rewards row id we minted at intent time. The amount
+    // AND the currency come from that row — never from the callback.
     const { data: row } = await admin
       .from("ad_rewards")
-      .select("id, user_id, coins, status, game_id, expires_at")
+      .select("id, user_id, coins, currency, status, game_id, expires_at")
       .eq("id", customData)
       .maybeSingle();
 
@@ -200,15 +200,24 @@ Deno.serve(async (req: Request) => {
       .maybeSingle();
     if (!claimed) return handled("already settled");
 
-    // ext_id makes this idempotent even if the claim raced.
-    const { error } = await admin.rpc("wallet_apply", {
-      p_user: row.user_id,
-      p_delta: row.coins,
-      p_reason: "ad-reward",
-      p_game: row.game_id,
-      p_bucket: "earned",
-      p_ext_id: `ssv:${transactionId}`,
-    });
+    // ext_id makes this idempotent even if the claim raced. Gem placements
+    // (0027) go to the separate gem ledger; everything else is coins. Both
+    // RPCs carry the same replay guard, so the branch changes only the ledger.
+    const { error } = row.currency === "gems"
+      ? await admin.rpc("gem_apply", {
+        p_user: row.user_id,
+        p_delta: row.coins,
+        p_reason: "ad-reward",
+        p_ext_id: `ssv:${transactionId}`,
+      })
+      : await admin.rpc("wallet_apply", {
+        p_user: row.user_id,
+        p_delta: row.coins,
+        p_reason: "ad-reward",
+        p_game: row.game_id,
+        p_bucket: "earned",
+        p_ext_id: `ssv:${transactionId}`,
+      });
     if (error) {
       // Credit failed after claiming — release so a retry can settle it.
       await admin.from("ad_rewards").update({ status: "pending" }).eq("id", row.id);

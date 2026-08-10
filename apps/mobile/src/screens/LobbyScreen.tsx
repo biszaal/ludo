@@ -1,7 +1,13 @@
 /**
- * Lobby — shows the shareable room code, who has joined, and (for the host) the
- * Start control. The host can start with 2–3 players or wait; the room auto-starts
- * when a 4th joins. A host cannot start alone.
+ * Lobby — shows the shareable room code, the pot, who has joined, and (for the
+ * host) the Start control. The host can start with 2–3 players or wait; the room
+ * auto-starts when a 4th joins. A host cannot start alone.
+ *
+ * The pot line quotes stake × seats and says plainly that everyone pays at
+ * start. It deliberately does NOT show who can afford it: balances are
+ * self-read-only under RLS, and surfacing other players' coin counts to settle
+ * a UI question would be a worse trade than the start-time error, which names
+ * whoever is short and costs nothing until someone actually presses start.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -16,7 +22,10 @@ import { QuickMatchSearch } from "../components/QuickMatchSearch";
 import { useOnlineStore } from "../store/onlineStore";
 import { setBackInterceptor } from "../store/navStore";
 import { seatColors } from "../lib/seating";
+import { CoinGlyph } from "../components/CoinsPill";
 import { copyCode, shareInvite } from "../lib/invite";
+import { formatCompact } from "../lib/format";
+import { potFor } from "../lib/economy";
 import { font, palette, radius, space, teamColor } from "../theme";
 
 const COLOR_LABEL = { red: "Red", green: "Green", yellow: "Yellow", blue: "Blue" } as const;
@@ -54,6 +63,7 @@ export function LobbyScreen() {
   };
 
   const isQuick = useOnlineStore((s) => s.isQuick);
+  const stake = useOnlineStore((s) => s.stake);
 
   const full = lobby.length >= 4;
   const canStart = isHost && lobby.length >= 2 && !starting;
@@ -96,9 +106,32 @@ export function LobbyScreen() {
           </Text>
           {roomCode ? (
             <View style={{ alignSelf: "stretch" }}>
-              <Button label="Invite friends" onPress={() => void shareInvite(roomCode)} />
+              <Button label="Invite friends" onPress={() => void shareInvite(roomCode, stake)} />
             </View>
           ) : null}
+        </View>
+
+        {/* The pot. Quoted for the table as it stands, so it grows visibly as
+            friends arrive rather than jumping at start. */}
+        <View style={{ alignItems: "center", gap: 2, marginTop: space.md }}>
+          {stake > 0 ? (
+            <>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <CoinGlyph size={16} />
+                <Text style={{ fontFamily: font.mono, fontSize: 18, color: "#F5C542" }}>
+                  {formatCompact(potFor(stake, Math.max(lobby.length, 2)))}
+                </Text>
+                <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel }}>pot</Text>
+              </View>
+              <Text style={{ fontFamily: font.regular, fontSize: 12, color: palette.mutedSteel }}>
+                Everyone pays {formatCompact(stake)} when the game starts.
+              </Text>
+            </>
+          ) : (
+            <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel }}>
+              Friendly game — no coins at stake.
+            </Text>
+          )}
         </View>
 
         {/* Players */}

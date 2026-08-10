@@ -38,19 +38,39 @@ const DAILY_BONUS_BASE = 50;
 const DAILY_STREAK_STEP = 25;
 const DAILY_STREAK_MAX = 7;
 
-/** Coins per rewarded ad, by placement. Server-owned — the client never says
- *  how much a view is worth, it only says which placement it wants. */
+/** Streak finale also pays gems. Fallbacks; economy.gemDay/gemAmount win. */
+const DAILY_GEM_DAY = 7;
+const DAILY_GEM_AMOUNT = 5;
+
+/** Amounts per rewarded ad, by placement. Server-owned — the client never says
+ *  how much a view is worth, it only says which placement it wants.
+ *
+ *  The `gems` placement is denominated in GEMS, not coins; ad_rewards.currency
+ *  (0027) carries which, and functions/ads-ssv branches the credit on it. */
 const REWARD_COINS: Record<string, number> = {
   coins: 100,
   "free-entry": QUICK_STAKE,
   "double-pot": 0, // computed from the game's stake at intent time
+  gems: 1, // overridden by gems.adGrant.amount
 };
 /** Rewarded grants a single account can bank per UTC day, by placement. */
 const REWARD_DAILY_CAP: Record<string, number> = {
   coins: 8,
   "free-entry": 5,
   "double-pot": 3,
+  gems: 1, // overridden by gems.adGrant.dailyCap
 };
+
+/** Which currency a placement pays in. Anything unlisted is coins. */
+const REWARD_CURRENCY: Record<string, "coins" | "gems"> = {
+  gems: "gems",
+};
+
+/** A positive number from a config value, or the fallback. Config is operator
+ *  input, not player input, but a typo shouldn't mint or zero out a grant. */
+function positiveNumber(v: unknown, fallback: number): number {
+  return typeof v === "number" && Number.isFinite(v) && v > 0 ? Math.floor(v) : fallback;
+}
 
 /** Ad pacing + economy display config, resolved for the caller's region.
  *
@@ -170,7 +190,14 @@ export async function opDailyBonus(admin: SupabaseClient, userId: string): Promi
   const today = utcDay();
   const w = await readWallet(admin, userId);
   if (w.last_bonus_on === today) {
-    return json({ balance: w.balance, streakDay: w.streak_day, claimed: 0, bonusClaimable: false });
+    return json({
+      balance: w.balance,
+      gems: w.gems,
+      streakDay: w.streak_day,
+      claimed: 0,
+      gemsClaimed: 0,
+      bonusClaimable: false,
+    });
   }
 
   // Consecutive only if yesterday's claim is the last one on record.
@@ -185,12 +212,46 @@ export async function opDailyBonus(admin: SupabaseClient, userId: string): Promi
   ).select("user_id").maybeSingle();
   if (!claimed) {
     const fresh = await readWallet(admin, userId);
-    return json({ balance: fresh.balance, streakDay: fresh.streak_day, claimed: 0, bonusClaimable: false });
+    return json({
+      balance: fresh.balance,
+      gems: fresh.gems,
+      streakDay: fresh.streak_day,
+      claimed: 0,
+      gemsClaimed: 0,
+      bonusClaimable: false,
+    });
   }
 
   const amount = DAILY_BONUS_BASE + DAILY_STREAK_STEP * (streak - 1);
   const balance = await walletApply(admin, userId, amount, "daily-bonus", null);
-  return json({ balance: balance ?? w.balance, streakDay: streak, claimed: amount, bonusClaimable: false });
+
+  // Streak finale also pays gems (0027). Separate ledger, so it needs its own
+  // replay guard: the CAS above owns the DAY, and this ext_id owns the GEMS —
+  // a retry that lands after the CAS but before this still cannot double-pay.
+  const cfg = await serverConfig(admin);
+  const gemsCfg = (cfg.gems ?? {}) as Json;
+  const economyCfg = (cfg.economy ?? {}) as Json;
+  const gemDay = positiveNumber(economyCfg.gemDay, DAILY_GEM_DAY);
+  const gemAmount = positiveNumber(economyCfg.gemAmount, DAILY_GEM_AMOUNT);
+
+  let gems = w.gems;
+  let gemsClaimed = 0;
+  if (gemsCfg.enabled === true && streak === gemDay) {
+    const next = await gemApply(admin, userId, gemAmount, "daily-bonus", `daily-gems:${userId}:${today}`);
+    if (next !== null) {
+      gems = next;
+      gemsClaimed = gemAmount;
+    }
+  }
+
+  return json({
+    balance: balance ?? w.balance,
+    gems,
+    streakDay: streak,
+    claimed: amount,
+    gemsClaimed,
+    bonusClaimable: false,
+  });
 }
 
 export async function opWalletTopup(admin: SupabaseClient, userId: string): Promise<Response> {
@@ -225,6 +286,21 @@ export async function opAdRewardIntent(
   if (!(await rateOk(admin, userId, "adReward", LIMITS.adReward))) return rateLimited();
   if (!(placement in REWARD_COINS)) return json({ error: "Unknown placement." });
 
+  const currency = REWARD_CURRENCY[placement] ?? "coins";
+
+  // Gem grants are the one placement whose amount and cap are operator-tunable
+  // per region, since they are the closest an ad gets to the paid tier.
+  let cap = REWARD_DAILY_CAP[placement] ?? 0;
+  let coins = REWARD_COINS[placement];
+  if (currency === "gems") {
+    const cfg = await serverConfig(admin);
+    const gemsCfg = (cfg.gems ?? {}) as Json;
+    if (gemsCfg.enabled !== true) return json({ error: "Nothing to award here." });
+    const adGrant = (gemsCfg.adGrant ?? {}) as Json;
+    coins = positiveNumber(adGrant.amount, REWARD_COINS[placement]!);
+    cap = positiveNumber(adGrant.dailyCap, REWARD_DAILY_CAP[placement]!);
+  }
+
   const since = new Date(Date.now() - 86_400_000).toISOString();
   const { count } = await admin
     .from("ad_rewards")
@@ -233,11 +309,10 @@ export async function opAdRewardIntent(
     .eq("placement", placement)
     .eq("status", "granted")
     .gte("created_at", since);
-  if ((count ?? 0) >= (REWARD_DAILY_CAP[placement] ?? 0)) {
+  if ((count ?? 0) >= cap) {
     return json({ error: "That's all the ad rewards for today — try again tomorrow." });
   }
 
-  let coins = REWARD_COINS[placement];
   if (placement === "double-pot") {
     // Half the pot again, house-funded. Post-match and paid by us, never
     // debited from the loser — a reward may never come out of an opponent.
@@ -251,25 +326,31 @@ export async function opAdRewardIntent(
 
   const { data: row, error } = await admin
     .from("ad_rewards")
-    .insert({ user_id: userId, placement, coins, game_id: gameId })
-    .select("id, coins")
+    .insert({ user_id: userId, placement, coins, game_id: gameId, currency })
+    .select("id, coins, currency")
     .single();
   if (error || !row) return json({ error: error?.message ?? "Could not start the reward." });
 
-  return json({ nonce: row.id as string, coins: row.coins as number });
+  return json({ nonce: row.id as string, coins: row.coins as number, currency: row.currency as string });
 }
 
 /** Polled after the ad reports EARNED_REWARD, until SSV lands. */
 export async function opAdRewardStatus(admin: SupabaseClient, userId: string, nonce: string): Promise<Response> {
   const { data } = await admin
     .from("ad_rewards")
-    .select("status, coins")
+    .select("status, coins, currency")
     .eq("id", nonce)
     .eq("user_id", userId)
     .maybeSingle();
   if (!data) return json({ error: "Unknown reward." });
   const w = await readWallet(admin, userId);
-  return json({ status: data.status as string, coins: data.coins as number, balance: w.balance });
+  return json({
+    status: data.status as string,
+    coins: data.coins as number,
+    currency: (data.currency as string | null) ?? "coins",
+    balance: w.balance,
+    gems: w.gems,
+  });
 }
 
 // --- Shop --------------------------------------------------------------------

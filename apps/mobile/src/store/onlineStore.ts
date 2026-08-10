@@ -33,6 +33,9 @@ const AUTO_MOVE_DELAY = 600;
 /** Pace of autopilot actions on the local seat — outlasts the ~700ms die
  *  tumble so each rolled number lands before the bot acts on it. */
 const PILOT_DELAY = 900;
+/** Retry pace when an autopilot action produced no write (declined or failed).
+ *  Longer than PILOT_DELAY so a call still in flight isn't hammered. */
+const PILOT_RETRY_MS = 4000;
 const CHAT_MIN_INTERVAL_MS = 500;
 /** Seconds a turn may sit idle before any client asks the server to skip it.
  *  Matches TURN_SECONDS in the edge function; drives the on-screen countdown. */
@@ -93,7 +96,8 @@ interface OnlineStore {
   sendMessage: (text: string) => void;
   markChatRead: () => void;
 
-  create: () => Promise<void>;
+  /** Open a room. `stake` is the per-seat pot; 0 (default) is a friendly game. */
+  create: (stake?: number) => Promise<void>;
   join: (code: string) => Promise<void>;
   /** Play online: pair into a 2- or 4-player table (hidden bots fill a dry queue). */
   quickMatch: (size: 2 | 4, stake?: number) => Promise<void>;
@@ -145,10 +149,10 @@ const INITIAL = {
 export const useOnlineStore = create<OnlineStore>((set, get) => ({
   ...INITIAL,
 
-  create: async () => {
+  create: async (stake = 0) => {
     set({ status: "connecting", error: null });
     try {
-      const m = await api.createGame();
+      const m = await api.createGame(stake);
       const synced = syncMyProfile();
       subscribe(m.gameId);
       const lobby = await api.getLobby(m.gameId);
@@ -159,6 +163,7 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
         myPlayerId: m.myPlayerId,
         isHost: true,
         lobby,
+        stake: m.stake ?? 0,
         status: "lobby",
       });
       void syncThenFetchProfiles(synced, lobby);
@@ -183,6 +188,7 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
         myPlayerId: m.myPlayerId,
         isHost: me?.is_host ?? false,
         lobby,
+        stake: m.stake ?? 0,
       });
       void syncThenFetchProfiles(synced, lobby);
       const row = await api.fetchGame(m.gameId);
@@ -585,7 +591,17 @@ async function requestTimeout(): Promise<void> {
     // animations (it dedupes to a no-op when realtime got here first).
     enqueueGameRow({ state: res.state, status: res.state.status, state_version: res.v });
   } catch {
-    // transient — realtime or the next resync will correct us
+    // transient — the re-arm below is what retries it
+  } finally {
+    // Re-arm unconditionally. Every other clock in this store is wound by an
+    // authoritative write landing (applyStateNow), which is fine while someone
+    // else is playing — but on OUR seat nobody else writes, so a call that
+    // failed, or one the server answered with "not expired yet" (a row that
+    // dedupes and never reaches applyStateNow), used to leave the client with
+    // nothing scheduled at all: our turn, frozen, and no clock left to notice.
+    // A fresh state simply replaces this timer, so re-arming can't double up.
+    const st = useOnlineStore.getState();
+    if (st.gameId === gameId) scheduleTimeout(st.state?.status === "active");
   }
 }
 
@@ -721,6 +737,13 @@ function autoPilotStep(): void {
   } else {
     void st.pass();
   }
+  // The dispatched action may decline (a request is already in flight) or fail
+  // on the wire, and neither outcome produces the write that re-arms this loop.
+  // Without a retry the bot silently stops mid-turn while `autoPilot` stays on
+  // — which also holds canAct false, so the player can't roll for themselves
+  // either. A real state supersedes this timer through armAutoPilot.
+  clearPilotTimer();
+  pilotTimer = setTimeout(autoPilotStep, PILOT_RETRY_MS);
 }
 
 // --- Chat (ephemeral broadcast) ----------------------------------------------
@@ -980,11 +1003,17 @@ function scheduleResync(gameId: string, withLobby = false): void {
  */
 function slowResync(gameId: string): void {
   if (resyncTimer || resyncRunning) return;
+  // What "already reconciled" means is that a NEWER authoritative state landed
+  // while we waited — not that `pending` is empty. Only moves and passes set
+  // pending; a roll never does, so keying off it meant a timed-out roll got no
+  // reconciliation whatsoever. On our own turn that is terminal: nobody else
+  // writes the game, so nothing would ever arrive to correct us.
+  const armedAtV = lastAppliedV;
   resyncTimer = setTimeout(() => {
     resyncTimer = null;
     const st = useOnlineStore.getState();
     if (st.gameId !== gameId) return;
-    if (!pending) return; // already reconciled by the echo
+    if (lastAppliedV > armedAtV) return; // a newer state got here first
     void runResync(gameId);
   }, RESYNC_AFTER_TIMEOUT_MS);
 }

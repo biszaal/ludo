@@ -13,8 +13,9 @@ import { ScreenHeader } from "../components/ScreenHeader";
 import { ContentColumn } from "../components/ContentColumn";
 import { SectionLabel } from "../components/SectionLabel";
 import { SettingRow } from "../components/SettingRow";
+import { registerForPush, unregisterPush } from "../lib/push";
 import { Surface3D } from "../components/Surface3D";
-import { BookGlyph, ChevronGlyph, NoteGlyph, PulseGlyph, SpeakerGlyph } from "../components/HomeGlyphs";
+import { BookGlyph, ChevronGlyph, NoteGlyph, PeopleGlyph, PulseGlyph, SpeakerGlyph } from "../components/HomeGlyphs";
 import { useNav } from "../store/navStore";
 import { useSettings } from "../store/settingsStore";
 import { font, palette, radius, space } from "../theme";
@@ -45,6 +46,22 @@ export function SettingsScreen() {
           <Hairline />
           <Row glyph={<PulseGlyph size={20} />}>
             <SettingRow label="Haptics" hint="Gentle taps on rolls and moves" value={settings.hapticsOn} onChange={settings.setHaptics} />
+          </Row>
+        </Tray>
+
+        <Tray title="Notifications">
+          <Row glyph={<PeopleGlyph size={20} />}>
+            <SettingRow
+              label="Friend invites"
+              hint="Get told when a friend asks you to play"
+              value={settings.pushOn}
+              onChange={(v) => {
+                settings.setPush(v);
+                // Registration is what actually starts/stops delivery; the
+                // stored flag alone would leave a live token behind.
+                void (v ? registerForPush() : unregisterPush());
+              }}
+            />
           </Row>
         </Tray>
 

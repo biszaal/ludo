@@ -82,7 +82,14 @@ export const useWallet = create<WalletStore>((set, get) => ({
   claimDailyBonus: async () => {
     try {
       const res = await api.claimDailyBonus();
-      set({ balance: res.balance, streakDay: res.streakDay, bonusClaimable: false });
+      set({
+        balance: res.balance,
+        // Only adopt a gem total the server actually sent — an old server
+        // omits it, and coercing that to 0 would blank a real balance.
+        ...(typeof res.gems === "number" ? { gems: res.gems } : null),
+        streakDay: res.streakDay,
+        bonusClaimable: false,
+      });
       return res.claimed;
     } catch {
       return 0;

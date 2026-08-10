@@ -1,16 +1,22 @@
 /**
- * Add a friend, two ways.
+ * Add a friend, three ways.
  *
- * 1. Friend codes — your own is always on screen to copy or share (sharing is
- *    the growth loop, and it works outside the app), and there's a field to
- *    enter someone else's. Codes are unguessable capabilities, so unlike a name
- *    directory they give spammers no entry point.
- * 2. Recently played with — opponents from your last games who aren't already
+ * 1. By username — one exact, case-insensitive match, resolved server-side
+ *    (opFriendSearch). Exact-only is the point: you have to already know the
+ *    name, so this is a lookup, not a browsable directory. 0015 originally
+ *    refused name search for that reason, but the guard was never real —
+ *    profiles is world-readable to any signed-in client — so the search now
+ *    lives where the throttle, block check and bot filter can be applied.
+ * 2. Friend codes — your own is always on screen to copy or share (sharing is
+ *    the growth loop, and it works outside the app). Still useful for players
+ *    who haven't picked a name yet.
+ * 3. Recently played with — opponents from your last games who aren't already
  *    friends. Server-filtered: hidden bots are stripped before this list is
  *    returned, because the client cannot see which seats were bots (0009).
  *
- * Deliberately no search-by-name: it's the one discovery path that turns the
- * profile directory into a targeting tool.
+ * The lookup field takes either: input shaped exactly like a 6-char code is
+ * tried as one first, then falls back to a name. One field, because a player
+ * handed "ABC123" shouldn't have to know which kind of thing it is.
  */
 
 import { useEffect, useState } from "react";
@@ -22,13 +28,17 @@ import { Button } from "../components/Button";
 import { Surface3D } from "../components/Surface3D";
 import { AvatarGlyph } from "../components/Avatar";
 import { useFriends } from "../store/friendsStore";
+import { useProfile } from "../store/profileStore";
 import { useNav } from "../store/navStore";
-import { lookupFriendCode, type Profile } from "../net/api";
+import { lookupFriendCode, searchPlayerByName, type Profile } from "../net/api";
 import { tapLight } from "../lib/haptics";
 import { playSound } from "../lib/sound";
 import { font, palette, radius, space } from "../theme";
 
-const CODE_LENGTH = 6;
+const MAX_NAME_LENGTH = 20;
+/** The friend-code alphabet (0015): no O/0/I/1. Input matching this exactly is
+ *  worth trying as a code before treating it as a name. */
+const CODE_SHAPE = /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$/;
 
 export function AddFriendScreen() {
   const pop = useNav((s) => s.pop);
@@ -36,6 +46,7 @@ export function AddFriendScreen() {
   const recentPlayers = useFriends((s) => s.recentPlayers);
   const sendRequest = useFriends((s) => s.sendRequest);
   const viewPlayer = useFriends((s) => s.viewPlayer);
+  const displayName = useProfile((s) => s.displayName);
 
   const [entry, setEntry] = useState("");
   const [looking, setLooking] = useState(false);
@@ -61,20 +72,33 @@ export function AddFriendScreen() {
     if (!myCode) return;
     tapLight();
     try {
-      await Share.share({ message: `Add me on Ludo — my friend code is ${myCode}` });
+      await Share.share({ message: `Add me on Ludo — I'm ${displayName} (friend code ${myCode})` });
     } catch {
       // user dismissed the sheet; nothing to report
     }
   };
 
   const onLookup = async () => {
-    const code = entry.trim().toUpperCase();
-    if (code.length !== CODE_LENGTH) return;
+    const raw = entry.trim();
+    if (raw.length === 0) return;
     setLooking(true);
     setError(null);
     setFound(null);
     try {
-      const { user } = await lookupFriendCode(code);
+      // Code-shaped input is tried as a code first. A miss falls through to a
+      // name search, because a 6-character username is perfectly legal and
+      // would otherwise be unreachable.
+      if (CODE_SHAPE.test(raw.toUpperCase())) {
+        try {
+          const { user } = await lookupFriendCode(raw.toUpperCase());
+          setFound(user);
+          playSound("pop");
+          return;
+        } catch {
+          // fall through to the name search
+        }
+      }
+      const { user } = await searchPlayerByName(raw);
       setFound(user);
       playSound("pop");
     } catch (e) {
@@ -108,11 +132,16 @@ export function AddFriendScreen() {
       >
         {/* Your code */}
         <View style={{ gap: space.sm }}>
-          <SectionLabel>YOUR CODE</SectionLabel>
+          <SectionLabel>HOW FRIENDS FIND YOU</SectionLabel>
           <Surface3D faceStyle={{ padding: space.lg, gap: space.md, alignItems: "center" }}>
+            {/* The username leads: it's what people actually remember, and the
+                code is the fallback for anyone still on a guest handle. */}
+            <Text style={{ fontFamily: font.display, fontSize: 24, color: palette.porcelain }} numberOfLines={1}>
+              {displayName}
+            </Text>
             {myCode ? (
               <Pressable accessibilityRole="button" accessibilityLabel="Copy your friend code" onPress={() => void onCopy()}>
-                <Text style={{ fontFamily: font.mono, fontSize: 30, color: palette.porcelain, letterSpacing: 6 }}>
+                <Text style={{ fontFamily: font.mono, fontSize: 20, color: palette.mutedSteel, letterSpacing: 5 }}>
                   {myCode}
                 </Text>
               </Pressable>
@@ -120,7 +149,7 @@ export function AddFriendScreen() {
               <ActivityIndicator color={palette.mutedSteel} />
             )}
             <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel, textAlign: "center" }}>
-              {copied ? "Copied!" : "Share this so friends can add you."}
+              {copied ? "Copied!" : "Friends can search your username, or use the code."}
             </Text>
             <View style={{ flexDirection: "row", gap: space.md, alignSelf: "stretch" }}>
               <View style={{ flex: 1 }}>
@@ -133,29 +162,32 @@ export function AddFriendScreen() {
           </Surface3D>
         </View>
 
-        {/* Enter a code */}
+        {/* Find a player: username or code, one field */}
         <View style={{ gap: space.sm }}>
-          <SectionLabel>ENTER A CODE</SectionLabel>
+          <SectionLabel>FIND A PLAYER</SectionLabel>
           <Surface3D faceStyle={{ padding: space.lg, gap: space.md }}>
             <TextInput
               value={entry}
               onChangeText={(t) => {
-                setEntry(t.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, CODE_LENGTH));
+                // Usernames are free-form, so no uppercasing and no stripping
+                // here — that treatment belonged to a code-only field and would
+                // mangle every name typed into it. The code path uppercases at
+                // lookup time instead.
+                setEntry(t.slice(0, MAX_NAME_LENGTH));
                 setError(null);
                 setFound(null);
               }}
-              placeholder="ABC123"
+              placeholder="Username or code"
               placeholderTextColor={palette.mutedSteel}
-              autoCapitalize="characters"
+              autoCapitalize="none"
               autoCorrect={false}
-              maxLength={CODE_LENGTH}
+              maxLength={MAX_NAME_LENGTH}
               returnKeyType="search"
               onSubmitEditing={() => void onLookup()}
-              accessibilityLabel="Friend code"
+              accessibilityLabel="Username or friend code"
               style={{
-                fontFamily: font.mono,
-                fontSize: 22,
-                letterSpacing: 6,
+                fontFamily: font.regular,
+                fontSize: 17,
                 textAlign: "center",
                 color: palette.porcelain,
                 backgroundColor: palette.feltCharcoal,
@@ -168,7 +200,7 @@ export function AddFriendScreen() {
             <Button
               label={looking ? "Looking…" : "Find player"}
               onPress={() => void onLookup()}
-              disabled={looking || entry.length !== CODE_LENGTH}
+              disabled={looking || entry.trim().length === 0}
             />
             {error ? (
               <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel, textAlign: "center" }}>

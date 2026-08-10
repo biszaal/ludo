@@ -32,12 +32,22 @@ function readAll(dir: string): { file: string; text: string }[] {
 }
 
 describe("rewarded placements grant access or payout, never advantage", () => {
-  it("exposes only the three approved placements", () => {
+  it("exposes only the approved placements", () => {
     // 'coins' and 'free-entry' buy entry; 'double-pot' is a house-funded bonus
-    // paid AFTER the result is decided. None can change who wins.
+    // paid AFTER the result is decided; 'gemGrant' pays the premium currency,
+    // which only ever buys cosmetics. None can change who wins.
     expect(Object.keys(DEFAULT_CONFIG.ads.rewarded).sort()).toEqual(
-      ["coinGrant", "doublePot", "freeEntry", "hintLocalOnly"].sort(),
+      ["coinGrant", "doublePot", "freeEntry", "gemGrant", "hintLocalOnly"].sort(),
     );
+  });
+
+  it("keeps the gem drip smaller than the cheapest thing it buys", () => {
+    // The guard that stops the ad path quietly becoming the main gem source:
+    // one view must never approach a purchasable pack, or paying looks foolish
+    // and the premium tier stops meaning anything.
+    const { adGrant, products } = DEFAULT_CONFIG.gems;
+    const smallestPack = Math.min(...products.map((p) => p.gems));
+    expect(adGrant.amount * adGrant.dailyCap).toBeLessThan(smallestPack / 4);
   });
 
   it("has no advantage-shaped placement flags", () => {

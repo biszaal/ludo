@@ -19,7 +19,10 @@ import {
   rateLimited,
   rateOk,
   safeError,
+  serverConfig,
+  STAKE_TIERS,
   turnDeadline,
+  type Json,
   type SupabaseClient,
   WRITE_FAILED,
 } from "./lib.ts";
@@ -28,12 +31,40 @@ import { startGameNow } from "./deal.ts";
 import { recordFinishStats, settleIfFinished } from "./finish.ts";
 import { walletApply } from "./wallet.ts";
 
-export async function opCreate(admin: SupabaseClient, userId: string): Promise<Response> {
+/**
+ * Validate a host-chosen room stake against the server's tier list.
+ *
+ * 0 is always allowed — a friendly game is the default and must never depend
+ * on config. Anything else has to be a tier the server published, for the same
+ * reason quick match checks (quick.ts): a modified client must not be able to
+ * invent a pool, least of all one it can talk friends into joining.
+ */
+async function validRoomStake(admin: SupabaseClient, raw: number | null): Promise<number | null> {
+  if (raw == null || raw === 0) return 0;
+  if (!Number.isFinite(raw) || raw < 0) return null;
+  const cfg = await serverConfig(admin);
+  const economy = (cfg.economy ?? {}) as Json;
+  const tiers =
+    Array.isArray(economy.stakeTiers) && economy.stakeTiers.every((t) => typeof t === "number")
+      ? (economy.stakeTiers as number[])
+      : STAKE_TIERS;
+  return tiers.includes(raw) ? raw : null;
+}
+
+export async function opCreate(admin: SupabaseClient, userId: string, rawStake: number | null): Promise<Response> {
   if (!(await rateOk(admin, userId, "roomCreate", LIMITS.roomCreate))) return rateLimited();
+
+  const stake = await validRoomStake(admin, rawStake);
+  if (stake === null) return json({ error: "That entry isn't available." });
+
   const roomCode = genCode();
+  // No debit here. Unlike quick match (which debits on seat, because the seat
+  // IS the queue), a room can sit unstarted for as long as the host likes —
+  // charging at creation would strand coins in a lobby nobody ever begins.
+  // deal.ts collects from every seat at start instead.
   const { data: game, error } = await admin
     .from("games")
-    .insert({ room_code: roomCode, host_user_id: userId, status: "waiting" })
+    .insert({ room_code: roomCode, host_user_id: userId, status: "waiting", stake })
     .select("id")
     .single();
   if (error || !game) return json({ error: error?.message ?? "Could not create game." });
@@ -45,18 +76,23 @@ export async function opCreate(admin: SupabaseClient, userId: string): Promise<R
     .single();
   if (pErr || !player) return json({ error: pErr?.message ?? "Could not seat host." });
 
-  return json({ gameId: game.id, roomCode, playerId: player.id });
+  return json({ gameId: game.id, roomCode, playerId: player.id, stake });
 }
 
 export async function opJoin(admin: SupabaseClient, userId: string, rawCode: string): Promise<Response> {
   const roomCode = rawCode.trim().toUpperCase();
-  const { data: game } = await admin.from("games").select("id, status").eq("room_code", roomCode).maybeSingle();
+  const { data: game } = await admin
+    .from("games")
+    .select("id, status, stake")
+    .eq("room_code", roomCode)
+    .maybeSingle();
   if (!game) return json({ error: "No game found with that code." });
   if (game.status !== "waiting") return json({ error: "That game has already started." });
+  const stake = (game.stake as number | null) ?? 0;
 
   const { data: existing } = await admin.from("players").select("id, user_id, seat").eq("game_id", game.id).order("seat");
   const mine = existing?.find((p) => p.user_id === userId);
-  if (mine) return json({ gameId: game.id, roomCode, playerId: mine.id });
+  if (mine) return json({ gameId: game.id, roomCode, playerId: mine.id, stake });
   if ((existing?.length ?? 0) >= 4) return json({ error: "That game is full." });
 
   const seat = existing?.length ?? 0;
@@ -67,7 +103,7 @@ export async function opJoin(admin: SupabaseClient, userId: string, rawCode: str
     .single();
   if (error || !player) return json({ error: error?.message ?? "Could not join." });
 
-  return json({ gameId: game.id, roomCode, playerId: player.id });
+  return json({ gameId: game.id, roomCode, playerId: player.id, stake });
 }
 
 export async function opStart(admin: SupabaseClient, userId: string, gameId: string): Promise<Response> {

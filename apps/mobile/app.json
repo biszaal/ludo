@@ -209,6 +209,13 @@
         }
       ],
       [
+        "expo-notifications",
+        {
+          "color": "#2B3D74",
+          "defaultChannel": "default"
+        }
+      ],
+      [
         "expo-build-properties",
         {
           "ios": {

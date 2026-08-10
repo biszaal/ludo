@@ -45,6 +45,8 @@ export interface Membership {
   roomCode: string;
   userId: string;
   myPlayerId: string;
+  /** Coins each seat pays when the game starts (0 = friendly). */
+  stake?: number;
 }
 
 /** Sign in anonymously if there is no session yet; return the user id. */
@@ -112,16 +114,26 @@ async function callGame<T>(op: string, payload: Record<string, unknown> = {}): P
   return data as T;
 }
 
-export async function createGame(): Promise<Membership> {
+/** Open a private room. `stake` is the per-seat pot (0 = friendly); the server
+ *  validates it against its tier list and collects it at start, not now. */
+export async function createGame(stake = 0): Promise<Membership> {
   const userId = await ensureSignedIn();
-  const res = await callGame<{ gameId: string; roomCode: string; playerId: string }>("create");
-  return { gameId: res.gameId, roomCode: res.roomCode, userId, myPlayerId: res.playerId };
+  const res = await callGame<RoomResult>("create", { stake });
+  return { gameId: res.gameId, roomCode: res.roomCode, userId, myPlayerId: res.playerId, stake: res.stake ?? 0 };
 }
 
 export async function joinGame(rawCode: string): Promise<Membership> {
   const userId = await ensureSignedIn();
-  const res = await callGame<{ gameId: string; roomCode: string; playerId: string }>("join", { code: rawCode });
-  return { gameId: res.gameId, roomCode: res.roomCode, userId, myPlayerId: res.playerId };
+  const res = await callGame<RoomResult>("join", { code: rawCode });
+  return { gameId: res.gameId, roomCode: res.roomCode, userId, myPlayerId: res.playerId, stake: res.stake ?? 0 };
+}
+
+interface RoomResult {
+  gameId: string;
+  roomCode: string;
+  playerId: string;
+  /** Per-seat entry. Absent on old servers; treat as a friendly game. */
+  stake?: number;
 }
 
 async function turnCall(op: string, payload: Record<string, unknown>): Promise<TurnResult> {
@@ -220,9 +232,19 @@ export async function getWalletState(): Promise<WalletState> {
 
 /** Claim today's bonus. Server-side idempotent by UTC date; `claimed` is 0 if
  *  it was already taken. */
-export async function claimDailyBonus(): Promise<{ balance: number; streakDay: number; claimed: number }> {
+export interface DailyBonusResult {
+  balance: number;
+  /** Gem total after the claim. Old servers omit it; treat missing as unknown. */
+  gems?: number;
+  streakDay: number;
+  claimed: number;
+  /** Gems paid by the streak finale; 0 on every other day. */
+  gemsClaimed?: number;
+}
+
+export async function claimDailyBonus(): Promise<DailyBonusResult> {
   await ensureSignedIn();
-  return await callGame<{ balance: number; streakDay: number; claimed: number }>("dailyBonus");
+  return await callGame<DailyBonusResult>("dailyBonus");
 }
 
 /** Last-resort grant for a player sitting at zero, once a day. */
@@ -232,7 +254,10 @@ export async function topupWallet(): Promise<number> {
   return res.balance;
 }
 
-export type RewardPlacement = "coins" | "free-entry" | "double-pot";
+export type RewardPlacement = "coins" | "free-entry" | "double-pot" | "gems";
+
+/** Which ledger a placement pays into. Absent on old servers = coins. */
+export type RewardCurrency = "coins" | "gems";
 
 /** Reserve a rewarded grant BEFORE showing the ad. Returns the SSV nonce to
  *  pass as customData; grants nothing on its own — only AdMob's signed
@@ -240,20 +265,29 @@ export type RewardPlacement = "coins" | "free-entry" | "double-pot";
 export async function adRewardIntent(
   placement: RewardPlacement,
   gameId?: string,
-): Promise<{ nonce: string; coins: number }> {
+): Promise<{ nonce: string; coins: number; currency?: RewardCurrency }> {
   await ensureSignedIn();
-  return await callGame<{ nonce: string; coins: number }>("adRewardIntent", { placement, gameId });
+  return await callGame<{ nonce: string; coins: number; currency?: RewardCurrency }>("adRewardIntent", {
+    placement,
+    gameId,
+  });
 }
 
 /** Poll after the ad reports EARNED_REWARD, until the SSV callback lands. */
 export async function adRewardStatus(
   nonce: string,
-): Promise<{ status: "pending" | "granted" | "expired"; coins: number; balance: number }> {
+): Promise<AdRewardStatus> {
   await ensureSignedIn();
-  return await callGame<{ status: "pending" | "granted" | "expired"; coins: number; balance: number }>(
-    "adRewardStatus",
-    { nonce },
-  );
+  return await callGame<AdRewardStatus>("adRewardStatus", { nonce });
+}
+
+export interface AdRewardStatus {
+  status: "pending" | "granted" | "expired";
+  /** Amount granted, denominated in `currency`. */
+  coins: number;
+  currency?: RewardCurrency;
+  balance: number;
+  gems?: number;
 }
 
 export interface CatalogItem {
@@ -349,12 +383,47 @@ export async function getProfiles(userIds: string[]): Promise<Profile[]> {
   return (data ?? []) as Profile[];
 }
 
+export interface MyProfile {
+  /** The name the SERVER has registered — not the local draft. */
+  displayName: string;
+  /** When the one allowed username change was spent; null = still available. */
+  nameChangedAt: string | null;
+}
+
+/**
+ * The caller's own registered identity. Distinct from the local profile store,
+ * which tracks the text field as you type — this is what other players actually
+ * see, and the only safe thing to compare a draft against when deciding whether
+ * a name is "changed" at all.
+ *
+ * Null when signed out or offline; callers treat that as "unknown" and stay
+ * permissive rather than locking the field on a failed read.
+ */
+export async function getMyProfile(): Promise<MyProfile | null> {
+  const supabase = getSupabase();
+  const { data: sessionData } = await supabase.auth.getSession();
+  const userId = sessionData.session?.user.id;
+  if (!userId) return null;
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("display_name, name_changed_at")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error || !data) return null;
+  return {
+    displayName: (data.display_name as string) ?? "",
+    nameChangedAt: (data.name_changed_at as string | null) ?? null,
+  };
+}
+
 /**
  * Upsert the caller's own profile row (RLS: self-write only). Best-effort — a
  * display name already registered to another user is rejected by the DB's
  * unique index, and the previous server-side name simply stays. A priced dice
  * skin the caller doesn't own is silently stripped server-side (see the
  * profiles_enforce_dice_skin trigger) rather than rejecting the whole write.
+ * A second username change is reverted the same silent way (0030's
+ * profiles_enforce_name_change_once) — one change per account, ever.
  *
  * Returns what the server ACTUALLY stored, so the caller can reconcile. Without
  * this readback the strip is invisible: the owner keeps seeing their skin while
@@ -364,7 +433,7 @@ export async function upsertMyProfile(
   displayName: string,
   avatarId: string,
   diceSkinId: string,
-): Promise<{ diceSkin: string | null } | null> {
+): Promise<{ diceSkin: string | null; displayName: string; nameChangedAt: string | null } | null> {
   const supabase = getSupabase();
   const { data: sessionData } = await supabase.auth.getSession();
   const userId = sessionData.session?.user.id;
@@ -380,10 +449,14 @@ export async function upsertMyProfile(
       },
       { onConflict: "user_id" },
     )
-    .select("dice_skin")
+    .select("dice_skin, display_name, name_changed_at")
     .maybeSingle();
   if (error || !data) return null;
-  return { diceSkin: (data.dice_skin as string | null) ?? null };
+  return {
+    diceSkin: (data.dice_skin as string | null) ?? null,
+    displayName: (data.display_name as string) ?? displayName,
+    nameChangedAt: (data.name_changed_at as string | null) ?? null,
+  };
 }
 
 /** Is this display name already registered to ANOTHER user? Best-effort: false
@@ -426,6 +499,21 @@ export async function getMyFriendCode(): Promise<string | null> {
 export async function lookupFriendCode(code: string): Promise<{ user: Profile; stats: PublicStats }> {
   await ensureSignedIn();
   return await callGame<{ user: Profile; stats: PublicStats }>("friendLookup", { code });
+}
+
+/** Resolve an EXACT username (case-insensitive) to a player card. Shares the
+ *  code-lookup throttle server-side, and returns the same opaque "not found"
+ *  for an absent, blocked, bot or self match. */
+export async function searchPlayerByName(name: string): Promise<{ user: Profile; stats: PublicStats }> {
+  await ensureSignedIn();
+  return await callGame<{ user: Profile; stats: PublicStats }>("friendSearch", { name });
+}
+
+/** Invite a friend to a room. Server-side so it can also PUSH the invite —
+ *  see functions/game/social.ts opRoomInvite. */
+export async function inviteToRoomOp(toUserId: string, roomCode: string, stake = 0): Promise<void> {
+  await ensureSignedIn();
+  await callGame<{ ok: true }>("roomInvite", { toUserId, roomCode, stake });
 }
 
 /** Send a friend request through the edge function, which enforces blocks and

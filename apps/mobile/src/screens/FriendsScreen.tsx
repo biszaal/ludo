@@ -22,6 +22,7 @@ import { PeopleGlyph } from "../components/HomeGlyphs";
 import { PresenceDot } from "../components/PresenceDot";
 import { pollPresence, useFriends } from "../store/friendsStore";
 import { useOnlineStore } from "../store/onlineStore";
+import { registerForPush } from "../lib/push";
 import { useNav } from "../store/navStore";
 import {
   acceptedFriendIds,
@@ -42,6 +43,7 @@ export function FriendsScreen() {
   const accept = useFriends((s) => s.accept);
   const remove = useFriends((s) => s.remove);
   const inviteToRoom = useFriends((s) => s.inviteToRoom);
+  const stake = useOnlineStore((s) => s.stake);
   const viewPlayer = useFriends((s) => s.viewPlayer);
   const refresh = useFriends((s) => s.refresh);
 
@@ -55,6 +57,10 @@ export function FriendsScreen() {
   useEffect(() => {
     void useFriends.getState().init();
     void refresh();
+    // Ask for notification permission here rather than at launch: this is the
+    // first screen where "a friend wants you to play" is a thing that could
+    // actually happen, so the prompt arrives with its reason already on screen.
+    void registerForPush();
     const stopPolling = pollPresence();
     const tick = setInterval(() => setNow(Date.now()), 15_000);
     return () => {
@@ -157,7 +163,7 @@ export function FriendsScreen() {
               >
                 {canInvite ? (
                   <View style={{ width: 100 }}>
-                    <Button label="Invite" onPress={() => void inviteToRoom(uid, roomCode!)} />
+                    <Button label="Invite" onPress={() => void inviteToRoom(uid, roomCode!, stake)} />
                   </View>
                 ) : (
                   <TextLink

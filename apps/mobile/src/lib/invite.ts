@@ -15,11 +15,13 @@ export function inviteUrl(code: string): string {
   return Linking.createURL(`join/${code}`);
 }
 
-/** Open the OS share sheet with the room invite. Best-effort (user may cancel). */
-export async function shareInvite(code: string): Promise<void> {
+/** Open the OS share sheet with the room invite. Best-effort (user may cancel).
+ *  The stake goes in the text so nobody taps into a pot they didn't expect. */
+export async function shareInvite(code: string, stake = 0): Promise<void> {
   try {
+    const pot = stake > 0 ? ` We're playing for ${stake} coins.` : "";
     await Share.share({
-      message: `Join my Ludo game! Room code: ${code}\n${inviteUrl(code)}`,
+      message: `Join my Ludo game! Room code: ${code}.${pot}\n${inviteUrl(code)}`,
     });
   } catch {
     // user dismissed or no share targets — nothing to do

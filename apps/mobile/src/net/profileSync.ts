@@ -13,10 +13,12 @@ const DEBOUNCE_MS = 1200;
 /**
  * Push the profile, then adopt whatever the server kept.
  *
- * The dice skin is the one field the server may overrule (it strips a priced
- * skin you don't own). Taking its answer back is what keeps "what I see" and
- * "what my opponents see" the same object — the alternative is a skin that
- * looks equipped forever on this device and nowhere else.
+ * Two fields the server may overrule: the dice skin (it strips a priced skin
+ * you don't own) and the display name (a name registered to someone else loses
+ * to the unique index, and a SECOND username change is reverted by 0030's
+ * trigger). Taking its answer back is what keeps "what I see" and "what my
+ * opponents see" the same object — the alternative is an identity that looks
+ * right forever on this device and nowhere else.
  */
 export async function pushProfile(displayName: string, avatarId: string, diceSkinId: string): Promise<void> {
   const stored = await upsertMyProfile(displayName, avatarId, diceSkinId);
@@ -24,6 +26,11 @@ export async function pushProfile(displayName: string, avatarId: string, diceSki
   const wanted = diceSkinId === "classic" ? null : diceSkinId;
   if (stored.diceSkin !== wanted) {
     useProfile.getState().setDiceSkin(stored.diceSkin ?? "classic");
+  }
+  // Only correct a genuine divergence. Comparing case-sensitively would fight
+  // the user over a capitalisation the DB accepted verbatim.
+  if (stored.displayName && stored.displayName !== useProfile.getState().displayName) {
+    useProfile.getState().setName(stored.displayName);
   }
 }
 

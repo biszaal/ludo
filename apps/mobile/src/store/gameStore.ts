@@ -88,6 +88,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
   lastConfig: null,
 
   newLocalGame: (config) => {
+    // Re-dealing abandons any hold left over from the previous game.
+    clearAutoTimer();
+    clearBustTimer();
     const { players: numPlayers, bots: numBots = 0 } = config;
     const colors = seatColors(numPlayers);
     const players = Array.from({ length: numPlayers }, (_unused, i) => ({
@@ -113,7 +116,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   roll: () => {
     clearAutoTimer();
-    const { state } = get();
+    const { state, bustHold } = get();
+    // A forfeit is mid-hand-off. `state` is still the pre-roll state, so every
+    // phase check below would wave a second roll through on the very turn the
+    // rule just ended. Nothing acts until the hold applies its state.
+    if (bustHold) return;
     if (!state || state.phase !== "awaiting-roll") return;
 
     const { newState, diceValue, busted } = rollDice(state, mathRandomRng);
@@ -134,6 +141,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         bustHold: true,
         message: `${COLOR_LABEL[color]} rolled three 6s — turn forfeited`,
       });
+      clearBustTimer();
       bustTimer = setTimeout(() => {
         bustTimer = null;
         // Re-check: the player may have left or restarted during the hold.
@@ -167,7 +175,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   pass: () => {
     clearAutoTimer();
-    const { state, validMoves } = get();
+    const { state, validMoves, bustHold } = get();
+    if (bustHold) return; // a forfeit is mid-hand-off — see roll()
     if (!state || state.phase !== "awaiting-move" || validMoves.length > 0)
       return;
     const next = endTurn(state);
@@ -181,7 +190,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   selectToken: (tokenId) => {
     clearAutoTimer();
-    const { state, validMoves } = get();
+    const { state, validMoves, bustHold } = get();
+    if (bustHold) return; // a forfeit is mid-hand-off — see roll()
     if (!state || state.phase !== "awaiting-move") return;
     if (!validMoves.some((m) => m.tokenId === tokenId)) return;
 
@@ -218,6 +228,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   leaveGame: () => {
     stopBots();
     clearAutoTimer();
+    clearBustTimer();
     set({
       state: null,
       validMoves: [],
@@ -267,9 +278,16 @@ let bustTimer: ReturnType<typeof setTimeout> | null = null;
 function clearAutoTimer(): void {
   if (autoTimer) clearTimeout(autoTimer);
   autoTimer = null;
-  // A bust hold is a pending hand-off, so anything that cancels the turn's
-  // automation must cancel it too — otherwise a restart mid-hold would apply a
-  // dead game's state over the fresh one.
+}
+
+/**
+ * Abandon a pending forfeit hand-off. Only for leaving or re-dealing — the
+ * hold IS the forfeit, so cancelling it anywhere else silently gives the
+ * roller back the turn the three-sixes rule just took. It used to live inside
+ * clearAutoTimer, which every action calls on entry; a bot stepping mid-hold
+ * therefore wiped the forfeit and rolled again.
+ */
+function clearBustTimer(): void {
   if (bustTimer) clearTimeout(bustTimer);
   bustTimer = null;
 }
@@ -327,6 +345,16 @@ function stepBots(): void {
     state.status !== "active" ||
     !isDriven(state.currentTurnPlayerId)
   ) {
+    botLoopActive = false;
+    return;
+  }
+
+  // BOT_DELAY (450ms) is shorter than BUST_HOLD_MS (1400ms), so without this
+  // the loop stepped straight into a forfeit it had just triggered — and the
+  // held state still reads as this bot's turn awaiting a roll, so it rolled
+  // again and the three-sixes rule quietly did nothing. Stand down and let the
+  // hold's own timer restart the loop once the seat has actually changed.
+  if (s.bustHold) {
     botLoopActive = false;
     return;
   }

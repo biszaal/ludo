@@ -11,12 +11,14 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import { createSeededRng } from "@ludo/engine";
 import { useGameStore } from "../src/store/gameStore";
 import { useNav } from "../src/store/navStore";
+import { BUST_HOLD_MS } from "../src/lib/projection";
 
 const store = useGameStore;
 
 function playFullGame(seed: number, numPlayers: number) {
   const rng = createSeededRng(seed);
   vi.spyOn(Math, "random").mockImplementation(() => rng());
+  vi.useFakeTimers();
 
   store.getState().newLocalGame({ players: numPlayers });
 
@@ -24,6 +26,15 @@ function playFullGame(seed: number, numPlayers: number) {
     const s = store.getState();
     const game = s.state!;
     if (game.status === "finished") break;
+
+    // A busted third six holds the hand-off on a timer, and `state` stays on
+    // the pre-roll state for its duration. The screens refuse input for that
+    // window (GameView's canAct), so the driver waits it out too — acting into
+    // the hold is exactly the bug this mirrors.
+    if (s.bustHold) {
+      vi.advanceTimersByTime(BUST_HOLD_MS);
+      continue;
+    }
 
     if (game.phase === "awaiting-roll") {
       s.roll();
@@ -39,6 +50,7 @@ function playFullGame(seed: number, numPlayers: number) {
 afterEach(() => {
   vi.restoreAllMocks();
   store.getState().leaveGame();
+  vi.useRealTimers();
 });
 
 describe("client store — full hot-seat game", () => {

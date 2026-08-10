@@ -39,6 +39,7 @@ export function PlayerProfileScreen() {
   const remove = useFriends((s) => s.remove);
   const block = useFriends((s) => s.block);
   const inviteToRoom = useFriends((s) => s.inviteToRoom);
+  const stake = useOnlineStore((s) => s.stake);
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -134,7 +135,7 @@ export function PlayerProfileScreen() {
           {rel.kind === "friends" ? (
             <>
               {canInvite ? (
-                <Button label="Invite to room" disabled={busy} onPress={() => void run(() => inviteToRoom(userId, roomCode!))} />
+                <Button label="Invite to room" disabled={busy} onPress={() => void run(() => inviteToRoom(userId, roomCode!, stake))} />
               ) : null}
               <Button label="Remove friend" variant="ghost" disabled={busy} onPress={() => void run(async () => { await remove(rel.id); pop(); })} />
             </>

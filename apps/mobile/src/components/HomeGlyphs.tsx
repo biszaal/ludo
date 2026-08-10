@@ -196,3 +196,30 @@ export function ChestGlyph({ size, open = false, color = palette.mutedSteel }: {
     </Canvas>
   );
 }
+
+/** A claimed day: a tick in a filled disc. Rounded caps so it reads at 20px. */
+export function CheckGlyph({
+  size,
+  color = palette.mutedSteel,
+  discColor,
+}: {
+  size: number;
+  color?: string;
+  /** Filled backing disc; omit for a bare tick. */
+  discColor?: string;
+}) {
+  const s = size;
+  return (
+    <Canvas style={{ width: s, height: s }}>
+      {discColor ? <Circle cx={s * 0.5} cy={s * 0.5} r={s * 0.46} color={discColor} /> : null}
+      <Path
+        path={`M ${s * 0.28} ${s * 0.52} L ${s * 0.44} ${s * 0.68} L ${s * 0.73} ${s * 0.34}`}
+        color={color}
+        style="stroke"
+        strokeWidth={s * 0.12}
+        strokeCap="round"
+        strokeJoin="round"
+      />
+    </Canvas>
+  );
+}

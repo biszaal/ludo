@@ -11,6 +11,17 @@
  * cleared. The input is a local draft so the store's fallback never overwrites
  * a field you just cleared. Registered names are unique server-side; a debounced
  * lookup warns when the name is already taken.
+ *
+ * Usernames change ONCE per account (0030), because they are how other players
+ * find you. Two consequences for this screen:
+ *
+ *  - The taken-check compares against the name the SERVER holds, never against
+ *    the local store — `setName` runs on every keystroke, so the store tracks
+ *    the draft and comparing the two would always say "unchanged". Checking an
+ *    unedited name is also what produced a false "already taken" on open, for
+ *    anyone whose name sits on an orphaned row from a previous guest account.
+ *  - Claiming a name off the minted guestNNNNNN handle is free; only a real
+ *    rename spends the allowance, and we say so before it is spent.
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -28,12 +39,16 @@ import { CoinsPill } from "../components/CoinsPill";
 import { GemsPill } from "../components/GemsPill";
 import { AccountSheet } from "../components/AccountSheet";
 import { StatsContent } from "../components/StatsContent";
-import { isNameTaken } from "../net/api";
+import { getMyProfile, isNameTaken, type MyProfile } from "../net/api";
 import { deleteAccount, getIdentity, signOutToGuest, type AuthIdentity } from "../lib/auth";
 import { MAX_NAME_LENGTH, useProfile } from "../store/profileStore";
 import { font, palette, radius, space, teamColor } from "../theme";
 
 const NAME_CHECK_DEBOUNCE_MS = 600;
+
+/** Mirrors makeGuestName() and 0030's trigger: renaming off one of these is
+ *  the initial pick, not a change, and must not spend the allowance. */
+const GUEST_NAME = /^guest[0-9]{6}$/;
 
 export function AccountScreen() {
   const displayName = useProfile((s) => s.displayName);
@@ -45,17 +60,57 @@ export function AccountScreen() {
   const [taken, setTaken] = useState(false);
   const [identity, setIdentity] = useState<AuthIdentity | null>(null);
   const [accountSheet, setAccountSheet] = useState<null | "save" | "signin">(null);
+  /** The server's registered identity. Null while loading, offline or signed
+   *  out — every gate below stays permissive in that state rather than locking
+   *  the field on a failed read. */
+  const [mine, setMine] = useState<MyProfile | null>(null);
 
   const refreshIdentity = useCallback(() => {
     void getIdentity().then(setIdentity);
   }, []);
   useEffect(() => {
     refreshIdentity();
+    void getMyProfile().then(setMine);
   }, [refreshIdentity]);
+
+  const serverName = mine?.displayName ?? "";
+  const onGuestHandle = serverName.length === 0 || GUEST_NAME.test(serverName);
+  /** Allowance is only spent once you've moved off the guest handle. */
+  const nameLocked = !!mine?.nameChangedAt && !onGuestHandle;
+  const changed = draft.trim().toLowerCase() !== serverName.trim().toLowerCase();
+  /** A real rename — the one that costs the allowance. */
+  const spendsAllowance = changed && !onGuestHandle && !nameLocked;
+
+  /** Commit a real rename. Irreversible and one-per-account, so it is confirmed
+   *  explicitly and names both sides — never saved out from under a keystroke. */
+  const onCommitName = useCallback(() => {
+    const next = draft.trim();
+    if (next.length === 0 || taken) return;
+    Alert.alert(
+      "Change your username?",
+      `"${serverName}" becomes "${next}". You can only do this once, so this is your last change.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Change it",
+          style: "destructive",
+          onPress: () => {
+            setName(next);
+            // Reflect the spend immediately; profileSync's readback is the
+            // authority and will correct this if the server refused.
+            setMine({ displayName: next, nameChangedAt: new Date().toISOString() });
+          },
+        },
+      ],
+    );
+  }, [draft, taken, serverName, setName]);
 
   useEffect(() => {
     const name = draft.trim();
-    if (name.length === 0) {
+    // Only ever ask about a name you're actually trying to claim. Checking the
+    // name you already own is what raised a false "taken" the moment this
+    // screen opened.
+    if (name.length === 0 || !changed) {
       setTaken(false);
       return;
     }
@@ -69,7 +124,7 @@ export function AccountScreen() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [draft]);
+  }, [draft, changed]);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: palette.tableBlue }}>
@@ -98,27 +153,71 @@ export function AccountScreen() {
               </View>
             </View>
 
-            <Field
-              accessibilityLabel="Display name"
-              value={draft}
-              onChangeText={(t) => {
-                setDraft(t);
-                setName(t);
-              }}
-              focused={focused}
-              onFocus={() => setFocused(true)}
-              onBlur={() => {
-                setFocused(false);
-                if (draft.trim().length === 0) setDraft(displayName);
-              }}
-              placeholder={guestName}
-              maxLength={MAX_NAME_LENGTH}
-              autoCorrect={false}
-            />
-            {taken && (
-              <Text style={{ fontFamily: font.regular, fontSize: 13, color: teamColor.red }}>
-                That name is already taken — others will keep seeing your previous one until you pick another.
-              </Text>
+            {nameLocked ? (
+              <>
+                <View
+                  style={{
+                    minHeight: 56,
+                    justifyContent: "center",
+                    paddingHorizontal: 16,
+                    borderRadius: radius.md,
+                    borderWidth: 1,
+                    borderColor: palette.hairline,
+                    backgroundColor: palette.feltCharcoal,
+                  }}
+                >
+                  <Text style={{ fontFamily: font.regular, fontSize: 16, color: palette.mutedSteel }}>
+                    {serverName}
+                  </Text>
+                </View>
+                <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel }}>
+                  Usernames can only be changed once, and you've used yours.
+                </Text>
+              </>
+            ) : (
+              <>
+                <Field
+                  accessibilityLabel="Display name"
+                  value={draft}
+                  onChangeText={(t) => {
+                    setDraft(t);
+                    // A free claim off the guest handle saves as you type, the
+                    // way it always has. A real rename is irreversible, so it
+                    // waits for an explicit, confirmed commit below.
+                    if (!spendsAllowance) setName(t);
+                  }}
+                  focused={focused}
+                  onFocus={() => setFocused(true)}
+                  onBlur={() => {
+                    setFocused(false);
+                    if (draft.trim().length === 0) setDraft(onGuestHandle ? displayName : serverName);
+                  }}
+                  placeholder={guestName}
+                  maxLength={MAX_NAME_LENGTH}
+                  autoCorrect={false}
+                />
+
+                {taken ? (
+                  <Text style={{ fontFamily: font.regular, fontSize: 13, color: teamColor.red }}>
+                    That name is already taken — others will keep seeing your previous one until you pick another.
+                  </Text>
+                ) : onGuestHandle ? (
+                  <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel }}>
+                    Pick your username — friends find you by it. You can change it once after this.
+                  </Text>
+                ) : spendsAllowance ? (
+                  <>
+                    <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel }}>
+                      You can only change your username once. This is your one change.
+                    </Text>
+                    <Button label="Save username" onPress={onCommitName} />
+                  </>
+                ) : (
+                  <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel }}>
+                    You can change your username once. Friends find you by it.
+                  </Text>
+                )}
+              </>
             )}
           </Surface3D>
 

@@ -19,6 +19,7 @@ import { useNav } from "./src/store/navStore";
 import { initSound, setMusicActive } from "./src/lib/sound";
 import { initFeedback } from "./src/lib/feedback";
 import { initDeepLinks } from "./src/lib/invite";
+import { initPush } from "./src/lib/push";
 import { initFriends, initPresence } from "./src/store/friendsStore";
 import { useConfig } from "./src/store/configStore";
 import { useAds } from "./src/store/adsStore";
@@ -84,12 +85,16 @@ export default function App() {
     const stopDeepLinks = initDeepLinks();
     const stopFriends = initFriends();
     const stopPresence = initPresence();
+    // Listener only — registration (and the OS permission prompt) is deferred
+    // to the screens where push is obviously worth something. See lib/push.ts.
+    const stopPush = initPush();
     return () => {
       stopFeedback();
       stopProfileSync();
       stopDeepLinks();
       stopFriends();
       stopPresence();
+      stopPush();
     };
   }, []);
 

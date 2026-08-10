@@ -138,6 +138,7 @@ export const LIMITS = {
   gemsExchange: 20,
   gemsBuy: 20,
   roomCreate: 30,
+  roomInvite: 60,
   quickMatch: 60,
 } as const;
 

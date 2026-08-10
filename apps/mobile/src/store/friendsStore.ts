@@ -68,7 +68,7 @@ interface FriendsStore {
   accept: (id: string) => Promise<void>;
   remove: (id: string) => Promise<void>;
   block: (userId: string) => Promise<void>;
-  inviteToRoom: (userId: string, roomCode: string) => Promise<void>;
+  inviteToRoom: (userId: string, roomCode: string, stake?: number) => Promise<void>;
   /** Accept an invite: join the room and clear the invite. */
   acceptInvite: (invite: friends.RoomInvite) => Promise<void>;
   dismissInvite: (id: string) => Promise<void>;
@@ -177,8 +177,8 @@ export const useFriends = create<FriendsStore>((set, get) => ({
     });
   },
 
-  inviteToRoom: async (userId, roomCode) => {
-    await friends.sendRoomInvite(userId, roomCode);
+  inviteToRoom: async (userId, roomCode, stake = 0) => {
+    await friends.sendRoomInvite(userId, roomCode, stake);
   },
 
   acceptInvite: async (invite) => {

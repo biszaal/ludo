@@ -38,6 +38,10 @@ export interface RewardedConfig {
   /** Move hints in local / vs-AI only. Hints are hard-gated off in online PvP
    *  regardless of this flag — a bought advantage over a human is never ok. */
   hintLocalOnly: boolean;
+  /** Watch an ad for a small gem drip, hard-capped per day server-side.
+   *  Gems buy APPEARANCE only, so this stays on the right side of the
+   *  fairness invariant even though it touches the paid tier. */
+  gemGrant: boolean;
 }
 
 export interface AppConfig {
@@ -53,18 +57,25 @@ export interface AppConfig {
     dailyBonusBase: number;
     streakStep: number;
     streakMaxDay: number;
+    /** Streak day that also pays gems (the finale). */
+    gemDay: number;
+    /** Gems paid on that day. */
+    gemAmount: number;
     /** Quick-match entry tiers, low to high. */
     stakeTiers: number[];
   };
   shop: { enabled: boolean; coinPacksEnabled: boolean };
   gems: {
     enabled: boolean;
-    /** Real-money purchases live. Stays false until real billing ships. */
+    /** Real-money purchases live (0027). The stub provider stays locked off
+     *  server-side regardless — this flag only opens the real store path. */
     purchasesEnabled: boolean;
     /** Coins per gem in the one-way exchange. */
     exchangeRate: number;
     /** Smallest exchangeable amount. */
     exchangeMin: number;
+    /** The rewarded-ad drip. Display only — the server owns both numbers. */
+    adGrant: { amount: number; dailyCap: number };
     products: { id: string; gems: number; priceUsd: number }[];
   };
 }
@@ -83,7 +94,7 @@ export const DEFAULT_CONFIG: AppConfig = {
       maxPerSession: 3,
       suppressAfterStakedLoss: true,
     },
-    rewarded: { freeEntry: true, coinGrant: true, doublePot: true, hintLocalOnly: true },
+    rewarded: { freeEntry: true, coinGrant: true, doublePot: true, hintLocalOnly: true, gemGrant: true },
   },
   economy: {
     quickStake: 100,
@@ -91,14 +102,17 @@ export const DEFAULT_CONFIG: AppConfig = {
     dailyBonusBase: 50,
     streakStep: 25,
     streakMaxDay: 7,
+    gemDay: 7,
+    gemAmount: 5,
     stakeTiers: [100, 1000, 10000],
   },
   shop: { enabled: true, coinPacksEnabled: false },
   gems: {
     enabled: true,
-    purchasesEnabled: false,
+    purchasesEnabled: true,
     exchangeRate: 10,
     exchangeMin: 10,
+    adGrant: { amount: 1, dailyCap: 1 },
     products: [
       { id: "gems.small", gems: 60, priceUsd: 0.99 },
       { id: "gems.medium", gems: 340, priceUsd: 4.99 },

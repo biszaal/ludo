@@ -48,6 +48,8 @@ import {
   opDeleteAccount,
   opFriendCode,
   opFriendLookup,
+  opFriendSearch,
+  opRoomInvite,
   opFriendRequest,
   opFriendsRecent,
 } from "./social.ts";
@@ -65,7 +67,7 @@ Deno.serve(async (req: Request) => {
     const body = await req.json();
     switch (body.op) {
       case "create":
-        return await opCreate(admin, userId);
+        return await opCreate(admin, userId, body.stake == null ? null : Number(body.stake));
       case "join":
         return await opJoin(admin, userId, String(body.code ?? ""));
       case "start":
@@ -117,8 +119,18 @@ Deno.serve(async (req: Request) => {
         return await opFriendCode(admin, userId);
       case "friendLookup":
         return await opFriendLookup(admin, userId, String(body.code ?? ""));
+      case "friendSearch":
+        return await opFriendSearch(admin, userId, String(body.name ?? ""));
       case "friendRequest":
         return await opFriendRequest(admin, userId, String(body.toUserId ?? ""));
+      case "roomInvite":
+        return await opRoomInvite(
+          admin,
+          userId,
+          String(body.toUserId ?? ""),
+          String(body.roomCode ?? ""),
+          Number(body.stake ?? 0),
+        );
       case "friendsRecent":
         return await opFriendsRecent(admin, userId);
       case "deleteAccount":

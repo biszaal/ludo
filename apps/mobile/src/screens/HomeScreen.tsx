@@ -25,6 +25,7 @@ import { CoinsPill } from "../components/CoinsPill";
 import { GemsPill } from "../components/GemsPill";
 import { GetCoinsSheet } from "../components/GetCoinsSheet";
 import { GetGemsSheet } from "../components/GetGemsSheet";
+import { DailyBonusSheet } from "../components/DailyBonusSheet";
 import { AdSlot } from "../components/AdSlot";
 import { CycleGlyph, PeopleGlyph } from "../components/HomeGlyphs";
 import { ContentColumn } from "../components/ContentColumn";
@@ -41,7 +42,8 @@ import { useNav } from "../store/navStore";
 import { useProfile } from "../store/profileStore";
 import { useSettings } from "../store/settingsStore";
 import { incomingRequests, onlineFriendCount } from "../lib/friendship";
-import { nextDailyBonus } from "../lib/economy";
+import { nextDailyBonus, utcDay } from "../lib/economy";
+import { shouldAutoShow, useDailyBonus } from "../store/dailyBonusStore";
 import { font, palette, space } from "../theme";
 
 export function HomeScreen() {
@@ -50,6 +52,7 @@ export function HomeScreen() {
   const [roomSheet, setRoomSheet] = useState(false);
   const [quickSheet, setQuickSheet] = useState(false);
   const [gemsSheet, setGemsSheet] = useState(false);
+  const [bonusSheet, setBonusSheet] = useState(false);
   const [dioramaBox, setDioramaBox] = useState({ w: 0, h: 0 });
   const newLocalGame = useGameStore((s) => s.newLocalGame);
   const boardTheme = BOARD_THEMES[useSettings((s) => s.boardThemeId)];
@@ -81,6 +84,18 @@ export function HomeScreen() {
     void refreshWallet();
   }, [refreshWallet, onlineStatus]);
 
+  // Show the streak calendar once a day, after the wallet read settles — the
+  // claimable flag is server-derived, so opening before it lands would flash a
+  // stale state. The store only guards against re-popping: Home remounts on
+  // every popTo("home"), and a calendar that reopens after each match nags.
+  useEffect(() => {
+    if (!bonusClaimable) return;
+    const today = utcDay();
+    if (!shouldAutoShow(useDailyBonus.getState(), true, today)) return;
+    useDailyBonus.getState().noteAutoShown(today);
+    setBonusSheet(true);
+  }, [bonusClaimable]);
+
   // Warm the presence map so the friends-online line is real, not stale.
   useEffect(() => pollPresence(), []);
 
@@ -107,7 +122,7 @@ export function HomeScreen() {
       {/* Hero zone — the only part of the column that flexes. */}
       <View style={{ flex: 1, paddingHorizontal: space.lg, paddingTop: space.md, gap: space.sm }}>
         <DailyChestTile
-          onPress={() => setCoinsSheet(true)}
+          onPress={() => setBonusSheet(true)}
           claimable={bonusClaimable}
           streakDay={streakDay}
           nextBonus={nextDailyBonus(streakDay, economy)}
@@ -178,7 +193,8 @@ export function HomeScreen() {
         />
       )}
 
-      {coinsSheet && <GetCoinsSheet onClose={() => setCoinsSheet(false)} />}
+      {coinsSheet && <GetCoinsSheet onClose={() => setCoinsSheet(false)} onDailyBonus={() => { setCoinsSheet(false); setBonusSheet(true); }} />}
+      {bonusSheet && <DailyBonusSheet onClose={() => setBonusSheet(false)} />}
       {gemsSheet && <GetGemsSheet onClose={() => setGemsSheet(false)} />}
       {roomSheet && <RoomSheet onClose={() => setRoomSheet(false)} />}
       {quickSheet && (

@@ -55,8 +55,22 @@ describe("mergeConfig", () => {
     expect(merged.economy.quickStake).toBe(100); // sibling untouched
   });
 
-  it("defaults purchases OFF — the stub provider must never ship live", () => {
-    expect(DEFAULT_CONFIG.gems.purchasesEnabled).toBe(false);
+  it("never carries the stub-provider lock in client config", () => {
+    // purchasesEnabled is now TRUE (0027): the real store path is live, and it
+    // runs client -> RevenueCat -> rc-webhook -> gem_apply without ever
+    // touching opGemsBuy. The thing that must never ship live is the STUB,
+    // whose lock is gems.allowStubProvider — server-only, seeded false, and
+    // deliberately absent from this document. A client that cannot even name
+    // the flag cannot flip it.
+    expect(DEFAULT_CONFIG.gems.purchasesEnabled).toBe(true);
+    expect("allowStubProvider" in DEFAULT_CONFIG.gems).toBe(false);
+  });
+
+  it("ignores an allowStubProvider a tampered server row tries to inject", () => {
+    // mergeConfig drops unknown keys, so even a malicious config row cannot
+    // introduce the stub lock into the client's world.
+    const merged = mergeConfig(DEFAULT_CONFIG, { gems: { allowStubProvider: true } });
+    expect("allowStubProvider" in merged.gems).toBe(false);
   });
 });
 

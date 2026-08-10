@@ -13,7 +13,7 @@
 
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { getSupabase } from "../lib/supabase";
-import { ensureSignedIn } from "./api";
+import { ensureSignedIn, inviteToRoomOp } from "./api";
 
 export interface Friendship {
   id: string;
@@ -28,6 +28,8 @@ export interface RoomInvite {
   from_user_id: string;
   to_user_id: string;
   room_code: string;
+  /** Per-seat pot at invite time, for display. 0 = friendly game. */
+  stake: number;
   created_at: string;
 }
 
@@ -74,11 +76,15 @@ export async function removeFriendship(id: string): Promise<void> {
   await supabase.from("friendships").delete().eq("id", id);
 }
 
-/** Ping a friend to come join a room. Best-effort. */
-export async function sendRoomInvite(toUserId: string, roomCode: string): Promise<void> {
-  const me = await ensureSignedIn();
-  const supabase = getSupabase();
-  await supabase.from("room_invites").insert({ from_user_id: me, to_user_id: toUserId, room_code: roomCode });
+/** Ping a friend to come join a room. The stake rides along so the banner can
+ *  say what the game is worth before they commit.
+ *
+ *  Goes through the edge function rather than straight to the table: only the
+ *  server can reach Expo and actually push this, and an invite that arrives
+ *  solely over realtime is one that only reaches people already looking at the
+ *  app. The 0015 insert policy still stands as the backstop. */
+export async function sendRoomInvite(toUserId: string, roomCode: string, stake = 0): Promise<void> {
+  await inviteToRoomOp(toUserId, roomCode, stake);
 }
 
 export async function listMyInvites(): Promise<RoomInvite[]> {
@@ -86,7 +92,7 @@ export async function listMyInvites(): Promise<RoomInvite[]> {
   const supabase = getSupabase();
   const { data, error } = await supabase
     .from("room_invites")
-    .select("id, from_user_id, to_user_id, room_code, created_at")
+    .select("id, from_user_id, to_user_id, room_code, stake, created_at")
     .eq("to_user_id", me)
     .order("created_at", { ascending: false });
   if (error) return [];
