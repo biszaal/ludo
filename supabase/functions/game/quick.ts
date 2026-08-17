@@ -9,7 +9,6 @@
 // @deno-types="../_shared/engine/index.d.ts"
 import type { GameState } from "../_shared/engine/index.js";
 import {
-  afterResponse,
   genCode,
   json,
   LIMITS,
@@ -22,7 +21,7 @@ import {
   type Json,
   type SupabaseClient,
 } from "./lib.ts";
-import { claimOrCreateBotIdentity } from "./bots.ts";
+import { seatBots } from "./bots.ts";
 import { startGameNow } from "./deal.ts";
 import { walletApply } from "./wallet.ts";
 
@@ -143,28 +142,16 @@ export async function opQuickBotFill(admin: SupabaseClient, userId: string, game
 
   // Seat bots into every still-empty chair. Colors follow the room size
   // (1v1 diagonal red/yellow, 4-player clockwise) — mirrors the SQL claim.
+  // `visible: false` is load-bearing: a quick-match bot must be indistinguishable
+  // from a human, so the seat carries no marker (0035).
   const colors = seatColors(size);
-  for (let seat = seated.length; seat < size; seat++) {
-    const botUserId = await claimOrCreateBotIdentity(admin, gameId);
-    if (!botUserId) {
-      if (seat > 1) break; // enough seats for a game — start with what we have
-      return json({ error: "Could not find an opponent. Try again." });
-    }
-    const { error: seatErr } = await admin
-      .from("players")
-      .insert({ game_id: gameId, user_id: botUserId, color: colors[seat], seat });
-    if (seatErr) {
-      // A human took the seat between our read and the insert — release the
-      // identity; the human fills that chair instead.
-      afterResponse(
-        admin.from("bot_identities").update({ in_use_game_id: null }).eq("user_id", botUserId).eq("in_use_game_id", gameId),
-      );
-    } else {
-      // Awaited: the insert's trigger is what sets games.has_bots (0022), and
-      // startGameNow below reads that flag to decide whether to drive a bot.
-      await admin.from("game_bots").insert({ game_id: gameId, user_id: botUserId });
-    }
-  }
+  await seatBots(admin, gameId, seated.length, size, colors, false);
+
+  const { count } = await admin
+    .from("players")
+    .select("id", { count: "exact", head: true })
+    .eq("game_id", gameId);
+  if ((count ?? 0) < 2) return json({ error: "Could not find an opponent. Try again." });
 
   const started = await startGameNow(admin, gameId);
   return json(started);

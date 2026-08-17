@@ -26,7 +26,7 @@ import {
   type SupabaseClient,
   WRITE_FAILED,
 } from "./lib.ts";
-import { afterGameWrite, BOT_MAX_ACTIONS, BOT_STEP_PAUSE_MS } from "./bots.ts";
+import { afterGameWrite, BOT_MAX_ACTIONS, stepPauseMs } from "./bots.ts";
 import { recordFinishStats, settleIfFinished } from "./finish.ts";
 
 /**
@@ -190,7 +190,9 @@ function continueStalledTurn(
   afterResponse((async () => {
     let cur = from;
     for (let step = 1; step < BOT_MAX_ACTIONS; step++) {
-      await sleep(BOT_STEP_PAUSE_MS);
+      // 0 choices: this is an absent human's seat being played out, not a
+      // hidden opponent to make convincing — pace it for readability, not feel.
+      await sleep(stepPauseMs(0));
       const nextStep = await writeStalledStep(admin, gameId, awayPlayerId, cur.state, cur.v, cur.guard);
       if (!nextStep) return; // someone else owns the turn now — they'll settle it
       cur = nextStep;
@@ -200,40 +202,55 @@ function continueStalledTurn(
   })());
 }
 
+/** The games-row columns the stall driver needs. */
+export interface StalledGameRow {
+  id: string;
+  state: GameState;
+  turn_deadline: string | null;
+  state_version: number | null;
+  is_quick: boolean | null;
+  has_bots: boolean | null;
+}
+
 /**
- * The current turn idled past its deadline — the player's app is closed or
- * asleep, so nothing local can act for them. The server's bot policy plays the
- * turn for them (roll, then the policy's move, or a forced pass), including any
- * extra turns it earns. Any participant may call this (the idle player rarely
- * will); the server re-checks the clock, so a client can't trigger it early.
- * Every write is guarded on the turn_deadline it read — the deadline refreshes
- * on every write, so racing callers and a returning player can never double-act
- * a turn.
- *
- * The response carries the first action only; any extra turns it earns stream
- * in over realtime as they are written.
+ * Outcome of driving a stalled turn.
+ * - `advanced`: we wrote an action; `state`/`v` are authoritative.
+ * - `not-due`: the clock has not actually expired (or already advanced).
+ * - `raced`: someone else wrote first — their write stands, and whoever won
+ *   owns settling the turn.
  */
-export async function opTimeout(admin: SupabaseClient, userId: string, gameId: string): Promise<Response> {
-  const { data: game } = await admin
-    .from("games")
-    .select("id, state, turn_deadline, state_version, is_quick, has_bots")
-    .eq("id", gameId)
-    .single();
-  if (!game || !game.state) return json({ error: "Game not found." });
-  const v = (game.state_version as number | null) ?? 0;
+export type StalledOutcome =
+  | { kind: "advanced"; state: GameState; v: number }
+  | { kind: "not-due" }
+  | { kind: "raced" };
+
+/**
+ * Play the idle seat's turn with the server's bot policy: roll, then the
+ * policy's move (or a forced pass), including any extra turns it earns.
+ *
+ * Shared by opTimeout (a participant's device noticed the clock ran out) and
+ * the cron tick (nobody's device is watching at all). Keeping one body means
+ * the unattended path can't drift from the attended one — the auto-leave rule,
+ * the hidden-bot camouflage and the deadline guards are the same code.
+ *
+ * Every write is guarded on the turn_deadline it read. The deadline refreshes
+ * on every write, so racing drivers and a returning player can never double-act
+ * a turn: the loser's CAS simply misses.
+ *
+ * Only the first action is awaited; extra turns stream in over realtime as the
+ * deferred loop writes them.
+ */
+export async function advanceStalledGame(admin: SupabaseClient, game: StalledGameRow): Promise<StalledOutcome> {
+  const state = game.state;
+  const v = game.state_version ?? 0;
   const hasBots = !!game.has_bots;
+  const gameId = game.id;
+  if (state.status !== "active") return { kind: "not-due" };
 
-  const state = game.state as GameState;
-  if (state.status !== "active") return json({ error: "Game is not active." });
-
-  // Only participants can drive the room's clock.
-  if (!state.players.some((p) => p.userId === userId)) return json({ error: "You are not in this game." });
-
-  // Re-check the deadline server-side — the source of truth, not the caller.
+  // The clock is checked here, not at the call site: the source of truth is the
+  // row we just read, never the caller's opinion of the time.
   const deadline = game.turn_deadline ? Date.parse(game.turn_deadline) : NaN;
-  if (!Number.isFinite(deadline) || Date.now() < deadline) {
-    return json({ state, v }); // not actually expired (or already advanced) — no-op
-  }
+  if (!Number.isFinite(deadline) || Date.now() < deadline) return { kind: "not-due" };
 
   const awayPlayerId = state.currentTurnPlayerId;
   const awayUserId = state.players.find((p) => p.id === awayPlayerId)?.userId;
@@ -273,7 +290,7 @@ export async function opTimeout(admin: SupabaseClient, userId: string, gameId: s
       // another turn. Guard on the deadline we read so a racing caller (or
       // the player suddenly returning) can't double-apply.
       const next = engineLeaveGame(state, awayPlayerId, { now: Date.now() });
-      const { data: updated, error } = await admin
+      const { data: updated } = await admin
         .from("games")
         .update({ state: next, status: next.status, current_turn_player_id: next.currentTurnPlayerId, turn_deadline: turnDeadline(next), state_version: v + 1 })
         .eq("id", gameId)
@@ -281,17 +298,15 @@ export async function opTimeout(admin: SupabaseClient, userId: string, gameId: s
         .eq("state_version", v)
         .select("id")
         .maybeSingle();
-      if (error) return safeError("turn.write", error, WRITE_FAILED);
-      if (!updated) return await freshState(admin, gameId, state);
+      if (!updated) return { kind: "raced" };
       afterResponse(admin.from("moves").insert({ game_id: gameId, player_id: awayPlayerId, action: { action: "auto-leave", missed } }));
       await finishStalledTurn(admin, gameId, hasBots, next);
-      return json({ state: next, v: v + 1 });
+      return { kind: "advanced", state: next, v: v + 1 };
     }
   }
 
-  // First action inline, so the caller gets a fresh authoritative state back.
   const first = await writeStalledStep(admin, gameId, awayPlayerId, state, v, game.turn_deadline);
-  if (!first) return await freshState(admin, gameId, state);
+  if (!first) return { kind: "raced" };
 
   if (stillStalled(first, awayPlayerId)) {
     continueStalledTurn(admin, gameId, awayPlayerId, hasBots, first);
@@ -299,5 +314,35 @@ export async function opTimeout(admin: SupabaseClient, userId: string, gameId: s
     await finishStalledTurn(admin, gameId, hasBots, first.state);
   }
 
-  return json({ state: first.state, v: first.v });
+  return { kind: "advanced", state: first.state, v: first.v };
+}
+
+/**
+ * The current turn idled past its deadline — the player's app is closed or
+ * asleep, so nothing local can act for them. Any participant may call this (the
+ * idle player rarely will); the server re-checks the clock, so a client can't
+ * trigger it early.
+ *
+ * The response carries the first action only; any extra turns it earns stream
+ * in over realtime as they are written.
+ */
+export async function opTimeout(admin: SupabaseClient, userId: string, gameId: string): Promise<Response> {
+  const { data: game } = await admin
+    .from("games")
+    .select("id, state, turn_deadline, state_version, is_quick, has_bots")
+    .eq("id", gameId)
+    .single();
+  if (!game || !game.state) return json({ error: "Game not found." });
+  const v = (game.state_version as number | null) ?? 0;
+
+  const state = game.state as GameState;
+  if (state.status !== "active") return json({ error: "Game is not active." });
+
+  // Only participants can drive the room's clock.
+  if (!state.players.some((p) => p.userId === userId)) return json({ error: "You are not in this game." });
+
+  const outcome = await advanceStalledGame(admin, { ...(game as unknown as StalledGameRow), state });
+  if (outcome.kind === "advanced") return json({ state: outcome.state, v: outcome.v });
+  if (outcome.kind === "raced") return await freshState(admin, gameId, state);
+  return json({ state, v }); // not actually expired (or already advanced) — no-op
 }

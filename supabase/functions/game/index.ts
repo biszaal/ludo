@@ -21,6 +21,7 @@
  *   deal         dealing a room into a live game
  *   room         create / join / start / leave / rematch
  *   turn         roll / move / pass, and the stall bot
+ *   tick         cron heartbeat for abandoned games (secret-authed, no JWT)
  *   quick        matchmaking
  *   economy      wallet, daily bonus, rewarded ads, shop, gems, config
  *   social       friend discovery, account deletion
@@ -31,6 +32,7 @@ import { corsHeaders } from "../_shared/cors.ts";
 import { opCreate, opJoin, opLeave, opRematch, opStart } from "./room.ts";
 import { opTimeout, opTurn } from "./turn.ts";
 import { opQuickBotFill, opQuickMatch } from "./quick.ts";
+import { opTick } from "./tick.ts";
 import {
   opAdRewardIntent,
   opAdRewardStatus,
@@ -59,19 +61,25 @@ Deno.serve(async (req: Request) => {
 
   try {
     const admin = adminClient();
+    const body = await req.json();
+
+    // The one op with no user behind it: pg_cron's heartbeat for games every
+    // player has walked away from. It authenticates with a shared secret inside
+    // opTick (fail-closed) instead of a JWT — everything below still requires
+    // a signed-in caller.
+    if (body.op === "tick") return await opTick(admin, req);
 
     const token = (req.headers.get("Authorization") ?? "").replace("Bearer ", "");
     const userId = await authUserId(admin, token);
     if (!userId) return json({ error: "Not authenticated." });
 
-    const body = await req.json();
     switch (body.op) {
       case "create":
         return await opCreate(admin, userId, body.stake == null ? null : Number(body.stake));
       case "join":
         return await opJoin(admin, userId, String(body.code ?? ""));
       case "start":
-        return await opStart(admin, userId, String(body.gameId));
+        return await opStart(admin, userId, String(body.gameId), body.fill === true);
       case "roll":
         return await opTurn(admin, userId, String(body.gameId), "roll");
       case "move":

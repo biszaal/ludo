@@ -17,6 +17,19 @@ interface Seat {
 }
 
 /**
+ * The seats that actually pay into the pot.
+ *
+ * Bot seats never do. The house funds them and keeps their share if they place
+ * (finish.ts skips bot user_ids on payout), so charging them here would take
+ * coins from a pooled wallet and — once that wallet ran dry — fail the
+ * all-or-nothing collection and block the start outright. Both sides read
+ * game_bots, so the pot can't disagree with itself about who is a bot.
+ */
+export function payingSeats<T extends Seat>(lobby: T[], botUserIds: Set<string>): T[] {
+  return lobby.filter((p) => !botUserIds.has(p.user_id));
+}
+
+/**
  * Take the entry fee from every seat, all or nothing.
  *
  * There is no multi-row transaction available from here, so this debits in
@@ -86,7 +99,9 @@ export async function startGameNow(admin: SupabaseClient, gameId: string): Promi
   // seat (quick.ts), because there the seat is the matchmaking queue.
   const stake = (game.stake as number | null) ?? 0;
   if (!game.is_quick && stake > 0) {
-    const collected = await collectStakes(admin, gameId, lobby, stake);
+    const { data: bots } = await admin.from("game_bots").select("user_id").eq("game_id", gameId);
+    const botIds = new Set((bots ?? []).map((b) => String(b.user_id)));
+    const collected = await collectStakes(admin, gameId, payingSeats(lobby, botIds), stake);
     if ("error" in collected) return collected;
   }
 

@@ -20,14 +20,55 @@ import { chooseMove } from "../_shared/bot/index.js";
 import { afterResponse, cryptoRng, sleep, TURN_SECONDS, type SupabaseClient } from "./lib.ts";
 import { recordFinishStats, settleIfFinished } from "./finish.ts";
 
-/** Pause between the bot's writes so clients can animate each one — outlasts
- *  the ~700ms die tumble, mirroring the client autopilot's pacing. */
-export const BOT_STEP_PAUSE_MS = 900;
+/**
+ * Pacing.
+ *
+ * These pauses do NOT protect the animation. The client owns that: every
+ * realtime row is held for its own `stateAnimationMs` before the next is
+ * applied (onlineStore's enqueueGameRow), so writes arriving faster than the
+ * board can draw are queued and played in order rather than collapsed. The
+ * server pacing exists for one reason only — a seat that answers instantly,
+ * every time, to the millisecond, does not read as a person.
+ *
+ * That frees the pause to be shorter than the animation it overlaps. The
+ * board is then the bottleneck, which is exactly where the bottleneck belongs:
+ * the game runs at drawing speed with the queue always a step ahead, instead of
+ * at drawing speed PLUS a fixed 900ms of dead air per action.
+ *
+ * The old constants were a flat 900/900 metronome. A fixed interval is the
+ * loudest tell a bot has, so the replacements are ranges sampled per action.
+ */
+/** Think time between the bot's own writes, before jitter. */
+const BOT_STEP_PAUSE_MIN_MS = 320;
+const BOT_STEP_PAUSE_MAX_MS = 680;
+/** Beat before the hidden "opponent" reacts — reads as a human noticing their
+ *  turn. Wider than the step pause: picking up your phone is slower than
+ *  playing the next move once you are already looking at the board. */
+const BOT_TURN_LEAD_MIN_MS = 500;
+const BOT_TURN_LEAD_MAX_MS = 1500;
+/** Extra deliberation when the position actually presents a choice. Scaled by
+ *  how many legal moves there are, capped so a four-way choice is not a stall. */
+const BOT_PER_CHOICE_MS = 110;
+const BOT_MAX_CHOICES = 3;
+
 /** Safety cap on one call's bot actions (extra turns from 6s/captures chain).
  *  If a turn somehow runs longer, the peers' timers fire again and resume. */
 export const BOT_MAX_ACTIONS = 8;
-/** Beat before the hidden "opponent" reacts — reads as a human noticing their turn. */
-const BOT_TURN_LEAD_MS = 900;
+
+/** Uniform sample in [min, max]. */
+function jitter(min: number, max: number): number {
+  return min + cryptoRng() * (max - min);
+}
+
+/**
+ * How long to wait before the bot's next write. `choices` is the number of
+ * legal moves it just chose between — 0 for a roll or a forced pass, which are
+ * not decisions and should not look like ones.
+ */
+export function stepPauseMs(choices: number): number {
+  const deliberation = Math.min(choices, BOT_MAX_CHOICES) * BOT_PER_CHOICE_MS;
+  return jitter(BOT_STEP_PAUSE_MIN_MS, BOT_STEP_PAUSE_MAX_MS) + deliberation;
+}
 /** Short deadline while the server drives a bot: if the driving isolate dies,
  *  any client's timeout call resumes the turn after ~12s instead of 30. */
 const BOT_TURN_SECONDS = 12;
@@ -103,6 +144,49 @@ export async function claimOrCreateBotIdentity(admin: SupabaseClient, gameId: st
 }
 
 /**
+ * Seat bots into every still-empty chair, from `seated.length` up to `size`.
+ *
+ * Shared by quick match (hidden fill-in when nobody shows up) and friend rooms
+ * (the host explicitly asked to fill). `visible` is the only difference: it
+ * sets players.is_bot, which the client turns into a BOT tag. Quick match must
+ * pass false or the camouflage is gone (0035).
+ *
+ * Returns how many were seated. A pool that can't produce an identity stops the
+ * loop rather than failing the call — the caller decides whether what it got is
+ * enough to play with.
+ */
+export async function seatBots(
+  admin: SupabaseClient,
+  gameId: string,
+  fromSeat: number,
+  size: number,
+  colors: readonly string[],
+  visible: boolean,
+): Promise<number> {
+  let added = 0;
+  for (let seat = fromSeat; seat < size; seat++) {
+    const botUserId = await claimOrCreateBotIdentity(admin, gameId);
+    if (!botUserId) break;
+    const { error: seatErr } = await admin
+      .from("players")
+      .insert({ game_id: gameId, user_id: botUserId, color: colors[seat], seat, is_bot: visible });
+    if (seatErr) {
+      // A human took the seat between our read and the insert — release the
+      // identity; the human fills that chair instead.
+      afterResponse(
+        admin.from("bot_identities").update({ in_use_game_id: null }).eq("user_id", botUserId).eq("in_use_game_id", gameId),
+      );
+      continue;
+    }
+    // Awaited: the insert's trigger is what sets games.has_bots (0022), and the
+    // caller's startGameNow reads that flag to decide whether to drive a bot.
+    await admin.from("game_bots").insert({ game_id: gameId, user_id: botUserId });
+    added++;
+  }
+  return added;
+}
+
+/**
  * Post-write hook for rooms with a hidden seat: on finish, release the bots'
  * identities back to the pool; while active, if the turn just landed on a bot,
  * drive it after a human-feeling pause. Runs via waitUntil — never on the
@@ -140,25 +224,42 @@ export function afterGameWrite(admin: SupabaseClient, gameId: string, hasBots: b
 
       const uid = next.players.find((p) => p.id === next.currentTurnPlayerId)?.userId;
       if (!uid || !botIds.has(uid)) return;
-      await sleep(BOT_TURN_LEAD_MS);
+      await sleep(jitter(BOT_TURN_LEAD_MIN_MS, BOT_TURN_LEAD_MAX_MS));
       await driveBotTurns(admin, gameId, botIds);
     })(),
   );
 }
 
 /**
- * Server-side driver for hidden-bot seats: re-read, act, CAS-write, pace,
- * repeat while the turn belongs to a bot. Re-reading every step makes racing
- * drivers harmless — a lost write just re-reads the winner's row and carries
- * on from there. The step cap bounds one isolate's run; the short bot deadline
- * plus the clients' opTimeout path resumes a turn if the isolate is evicted.
+ * Server-side driver for hidden-bot seats: act, CAS-write, pace, repeat while
+ * the turn belongs to a bot. The step cap bounds one isolate's run; the short
+ * bot deadline plus the clients' opTimeout path resumes a turn if the isolate
+ * is evicted.
+ *
+ * State is carried forward between steps rather than re-read. The loop used to
+ * open every iteration with a SELECT, including the overwhelmingly common case
+ * where the previous iteration had just written that exact row and won the CAS
+ * — a full round trip per bot action to fetch something already in hand. On a
+ * chained turn (six, capture, six) that was three wasted round trips before the
+ * player saw anything move.
+ *
+ * Racing drivers stay harmless because the CAS is what actually decides. A lost
+ * write drops `cur` and the next iteration re-reads the winner's row, which is
+ * the old behaviour on exactly the path that needs it.
  */
 async function driveBotTurns(admin: SupabaseClient, gameId: string, botIds: Set<string>): Promise<void> {
+  let cur: GameState | null = null;
+  let v = 0;
+
   for (let step = 0; step < BOT_MAX_ACTIONS * 3; step++) {
-    const { data: game } = await admin.from("games").select("state, state_version").eq("id", gameId).single();
-    const cur = game?.state as GameState | undefined;
-    if (!cur) return;
-    const v = (game!.state_version as number | null) ?? 0;
+    if (!cur) {
+      const { data: game } = await admin.from("games").select("state, state_version").eq("id", gameId).single();
+      const fetched = game?.state as GameState | undefined;
+      if (!fetched) return;
+      cur = fetched;
+      v = (game!.state_version as number | null) ?? 0;
+    }
+
     if (cur.status !== "active") {
       await admin.from("bot_identities").update({ in_use_game_id: null }).eq("in_use_game_id", gameId);
       return;
@@ -169,6 +270,9 @@ async function driveBotTurns(admin: SupabaseClient, gameId: string, botIds: Set<
 
     let next: GameState;
     let logged: Record<string, unknown>;
+    // Number of options the bot weighed, for pacing: a real player pauses over
+    // a choice and plays a forced move straight away.
+    let choices = 0;
     if (cur.phase === "awaiting-roll") {
       const roll = rollDice(cur, cryptoRng);
       next = roll.newState;
@@ -182,6 +286,7 @@ async function driveBotTurns(admin: SupabaseClient, gameId: string, botIds: Set<
         const move = chooseMove(cur, pid, moves);
         next = applyMove(cur, { tokenId: move.tokenId });
         logged = { action: "bot-move", tokenId: move.tokenId, dice: cur.diceValue };
+        choices = moves.length;
       }
     }
 
@@ -212,8 +317,13 @@ async function driveBotTurns(admin: SupabaseClient, gameId: string, botIds: Set<
         return;
       }
       if (!nextIsBot) return;
+      // We own the row: carry it forward instead of re-reading it next step.
+      cur = next;
+      v = v + 1;
+    } else {
+      // CAS loss: someone else wrote first. Drop our copy and re-read theirs.
+      cur = null;
     }
-    // CAS loss: loop back, re-read the winner's row and re-decide from there.
-    await sleep(BOT_STEP_PAUSE_MS);
+    await sleep(stepPauseMs(choices));
   }
 }

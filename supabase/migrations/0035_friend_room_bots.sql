@@ -1,0 +1,23 @@
+-- Openly-labelled bots for friend rooms.
+--
+-- Quick match seats HIDDEN bots: nothing client-readable marks the seat, which
+-- is the whole point (0009). A friend room is the opposite situation. The host
+-- deliberately asks to fill the empty chairs, everyone at the table knows who
+-- was invited, and an unexplained stranger called "Maya" appearing in a private
+-- room would read as a stranger walking in — worse than saying "bot" plainly.
+--
+-- So bot-ness becomes visible per SEAT, never per identity:
+--
+--   is_bot = true   friend room, host chose to fill  -> client shows a BOT tag
+--   is_bot = false  quick match fill-in              -> camouflage intact
+--
+-- The bot identity pool (bot_identities / game_bots) is untouched and stays
+-- service-role only. The same pooled identity can play a labelled seat in one
+-- game and a hidden seat in the next; only this per-row flag differs, so
+-- nothing about a quick-match opponent can be inferred from it.
+--
+-- SELECT on players is granted table-wide and row-scoped by the
+-- "players: participants read" policy (0019), so this column is readable by
+-- the people already able to see the seat, and nobody else.
+
+alter table public.players add column if not exists is_bot boolean not null default false;

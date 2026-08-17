@@ -183,51 +183,51 @@ export async function opGemsExchange(
   return json({ gems: (row?.gems as number | null) ?? 0, balance: (row?.balance as number | null) ?? 0 });
 }
 
-/** Once per UTC day, growing with the streak. Idempotent by date: the claim is
- *  a conditional update, so a double-tap or a retry can't pay twice. */
+/**
+ * Once per UTC day, growing with the streak.
+ *
+ * The claim-the-day and credit-the-coins halves are ONE transaction inside
+ * daily_bonus_claim (0033). They used to be a CAS here followed by a separate
+ * wallet_apply, which could burn the day and then fail to pay — the player
+ * saw a "+50" celebration with an unchanged balance and no way to retry.
+ * Anything short of both halves landing now rolls back to neither.
+ */
 export async function opDailyBonus(admin: SupabaseClient, userId: string): Promise<Response> {
   if (!(await rateOk(admin, userId, "dailyBonus", LIMITS.dailyBonus))) return rateLimited();
   const today = utcDay();
+
+  const { data, error } = await admin.rpc("daily_bonus_claim", {
+    p_user: userId,
+    p_base: DAILY_BONUS_BASE,
+    p_step: DAILY_STREAK_STEP,
+    p_max: DAILY_STREAK_MAX,
+  });
+  // A failed claim must NOT read as "already claimed" — that is what told
+  // players with a flaky connection the bonus was gone for the day. Surface the
+  // error so the client can offer the button again.
+  if (error) return json({ error: "Could not claim the bonus. Try again." });
+
+  const row = (Array.isArray(data) ? data[0] : data) as
+    | { balance: number; streak_day: number; claimed: number; already: boolean }
+    | null;
+  if (!row) return json({ error: "Could not claim the bonus. Try again." });
+
+  const streak = row.streak_day;
   const w = await readWallet(admin, userId);
-  if (w.last_bonus_on === today) {
+  if (row.already) {
     return json({
-      balance: w.balance,
+      balance: row.balance,
       gems: w.gems,
-      streakDay: w.streak_day,
+      streakDay: streak,
       claimed: 0,
       gemsClaimed: 0,
       bonusClaimable: false,
     });
   }
 
-  // Consecutive only if yesterday's claim is the last one on record.
-  const yesterday = utcDay(new Date(Date.now() - 86_400_000));
-  const streak = w.last_bonus_on === yesterday ? Math.min(w.streak_day + 1, DAILY_STREAK_MAX) : 1;
-
-  // CAS on last_bonus_on: whoever flips it away from the old value owns the payout.
-  const claim = admin.from("wallets").update({ last_bonus_on: today, streak_day: streak }).eq("user_id", userId);
-  const { data: claimed } = await (w.last_bonus_on === null
-    ? claim.is("last_bonus_on", null)
-    : claim.eq("last_bonus_on", w.last_bonus_on)
-  ).select("user_id").maybeSingle();
-  if (!claimed) {
-    const fresh = await readWallet(admin, userId);
-    return json({
-      balance: fresh.balance,
-      gems: fresh.gems,
-      streakDay: fresh.streak_day,
-      claimed: 0,
-      gemsClaimed: 0,
-      bonusClaimable: false,
-    });
-  }
-
-  const amount = DAILY_BONUS_BASE + DAILY_STREAK_STEP * (streak - 1);
-  const balance = await walletApply(admin, userId, amount, "daily-bonus", null);
-
-  // Streak finale also pays gems (0027). Separate ledger, so it needs its own
-  // replay guard: the CAS above owns the DAY, and this ext_id owns the GEMS —
-  // a retry that lands after the CAS but before this still cannot double-pay.
+  // Streak finale also pays gems (0027). Separate ledger, so it keeps its own
+  // replay guard: the claim above owns the DAY, and this ext_id owns the GEMS —
+  // a retry that lands after the claim but before this still cannot double-pay.
   const cfg = await serverConfig(admin);
   const gemsCfg = (cfg.gems ?? {}) as Json;
   const economyCfg = (cfg.economy ?? {}) as Json;
@@ -245,10 +245,10 @@ export async function opDailyBonus(admin: SupabaseClient, userId: string): Promi
   }
 
   return json({
-    balance: balance ?? w.balance,
+    balance: row.balance,
     gems,
     streakDay: streak,
-    claimed: amount,
+    claimed: row.claimed,
     gemsClaimed,
     bonusClaimable: false,
   });

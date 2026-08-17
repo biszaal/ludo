@@ -12,7 +12,7 @@
 import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { LIMITS, rateLimited, rateOk, safeError, WRITE_FAILED } from "./lib.ts";
 import type { SupabaseClient } from "./lib.ts";
-import { collectStakes } from "./deal.ts";
+import { collectStakes, payingSeats } from "./deal.ts";
 
 /** Minimal stand-in for the bits of the client these helpers touch. */
 function stubClient(rpc: (name: string, args: unknown) => { data: unknown; error: unknown }): SupabaseClient {
@@ -174,4 +174,25 @@ Deno.test("collectStakes leaves refunds un-deduped so the unwind can't no-op", a
 
   const refund = calls.find((c) => Number(c.args.p_delta) > 0)!;
   assertEquals(refund.args.p_ext_id, null);
+});
+
+// --- payingSeats (who funds a friend-room pot) --------------------------------
+
+Deno.test("payingSeats excludes bot seats from the pot", () => {
+  // A host filling a 3-friend room seats one bot. Charging it would take coins
+  // from a pooled wallet, and once that ran dry the all-or-nothing collection
+  // would fail and block the start for everyone.
+  const lobby = seats("a", "b", "c", "bot1");
+  assertEquals(payingSeats(lobby, new Set(["bot1"])).map((s) => s.user_id), ["a", "b", "c"]);
+});
+
+Deno.test("payingSeats charges everyone when there are no bots", () => {
+  const lobby = seats("a", "b");
+  assertEquals(payingSeats(lobby, new Set()).map((s) => s.user_id), ["a", "b"]);
+});
+
+Deno.test("payingSeats can empty the pot when every remaining seat is a bot", () => {
+  // A solo host who filled the table: nobody pays in, and finish.ts pays only
+  // them — the house covers the other three seats either way.
+  assertEquals(payingSeats(seats("bot1", "bot2"), new Set(["bot1", "bot2"])), []);
 });

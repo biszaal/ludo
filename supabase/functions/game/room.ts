@@ -26,7 +26,7 @@ import {
   type SupabaseClient,
   WRITE_FAILED,
 } from "./lib.ts";
-import { afterGameWrite } from "./bots.ts";
+import { afterGameWrite, seatBots } from "./bots.ts";
 import { startGameNow } from "./deal.ts";
 import { recordFinishStats, settleIfFinished } from "./finish.ts";
 import { walletApply } from "./wallet.ts";
@@ -106,25 +106,83 @@ export async function opJoin(admin: SupabaseClient, userId: string, rawCode: str
   return json({ gameId: game.id, roomCode, playerId: player.id, stake });
 }
 
-export async function opStart(admin: SupabaseClient, userId: string, gameId: string): Promise<Response> {
-  const { data: game } = await admin.from("games").select("id, host_user_id, status").eq("id", gameId).single();
+/**
+ * Host starts the room. With `fill`, the empty chairs are seated with bots
+ * first, so three friends can play a full four-handed game instead of waiting
+ * on a fourth who isn't coming.
+ *
+ * Unlike quick match these bots are LABELLED (players.is_bot, 0035). In a
+ * private room everyone knows who was invited, so an unexplained extra name
+ * would read as a stranger walking in.
+ *
+ * FRIENDLY ROOMS ONLY. The pot is stake × every seat and the house stands the
+ * bot seats' share (finish.ts), which is fine when nobody chose to be matched
+ * with a bot — but a host who can summon them on demand could open a
+ * max-stake room, fill it with three bots, and farm the house at better than
+ * even odds. Staked rooms need real opponents; the client hides the toggle,
+ * and this is the rule that actually enforces it.
+ */
+export async function opStart(
+  admin: SupabaseClient,
+  userId: string,
+  gameId: string,
+  fill: boolean,
+): Promise<Response> {
+  const { data: game } = await admin
+    .from("games")
+    .select("id, host_user_id, status, stake")
+    .eq("id", gameId)
+    .single();
   if (!game) return json({ error: "Game not found." });
   if (game.host_user_id !== userId) return json({ error: "Only the host can start." });
   if (game.status !== "waiting") return json({ error: "Game already started." });
+
+  if (fill) {
+    if (((game.stake as number | null) ?? 0) > 0) {
+      return json({ error: "Bots can only fill a friendly room. Coin games need real players." });
+    }
+    const { data: seated } = await admin.from("players").select("id").eq("game_id", gameId);
+    const taken = seated?.length ?? 0;
+    // A lone host filling up gets a full table; otherwise top up to four.
+    if (taken < FULL_ORDER.length) {
+      await seatBots(admin, gameId, taken, FULL_ORDER.length, FULL_ORDER, true);
+    }
+  }
+
   const started = await startGameNow(admin, gameId);
   return json(started);
 }
 
 /**
+ * Hand a waiting quick-match room's entry fees back.
+ *
+ * The ext_id is what makes this safe to call from a fire-and-forget leave: the
+ * client sends `leave` without awaiting it and the reaper may sweep the same
+ * room later, so the refund has to be idempotent per (game, player) rather than
+ * merely rare. wallet_txns_ext_id_uidx (0013) is the backstop.
+ */
+async function refundSeats(
+  admin: SupabaseClient,
+  gameId: string,
+  stake: number,
+  userIds: string[],
+): Promise<void> {
+  for (const uid of new Set(userIds)) {
+    await walletApply(admin, uid, stake, "stake-refund", gameId, "earned", `leave-refund:${gameId}:${uid}`);
+  }
+}
+
+/**
  * A player quits the room for good. Active game: the engine removes their
- * tokens and skips their turns from now on (2-player: the opponent wins).
- * Waiting lobby: the seat is freed (non-host). Idempotent and safe to call
- * as a fire-and-forget on the way out.
+ * tokens and skips their turns from now on (2-player: the opponent wins) — the
+ * stake is forfeited, which the client warns about before calling this.
+ * Waiting lobby: the seat is freed and any quick-match entry is refunded.
+ * Idempotent and safe to call as a fire-and-forget on the way out.
  */
 export async function opLeave(admin: SupabaseClient, userId: string, gameId: string): Promise<Response> {
   const { data: game } = await admin
     .from("games")
-    .select("id, host_user_id, status, state, state_version, is_quick, has_bots")
+    .select("id, host_user_id, status, state, state_version, is_quick, has_bots, stake")
     .eq("id", gameId)
     .single();
   if (!game) return json({ error: "Game not found." });
@@ -133,8 +191,14 @@ export async function opLeave(admin: SupabaseClient, userId: string, gameId: str
   if (game.status === "waiting") {
     if (game.is_quick && game.host_user_id === userId) {
       // Cancel matchmaking: tear the queue room down so another searcher
-      // can't claim a seat opposite someone who already walked away. The
-      // status guard no-ops if a claim+start won the race (no refund then —
+      // can't claim a seat opposite someone who already walked away.
+      //
+      // Read the seats BEFORE the delete — `players` cascades from `games`, so
+      // afterwards there is nothing left to tell us who to pay back. Every
+      // seated player was debited by quick_match_claim, not just the host, so
+      // cancelling a part-filled 4-player room has to refund all of them.
+      const { data: seated } = await admin.from("players").select("user_id").eq("game_id", gameId);
+      // The status guard no-ops if a claim+start won the race (no refund then —
       // the game is live and the stake rides on it).
       const { data: deleted } = await admin
         .from("games")
@@ -143,13 +207,32 @@ export async function opLeave(admin: SupabaseClient, userId: string, gameId: str
         .eq("status", "waiting")
         .select("stake");
       const stake = (deleted?.[0]?.stake as number | null) ?? 0;
-      if (stake > 0) await walletApply(admin, userId, stake, "stake-refund", gameId);
+      if (stake > 0) await refundSeats(admin, gameId, stake, (seated ?? []).map((p) => String(p.user_id)));
       return json({ ok: true });
     }
     // Free the seat so someone else can take it. The host's seat stays (the
     // room is theirs); their absence just leaves the lobby idle.
     if (game.host_user_id !== userId) {
-      await admin.from("players").delete().eq("game_id", gameId).eq("user_id", userId);
+      const { data: removed } = await admin
+        .from("players")
+        .delete()
+        .eq("game_id", gameId)
+        .eq("user_id", userId)
+        .select("id");
+      // Nothing was seated (already left, or never here) — nothing to refund.
+      if (!removed?.length) return json({ ok: true });
+
+      // Quick match debits on seat claim (quick.ts), so a guest walking out of
+      // the queue is owed their entry back. Friend rooms don't debit until the
+      // host starts (deal.ts), so there is nothing to return there.
+      const stake = (game.stake as number | null) ?? 0;
+      if (game.is_quick && stake > 0) {
+        // Re-read the status: a claim+start could have filled the table between
+        // our read and this delete, and once the game is live the stake rides
+        // on it — refunding then would hand a seated player their entry back.
+        const { data: after } = await admin.from("games").select("status").eq("id", gameId).maybeSingle();
+        if (after?.status === "waiting") await refundSeats(admin, gameId, stake, [userId]);
+      }
     }
     return json({ ok: true });
   }
