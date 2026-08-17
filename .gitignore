@@ -20,6 +20,7 @@ build/
 !.env.example
 
 # Expo / React Native
+.expo/
 apps/mobile/.expo/
 apps/mobile/web-build/
 apps/mobile/ios/
