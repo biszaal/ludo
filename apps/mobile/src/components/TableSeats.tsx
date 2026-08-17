@@ -31,7 +31,19 @@ import { palette, radius, teamColor, teamTint } from "../theme";
 import type { Color as PlayerColor } from "@ludo/engine";
 
 export interface SeatOccupant {
-  /** Avatar id from the player's profile; a null id falls back to a default face. */
+  /**
+   * Avatar id for the face in this seat. The three states are distinct and the
+   * seat renders each differently:
+   *
+   *   string     — show that character.
+   *   null       — profile is known and carries no avatar: show the default face.
+   *   undefined  — profile has not arrived yet: show NO face.
+   *
+   * The last one used to render the default face too, which meant a real player
+   * sat down and everyone watched a specific stranger's character appear in
+   * their seat, then swap to the right one when the profile fetch landed. An
+   * empty pad is honest about not knowing yet; a wrong face is not.
+   */
   avatarId: string | null | undefined;
 }
 
@@ -241,7 +253,9 @@ function SeatPad({
           avatarStyle,
         ]}
       >
-        {occupant ? <AvatarGlyph id={occupant.avatarId} size={size - 4} /> : null}
+        {occupant && occupant.avatarId !== undefined ? (
+          <AvatarGlyph id={occupant.avatarId} size={size - 4} />
+        ) : null}
       </Animated.View>
     </View>
   );

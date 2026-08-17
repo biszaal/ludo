@@ -23,6 +23,7 @@ import { initPush } from "./src/lib/push";
 import { initFriends, initPresence } from "./src/store/friendsStore";
 import { useConfig } from "./src/store/configStore";
 import { useAds } from "./src/store/adsStore";
+import { useWallet } from "./src/store/walletStore";
 import { initAds } from "./src/lib/ads/provider";
 import { initProfileSync } from "./src/net/profileSync";
 import { initPurchases, syncPurchasesUser } from "./src/lib/purchases";
@@ -108,6 +109,10 @@ export default function App() {
       if (next === "active") {
         online.setAway(false);
         void online.resync();
+        // A pot can settle while the app is closed — a match you left after
+        // finishing pays out when the LAST player comes home, long after you
+        // stopped watching. Re-read the balance so those coins actually show up.
+        void useWallet.getState().refresh();
       } else {
         online.setAway(true); // opponents see an "Away" badge while I'm out
       }

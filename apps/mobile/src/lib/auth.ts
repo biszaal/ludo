@@ -12,6 +12,7 @@
  */
 
 import { getSupabase } from "./supabase";
+import { forgetIdentity } from "./identityClient";
 import { syncPurchasesUser } from "./purchases";
 import { getProfiles, deleteAccount as apiDeleteAccount } from "../net/api";
 import { useWallet } from "../store/walletStore";
@@ -61,6 +62,10 @@ export async function signIn(email: string, password: string): Promise<AuthResul
 export async function signOutToGuest(): Promise<void> {
   const supabase = getSupabase();
   await supabase.auth.signOut();
+  // Drop the keychain lifeline first, or ensureSignedIn would helpfully restore
+  // the account we were just asked to leave. Safe to lose: the account signed
+  // out of here is a saved one, recoverable with its email and password.
+  await forgetIdentity();
   await supabase.auth.signInAnonymously();
   await rehydrateAfterAuth();
 }
@@ -78,6 +83,10 @@ export async function deleteAccount(): Promise<AuthResult> {
   // guest so nothing from the deleted account lingers locally.
   const supabase = getSupabase();
   await supabase.auth.signOut().catch(() => {});
+  // The auth user is gone server-side, so its refresh token is worthless — but
+  // leaving it in the keychain would have every later launch try to recover a
+  // deleted account before giving up.
+  await forgetIdentity();
   resetLocalIdentity();
   await supabase.auth.signInAnonymously().catch(() => {});
   await rehydrateAfterAuth();

@@ -82,6 +82,15 @@ export function OnlineGameScreen() {
   const leftOf = (playerId: string): boolean =>
     !!state.players.find((p) => p.id === playerId)?.hasLeft;
 
+  // A bot the host filled a friend room with. Reads the same players row as
+  // presence; quick-match fill-ins are never flagged, so this stays false for
+  // them and their camouflage holds.
+  const botOf = (playerId: string): boolean => {
+    const player = state.players.find((p) => p.id === playerId);
+    if (!player) return false;
+    return lobby.find((l) => l.user_id === player.userId)?.is_bot ?? false;
+  };
+
   return (
     <GameView
       state={state}
@@ -113,6 +122,7 @@ export function OnlineGameScreen() {
       diceSkinFor={(playerId) => (isMe(playerId) ? myDiceSkin : (profileOf(playerId)?.dice_skin ?? null))}
       offlineFor={offlineOf}
       leftFor={leftOf}
+      botFor={botOf}
       turnTimer={state.status === "active" ? { seq: turnSeq, seconds: TURN_SECONDS } : null}
       autoPilot={autoPilot && myPlayerId ? { playerId: myPlayerId, onTakeControl: takeControl } : null}
       roomCode={roomCode}

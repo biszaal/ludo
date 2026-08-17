@@ -18,9 +18,12 @@ interface PauseMenuProps {
   onLeave: () => void;
   /** Two-step leave (online: leaving abandons the match for you only). */
   confirmLeave?: boolean;
+  /** Coins this seat staked and would forfeit by walking out mid-match. 0 for a
+   *  friendly game, and 0 once this seat has finished (their place is banked). */
+  forfeitCoins?: number;
 }
 
-export function PauseMenu({ onResume, onLeave, confirmLeave = false }: PauseMenuProps) {
+export function PauseMenu({ onResume, onLeave, confirmLeave = false, forfeitCoins = 0 }: PauseMenuProps) {
   const settings = useSettings();
   const push = useNav((s) => s.push);
   const [confirming, setConfirming] = useState(false);
@@ -88,7 +91,9 @@ export function PauseMenu({ onResume, onLeave, confirmLeave = false }: PauseMenu
         {confirming ? (
           <View style={{ gap: space.sm }}>
             <Text style={{ fontFamily: font.medium, fontSize: 15, color: palette.porcelain, textAlign: "center" }}>
-              Leave the match? The others keep playing.
+              {forfeitCoins > 0
+                ? `Leave now and your ${forfeitCoins}-coin entry is gone — you can't win it back. The others keep playing.`
+                : "Leave the match? The others keep playing."}
             </Text>
             <View style={{ flexDirection: "row", gap: space.sm }}>
               <View style={{ flex: 1 }}>

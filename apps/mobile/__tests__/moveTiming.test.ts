@@ -5,7 +5,7 @@
 
 import { describe, it, expect } from "vitest";
 import { createGame, fromRelativeIndex, type GameState, type TokenPosition } from "@ludo/engine";
-import { FLY_MS, HOP_STEP_MS, moveDurationMs, stateAnimationMs } from "../src/lib/moveTiming";
+import { DICE_ROLL_MS, FLY_MS, HOP_STEP_MS, moveDurationMs, stateAnimationMs } from "../src/lib/moveTiming";
 import { RETURN_TOTAL_MS } from "../src/render/waypoints";
 
 describe("moveDurationMs", () => {
@@ -91,6 +91,28 @@ describe("stateAnimationMs", () => {
   it("uses the fly time for a resync-style jump (>6 cells)", () => {
     const prev = withToken(base(), "red-0", fromRelativeIndex("red", 5));
     const next = withToken(prev, "red-0", fromRelativeIndex("red", 20));
+    expect(stateAnimationMs(prev, next)).toBe(FLY_MS);
+  });
+
+  // A roll moves no token, so this used to be 0 and the row queue held the
+  // next state for 80ms — an opponent's pawn moved before their die landed and
+  // nobody could read the number.
+  it("holds for the die tumble on a roll that moves nothing", () => {
+    const prev = base();
+    const next = { ...prev, phase: "awaiting-move" as const, diceValue: 4 };
+    expect(stateAnimationMs(prev, next)).toBeGreaterThanOrEqual(DICE_ROLL_MS);
+  });
+
+  it("adds the tumble ahead of the mover when a roll and a move arrive together", () => {
+    const prev = withToken(base(), "red-0", fromRelativeIndex("red", 5));
+    const moved = withToken(prev, "red-0", fromRelativeIndex("red", 9));
+    const next = { ...moved, phase: "awaiting-move" as const, diceValue: 4 };
+    expect(stateAnimationMs(prev, next)).toBeGreaterThan(4 * HOP_STEP_MS + DICE_ROLL_MS);
+  });
+
+  it("does not re-hold when the dice value is unchanged", () => {
+    const prev = { ...base(), phase: "awaiting-move" as const, diceValue: 4 };
+    const next = withToken(prev, "red-0", fromRelativeIndex("red", 4));
     expect(stateAnimationMs(prev, next)).toBe(FLY_MS);
   });
 });

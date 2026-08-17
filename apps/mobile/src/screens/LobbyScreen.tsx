@@ -10,20 +10,22 @@
  * whoever is short and costs nothing until someone actually presses start.
  */
 
-import { useEffect, useRef, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Alert, Pressable, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { TableBackground } from "../components/TableBackground";
 import { Button } from "../components/Button";
 import { AvatarGlyph } from "../components/Avatar";
 import { AddFriendButton } from "../components/AddFriendButton";
+import { SettingRow } from "../components/SettingRow";
+import { InviteFriendsSheet } from "../components/InviteFriendsSheet";
 import { Surface3D } from "../components/Surface3D";
 import { QuickMatchSearch } from "../components/QuickMatchSearch";
 import { useOnlineStore } from "../store/onlineStore";
 import { setBackInterceptor } from "../store/navStore";
 import { seatColors } from "../lib/seating";
 import { CoinGlyph } from "../components/CoinsPill";
-import { copyCode, shareInvite } from "../lib/invite";
+import { copyCode } from "../lib/invite";
 import { formatCompact } from "../lib/format";
 import { potFor } from "../lib/economy";
 import { font, palette, radius, space, teamColor } from "../theme";
@@ -31,15 +33,6 @@ import { font, palette, radius, space, teamColor } from "../theme";
 const COLOR_LABEL = { red: "Red", green: "Green", yellow: "Yellow", blue: "Blue" } as const;
 
 export function LobbyScreen() {
-  // Android back = leave the room (clears presence + subscription), not a bare pop.
-  useEffect(() => {
-    setBackInterceptor(() => {
-      useOnlineStore.getState().leave();
-      return true;
-    });
-    return () => setBackInterceptor(null);
-  }, []);
-
   const roomCode = useOnlineStore((s) => s.roomCode);
   const lobby = useOnlineStore((s) => s.lobby);
   const profiles = useOnlineStore((s) => s.profiles);
@@ -65,8 +58,51 @@ export function LobbyScreen() {
   const isQuick = useOnlineStore((s) => s.isQuick);
   const stake = useOnlineStore((s) => s.stake);
 
+  // Leaving is one tap from both the header button and Android back, and for a
+  // host it closes the room out from under everyone already waiting in it — so
+  // it asks first. Nothing is staked yet (friend rooms collect at start), so the
+  // question is about the room, not coins.
+  const confirmLeave = useCallback(() => {
+    // Quick match renders QuickMatchSearch instead of this screen; cancelling a
+    // search is cheap and the entry is refunded, so it just backs out.
+    if (isQuick) {
+      leave();
+      return;
+    }
+    Alert.alert(
+      isHost ? "Close this room?" : "Leave this room?",
+      isHost
+        ? "Everyone waiting will be sent back to the home screen."
+        : "You can rejoin with the same code while the room is open.",
+      [
+        { text: "Stay", style: "cancel" },
+        { text: isHost ? "Close room" : "Leave", style: "destructive", onPress: () => leave() },
+      ],
+    );
+  }, [isHost, isQuick, leave]);
+
+  // Android back = leave the room (clears presence + subscription), not a bare
+  // pop — through the same confirmation as the button.
+  useEffect(() => {
+    setBackInterceptor(() => {
+      confirmLeave();
+      return true;
+    });
+    return () => setBackInterceptor(null);
+  }, [confirmLeave]);
+
+  const [fillWithBots, setFillWithBots] = useState(false);
+  const [inviting, setInviting] = useState(false);
+
   const full = lobby.length >= 4;
-  const canStart = isHost && lobby.length >= 2 && !starting;
+  // Friendly rooms only. The pot counts every seat and the house funds the bot
+  // ones, so a host who could summon bots into a staked room would be farming
+  // the house — opStart refuses it too, this just doesn't offer it.
+  const canFill = stake === 0 && !full;
+  const fill = fillWithBots && canFill;
+  // Filling supplies the opponents, so it also lets a host who is still alone
+  // start — the 2-player floor is about having someone to play against.
+  const canStart = isHost && (lobby.length >= 2 || fill) && !starting;
   const emptySlots = Math.max(0, 4 - lobby.length);
   // Preview the colors the game will actually use (diagonal for 2 players).
   const previewColors = seatColors(lobby.length);
@@ -81,7 +117,7 @@ export function LobbyScreen() {
       <View style={{ flex: 1, paddingHorizontal: space.xl, paddingTop: space.sm, justifyContent: "space-between" }}>
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
           <Text style={{ fontFamily: font.display, fontSize: 22, color: palette.porcelain }}>Lobby</Text>
-          <Button label="Leave" onPress={leave} variant="ghost" />
+          <Button label="Leave" onPress={confirmLeave} variant="ghost" />
         </View>
 
         {/* Share code */}
@@ -106,7 +142,10 @@ export function LobbyScreen() {
           </Text>
           {roomCode ? (
             <View style={{ alignSelf: "stretch" }}>
-              <Button label="Invite friends" onPress={() => void shareInvite(roomCode, stake)} />
+              {/* Opens the friends list in place. It used to go straight to the
+                  OS share sheet, so inviting an in-app friend meant leaving the
+                  lobby for the Friends screen to invite them back to it. */}
+              <Button label="Invite friends" onPress={() => setInviting(true)} />
             </View>
           ) : null}
         </View>
@@ -161,10 +200,12 @@ export function LobbyScreen() {
                     <Text style={{ fontFamily: font.regular, fontSize: 12, color: palette.mutedSteel }}>{COLOR_LABEL[color]}</Text>
                   ) : null}
                 </View>
-                {!p.is_connected && p.user_id !== userId ? <Tag label="Away" /> : null}
+                {p.is_bot ? <Tag label="Bot" /> : null}
+                {!p.is_bot && !p.is_connected && p.user_id !== userId ? <Tag label="Away" /> : null}
                 {p.user_id === userId ? <Tag label="You" /> : null}
                 {p.is_host ? <Tag label="Host" /> : null}
-                {p.user_id !== userId ? <AddFriendButton userId={p.user_id} /> : null}
+                {/* No friend request to a bot. */}
+                {p.user_id !== userId && !p.is_bot ? <AddFriendButton userId={p.user_id} /> : null}
               </Surface3D>
             );
           })}
@@ -184,13 +225,38 @@ export function LobbyScreen() {
           {error ? <Text style={{ fontFamily: font.regular, fontSize: 13, color: teamColor.red, textAlign: "center" }}>{error}</Text> : null}
           {isHost ? (
             <>
+              {/* Waiting on a fourth who isn't coming is the common case here,
+                  so the host can fill the empty chairs with bots instead. They
+                  are labelled for everyone (unlike quick match's hidden
+                  fill-ins) — in a private room an unexplained extra name would
+                  read as a stranger walking in. */}
+              {canFill ? (
+                <SettingRow
+                  label={`Fill ${emptySlots === 1 ? "the empty seat" : `${emptySlots} empty seats`} with bots`}
+                  hint="Everyone sees which players are bots"
+                  value={fillWithBots}
+                  onChange={setFillWithBots}
+                />
+              ) : null}
               <Button
-                label={starting || full ? "Starting…" : lobby.length < 2 ? "Need 2+ players" : `Start with ${lobby.length}`}
-                onPress={() => void start()}
+                label={
+                  starting || full
+                    ? "Starting…"
+                    : fill
+                      ? `Start with ${lobby.length} + ${emptySlots} ${emptySlots === 1 ? "bot" : "bots"}`
+                      : lobby.length < 2
+                        ? "Need 2+ players"
+                        : `Start with ${lobby.length}`
+                }
+                onPress={() => void start(fill)}
                 disabled={!canStart}
               />
               <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel, textAlign: "center" }}>
-                Starts automatically when the room is full.
+                {fill
+                  ? "Bots take the empty seats."
+                  : stake > 0 && !full
+                    ? "Coin games need real players — bots can only fill a friendly room."
+                    : "Starts automatically when the room is full."}
               </Text>
             </>
           ) : (
@@ -200,6 +266,15 @@ export function LobbyScreen() {
           )}
         </View>
       </View>
+
+      {inviting && roomCode ? (
+        <InviteFriendsSheet
+          roomCode={roomCode}
+          stake={stake}
+          seatedUserIds={lobby.map((p) => p.user_id)}
+          onClose={() => setInviting(false)}
+        />
+      ) : null}
     </SafeAreaView>
   );
 }

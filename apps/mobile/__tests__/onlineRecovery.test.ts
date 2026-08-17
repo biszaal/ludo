@@ -31,6 +31,7 @@ vi.mock("../src/net/api", () => ({
   unsubscribe: vi.fn(),
   sendChat: vi.fn(),
   TimeoutError: class TimeoutError extends Error {},
+  RowGoneError: class RowGoneError extends Error {},
   isTimeout: (e: unknown) => e instanceof Error && e.name === "TimeoutError",
 }));
 

@@ -101,7 +101,8 @@ interface OnlineStore {
   join: (code: string) => Promise<void>;
   /** Play online: pair into a 2- or 4-player table (hidden bots fill a dry queue). */
   quickMatch: (size: 2 | 4, stake?: number) => Promise<void>;
-  start: () => Promise<void>;
+  /** Host-only. `fill` seats bots in the empty chairs before dealing. */
+  start: (fill?: boolean) => Promise<void>;
   roll: () => Promise<void>;
   selectToken: (tokenId: string) => Promise<void>;
   pass: () => Promise<void>;
@@ -238,12 +239,16 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
     }
   },
 
-  start: async () => {
+  // `fill` seats bots in the empty chairs, which is also what makes a solo host
+  // a valid start — the usual 2-player floor is about having opponents, and
+  // filling provides them.
+  start: async (fill = false) => {
     const { gameId, isHost, lobby, starting } = get();
-    if (!gameId || !isHost || starting || lobby.length < 2) return;
+    if (!gameId || !isHost || starting) return;
+    if (lobby.length < 2 && !fill) return;
     set({ starting: true });
     try {
-      const res = await api.startGame(gameId);
+      const res = await api.startGame(gameId, fill);
       applyTurnResult(res, false);
     } catch (e) {
       set({ error: errorText(e), starting: false });
@@ -897,9 +902,8 @@ function applyState(state: GameState, rolled: boolean): void {
 
 function applyStateNow(state: GameState, rolled: boolean): void {
   const st = useOnlineStore.getState();
+  const prev = st.state;
   const proj = project(state, st.myPlayerId);
-  // Reset the per-turn countdown on every active write (mirrors the server, which
-  // refreshes turn_deadline on every write). Idle turns keep the same clock.
   const active = proj.status === "active";
   if (active) clearQuickFill(); // matched — no bot fill needed
   // Game over: the server just settled any pot — pull the fresh balance
@@ -909,6 +913,22 @@ function applyStateNow(state: GameState, rolled: boolean): void {
   // the rolled state arrives (whichever of HTTP/realtime/resync gets it here).
   const bump = rolled && !rollBumped;
   if (rolled) rollBumped = false;
+
+  // The countdown resets when a new ACTION WINDOW opens, not on every write.
+  // It used to bump on all of them, so an opponent's roll restarted the ring
+  // sweeping their avatar mid-turn — which read as their profile picture
+  // refreshing every single time they rolled.
+  //
+  // Two things open a window, and both match a deadline the server actually
+  // refreshed: the turn changing hands, and the same player earning another
+  // roll (a six, a capture, a finish). Rolling does NOT — that is the middle of
+  // a window, not the start of one. Without the second case a long chain of
+  // capture bonuses would drain the ring to zero while the server was happily
+  // extending the real deadline.
+  const handedOver = !prev || prev.currentTurnPlayerId !== state.currentTurnPlayerId;
+  const newRollWindow = !!prev && prev.phase !== "awaiting-roll" && state.phase === "awaiting-roll";
+  const clockReset = handedOver || newRollWindow;
+
   useOnlineStore.setState({
     state,
     bustHold: false,
@@ -917,8 +937,8 @@ function applyStateNow(state: GameState, rolled: boolean): void {
     message: proj.message,
     status: proj.status,
     rollSeq: st.rollSeq + (bump ? 1 : 0),
-    turnStartedAt: active ? Date.now() : null,
-    turnSeq: active ? st.turnSeq + 1 : st.turnSeq,
+    turnStartedAt: !active ? null : clockReset ? Date.now() : st.turnStartedAt,
+    turnSeq: active && clockReset ? st.turnSeq + 1 : st.turnSeq,
   });
   scheduleTimeout(active);
   armAutoPilot(active);
@@ -1038,7 +1058,22 @@ async function runResync(gameId: string): Promise<void> {
     clearRowQueue();
     applyGameRow(row);
     resyncBackoffMs = 0;
-  } catch {
+  } catch (e) {
+    if (e instanceof api.RowGoneError) {
+      // The game is deleted, or we are no longer seated in it (a reaped waiting
+      // room, an auto-leave). Backing off and asking again cannot change that —
+      // it just resyncs forever against a row we will never be shown. Stop, and
+      // tell the player instead of spinning silently.
+      resyncBackoffMs = 0;
+      resyncAgain = false;
+      // Re-check the guard from the top of this function: the awaits above mean
+      // the player may have left and joined a DIFFERENT game while we waited,
+      // and failing that one over this one's dead row would be a fresh bug.
+      if (useOnlineStore.getState().gameId === gameId) {
+        useOnlineStore.setState({ status: "error", error: errorText(e) });
+      }
+      return;
+    }
     // Still failing — retry with backoff until it succeeds or the game ends.
     resyncBackoffMs = Math.min(Math.max(resyncBackoffMs * 2, 1000), RESYNC_BACKOFF_MAX_MS);
     resyncWantsLobby ||= withLobby;

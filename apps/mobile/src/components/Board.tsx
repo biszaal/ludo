@@ -423,10 +423,12 @@ interface AnimatedPawnProps {
   waypoints: Spot2[];
   /** True for a walkable move — hop cell-by-cell even for one cell. */
   walk: boolean;
-  /** Duration of each hop. Forward moves are leisurely; a capture retrace is
+  /** Duration of each step. Forward moves are leisurely; a capture retrace is
    *  a fast scurry, since it can cover the whole lap back to the yard. */
   stepMs: number;
-  /** This walk is a captured pawn's trip home — one thock on arrival, not 50. */
+  /** This walk is a captured pawn's trip home: it glides the route as one
+   *  continuous slide rather than hopping it, and sounds one thock on arrival
+   *  instead of 50. */
   retrace: boolean;
   posKey: string;
   r: number;
@@ -506,23 +508,34 @@ function AnimatedPawn({ waypoints, walk, stepMs, retrace, posKey, r, color, stro
         tx.value = withDelay(startDelay, withTiming(target.x, { duration: FLY_MS, easing: Easing.out(Easing.cubic) }));
         ty.value = withDelay(startDelay, withTiming(target.y, { duration: FLY_MS, easing: Easing.out(Easing.cubic) }, onLand));
       } else {
-        // The bounce shrinks with the step so a fast retrace skims rather than
-        // pogo-sticks its way back.
-        const HOP = r * (isRetrace ? 0.28 : 0.5);
         const lastIndex = wps.length - 1;
         tx.value = withDelay(startDelay, withSequence(...wps.map((p) => withTiming(p.x, { duration: step, easing: Easing.linear }))));
         ty.value = withDelay(
           startDelay,
-          withSequence(
-            ...wps.flatMap((p, i) => [
-              withTiming(p.y - HOP, { duration: step / 2, easing: Easing.out(Easing.quad) }),
-              withTiming(
-                p.y,
-                { duration: step / 2, easing: Easing.in(Easing.quad) },
-                isRetrace && i < lastIndex ? silent : onLand,
+          isRetrace
+            ? // A captured pawn glides its route home instead of hopping it. Both
+              // axes run linearly through the same cells, so the pawn tracks the
+              // path as one continuous slide — including around the board's
+              // corners — rather than bouncing 50 times on the way back. Only the
+              // cell list and the step duration decide the route, so the trip
+              // still takes exactly as long as it did (walkDurationMs is
+              // unchanged) and still lands on the same frame.
+              withSequence(
+                ...wps.map((p, i) =>
+                  withTiming(
+                    p.y,
+                    { duration: step, easing: Easing.linear },
+                    i < lastIndex ? silent : onLand,
+                  ),
+                ),
+              )
+            : // Forward moves keep the hop — it is the move's whole character.
+              withSequence(
+                ...wps.flatMap((p) => [
+                  withTiming(p.y - r * 0.5, { duration: step / 2, easing: Easing.out(Easing.quad) }),
+                  withTiming(p.y, { duration: step / 2, easing: Easing.in(Easing.quad) }, onLand),
+                ]),
               ),
-            ]),
-          ),
         );
       }
     } else if (last.x !== prevSpot.current.x || last.y !== prevSpot.current.y) {

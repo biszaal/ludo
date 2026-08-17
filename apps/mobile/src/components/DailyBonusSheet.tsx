@@ -63,9 +63,15 @@ export function DailyBonusSheet({ onClose }: { onClose: () => void }) {
         setCelebrating(true);
         setNote(null);
       } else {
-        // Already taken today — another device, or a retry that raced the CAS.
+        // Already taken today — another device, or a retry that raced the claim.
         setNote("Today's bonus is already claimed. Come back tomorrow.");
       }
+      await useWallet.getState().refresh();
+    } catch {
+      // A failed request is NOT a spent bonus. Saying "already claimed" here
+      // sent players away from coins that were still theirs to take; the refresh
+      // below puts the button back so they can simply try again.
+      setNote("Couldn't reach the server. Check your connection and try again.");
       await useWallet.getState().refresh();
     } finally {
       setBusy(false);

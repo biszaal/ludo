@@ -27,6 +27,11 @@ export const FLY_MS = 240;
  * cells — far too many to walk at HOP_STEP_MS. The return is budgeted as a
  * fixed total instead, so a long trek reads as a fast scurry and a short one
  * still resolves cell by cell.
+ *
+ * The cells are waypoints for a continuous glide, not hops: the Board animates
+ * a retrace as one smooth slide along this route (see AnimatedPawn). They still
+ * have to be listed cell by cell so the pawn follows the track's corners home
+ * instead of cutting across the board.
  */
 export const RETURN_TOTAL_MS = 620;
 /** Never so fast the retrace becomes an unreadable blur. */
@@ -35,11 +40,12 @@ const RETURN_MIN_STEP_MS = 26;
 export interface Walk {
   /** Pixel points to visit in order; the last is the pawn's final seat. */
   points: Point[];
-  /** True to hop point-to-point; false to fly straight to the single point. */
+  /** True to travel point-to-point; false to fly straight to the single point. */
   walk: boolean;
-  /** Duration of each hop in `points`. */
+  /** Duration of each step in `points`. */
   stepMs: number;
-  /** A capture retrace — the Board mutes the per-cell thock over these. */
+  /** A capture retrace. The Board glides these rather than hopping them, and
+   *  mutes the per-cell thock over them. */
   retrace: boolean;
 }
 
@@ -51,7 +57,8 @@ const fly = (dest: Point): Walk => ({ points: [dest], walk: false, stepMs: FLY_M
  * - Forward 1-6 cells: hops through every cell in between (a single-cell move
  *   still hops, it never slides).
  * - Captured (anything -> home): retraces its route backwards to its start
- *   cell, then drops into its yard slot — the "sent all the way back" beat.
+ *   cell, then drops into its yard slot — the "sent all the way back" beat,
+ *   glided rather than hopped.
  * - Everything else (yard exits, resync jumps): one straight fly.
  */
 export function computeWaypoints(

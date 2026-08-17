@@ -63,8 +63,13 @@ describe("bot auto-play loop", () => {
     // Every seat busts on its third roll, so the turn must keep rotating. Under
     // the old behaviour the first bot rolled sixes forever and the seat never
     // moved off p1 at all.
+    // ~30s of simulated play. A busting turn costs three BOT_DELAY steps plus
+    // the BUST_HOLD_MS pause, so the window has to be several turns wide for
+    // "keeps rotating" to mean anything — BOT_DELAY now outlasts the die tumble
+    // (a bot used to start moving while its own die was still in the air), so a
+    // turn takes noticeably longer than it once did.
     const handOffs: string[] = [];
-    for (let i = 0; i < 100; i++) {
+    for (let i = 0; i < 300; i++) {
       vi.advanceTimersByTime(100);
       const cur = store.getState().state!.currentTurnPlayerId;
       if (cur !== handOffs.at(-1)) handOffs.push(cur);

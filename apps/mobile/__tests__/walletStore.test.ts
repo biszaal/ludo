@@ -96,6 +96,57 @@ describe("daily bonus", () => {
     vi.mocked(api.claimDailyBonus).mockResolvedValue({ balance: 175, streakDay: 4, claimed: 0 });
     expect(await useWallet.getState().claimDailyBonus()).toBe(0);
   });
+
+  // A rejected request used to resolve 0, which the sheet renders as "already
+  // claimed" — telling a player with no signal that coins they still had were
+  // gone for the day.
+  it("rejects on a failed request instead of looking like an already-taken claim", async () => {
+    vi.mocked(api.claimDailyBonus).mockRejectedValue(new Error("offline"));
+    await expect(useWallet.getState().claimDailyBonus()).rejects.toThrow();
+  });
+
+  // The regression behind "sometimes the bonus didn't add my coins": HomeScreen
+  // refreshes on mount and on every onlineStatus change, so a read that STARTED
+  // before the claim could land after it and paint the pre-claim balance back.
+  it("does not let a refresh in flight overwrite a claim that landed during it", async () => {
+    let releaseRead: (v: api.WalletState) => void = () => {};
+    vi.mocked(api.getWalletState).mockReturnValue(
+      new Promise<api.WalletState>((resolve) => {
+        releaseRead = resolve;
+      }),
+    );
+    const reading = useWallet.getState().refresh();
+
+    vi.mocked(api.claimDailyBonus).mockResolvedValue({ balance: 550, streakDay: 1, claimed: 50 });
+    await useWallet.getState().claimDailyBonus();
+    expect(useWallet.getState().balance).toBe(550);
+
+    releaseRead(state({ balance: 500 })); // the stale pre-claim read finally answers
+    await reading;
+
+    expect(useWallet.getState().balance).toBe(550);
+  });
+
+  // `await refresh()` has to mean "the balance on screen is current" — the
+  // second caller used to return instantly having fetched nothing, so
+  // DailyBonusSheet's post-claim refresh could be a silent no-op.
+  it("makes a second concurrent refresh await the same request, not return early", async () => {
+    let releaseRead: (v: api.WalletState) => void = () => {};
+    vi.mocked(api.getWalletState).mockReturnValue(
+      new Promise<api.WalletState>((resolve) => {
+        releaseRead = resolve;
+      }),
+    );
+    const first = useWallet.getState().refresh();
+    const second = useWallet.getState().refresh();
+
+    releaseRead(state({ balance: 320 }));
+    await second;
+    expect(useWallet.getState().balance).toBe(320);
+
+    await first;
+    expect(api.getWalletState).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("gems", () => {

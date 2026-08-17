@@ -39,7 +39,7 @@ const SECTIONS = [
   {
     key: "capture",
     title: "Captures",
-    body: "Land exactly on an opponent's pawn and it is sent back to its yard to start over. Capturing earns you a bonus roll.",
+    body: "Land exactly on an opponent's pawn and it is sent back to its yard to start over. Capturing earns you a bonus roll. Two pawns of the same color on one square protect each other — you can move past them, but you can't land on them.",
     Diagram: CaptureDiagram,
   },
   {

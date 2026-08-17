@@ -23,6 +23,7 @@ import { ReactionBar } from "./ReactionBar";
 import { ChatBubble } from "./ChatBubble";
 import { ResultsOverlay } from "./ResultsOverlay";
 import { WinnerCelebration } from "./WinnerCelebration";
+import { FinishedPrompt } from "./FinishedPrompt";
 import { TableBackground } from "./TableBackground";
 import { CoinGlyph } from "./CoinsPill";
 import { ContentColumn } from "./ContentColumn";
@@ -34,7 +35,7 @@ import { resolveDiceSkin } from "../render/diceSkins";
 import { setBackInterceptor } from "../store/navStore";
 import { useSettings } from "../store/settingsStore";
 import { shareInvite } from "../lib/invite";
-import { potFor } from "../lib/economy";
+import { payoutSplit, potFor } from "../lib/economy";
 import { useAds, canShowInterstitial } from "../store/adsStore";
 import { useConfig } from "../store/configStore";
 import { preloadInterstitial, showInterstitial } from "../lib/ads/provider";
@@ -64,6 +65,9 @@ interface GameViewProps {
   diceSkinFor?: (playerId: string) => string | null;
   /** Online: has this seat's player dropped? (shows an "Away" badge). */
   offlineFor?: (playerId: string) => boolean;
+  /** Online: is this seat an openly-labelled bot the host filled in? Quick
+   *  match never reports true — those fill-ins stay indistinguishable. */
+  botFor?: (playerId: string) => boolean;
   /** Online: has this seat's player left for good? (dims the chip, "Left"). */
   leftFor?: (playerId: string) => boolean;
   /** Online: active-turn countdown shown on the current player's panel. */
@@ -124,6 +128,7 @@ export function GameView({
   avatarFor,
   diceSkinFor,
   offlineFor,
+  botFor,
   leftFor,
   turnTimer,
   autoPilot,
@@ -189,7 +194,28 @@ export function GameView({
   const champion = championId ? state.players.find((p) => p.id === championId) : undefined;
   // Is the local seat still racing for a place? (Labels the stay button.)
   const mySeat = viewColor ? state.players.find((p) => p.color === viewColor) : undefined;
-  const stillPlaying = !!mySeat && !state.finishedOrder.includes(mySeat.id) && !mySeat.hasLeft;
+  const myPlaceIndex = mySeat ? state.finishedOrder.indexOf(mySeat.id) : -1;
+  const stillPlaying = !!mySeat && myPlaceIndex === -1 && !mySeat.hasLeft;
+
+  // Ask a player who has just come home whether they want to stay for the rest.
+  // Only the champion used to be offered anything; a 2nd or 3rd place finisher
+  // was left spectating a match they were done with, with no indication that
+  // leaving keeps their placement (it does — see FinishedPrompt).
+  const [finishPrompt, setFinishPrompt] = useState(false);
+  const dismissedFinish = useRef(false);
+  useEffect(() => {
+    if (myPlaceIndex === -1) {
+      // Fresh game or rematch — arm the prompt again.
+      dismissedFinish.current = false;
+      setFinishPrompt(false);
+      return;
+    }
+    if (dismissedFinish.current) return;
+    dismissedFinish.current = true;
+    // The champion is asked the very same question by WinnerCelebration ("Watch
+    // the rest" / "Leave"), so only the minor places need this.
+    if (myPlaceIndex > 0) setFinishPrompt(true);
+  }, [myPlaceIndex]);
 
   // Ad bookkeeping. Recorded once per match, on the transition into finished —
   // whether the local seat WON matters, because losing a staked match is the
@@ -275,6 +301,9 @@ export function GameView({
     // Autopilot seat: BOT badge, tap reclaims, and no countdown ring — the bot
     // acts long before any deadline, so a ticking ring would be noise.
     const pilot = autoPilot?.playerId === p.id;
+    // A host-filled bot wears the same badge (it says the same thing) but is
+    // not tappable — there is no human behind it to hand control back to.
+    const filledBot = !pilot && (botFor?.(p.id) ?? false);
     return (
       <View style={{ flexDirection: align === "left" ? "row" : "row-reverse", alignItems: "center", gap: space.md }}>
         <View>
@@ -286,9 +315,9 @@ export function GameView({
             avatarId={avatarFor?.(p.id) ?? null}
             offline={offlineFor?.(p.id) ?? false}
             left={gone}
-            timer={isActive && !pilot ? turnTimer : null}
+            timer={isActive && !pilot && !filledBot ? turnTimer : null}
             align={align}
-            botMode={pilot}
+            botMode={pilot || filledBot}
             onPress={pilot ? autoPilot?.onTakeControl : null}
           />
           {bubble ? <ChatBubble value={bubble.value} kind={bubble.kind} seq={bubble.seq} align={align} vAlign={vAlign} /> : null}
@@ -345,7 +374,7 @@ export function GameView({
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={`Share room code ${roomCode}`}
-                onPress={() => void shareInvite(roomCode)}
+                onPress={() => void shareInvite(roomCode, stake)}
                 style={({ pressed }) => ({
                   flexDirection: "row",
                   alignItems: "center",
@@ -469,6 +498,22 @@ export function GameView({
         />
       )}
 
+      {/* Only while the game runs on: once it's over the results leaderboard is
+          the better answer, and the champion already has WinnerCelebration. */}
+      {finishPrompt && !finished && !celebrating && mySeat && (
+        <FinishedPrompt
+          place={myPlaceIndex + 1}
+          color={mySeat.color}
+          avatarId={avatarFor?.(mySeat.id) ?? null}
+          reward={payoutSplit(stake, state.players.length)[myPlaceIndex] ?? 0}
+          onWatch={() => setFinishPrompt(false)}
+          onLeave={() => {
+            setFinishPrompt(false);
+            onLeave();
+          }}
+        />
+      )}
+
       {finished && !celebrating && (
         <ResultsOverlay
           state={state}
@@ -491,6 +536,10 @@ export function GameView({
             onLeave();
           }}
           confirmLeave={confirmLeave}
+          // Only a seat still racing has anything to lose: a player who already
+          // finished keeps their place in finishedOrder, and the server pays it
+          // out when the match ends whether or not they stayed to watch.
+          forfeitCoins={stillPlaying ? stake : 0}
         />
       )}
 

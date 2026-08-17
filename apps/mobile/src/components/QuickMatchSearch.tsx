@@ -4,6 +4,11 @@
  * springs into their corner with a tap and a pop, so the wait has a visible
  * shape instead of a spinner counting nothing (DESIGN.md §4).
  *
+ * Every seat shows the real player behind it — yours from the local profile
+ * (instantly), everyone else's from the profile the store fetches when they
+ * join. A seat whose profile has not arrived yet stays faceless rather than
+ * borrowing the default character; see SeatOccupant.
+ *
  * The player-count text tracks the real lobby, which the online store keeps live
  * over the realtime `players` subscription.
  */
@@ -16,6 +21,7 @@ import { Button } from "./Button";
 import { AdSlot } from "./AdSlot";
 import { TableSeats, type SeatOccupant } from "./TableSeats";
 import { useOnlineStore } from "../store/onlineStore";
+import { useProfile } from "../store/profileStore";
 import { tapLight } from "../lib/haptics";
 import { playSound } from "../lib/sound";
 import { font, palette, space, teamColor } from "../theme";
@@ -28,6 +34,7 @@ export function QuickMatchSearch() {
   const quickSize = useOnlineStore((s) => s.quickSize);
   const error = useOnlineStore((s) => s.error);
   const leave = useOnlineStore((s) => s.leave);
+  const myAvatarId = useProfile((s) => s.avatarId);
 
   const size: 2 | 4 = quickSize === 4 ? 4 : 2;
   const seated = Math.min(lobby.length, size);
@@ -51,9 +58,16 @@ export function QuickMatchSearch() {
     }
   }, [lobby, userId]);
 
+  // My own face comes from the local profile, not the fetched one. The server
+  // copy is the same data taking a round trip to come back, and until it lands
+  // `profiles[userId]` is missing — so the player used to sit down and watch
+  // someone else's character occupy their seat. The device already knows who
+  // they are; there is nothing to wait for.
   const occupants: Partial<Record<PlayerColor, SeatOccupant>> = {};
   for (const p of lobby) {
-    occupants[p.color] = { avatarId: profiles[p.user_id]?.avatar_id };
+    occupants[p.color] = {
+      avatarId: p.user_id === userId ? myAvatarId : profiles[p.user_id]?.avatar_id,
+    };
   }
 
   const headline = size === 4 ? `Finding players… ${seated}/4` : "Finding an opponent…";

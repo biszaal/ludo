@@ -10,6 +10,7 @@
 import type { Color, GameState } from "@ludo/engine";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { getSupabase } from "../lib/supabase";
+import { getIdentity } from "../lib/identityClient";
 
 export interface GameRow {
   id: string;
@@ -38,6 +39,9 @@ export interface LobbyPlayer {
   seat: number;
   is_host: boolean;
   is_connected: boolean;
+  /** A bot the host asked for when filling a friend room (0035). Always false
+   *  for quick match — those fill-ins are deliberately indistinguishable. */
+  is_bot: boolean;
 }
 
 export interface Membership {
@@ -49,17 +53,12 @@ export interface Membership {
   stake?: number;
 }
 
-/** Sign in anonymously if there is no session yet; return the user id. */
+/**
+ * The user id, signing in if needed. Single-flight and keychain-backed — see
+ * lib/identity.ts for why both of those are load-bearing.
+ */
 export async function ensureSignedIn(): Promise<string> {
-  const supabase = getSupabase();
-  const { data: sessionData } = await supabase.auth.getSession();
-  if (sessionData.session) return sessionData.session.user.id;
-
-  const { data, error } = await supabase.auth.signInAnonymously();
-  if (error || !data.user) {
-    throw new Error(`Sign-in failed: ${error?.message ?? "unknown"}. Enable anonymous sign-ins in Supabase Auth.`);
-  }
-  return data.user.id;
+  return await getIdentity().ensureSignedIn();
 }
 
 /**
@@ -331,8 +330,10 @@ export async function gemsExchange(gems: number, key?: string): Promise<{ gems: 
   return await callGame<{ gems: number; balance: number }>("gemsExchange", key ? { gems, key } : { gems });
 }
 
-export async function startGame(gameId: string): Promise<TurnResult> {
-  return turnCall("start", { gameId });
+/** Host-only. `fill` seats bots in the empty chairs first — labelled as bots,
+ *  unlike quick match's hidden fill-ins. */
+export async function startGame(gameId: string, fill = false): Promise<TurnResult> {
+  return turnCall("start", { gameId, fill });
 }
 
 export async function rollAction(gameId: string): Promise<TurnResult> {
@@ -552,14 +553,35 @@ export async function getPlayerStats(userIds: string[]): Promise<Record<string, 
   return out;
 }
 
+/**
+ * The row asked for is not there FOR THIS USER — deleted, or hidden because
+ * they are not a participant (games/players are row-scoped by RLS, 0019).
+ *
+ * Separate from an ordinary failure because it is a settled answer, not a
+ * missed packet: no amount of retrying turns "you are not in this game" into a
+ * row. Callers should give up and get the player out, not back off and ask
+ * again.
+ */
+export class RowGoneError extends Error {
+  constructor(what: string) {
+    super(`This ${what} is no longer available.`);
+    this.name = "RowGoneError";
+  }
+}
+
 /** Retry an idempotent read a couple of times with backoff — flaky mobile
  *  networks drop individual requests far more often than they go fully dark.
- *  Never used for turn ops: replaying a lost roll could double-act a turn. */
+ *  Never used for turn ops: replaying a lost roll could double-act a turn.
+ *
+ *  A {@link RowGoneError} is rethrown immediately: it is an answer, and asking
+ *  again three times only multiplies the requests behind a decision that has
+ *  already been made. */
 async function withRetry<T>(fn: () => Promise<T>, tries = 3, delayMs = 400): Promise<T> {
   for (;;) {
     try {
       return await fn();
     } catch (e) {
+      if (e instanceof RowGoneError) throw e;
       if (--tries <= 0) throw e;
       await new Promise((resolve) => setTimeout(resolve, delayMs));
       delayMs *= 2;
@@ -572,7 +594,7 @@ export async function getLobby(gameId: string): Promise<LobbyPlayer[]> {
   return withRetry(async () => {
     const { data, error } = await supabase
       .from("players")
-      .select("id, user_id, color, seat, is_host, is_connected")
+      .select("id, user_id, color, seat, is_host, is_connected, is_bot")
       .eq("game_id", gameId)
       .order("seat", { ascending: true });
     if (error) throw new Error(`Could not load players: ${error.message}`);
@@ -580,6 +602,20 @@ export async function getLobby(gameId: string): Promise<LobbyPlayer[]> {
   });
 }
 
+/**
+ * The game row, or {@link RowGoneError} if it is not visible to this user.
+ *
+ * Deliberately NOT `.single()`. That sends PostgREST's object Accept header,
+ * which answers "not exactly one row" with HTTP 406 — an error indistinguishable
+ * from a transport failure, so a game the caller had been reaped out of (or was
+ * never seated in) surfaced as something worth retrying. Between withRetry's 3
+ * attempts and runResync's endless backoff that produced ~100 requests for one
+ * dead game id, all of them 406, none of which could ever have succeeded.
+ *
+ * Selecting a list instead makes "no row for you" an ordinary empty 200, and the
+ * distinction between "gone" and "the network dropped it" explicit here rather
+ * than encoded in a status code.
+ */
 export async function fetchGame(gameId: string): Promise<GameRow> {
   const supabase = getSupabase();
   return withRetry(async () => {
@@ -587,9 +623,11 @@ export async function fetchGame(gameId: string): Promise<GameRow> {
       .from("games")
       .select("id, room_code, host_user_id, status, state, current_turn_player_id, state_version, stake")
       .eq("id", gameId)
-      .single();
-    if (error || !data) throw new Error(`Could not load game: ${error?.message ?? "unknown"}`);
-    return data as GameRow;
+      .limit(1);
+    if (error) throw new Error(`Could not load game: ${error.message}`);
+    const row = (data ?? [])[0];
+    if (!row) throw new RowGoneError("game");
+    return row as GameRow;
   });
 }
 

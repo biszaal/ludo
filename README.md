@@ -56,6 +56,28 @@ npm run mobile    # expo start — open the installed dev build
 Then: pick 2–4 players → **Start game** → tap **Roll** → tap a highlighted token.
 Pass-and-play on one device.
 
+## Server setup
+
+Two one-off steps per Supabase environment. Without them the cron heartbeat
+silently no-ops, and an online game every player walks away from freezes
+forever — bots stop mid-match and staked pots are never paid out.
+
+```sh
+supabase secrets set TICK_SECRET=$(openssl rand -hex 32)
+```
+
+Then, with the same value:
+
+```sql
+insert into internal_config (key, value) values
+  ('tick_url',    'https://<project-ref>.supabase.co/functions/v1/game'),
+  ('tick_secret', '<the same value>')
+on conflict (key) do update set value = excluded.value;
+```
+
+Both sides fail closed: a missing secret means "no tick", never an open
+endpoint. See [supabase/migrations/0034_game_tick.sql](supabase/migrations/0034_game_tick.sql).
+
 ## Architecture
 
 ```

@@ -8,12 +8,13 @@
  *   local player can tap it to roll);
  * - rolling: a true 3D cube tumble (orthographic projection from dieMath),
  *   which lands with the real rolled value on the camera face — no shuffle;
- *   a tumble started before the server value arrives (value=null) holds
- *   airborne until the value lands, so the die never settles on a stale face;
+ *   a tumble started before the server value arrives (value=null) hangs at the
+ *   top of its arc and keeps spinning until the value lands, so a slow request
+ *   reads as a longer roll and the die never settles on a stale face;
  * - landed: the flat face with that value's pips, plus a settle squash.
  */
 
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Pressable, View } from "react-native";
 import { BlurStyle, Canvas, ClipOp, Picture, PaintStyle, Skia, StrokeCap, StrokeJoin, TileMode } from "@shopify/react-native-skia";
 import Animated, {
@@ -28,6 +29,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { playDiceRoll } from "../lib/sound";
 import { diceSettle } from "../lib/haptics";
+import { DICE_ROLL_MS } from "../lib/moveTiming";
 import type { BoardTheme } from "../render/boardThemes";
 import { diceRenderParams, type DiceSkin } from "../render/diceSkins";
 import { cubeFaces, faceMatrix, lambert, rotateScaleAbout, rotateVec } from "../render/dieMath";
@@ -43,11 +45,18 @@ const PIP_XY: Record<number, [number, number][]> = {
   6: [[0.26, 0.22], [0.74, 0.22], [0.26, 0.5], [0.74, 0.5], [0.26, 0.78], [0.74, 0.78]],
 };
 
-const ROLL_MS = 700;
+/** Owned by lib/moveTiming, which the sync path uses to hold the next state
+ *  until this tumble has visibly landed. One number, so the two can't drift. */
+const ROLL_MS = DICE_ROLL_MS;
 /** Fraction of the roll spent tumbling; the rest is the landing squash. */
 const CUBE_END = 0.8;
-/** One leg of the airborne hold loop while the server value is in flight. */
-const HOLD_LEG_MS = 180;
+/** Where the arc parks while the server value is in flight: the apex, where the
+ *  die is at its largest and most clearly off the ground. */
+const HOLD_P = CUBE_END * 0.5;
+/** One whole extra turn of the hold spin. Roughly the rate the free tumble is
+ *  already turning at when it reaches HOLD_P, so entering and leaving the hold
+ *  doesn't read as a change of speed. */
+const HOLD_TURN_MS = 320;
 /** Give up on a value that never arrives (request failed) and settle to idle. */
 const HOLD_BAIL_MS = 9000;
 
@@ -83,6 +92,35 @@ export function Dice({ value, size = 64, spinSeq = 0, idle = false, theme, skin,
   const valueRef = useRef(value);
   valueRef.current = value;
   const holding = useRef(false);
+  // Whole extra turns added on top of the arc's own angles, in turns (1 = 360°).
+  // Only the hold uses it: because a whole turn is the identity rotation, a
+  // 0->1 loop wraps invisibly and a landing that ends on a whole number leaves
+  // the rolled face pointing at the camera exactly as before.
+  const spin = useSharedValue(0);
+  // Read in the bail timeout, which fires long after its own render.
+  const tappable = onRollPress !== null;
+  const tappableRef = useRef(tappable);
+  tappableRef.current = tappable;
+
+  // The "tap me" wiggle's two halves. Declared up here because the roll effect
+  // below lists them as dependencies, and a dep array is evaluated during the
+  // render that reaches it — a `const` defined further down would still be in
+  // its temporal dead zone at that point.
+  const startWiggle = useCallback(() => {
+    wiggle.value = withRepeat(
+      withSequence(
+        withTiming(-1, { duration: 260, easing: Easing.inOut(Easing.quad) }),
+        withTiming(1, { duration: 260, easing: Easing.inOut(Easing.quad) }),
+      ),
+      -1,
+      true,
+    );
+  }, [wiggle]);
+
+  const stopWiggle = useCallback(() => {
+    cancelAnimation(wiggle);
+    wiggle.value = withTiming(0, { duration: 120 });
+  }, [wiggle]);
 
   useEffect(() => {
     if (!mounted.current) {
@@ -91,8 +129,16 @@ export function Dice({ value, size = 64, spinSeq = 0, idle = false, theme, skin,
     }
     if (!spinSeq) return;
     playDiceRoll();
+    // A die that is already rolling is not asking to be tapped. Nothing used to
+    // stop the wiggle here, and the roll leaves `onRollPress` set for as long as
+    // the server takes to answer (phase is still awaiting-roll until then), so
+    // the whole canvas rocked ±6° through the wait — the loudest part of the
+    // "die going back and forth" while the request was in flight.
+    stopWiggle();
     cancelAnimation(roll);
+    cancelAnimation(spin);
     roll.value = 0;
+    spin.value = 0;
     if (valueRef.current != null) {
       holding.current = false;
       roll.value = withTiming(1, { duration: ROLL_MS, easing: Easing.linear });
@@ -100,28 +146,31 @@ export function Dice({ value, size = 64, spinSeq = 0, idle = false, theme, skin,
       const settle = setTimeout(diceSettle, ROLL_MS * CUBE_END);
       return () => clearTimeout(settle);
     }
-    // Value unknown: tumble up to mid-flight, then ping-pong inside the
-    // airborne range (angles stay large there, so it reads as one continuous
-    // tumble) until the value effect below resumes the landing.
+    // Value unknown: tumble up to the apex, park the arc there and let `spin`
+    // carry the rotation until the value effect below resumes the landing.
+    //
+    // The hold used to ping-pong the arc parameter itself between two airborne
+    // points. Every angle in the tumble is a function of that parameter, so
+    // driving it backwards drove the cube backwards: on a connection slow
+    // enough to hold for more than one leg, the die visibly rocked to and fro
+    // instead of rolling. Whole turns are the only way to keep spinning
+    // without moving along the arc, and they cost nothing at the landing.
     holding.current = true;
-    roll.value = withSequence(
-      withTiming(CUBE_END * 0.7, { duration: ROLL_MS * CUBE_END * 0.7, easing: Easing.linear }),
-      withRepeat(
-        withSequence(
-          withTiming(CUBE_END * 0.25, { duration: HOLD_LEG_MS, easing: Easing.inOut(Easing.quad) }),
-          withTiming(CUBE_END * 0.7, { duration: HOLD_LEG_MS, easing: Easing.inOut(Easing.quad) }),
-        ),
-        -1,
-      ),
-    );
+    roll.value = withTiming(HOLD_P, { duration: ROLL_MS * HOLD_P, easing: Easing.linear });
+    spin.value = withRepeat(withTiming(1, { duration: HOLD_TURN_MS, easing: Easing.linear }), -1);
     const bail = setTimeout(() => {
       if (!holding.current) return;
       holding.current = false;
       cancelAnimation(roll);
+      cancelAnimation(spin);
+      spin.value = 0;
       roll.value = 1; // settles to the idle swirl — value is still null
+      // The roll never happened and the seat is still theirs, so put the "tap
+      // me" hint back rather than leaving a dead-looking die.
+      if (tappableRef.current) startWiggle();
     }, HOLD_BAIL_MS);
     return () => clearTimeout(bail);
-  }, [spinSeq, roll]);
+  }, [spinSeq, roll, spin, startWiggle, stopWiggle]);
 
   // The held tumble's landing: the authoritative value arrived mid-flight —
   // resume the same parametric curve from wherever the hold left it, so the
@@ -130,30 +179,29 @@ export function Dice({ value, size = 64, spinSeq = 0, idle = false, theme, skin,
     if (value == null || !holding.current) return;
     holding.current = false;
     cancelAnimation(roll);
-    const p = Math.min(roll.value, CUBE_END * 0.7);
+    cancelAnimation(spin);
+    const p = Math.min(roll.value, HOLD_P);
     roll.value = p;
     roll.value = withTiming(1, { duration: ROLL_MS * (1 - p), easing: Easing.linear });
-    const settle = setTimeout(diceSettle, Math.max(0, ROLL_MS * (CUBE_END - p)));
+    // Finish the turn the hold was part-way through, timed to complete exactly
+    // as the cube goes flat — landing on a whole turn is what keeps the extra
+    // rotation invisible in the settled face. Stopping mid-turn instead would
+    // land the die tilted.
+    const landMs = Math.max(0, ROLL_MS * (CUBE_END - p));
+    spin.value = withTiming(1, { duration: landMs, easing: Easing.linear });
+    const settle = setTimeout(diceSettle, landMs);
     return () => clearTimeout(settle);
-  }, [value, roll]);
+  }, [value, roll, spin]);
 
-  // "Tap me" wiggle while the die is waiting to be rolled.
+  // Wiggle while the die is waiting to be rolled. A roll in progress stops it
+  // (above) without this effect re-running — `tappable` doesn't change on the
+  // tap — so once a tumble starts the hint stays down for the rest of the turn,
+  // which is right: what follows a landed roll is a move, not another roll.
   useEffect(() => {
-    if (onRollPress) {
-      wiggle.value = withRepeat(
-        withSequence(
-          withTiming(-1, { duration: 260, easing: Easing.inOut(Easing.quad) }),
-          withTiming(1, { duration: 260, easing: Easing.inOut(Easing.quad) }),
-        ),
-        -1,
-        true,
-      );
-    } else {
-      cancelAnimation(wiggle);
-      wiggle.value = withTiming(0, { duration: 120 });
-    }
+    if (tappable) startWiggle();
+    else stopWiggle();
     return () => cancelAnimation(wiggle);
-  }, [onRollPress !== null, wiggle]);
+  }, [tappable, startWiggle, stopWiggle, wiggle]);
 
   // Single memoized object crossing into the worklet closure below — an inline
   // object here would change identity every render and force a full picture
@@ -198,9 +246,14 @@ export function Dice({ value, size = 64, spinSeq = 0, idle = false, theme, skin,
       // Tumble angles unwind to exactly zero at CUBE_END, so the cube always
       // lands at identity — real value toward the camera. Seeded per roll so
       // consecutive rolls take different-looking paths.
+      // `spin` adds whole turns on both tumble axes for the airborne hold —
+      // zero on an ordinary roll, and a whole number by the time the arc
+      // reaches CUBE_END, so the identity-at-landing guarantee above survives.
       const back = 1 - ease;
-      const ax = (2 + (seed % 3) * 0.5) * 2 * Math.PI * back;
-      const ay = (seed % 2 === 0 ? 1 : -1) * (1 + ((seed * 3) % 4) * 0.25) * 2 * Math.PI * back;
+      const extra = spin.value * 2 * Math.PI;
+      const dir = seed % 2 === 0 ? 1 : -1;
+      const ax = (2 + (seed % 3) * 0.5) * 2 * Math.PI * back + extra;
+      const ay = dir * ((1 + ((seed * 3) % 4) * 0.25) * 2 * Math.PI * back + extra);
       const az = 0.5 * back * Math.sin(7 * t + seed);
       const h = (size / 2) * (1 + 0.3 * lift); // grows toward the camera mid-flight
 

@@ -228,9 +228,13 @@
         {
           "deploymentTarget": "16.4"
         }
-      ]
+      ],
+      "expo-secure-store"
     ],
-    "scheme": "ludo",
+    "scheme": [
+      "ludobiszaal",
+      "ludo"
+    ],
     "extra": {
       "eas": {
         "projectId": "aa506900-7563-476a-a26b-899cf733621a"

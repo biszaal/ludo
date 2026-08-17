@@ -19,4 +19,5 @@ export const EXPOSED_RULES: ExposedRule[] = [
   { key: "threeSixesForfeit", label: "Three sixes forfeit", hint: "Three 6s in a row ends the turn" },
   { key: "exactRollToFinish", label: "Exact roll to finish", hint: "Overshooting the center is not allowed" },
   { key: "safeSquares", label: "Safe squares", hint: "No captures on starred squares" },
+  { key: "protectStacks", label: "Pairs protect", hint: "Two of your pawns on a square can't be taken" },
 ];

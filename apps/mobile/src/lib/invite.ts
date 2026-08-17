@@ -2,8 +2,15 @@
  * Room invites: the share message that goes out (Messages, Messenger, anything
  * on the share sheet) and the deep-link handling that brings a friend in.
  *
- * The message carries both the tappable ludo:// link and the plain code —
- * many chat apps don't linkify custom schemes, so the code is the fallback.
+ * The message carries both the tappable link and the plain code — many chat
+ * apps don't linkify custom schemes, so the code is the fallback.
+ *
+ * SCHEME: the app registers `ludobiszaal` first and plain `ludo` second
+ * (app.json). `ludo://` is claimed by several shipped Ludo apps and iOS picks
+ * among them arbitrarily, so an invite generated with it routinely opened a
+ * COMPETITOR's app on the recipient's phone. createURL uses the primary scheme,
+ * so links we generate are unambiguous; parsing stays scheme-agnostic, so an
+ * older `ludo://` link still works if it happens to reach us.
  */
 
 import { Share } from "react-native";
@@ -36,11 +43,12 @@ export async function copyCode(code: string): Promise<void> {
   }
 }
 
-/** Extract a room code from a ludo://join/CODE url (null if it isn't one). */
+/** Extract a room code from a <scheme>://join/CODE url (null if it isn't one).
+ *  Scheme-agnostic on purpose — see the note on SCHEME above. */
 export function codeFromUrl(url: string | null): string | null {
   if (!url) return null;
   const parsed = Linking.parse(url);
-  // ludo://join/ABCD parses as hostname "join" + path "ABCD" (two slashes) or
+  // scheme://join/ABCD parses as hostname "join" + path "ABCD" (two slashes) or
   // path "join/ABCD" (three) — normalize both.
   const segments = [parsed.hostname, ...(parsed.path?.split("/") ?? [])].filter(
     (s): s is string => !!s && s.length > 0,

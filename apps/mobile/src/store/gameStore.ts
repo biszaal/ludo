@@ -24,6 +24,7 @@ import {
 import { chooseMove } from "@ludo/bot";
 import { seatColors } from "../lib/seating";
 import { BUST_HOLD_MS } from "../lib/projection";
+import { DICE_ROLL_MS } from "../lib/moveTiming";
 import { ordinal } from "../lib/standings";
 import { useNav } from "./navStore";
 
@@ -34,13 +35,20 @@ const COLOR_LABEL: Record<PlayerColor, string> = {
   blue: "Blue",
 };
 
-/** Delay between a bot's actions, so a human can follow what it's doing. */
-const BOT_DELAY = 450;
-/** Pause before auto-passing a no-move roll: the die tumble runs ~700ms
- *  (Dice ROLL_MS), then the number needs a beat to be read. */
-const AUTO_PASS_DELAY = 1000;
-/** A lone legal move plays the moment the tumble settles — no choice to make. */
-const AUTO_MOVE_DELAY = 600;
+/**
+ * Delay between a bot's actions, so a human can follow what it's doing.
+ *
+ * Must outlast the die tumble (DICE_ROLL_MS): at 450 the bot's pawn started
+ * hopping while its own die was still in the air, so nobody watching could see
+ * what it had rolled.
+ */
+const BOT_DELAY = DICE_ROLL_MS + 200;
+/** Pause before auto-passing a no-move roll: the tumble runs, then the number
+ *  needs a beat to be read. */
+const AUTO_PASS_DELAY = DICE_ROLL_MS + 300;
+/** A lone legal move plays once the tumble settles — no choice to make, but the
+ *  number still has to land before the pawn leaves. */
+const AUTO_MOVE_DELAY = DICE_ROLL_MS + 200;
 
 export interface LocalGameConfig {
   /** Seats at the table, 2–4. */

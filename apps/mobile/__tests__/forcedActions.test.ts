@@ -8,6 +8,7 @@
 
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { useGameStore } from "../src/store/gameStore";
+import { DICE_ROLL_MS } from "../src/lib/moveTiming";
 
 const store = useGameStore;
 
@@ -37,11 +38,11 @@ describe("forced-action pacing", () => {
     store.getState().roll();
     expect(store.getState().validMoves).toHaveLength(0);
 
-    // Tumble runs ~700ms; the number must stay on screen well past it.
-    vi.advanceTimersByTime(900);
+    // The number must stay on screen past the whole tumble.
+    vi.advanceTimersByTime(DICE_ROLL_MS);
     expect(store.getState().state!.currentTurnPlayerId).toBe("p1");
 
-    vi.advanceTimersByTime(200);
+    vi.advanceTimersByTime(500);
     expect(store.getState().state!.currentTurnPlayerId).toBe("p2");
   });
 
@@ -57,13 +58,14 @@ describe("forced-action pacing", () => {
     store.getState().roll(); // rolled again on the 6: a 2 — only the entered token can move
     expect(store.getState().validMoves).toHaveLength(1);
 
-    // Not before the tumble settles (~700ms)…
-    vi.advanceTimersByTime(500);
+    // Not while the die is still in the air — the table has to see the number
+    // before the pawn starts moving, which is the whole point of the pacing.
+    vi.advanceTimersByTime(DICE_ROLL_MS);
     expect(store.getState().state!.currentTurnPlayerId).toBe("p1");
     expect(store.getState().state!.phase).toBe("awaiting-move");
 
-    // …but immediately after it, with no extra reading pause.
-    vi.advanceTimersByTime(200);
+    // …but straight after it lands, with no drawn-out reading pause.
+    vi.advanceTimersByTime(300);
     expect(store.getState().state!.currentTurnPlayerId).toBe("p2");
   });
 });

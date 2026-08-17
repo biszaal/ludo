@@ -24,6 +24,21 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const CREDIT_POLL_TRIES = 8;
 const CREDIT_POLL_MS = 1500;
 
+/**
+ * Bumped by every authoritative write (a claim, a purchase, an exchange). A
+ * refresh captures it before its request goes out and drops its own result if
+ * the number moved while it was in flight.
+ *
+ * Without this, a read that STARTED before a claim could land after it and
+ * overwrite the new balance with the pre-claim one — HomeScreen refreshes on
+ * mount and on every onlineStatus change, so the overlap was easy to hit. That
+ * is the "sometimes the daily bonus didn't add my coins" case: the coins were
+ * banked server-side and the screen was showing a stale read of them.
+ */
+let writeGen = 0;
+/** The refresh currently in flight, shared by concurrent callers. */
+let inFlight: Promise<void> | null = null;
+
 interface WalletStore {
   /** Latest known balance; null before the first successful read. */
   balance: number | null;
@@ -38,8 +53,14 @@ interface WalletStore {
   pityAvailable: boolean;
   refreshing: boolean;
   refresh: () => Promise<void>;
-  /** Claim today's bonus. Returns the coins actually credited (0 if already
-   *  taken — the server is idempotent by UTC date). */
+  /**
+   * Claim today's bonus. Resolves with the coins actually credited — 0 means
+   * the server says today is already banked (idempotent by UTC date).
+   *
+   * REJECTS on a network/server failure rather than resolving 0: the two used
+   * to be indistinguishable, so an offline tap told the player their bonus was
+   * gone for the day when it was still sitting there waiting.
+   */
   claimDailyBonus: () => Promise<number>;
   /** Last-resort grant when broke. Returns coins credited, 0 if not eligible. */
   claimPity: () => Promise<number>;
@@ -59,47 +80,55 @@ export const useWallet = create<WalletStore>((set, get) => ({
   pityAvailable: false,
   refreshing: false,
 
+  // Callers await the SAME request rather than the early caller returning
+  // instantly with nothing fetched — `await refresh()` has to mean "the balance
+  // on screen is current", which is exactly what DailyBonusSheet relies on.
   refresh: async () => {
-    if (get().refreshing) return;
+    if (inFlight) return inFlight;
+    const startedAt = writeGen;
     set({ refreshing: true });
-    try {
-      const s = await api.getWalletState();
-      set({
-        balance: s.balance,
-        purchasedBalance: s.purchasedBalance,
-        gems: s.gems ?? 0,
-        streakDay: s.streakDay,
-        bonusClaimable: s.bonusClaimable,
-        pityAvailable: s.pityAvailable,
-      });
-    } catch {
-      // Offline or signed out — keep whatever we last knew; cosmetic only.
-    } finally {
-      set({ refreshing: false });
-    }
+    inFlight = (async () => {
+      try {
+        const s = await api.getWalletState();
+        // A claim landed while this read was in flight; its numbers are newer.
+        if (writeGen !== startedAt) return;
+        set({
+          balance: s.balance,
+          purchasedBalance: s.purchasedBalance,
+          gems: s.gems ?? 0,
+          streakDay: s.streakDay,
+          bonusClaimable: s.bonusClaimable,
+          pityAvailable: s.pityAvailable,
+        });
+      } catch {
+        // Offline or signed out — keep whatever we last knew; cosmetic only.
+      } finally {
+        inFlight = null;
+        set({ refreshing: false });
+      }
+    })();
+    return inFlight;
   },
 
   claimDailyBonus: async () => {
-    try {
-      const res = await api.claimDailyBonus();
-      set({
-        balance: res.balance,
-        // Only adopt a gem total the server actually sent — an old server
-        // omits it, and coercing that to 0 would blank a real balance.
-        ...(typeof res.gems === "number" ? { gems: res.gems } : null),
-        streakDay: res.streakDay,
-        bonusClaimable: false,
-      });
-      return res.claimed;
-    } catch {
-      return 0;
-    }
+    const res = await api.claimDailyBonus();
+    writeGen++;
+    set({
+      balance: res.balance,
+      // Only adopt a gem total the server actually sent — an old server
+      // omits it, and coercing that to 0 would blank a real balance.
+      ...(typeof res.gems === "number" ? { gems: res.gems } : null),
+      streakDay: res.streakDay,
+      bonusClaimable: false,
+    });
+    return res.claimed;
   },
 
   claimPity: async () => {
     const before = get().balance ?? 0;
     try {
       const balance = await api.topupWallet();
+      writeGen++;
       set({ balance, pityAvailable: false });
       return Math.max(0, balance - before);
     } catch {
@@ -121,6 +150,7 @@ export const useWallet = create<WalletStore>((set, get) => ({
         try {
           const s = await api.getWalletState();
           if ((s.gems ?? 0) > before) {
+            writeGen++;
             set({ balance: s.balance, gems: s.gems ?? 0, purchasedBalance: s.purchasedBalance });
             return (s.gems ?? 0) - before;
           }
@@ -138,6 +168,7 @@ export const useWallet = create<WalletStore>((set, get) => ({
     // gated behind gems.purchasesEnabled + allowStubProvider.
     try {
       const res = await api.gemsBuy(productId);
+      writeGen++;
       set({ gems: res.gems });
       return Math.max(0, res.gems - before);
     } catch {
@@ -152,6 +183,7 @@ export const useWallet = create<WalletStore>((set, get) => ({
       // twice, while a deliberate second exchange gets its own key.
       const key = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
       const res = await api.gemsExchange(gems, key);
+      writeGen++;
       set({ gems: res.gems, balance: res.balance });
       return Math.max(0, res.balance - before);
     } catch {

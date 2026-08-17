@@ -20,6 +20,7 @@
     "expo-haptics": "~56.0.3",
     "expo-linking": "~56.0.15",
     "expo-notifications": "~56.0.23",
+    "expo-secure-store": "~56.0.4",
     "expo-status-bar": "~56.0.4",
     "expo-tracking-transparency": "~56.0.5",
     "react": "19.2.3",

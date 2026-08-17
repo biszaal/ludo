@@ -88,6 +88,33 @@ describe("rotateVec", () => {
   });
 });
 
+describe("whole-turn offsets (the airborne hold's spin)", () => {
+  // Dice.tsx keeps the die rolling while the server's value is in flight by
+  // adding WHOLE turns to the tumble's x/y angles — the arc parks at its apex,
+  // so those turns are the only thing still moving. It relies on such an offset
+  // being exactly the identity at ANY base angle, not just at zero: the hold
+  // unwinds to a whole number as the cube goes flat, and if that were not a
+  // no-op the die would land tilted or showing the wrong face.
+  it("leaves every face axis where it was, at any base angle", () => {
+    const [ax, ay, az] = [1.37, -0.62, 0.24];
+    for (const turns of [1, 2, 5]) {
+      const k = turns * 2 * Math.PI;
+      // Both signs: the y angle carries the tumble's direction (seed-dependent).
+      for (const ky of [k, -k]) {
+        for (const face of cubeFaces(4)) {
+          for (const v of [face.n, face.u, face.v]) {
+            const base = rotateVec(v, ax, ay, az);
+            const spun = rotateVec(v, ax + k, ay + ky, az);
+            close(spun.x, base.x);
+            close(spun.y, base.y);
+            close(spun.z, base.z);
+          }
+        }
+      }
+    }
+  });
+});
+
 describe("lambert", () => {
   it("stays within 0..1 and lights the camera-facing face the most", () => {
     const faces = cubeFaces(1);
