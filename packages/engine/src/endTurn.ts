@@ -1,6 +1,6 @@
 import type { GameState, TransitionOptions } from "./types.js";
 import { getValidMoves } from "./getValidMoves.js";
-import { advanceTurn, cloneState, makeAction } from "./internal.js";
+import { cloneState, handOff, makeAction } from "./internal.js";
 
 /**
  * Pass the turn to the next player. Used after a roll that produced no legal
@@ -23,6 +23,6 @@ export function endTurn(state: GameState, options: TransitionOptions = {}): Game
 
   const next = cloneState(state);
   next.lastAction = makeAction("endTurn", { playerId: state.currentTurnPlayerId }, options.now);
-  advanceTurn(next);
+  handOff(next);
   return next;
 }

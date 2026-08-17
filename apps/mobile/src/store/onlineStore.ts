@@ -18,7 +18,7 @@ import { chooseMove } from "@ludo/bot";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import * as api from "../net/api";
 import { pushProfile } from "../net/profileSync";
-import { applyChatEvent, type ChatEvent } from "../lib/chat";
+import { acceptChatPayload, applyChatEvent, CHAT_MAX_LEN, type ChatEvent } from "../lib/chat";
 import { stateAnimationMs } from "../lib/moveTiming";
 import { BUST_HOLD_MS, bustedRollDice, colorOf, isBustHandoff, project } from "../lib/projection";
 import { useNav } from "./navStore";
@@ -415,7 +415,7 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
   sendReaction: (value) => sendChatEvent("reaction", value),
 
   sendMessage: (text) => {
-    const trimmed = text.trim().slice(0, 80);
+    const trimmed = text.trim().slice(0, CHAT_MAX_LEN);
     if (trimmed.length > 0) sendChatEvent("text", trimmed);
   },
 
@@ -758,24 +758,24 @@ let lastChatSentAt = 0;
 /** Send own reaction/message: broadcast to the room and append locally
  *  (broadcast doesn't echo to the sender). Light rate limit against spam. */
 function sendChatEvent(kind: ChatEvent["kind"], value: string): void {
-  const { userId, status } = useOnlineStore.getState();
-  if (!channel || !userId || status === "idle" || status === "error") return;
+  const { userId, gameId, status } = useOnlineStore.getState();
+  if (!channel || !userId || !gameId || status === "idle" || status === "error") return;
   const now = Date.now();
   if (now - lastChatSentAt < CHAT_MIN_INTERVAL_MS) return;
   lastChatSentAt = now;
-  api.sendChat(channel, { kind, value, fromUserId: userId });
+  // The server relays this to everyone else and stamps the sender; the local
+  // echo is what makes our own message feel instant despite the round trip.
+  api.sendChat(gameId, kind, value);
   appendChat({ kind, value, fromUserId: userId });
 }
 
 function receiveChat(payload: api.ChatPayload): void {
-  const { userId } = useOnlineStore.getState();
-  if (!payload?.value || payload.fromUserId === userId) return;
-  if (payload.kind !== "reaction" && payload.kind !== "text") return;
-  appendChat({
-    kind: payload.kind,
-    value: String(payload.value).slice(0, 80),
-    fromUserId: payload.fromUserId,
+  const { userId, lobby } = useOnlineStore.getState();
+  const ev = acceptChatPayload(payload, {
+    seatedUserIds: lobby.map((p) => p.user_id),
+    selfUserId: userId,
   });
+  if (ev) appendChat(ev);
 }
 
 function appendChat(p: Omit<ChatEvent, "id" | "at">): void {

@@ -55,6 +55,7 @@ import {
   opFriendRequest,
   opFriendsRecent,
 } from "./social.ts";
+import { opChat } from "./chat.ts";
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -139,6 +140,8 @@ Deno.serve(async (req: Request) => {
           String(body.roomCode ?? ""),
           Number(body.stake ?? 0),
         );
+      case "chat":
+        return await opChat(admin, userId, { gameId: body.gameId, kind: body.kind, value: body.value });
       case "friendsRecent":
         return await opFriendsRecent(admin, userId);
       case "deleteAccount":

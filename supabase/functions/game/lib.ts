@@ -45,6 +45,47 @@ export function genCode(): string {
   return code;
 }
 
+/** Postgres unique_violation. */
+const UNIQUE_VIOLATION = "23505";
+
+/** Fresh codes to try before giving up on a room. */
+const CODE_ATTEMPTS = 5;
+
+/**
+ * Insert a games row, picking a fresh room code for as long as it takes.
+ *
+ * `games.room_code` is globally unique over a 32^4 space, and both callers used
+ * to insert a single guess and hand the raw Postgres error straight to the
+ * player on collision — "duplicate key value violates unique constraint
+ * games_room_code_key", which is both meaningless to them and a free look at
+ * the schema that safeError exists to prevent. It is a birthday problem, so it
+ * bites long before the space is anywhere near full.
+ *
+ * Retrying is the whole fix: each attempt is independent, so five of them make
+ * a user-visible collision vanishingly unlikely even with a busy table.
+ */
+export async function insertGameWithCode(
+  admin: SupabaseClient,
+  row: Record<string, unknown>,
+  where: string,
+): Promise<{ id: string; roomCode: string } | { error: string }> {
+  let last: unknown = null;
+  for (let attempt = 0; attempt < CODE_ATTEMPTS; attempt++) {
+    const roomCode = genCode();
+    const { data, error } = await admin
+      .from("games")
+      .insert({ ...row, room_code: roomCode })
+      .select("id")
+      .single();
+    if (!error && data) return { id: String(data.id), roomCode };
+    last = error;
+    // Anything that is not a code collision will not be fixed by another code.
+    if ((error as { code?: string } | null)?.code !== UNIQUE_VIOLATION) break;
+  }
+  console.error(`[${where}]`, last instanceof Error ? last.message : last);
+  return { error: "Couldn't open a room just now. Try again." };
+}
+
 export const cryptoRng: Rng = () => {
   const buf = new Uint32Array(1);
   crypto.getRandomValues(buf);
@@ -140,6 +181,10 @@ export const LIMITS = {
   roomCreate: 30,
   roomInvite: 60,
   quickMatch: 60,
+  // Generous on purpose: chat is now a server round trip, and a 30-minute
+  // table of four chatty players is ordinary use, not abuse. The client's
+  // 500ms send throttle is the first line; this is the backstop.
+  chat: 600,
 } as const;
 
 /**

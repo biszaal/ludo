@@ -13,7 +13,7 @@ import {
   afterResponse,
   freshState,
   FULL_ORDER,
-  genCode,
+  insertGameWithCode,
   json,
   LIMITS,
   rateLimited,
@@ -28,7 +28,7 @@ import {
 } from "./lib.ts";
 import { afterGameWrite, seatBots } from "./bots.ts";
 import { startGameNow } from "./deal.ts";
-import { recordFinishStats, settleIfFinished } from "./finish.ts";
+import { endIfNoHumansLeft, recordFinishStats, settleIfFinished } from "./finish.ts";
 import { walletApply } from "./wallet.ts";
 
 /**
@@ -57,26 +57,25 @@ export async function opCreate(admin: SupabaseClient, userId: string, rawStake: 
   const stake = await validRoomStake(admin, rawStake);
   if (stake === null) return json({ error: "That entry isn't available." });
 
-  const roomCode = genCode();
   // No debit here. Unlike quick match (which debits on seat, because the seat
   // IS the queue), a room can sit unstarted for as long as the host likes —
   // charging at creation would strand coins in a lobby nobody ever begins.
   // deal.ts collects from every seat at start instead.
-  const { data: game, error } = await admin
-    .from("games")
-    .insert({ room_code: roomCode, host_user_id: userId, status: "waiting", stake })
-    .select("id")
-    .single();
-  if (error || !game) return json({ error: error?.message ?? "Could not create game." });
+  const game = await insertGameWithCode(
+    admin,
+    { host_user_id: userId, status: "waiting", stake },
+    "room.create",
+  );
+  if ("error" in game) return json({ error: game.error });
 
   const { data: player, error: pErr } = await admin
     .from("players")
     .insert({ game_id: game.id, user_id: userId, color: "red", seat: 0, is_host: true })
     .select("id")
     .single();
-  if (pErr || !player) return json({ error: pErr?.message ?? "Could not seat host." });
+  if (pErr || !player) return safeError("room.seatHost", pErr, "Could not seat host.");
 
-  return json({ gameId: game.id, roomCode, playerId: player.id, stake });
+  return json({ gameId: game.id, roomCode: game.roomCode, playerId: player.id, stake });
 }
 
 export async function opJoin(admin: SupabaseClient, userId: string, rawCode: string): Promise<Response> {
@@ -245,7 +244,10 @@ export async function opLeave(admin: SupabaseClient, userId: string, gameId: str
   afterResponse(admin.from("players").update({ is_connected: false }).eq("game_id", gameId).eq("user_id", userId));
   if (game.status !== "active" || me.hasLeft) return json({ state, v });
 
-  const next = engineLeaveGame(state, me.id, { now: Date.now() });
+  // If this was the last human, the table has nobody left to play for — end it
+  // here rather than leaving bots to play each other under the cron tick.
+  const left = engineLeaveGame(state, me.id, { now: Date.now() });
+  const next = (game.has_bots ? await endIfNoHumansLeft(admin, gameId, left) : null) ?? left;
   const { data: updated, error } = await admin
     .from("games")
     .update({ state: next, status: next.status, current_turn_player_id: next.currentTurnPlayerId, turn_deadline: turnDeadline(next), state_version: v + 1 })

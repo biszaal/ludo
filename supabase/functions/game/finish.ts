@@ -6,7 +6,7 @@
  */
 
 // @deno-types="../_shared/engine/index.d.ts"
-import type { GameState } from "../_shared/engine/index.js";
+import { inPlayPlayers, leaveGame as engineLeaveGame, type GameState } from "../_shared/engine/index.js";
 import { afterResponse, type SupabaseClient } from "./lib.ts";
 import { walletApply } from "./wallet.ts";
 
@@ -94,6 +94,46 @@ export async function settleIfFinished(admin: SupabaseClient, gameId: string, ne
     // be retried without double-paying the places that already landed.
     await walletApply(admin, userId, amount, "win", gameId, "earned", `win:${gameId}:${place}`);
   }
+}
+
+/**
+ * End a table whose last human has gone, walking the remaining bots out.
+ *
+ * A bot exists to keep a human's game moving. Once every seat still racing is a
+ * bot there is nobody to keep moving for, and the table becomes a machine
+ * playing itself: the turn clock expires, the cron tick drives a turn, the
+ * clock resets, forever. Production ran one of these for 1.5 days and wrote
+ * 5,567 move rows before anyone noticed.
+ *
+ * Returns the finished state, or null if a human is still racing (or the state
+ * is already exhausted, which the engine's own hand-off now ends). Walking each
+ * bot out via leaveGame rather than stamping `finished` directly keeps the
+ * standings honest — the last bot standing takes the final placement — and
+ * reuses the one code path that knows how to end a game.
+ *
+ * Bots forfeit their share to the house in settleIfFinished either way, so this
+ * changes who is paid only by paying the humans who already finished, sooner.
+ */
+export async function endIfNoHumansLeft(
+  admin: SupabaseClient,
+  gameId: string,
+  state: GameState,
+): Promise<GameState | null> {
+  if (state.status !== "active") return null;
+  const inPlay = inPlayPlayers(state);
+  if (inPlay.length === 0) return null;
+
+  const { data: bots } = await admin.from("game_bots").select("user_id").eq("game_id", gameId);
+  const botIds = new Set((bots ?? []).map((b) => String(b.user_id)));
+  if (botIds.size === 0) return null;
+  if (inPlay.some((p) => !p.userId || !botIds.has(p.userId))) return null;
+
+  let next = state;
+  for (const p of inPlay) {
+    if (next.status !== "active") break;
+    next = engineLeaveGame(next, p.id, { now: Date.now() });
+  }
+  return next.status === "finished" ? next : null;
 }
 
 /**

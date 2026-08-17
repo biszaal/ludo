@@ -1,5 +1,5 @@
 import { getValidMoves } from "./getValidMoves.js";
-import { advanceTurn, cloneState, makeAction } from "./internal.js";
+import { cloneState, handOff, makeAction } from "./internal.js";
 /**
  * Pass the turn to the next player. Used after a roll that produced no legal
  * moves (a forced pass).
@@ -20,7 +20,7 @@ export function endTurn(state, options = {}) {
     }
     const next = cloneState(state);
     next.lastAction = makeAction("endTurn", { playerId: state.currentTurnPlayerId }, options.now);
-    advanceTurn(next);
+    handOff(next);
     return next;
 }
 //# sourceMappingURL=endTurn.js.map

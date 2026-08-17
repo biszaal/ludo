@@ -655,12 +655,19 @@ export interface GameSubscription {
   onReconnect?: () => void;
 }
 
-/** Subscribe to a game's row changes (state sync), its players (lobby), and chat. */
+/** Subscribe to a game's row changes (state sync), its players (lobby), and chat.
+ *
+ *  Private channel: joining and sending are both gated by RLS on
+ *  realtime.messages (0037), which asks is_game_participant — the same check
+ *  behind the games/players read policies. Without it the topic is open to
+ *  anyone holding the publishable key who knows the game id, and the id is not
+ *  a secret. supabase-js keeps the socket's JWT current on auth state change,
+ *  so nothing here has to call realtime.setAuth by hand. */
 export function subscribeGame(gameId: string, handlers: GameSubscription): RealtimeChannel {
   const supabase = getSupabase();
   let everSubscribed = false;
   return supabase
-    .channel(`game:${gameId}`)
+    .channel(`game:${gameId}`, { config: { private: true } })
     .on(
       "postgres_changes",
       { event: "UPDATE", schema: "public", table: "games", filter: `id=eq.${gameId}` },
@@ -680,9 +687,21 @@ export function subscribeGame(gameId: string, handlers: GameSubscription): Realt
     });
 }
 
-/** Broadcast a reaction/message to the room (senders don't receive their own). */
-export function sendChat(channel: RealtimeChannel, payload: ChatPayload): void {
-  void channel.send({ type: "broadcast", event: "chat", payload }).catch(() => {});
+/**
+ * Send a reaction/message to the room, via the server.
+ *
+ * Deliberately NOT a channel.send: clients have no insert on realtime.messages
+ * (0037), so the only sender on this topic is the `chat` op, which stamps
+ * fromUserId from the verified JWT. That is what makes the sender on an
+ * incoming payload mean anything — a client that broadcast its own identity
+ * could claim to be any player at the table.
+ *
+ * Fire-and-forget, like the broadcast it replaces: the caller has already
+ * echoed the message locally, and a failed send is not worth an error dialog
+ * mid-game. Senders don't receive their own message back.
+ */
+export function sendChat(gameId: string, kind: ChatPayload["kind"], value: string): void {
+  void callGame("chat", { gameId, kind, value }).catch(() => {});
 }
 
 export function unsubscribe(channel: RealtimeChannel): void {

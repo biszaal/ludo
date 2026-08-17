@@ -1,4 +1,4 @@
-import { advanceTurn, cloneState, getPlayer, makeAction } from "./internal.js";
+import { advanceTurn, cloneState, endIfComplete, getPlayer, makeAction } from "./internal.js";
 /**
  * A player leaves an active game for good (explicit leave, or their app stayed
  * closed past the idle limit). Their tokens are removed from the board, so
@@ -28,20 +28,9 @@ export function leaveGame(state, playerId, options = {}) {
         // (all in the center) and their placement.
         next.tokens = next.tokens.filter((t) => t.playerId !== playerId);
     }
-    // Players still racing (not finished, not left).
-    const inPlay = next.players.filter((p) => !p.hasLeft && !next.finishedOrder.includes(p.id));
-    if (inPlay.length <= 1) {
-        // Last opponent standing inherits the next placement and the game ends.
-        if (inPlay.length === 1)
-            next.finishedOrder.push(inPlay[0].id);
-        if (!next.winnerPlayerId)
-            next.winnerPlayerId = next.finishedOrder[0] ?? null;
-        next.status = "finished";
-        next.phase = "awaiting-roll";
-        next.diceValue = null;
-        next.consecutiveSixes = 0;
+    // Last opponent standing inherits the next placement and the game ends.
+    if (endIfComplete(next))
         return next;
-    }
     // If the leaver held the turn, hand it to the next player still in play.
     if (next.currentTurnPlayerId === playerId) {
         advanceTurn(next);

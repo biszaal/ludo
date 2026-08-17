@@ -34,4 +34,4 @@ export { leaveGame } from "./leaveGame.js";
 export { checkWin, type WinResult } from "./checkWin.js";
 
 // Read-only helpers handy for clients/bots projecting the state.
-export { getCurrentPlayer, getPlayerTokens, hasPlayerWon } from "./internal.js";
+export { getCurrentPlayer, getPlayerTokens, hasPlayerWon, inPlayPlayers } from "./internal.js";

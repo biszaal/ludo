@@ -9,7 +9,7 @@
 // @deno-types="../_shared/engine/index.d.ts"
 import type { GameState } from "../_shared/engine/index.js";
 import {
-  genCode,
+  insertGameWithCode,
   json,
   LIMITS,
   QUICK_STAKE,
@@ -98,14 +98,14 @@ export async function opQuickMatch(
   const debited = await walletApply(admin, userId, -stake, "stake", null);
   if (debited === null) return json({ error: `Not enough coins — you need ${stake} to play.` });
 
-  const { data: game, error } = await admin
-    .from("games")
-    .insert({ room_code: genCode(), host_user_id: userId, status: "waiting", is_quick: true, quick_size: size, stake })
-    .select("id")
-    .single();
-  if (error || !game) {
+  const game = await insertGameWithCode(
+    admin,
+    { host_user_id: userId, status: "waiting", is_quick: true, quick_size: size, stake },
+    "quick.create",
+  );
+  if ("error" in game) {
     await walletApply(admin, userId, stake, "stake-refund", null);
-    return json({ error: error?.message ?? "Could not start matchmaking." });
+    return json({ error: game.error });
   }
 
   const { data: player, error: pErr } = await admin

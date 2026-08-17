@@ -1,6 +1,6 @@
 import type { GameState, Move, TransitionOptions } from "./types.js";
 import { validateMove } from "./validateMove.js";
-import { advanceTurn, cloneState, hasPlayerWon, makeAction } from "./internal.js";
+import { cloneState, handOff, hasPlayerWon, makeAction } from "./internal.js";
 
 /**
  * Apply a legal move and resolve the consequences: token advance, captures,
@@ -42,24 +42,16 @@ export function applyMove(
 
   // 3. Finish check — the game plays to completion. A player who just got all
   // four tokens home joins finishedOrder (first = the winner) and spectates;
-  // play continues until a single unfinished player remains, who is appended
+  // play continues until a single in-play player remains, who is appended
   // last and the game ends with full standings.
   if (hasPlayerWon(next, state.currentTurnPlayerId)) {
     const mover = state.currentTurnPlayerId;
     if (!next.finishedOrder.includes(mover)) next.finishedOrder.push(mover);
     if (!next.winnerPlayerId) next.winnerPlayerId = next.finishedOrder[0]!;
 
-    const remaining = next.players.filter((p) => !next.finishedOrder.includes(p.id));
-    if (remaining.length <= 1) {
-      if (remaining.length === 1) next.finishedOrder.push(remaining[0]!.id);
-      next.status = "finished";
-      next.phase = "awaiting-roll";
-      next.diceValue = null;
-      return next;
-    }
-
-    // Finished players earn no bonus turns — hand off to the next in play.
-    advanceTurn(next);
+    // Finished players earn no bonus turns — hand off to the next in play,
+    // or end the game if that was the last of them.
+    handOff(next);
     return next;
   }
 
@@ -75,7 +67,7 @@ export function applyMove(
     // Preserve the six-streak only if this roll was itself a six.
     next.consecutiveSixes = dice === 6 ? next.consecutiveSixes : 0;
   } else {
-    advanceTurn(next);
+    handOff(next);
   }
 
   return next;

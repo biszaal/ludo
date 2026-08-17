@@ -27,7 +27,7 @@ import {
   WRITE_FAILED,
 } from "./lib.ts";
 import { afterGameWrite, BOT_MAX_ACTIONS, stepPauseMs } from "./bots.ts";
-import { recordFinishStats, settleIfFinished } from "./finish.ts";
+import { endIfNoHumansLeft, recordFinishStats, settleIfFinished } from "./finish.ts";
 
 /**
  * Consecutive whole turns a player may idle through (bot-played) before the
@@ -252,6 +252,26 @@ export async function advanceStalledGame(admin: SupabaseClient, game: StalledGam
   const deadline = game.turn_deadline ? Date.parse(game.turn_deadline) : NaN;
   if (!Number.isFinite(deadline) || Date.now() < deadline) return { kind: "not-due" };
 
+  // Before driving anything: is there still a human this table is being played
+  // for? A bot-only table is checked once a minute here rather than only at the
+  // moment the last human leaves, so a game that reached this state by any
+  // other route — or before the leave-time check existed — still terminates.
+  const abandoned = hasBots ? await endIfNoHumansLeft(admin, gameId, state) : null;
+  if (abandoned) {
+    const { data: ended } = await admin
+      .from("games")
+      .update({ state: abandoned, status: abandoned.status, current_turn_player_id: abandoned.currentTurnPlayerId, turn_deadline: null, state_version: v + 1 })
+      .eq("id", gameId)
+      .eq("turn_deadline", game.turn_deadline!)
+      .eq("state_version", v)
+      .select("id")
+      .maybeSingle();
+    if (!ended) return { kind: "raced" };
+    afterResponse(admin.from("moves").insert({ game_id: gameId, player_id: state.currentTurnPlayerId, action: { action: "abandoned" } }));
+    await finishStalledTurn(admin, gameId, hasBots, abandoned);
+    return { kind: "advanced", state: abandoned, v: v + 1 };
+  }
+
   const awayPlayerId = state.currentTurnPlayerId;
   const awayUserId = state.players.find((p) => p.id === awayPlayerId)?.userId;
 
@@ -289,7 +309,9 @@ export async function advanceStalledGame(admin: SupabaseClient, game: StalledGam
       // Gone for good — remove them from the game instead of bot-playing
       // another turn. Guard on the deadline we read so a racing caller (or
       // the player suddenly returning) can't double-apply.
-      const next = engineLeaveGame(state, awayPlayerId, { now: Date.now() });
+      const left = engineLeaveGame(state, awayPlayerId, { now: Date.now() });
+      // Their departure may have left a table of nothing but bots.
+      const next = (await endIfNoHumansLeft(admin, gameId, left)) ?? left;
       const { data: updated } = await admin
         .from("games")
         .update({ state: next, status: next.status, current_turn_player_id: next.currentTurnPlayerId, turn_deadline: turnDeadline(next), state_version: v + 1 })

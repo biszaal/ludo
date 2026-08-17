@@ -1,4 +1,4 @@
-import { advanceTurn, cloneState, makeAction } from "./internal.js";
+import { cloneState, handOff, makeAction } from "./internal.js";
 /**
  * Force the current turn to end and hand off to the next player, regardless of
  * phase — used for a timed-out turn (the player never rolled, or rolled and
@@ -13,7 +13,7 @@ export function skipTurn(state, options = {}) {
     }
     const next = cloneState(state);
     next.lastAction = makeAction("endTurn", { playerId: state.currentTurnPlayerId, skipped: true }, options.now);
-    advanceTurn(next);
+    handOff(next);
     return next;
 }
 //# sourceMappingURL=skipTurn.js.map

@@ -1,5 +1,5 @@
 import type { GameState, TransitionOptions } from "./types.js";
-import { advanceTurn, cloneState, makeAction } from "./internal.js";
+import { cloneState, handOff, makeAction } from "./internal.js";
 
 /**
  * Force the current turn to end and hand off to the next player, regardless of
@@ -15,6 +15,6 @@ export function skipTurn(state: GameState, options: TransitionOptions = {}): Gam
   }
   const next = cloneState(state);
   next.lastAction = makeAction("endTurn", { playerId: state.currentTurnPlayerId, skipped: true }, options.now);
-  advanceTurn(next);
+  handOff(next);
   return next;
 }
