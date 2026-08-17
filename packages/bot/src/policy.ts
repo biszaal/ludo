@@ -2,13 +2,22 @@
  * Heuristic move-selection policy. Pure: given a state and the engine's own list
  * of valid moves, pick one. Reusable on client (fill empty seats) and server.
  *
- * Two brains behind one signature:
+ * Three brains behind one signature:
  * - "easy": the original tiered ladder — capture > finish > advance the token
  *   closest to finishing > leave the yard.
- * - "normal"/"hard" (default "hard"): a weighted score that also weighs capture
- *   RISK — escaping threatened tokens, not landing in an opponent's reach,
- *   grabbing safe squares — and, on hard, hunting prey and camping stars in
- *   ambush of traffic approaching from behind.
+ * - "normal": a weighted score that also weighs capture RISK — escaping
+ *   threatened tokens, not landing in an opponent's reach, grabbing safe
+ *   squares — plus hunting prey and camping stars in ambush of traffic
+ *   approaching from behind. This was the old "hard".
+ * - "hard" (the default): one-ply expectimax. Every candidate is played out,
+ *   the next seat's six possible rolls are each answered with their own best
+ *   reply, and the resulting positions are valued by evaluate.ts. Leader
+ *   targeting, ahead/behind risk appetite and bonus-turn chaining all fall out
+ *   of the evaluator rather than being bolted on as rules.
+ *
+ * The tiers stay because callers still want a weak opponent sometimes; nothing
+ * in the codebase asks for one today, but deleting the ladder to add a search
+ * would be throwing away the only dial we have.
  */
 
 import {
@@ -19,6 +28,8 @@ import {
   type GameState,
   type Move,
 } from "@ludo/engine";
+import { riskAppetite } from "./evaluate.js";
+import { scoreMoves } from "./search.js";
 import { chaseCount, opponentsBehind, threatProb } from "./threat.js";
 
 export type BotDifficulty = "easy" | "normal" | "hard";
@@ -28,7 +39,31 @@ export interface BotOptions {
   rng?: () => number;
   /** Strength of play; defaults to "hard". */
   difficulty?: BotDifficulty;
+  /** Plies of roll-and-reply the "hard" search expands past each candidate.
+   *  Defaults to {@link DEFAULT_SEARCH_DEPTH}. Ignored by the other tiers. */
+  depth?: number;
 }
+
+/**
+ * Plies of roll-and-reply "hard" expands past each candidate.
+ *
+ * Measured over seeded self-play rather than guessed, because the honest answer
+ * turned out to be "barely":
+ *
+ *   depth 2 vs depth 1, heads-up, 700 games ....... 54.0%  (z = 2.1)
+ *   depth 2 vs depth 1, one seat in a 4p table .... +0.3pt (1σ = 1.1pt — noise)
+ *   cost, 4-player midgame ........................ 948µs vs 162µs per decision
+ *
+ * So depth 2 is a real but small heads-up edge and an unresolvable one at a
+ * full table, bought for 6x the CPU. It stays the default only because the
+ * absolute cost is still tiny — ~23ms across a whole 24-action bot run, ~11% of
+ * the edge runtime's 200ms soft CPU limit. Depth 3 was abandoned: it could not
+ * finish a measurement run in ten minutes.
+ *
+ * If bot CPU ever needs to come down, dropping to 1 is the cheapest 6x
+ * available and costs almost nothing at a 4-player table.
+ */
+export const DEFAULT_SEARCH_DEPTH = 2;
 
 /**
  * Choose a move for `playerId` from `validMoves` (which must be the engine's
@@ -49,18 +84,28 @@ export function chooseMove(
   const rng = options.rng ?? Math.random;
   const difficulty = options.difficulty ?? "hard";
 
+  const scores =
+    difficulty === "hard"
+      ? scoreMoves(
+          state,
+          playerId,
+          validMoves,
+          riskAppetite(state, playerId),
+          options.depth ?? DEFAULT_SEARCH_DEPTH,
+        ).map((s) => s.score)
+      : validMoves.map((move) =>
+          difficulty === "easy" ? scoreEasy(color, move) : scoreSmart(state, playerId, color, move),
+        );
+
   let best: Move[] = [];
   let bestScore = -Infinity;
-  for (const move of validMoves) {
-    const s =
-      difficulty === "easy"
-        ? scoreEasy(color, move)
-        : scoreSmart(state, playerId, color, move, difficulty === "hard");
+  for (let i = 0; i < validMoves.length; i++) {
+    const s = scores[i]!;
     if (s > bestScore) {
       bestScore = s;
-      best = [move];
+      best = [validMoves[i]!];
     } else if (s === bestScore) {
-      best.push(move);
+      best.push(validMoves[i]!);
     }
   }
 
@@ -88,19 +133,14 @@ function scoreEasy(color: Color, move: Move): number {
 }
 
 /**
- * Weighted score. Capture and finish stay dominant, but risk terms outweigh raw
- * progress (a certain-capture landing costs up to ~1300 vs progress's ≤ ~340),
- * so the bot detours around danger instead of marching the lead token into it.
- * Weights tuned by seeded self-play: ~60% win rate vs the easy ladder over
- * 1000 alternating-seat games (dice luck caps how far skill can push this).
+ * Weighted score — the "normal" tier, and the strength bar the search has to
+ * clear. Capture and finish stay dominant, but risk terms outweigh raw progress
+ * (a certain-capture landing costs up to ~1300 vs progress's ≤ ~340), so it
+ * detours around danger instead of marching the lead token into it. Weights
+ * tuned by seeded self-play: ~60% win rate vs the easy ladder over 1000
+ * alternating-seat games (dice luck caps how far skill can push this).
  */
-function scoreSmart(
-  state: GameState,
-  playerId: string,
-  color: Color,
-  move: Move,
-  hard: boolean,
-): number {
+function scoreSmart(state: GameState, playerId: string, color: Color, move: Move): number {
   let score = 0;
 
   if (move.captures.length > 0) {
@@ -131,12 +171,10 @@ function scoreSmart(
   const entersHomePath = typeof move.to === "object" && move.to.type === "homePath";
   if ((toSafe || entersHomePath) && move.from !== "home") score += 600;
 
-  if (hard) {
-    // Offense: land where next turn's roll can reach prey…
-    score += (250 * Math.min(chaseCount(state, playerId, move.to), 6)) / 6;
-    // …and camp stars ahead of oncoming traffic: sit in ambush at no risk.
-    if (toSafe && opponentsBehind(state, playerId, move.to, 12) > 0) score += 250;
-  }
+  // Offense: land where next turn's roll can reach prey…
+  score += (250 * Math.min(chaseCount(state, playerId, move.to), 6)) / 6;
+  // …and camp stars ahead of oncoming traffic: sit in ambush at no risk.
+  if (toSafe && opponentsBehind(state, playerId, move.to, 12) > 0) score += 250;
 
   if (move.from === "home") {
     // Spread: a lone runner is fragile — bring reinforcements out early.

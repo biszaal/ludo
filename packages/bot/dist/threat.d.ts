@@ -17,7 +17,7 @@ export declare function threatProb(state: GameState, playerId: string, pos: Toke
 /**
  * Capturable opponent tokens within one roll AHEAD of `pos` — prey a token
  * standing there could hunt next turn. Tokens parked on safe squares don't
- * count; they can't be taken.
+ * count, and neither do stacked ones; both are untakeable.
  */
 export declare function chaseCount(state: GameState, playerId: string, pos: TokenPosition): number;
 /**

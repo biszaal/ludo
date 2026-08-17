@@ -22,13 +22,29 @@ function safeCell(state: GameState, abs: number): boolean {
   return state.rules.safeSquares && isSafeSquare(abs);
 }
 
+/**
+ * Does `owner` have a protected stack on `abs`? Two of their tokens sharing a
+ * cell guard each other, so the square is as good as a star for them — neither
+ * a threat to model nor prey worth chasing.
+ */
+function stackedAt(state: GameState, owner: string, abs: number): boolean {
+  if (!state.rules.protectStacks) return false;
+  let n = 0;
+  for (const t of state.tokens) {
+    if (t.playerId !== owner) continue;
+    if (absoluteTrackIndex(t.position) !== abs) continue;
+    if (++n >= 2) return true;
+  }
+  return false;
+}
+
 /** Opponent track tokens of `playerId` (the only pieces that threaten or flee). */
-function opponentTrackTokens(state: GameState, playerId: string): number[] {
-  const out: number[] = [];
+function opponentTrackTokens(state: GameState, playerId: string): { abs: number; owner: string }[] {
+  const out: { abs: number; owner: string }[] = [];
   for (const t of state.tokens) {
     if (t.playerId === playerId) continue;
     const abs = absoluteTrackIndex(t.position);
-    if (abs !== null) out.push(abs);
+    if (abs !== null) out.push({ abs, owner: t.playerId });
   }
   return out;
 }
@@ -40,9 +56,11 @@ function opponentTrackTokens(state: GameState, playerId: string): number[] {
 export function threatProb(state: GameState, playerId: string, pos: TokenPosition): number {
   const abs = absoluteTrackIndex(pos);
   if (abs === null || safeCell(state, abs)) return 0;
+  // Standing on our own stack is as good as a star — nobody can land here.
+  if (stackedAt(state, playerId, abs)) return 0;
   let missAll = 1;
   for (const opp of opponentTrackTokens(state, playerId)) {
-    const dist = (abs - opp + MAIN_TRACK_SIZE) % MAIN_TRACK_SIZE;
+    const dist = (abs - opp.abs + MAIN_TRACK_SIZE) % MAIN_TRACK_SIZE;
     if (dist >= 1 && dist <= 6) missAll *= 5 / 6;
   }
   return 1 - missAll;
@@ -51,15 +69,17 @@ export function threatProb(state: GameState, playerId: string, pos: TokenPositio
 /**
  * Capturable opponent tokens within one roll AHEAD of `pos` — prey a token
  * standing there could hunt next turn. Tokens parked on safe squares don't
- * count; they can't be taken.
+ * count, and neither do stacked ones; both are untakeable.
  */
 export function chaseCount(state: GameState, playerId: string, pos: TokenPosition): number {
   const abs = absoluteTrackIndex(pos);
   if (abs === null) return 0;
   let n = 0;
   for (const opp of opponentTrackTokens(state, playerId)) {
-    const dist = (opp - abs + MAIN_TRACK_SIZE) % MAIN_TRACK_SIZE;
-    if (dist >= 1 && dist <= 6 && !safeCell(state, opp)) n++;
+    const dist = (opp.abs - abs + MAIN_TRACK_SIZE) % MAIN_TRACK_SIZE;
+    if (dist < 1 || dist > 6) continue;
+    if (safeCell(state, opp.abs) || stackedAt(state, opp.owner, opp.abs)) continue;
+    n++;
   }
   return n;
 }
@@ -79,7 +99,7 @@ export function opponentsBehind(
   if (abs === null) return 0;
   let n = 0;
   for (const opp of opponentTrackTokens(state, playerId)) {
-    const dist = (abs - opp + MAIN_TRACK_SIZE) % MAIN_TRACK_SIZE;
+    const dist = (abs - opp.abs + MAIN_TRACK_SIZE) % MAIN_TRACK_SIZE;
     if (dist >= 1 && dist <= range) n++;
   }
   return n;
