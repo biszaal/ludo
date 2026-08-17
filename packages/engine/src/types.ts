@@ -108,6 +108,13 @@ export interface RuleConfig {
   exactRollToFinish: boolean;
   /** No captures occur on starred safe squares. */
   safeSquares: boolean;
+  /**
+   * Two or more of a player's tokens sharing a cell protect each other: the
+   * stack cannot be captured, and landing on it is illegal (the mover has to
+   * play a different token). Unlike {@link enableBlockades} it does NOT block
+   * passage — opponents move straight over a stack, they just can't land on it.
+   */
+  protectStacks: boolean;
   /** Two same-color tokens form an impassable, capture-proof block. Off in v1. */
   enableBlockades: boolean;
 }
@@ -120,6 +127,7 @@ export const DEFAULT_RULES: RuleConfig = {
   threeSixesForfeit: true,
   exactRollToFinish: true,
   safeSquares: true,
+  protectStacks: true,
   enableBlockades: false,
 };
 

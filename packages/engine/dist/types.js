@@ -16,6 +16,7 @@ export const DEFAULT_RULES = {
     threeSixesForfeit: true,
     exactRollToFinish: true,
     safeSquares: true,
+    protectStacks: true,
     enableBlockades: false,
 };
 //# sourceMappingURL=types.js.map
