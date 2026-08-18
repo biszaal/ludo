@@ -202,10 +202,20 @@ export function Dice({ value, size = 64, spinSeq = 0, idle = false, theme, skin,
     // rotation invisible in the settled face. Stopping mid-turn instead would
     // land the die tilted.
     const landMs = Math.max(0, ROLL_MS * (CUBE_END - p));
-    // The hold's turn counter now climbs past 1, so land on the NEXT whole turn
-    // rather than on turn 1 — same invisible-rotation guarantee, but it can no
-    // longer ask the die to rewind several turns to get there.
-    spin.value = withTiming(Math.ceil(spin.value + 0.001), { duration: landMs, easing: Easing.linear });
+    // Land on a whole turn, but pick WHICH whole turn by how far the die would
+    // have spun anyway in landMs. Rounding blindly up to the next one is what
+    // still hitched after the sawtooth was gone: the hold turns at
+    // 1/HOLD_TURN_MS, and if it happened to be a hair short of a whole turn
+    // when the answer arrived, the die was asked to cover that hair over the
+    // whole landing — an abrupt near-stall at exactly the moment the server
+    // replied. Choosing the NEAREST whole turn to where it was already headed
+    // keeps the rate within half a turn of the one it was already at, so the
+    // handover from spinning to landing is continuous.
+    const natural = spin.value + landMs / HOLD_TURN_MS;
+    spin.value = withTiming(Math.max(Math.round(natural), Math.ceil(spin.value)), {
+      duration: landMs,
+      easing: Easing.linear,
+    });
     const settle = setTimeout(diceSettle, landMs);
     return () => clearTimeout(settle);
   }, [value, roll, spin]);
