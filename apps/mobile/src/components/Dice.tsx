@@ -50,19 +50,6 @@ const PIP_XY: Record<number, [number, number][]> = {
 const ROLL_MS = DICE_ROLL_MS;
 /** Fraction of the roll spent tumbling; the rest is the landing squash. */
 const CUBE_END = 0.8;
-/** Where the arc parks while the server value is in flight: the apex, where the
- *  die is at its largest and most clearly off the ground. */
-const HOLD_P = CUBE_END * 0.5;
-/** Turns the hold spin is given up front. Only needs to outlast HOLD_BAIL_MS at
- *  HOLD_TURN_MS each; it is a budget, not a target, since the landing cuts it
- *  short at the next whole turn. */
-const HOLD_TURNS = 40;
-/** One whole extra turn of the hold spin. Roughly the rate the free tumble is
- *  already turning at when it reaches HOLD_P, so entering and leaving the hold
- *  doesn't read as a change of speed. */
-const HOLD_TURN_MS = 320;
-/** Give up on a value that never arrives (request failed) and settle to idle. */
-const HOLD_BAIL_MS = 9000;
 
 interface DiceProps {
   value: number | null;
@@ -89,13 +76,6 @@ export function Dice({ value, size = 64, spinSeq = 0, idle = false, theme, skin,
   const roll = useSharedValue(1);
   const wiggle = useSharedValue(0);
   const mounted = useRef(false);
-  // The die must never land without an authoritative value: a tumble started
-  // with value=null (the roller's optimistic tap — the server hasn't answered
-  // yet) holds airborne until the value prop arrives, then unwinds to land on
-  // it. `holding` marks that in-flight wait.
-  const valueRef = useRef(value);
-  valueRef.current = value;
-  const holding = useRef(false);
   // Whole extra turns added on top of the arc's own angles, in turns (1 = 360°).
   // Only the hold uses it: because a whole turn is the identity rotation, a
   // 0->1 loop wraps invisibly and a landing that ends on a whole number leaves
@@ -143,92 +123,22 @@ export function Dice({ value, size = 64, spinSeq = 0, idle = false, theme, skin,
     cancelAnimation(spin);
     roll.value = 0;
     spin.value = 0;
-    if (valueRef.current != null) {
-      holding.current = false;
-      roll.value = withTiming(1, { duration: ROLL_MS, easing: Easing.linear });
-      // Haptic on impact — when the tumble lands, not when the squash finishes.
-      const settle = setTimeout(diceSettle, ROLL_MS * CUBE_END);
-      return () => clearTimeout(settle);
-    }
-    // Value unknown: tumble up to the apex, park the arc there and let `spin`
-    // carry the rotation until the value effect below resumes the landing.
+    // One roll, always: the same tumble whether the value is already known or
+    // still in flight. No airborne hold, no second rotation source, nothing to
+    // hand over between — the die simply rolls, the way it does offline.
     //
-    // The hold used to ping-pong the arc parameter itself between two airborne
-    // points. Every angle in the tumble is a function of that parameter, so
-    // driving it backwards drove the cube backwards: on a connection slow
-    // enough to hold for more than one leg, the die visibly rocked to and fro
-    // instead of rolling. Whole turns are the only way to keep spinning
-    // without moving along the arc, and they cost nothing at the landing.
-    holding.current = true;
-    // Ease OUT into the park. The arc contributes rotation of its own while it
-    // moves, so stopping it linearly drops that contribution to zero in a single
-    // frame — a step down in the die's total speed, which is the hitch. Easing
-    // out brings the arc's own velocity smoothly to zero instead, and `spin`
-    // below is already turning at the rate it hands over at, so the die rolls
-    // through the junction at one unbroken speed.
-    roll.value = withTiming(HOLD_P, { duration: ROLL_MS * HOLD_P, easing: Easing.out(Easing.quad) });
-    // ONE animation, not a repeat. withRepeat restarts its timing from the
-    // start value every cycle, so the turn counter sawtoothed 0->1->0->1 and
-    // the die hitched once per turn — the jerk you can see in the wait. Handing
-    // the same linear timing a large target instead means the angle only ever
-    // increases, at a constant rate, with no boundary to stutter at: it just
-    // keeps rolling the way the local (value-known) tumble does, until the
-    // server answers.
-    spin.value = withTiming(HOLD_TURNS, {
-      duration: HOLD_TURNS * HOLD_TURN_MS,
-      easing: Easing.linear,
-    });
-    const bail = setTimeout(() => {
-      if (!holding.current) return;
-      holding.current = false;
-      cancelAnimation(roll);
-      cancelAnimation(spin);
-      spin.value = 0;
-      roll.value = 1; // settles to the idle swirl — value is still null
-      // The roll never happened and the seat is still theirs, so put the "tap
-      // me" hint back rather than leaving a dead-looking die.
-      if (tappableRef.current) startWiggle();
-    }, HOLD_BAIL_MS);
-    return () => clearTimeout(bail);
-  }, [spinSeq, roll, spin, startWiggle, stopWiggle]);
-
-  // The held tumble's landing: the authoritative value arrived mid-flight —
-  // resume the same parametric curve from wherever the hold left it, so the
-  // hand-off is seamless and the re-recorded picture bakes in the real face.
-  useEffect(() => {
-    if (value == null || !holding.current) return;
-    holding.current = false;
-    cancelAnimation(roll);
-    cancelAnimation(spin);
-    const p = Math.min(roll.value, HOLD_P);
-    roll.value = p;
-    // Mirror of the park: ease IN so the arc picks its rotation back up from
-    // zero rather than snapping straight to full speed the instant the server
-    // answers. Between the two, the die's speed is continuous across both ends
-    // of the wait instead of stepping down and back up.
-    roll.value = withTiming(1, { duration: ROLL_MS * (1 - p), easing: Easing.in(Easing.quad) });
-    // Finish the turn the hold was part-way through, timed to complete exactly
-    // as the cube goes flat — landing on a whole turn is what keeps the extra
-    // rotation invisible in the settled face. Stopping mid-turn instead would
-    // land the die tilted.
-    const landMs = Math.max(0, ROLL_MS * (CUBE_END - p));
-    // Land on a whole turn, but pick WHICH whole turn by how far the die would
-    // have spun anyway in landMs. Rounding blindly up to the next one is what
-    // still hitched after the sawtooth was gone: the hold turns at
-    // 1/HOLD_TURN_MS, and if it happened to be a hair short of a whole turn
-    // when the answer arrived, the die was asked to cover that hair over the
-    // whole landing — an abrupt near-stall at exactly the moment the server
-    // replied. Choosing the NEAREST whole turn to where it was already headed
-    // keeps the rate within half a turn of the one it was already at, so the
-    // handover from spinning to landing is continuous.
-    const natural = spin.value + landMs / HOLD_TURN_MS;
-    spin.value = withTiming(Math.max(Math.round(natural), Math.ceil(spin.value)), {
-      duration: landMs,
-      easing: Easing.linear,
-    });
-    const settle = setTimeout(diceSettle, landMs);
+    // The hold this replaces existed so the die could never land on a face the
+    // server had not confirmed. It bought that at the cost of parking the arc
+    // mid-flight and carrying the wait on a separate spin, and every version of
+    // that hitched at the junctions. The trade is now the other way round: on a
+    // reply slower than the tumble the die lands on its placeholder face and
+    // corrects the moment the real one arrives. That correction is a re-render,
+    // not an animation, so it cannot stutter the roll.
+    roll.value = withTiming(1, { duration: ROLL_MS, easing: Easing.linear });
+    // Haptic on impact — when the tumble lands, not when the squash finishes.
+    const settle = setTimeout(diceSettle, ROLL_MS * CUBE_END);
     return () => clearTimeout(settle);
-  }, [value, roll, spin]);
+  }, [spinSeq, roll, spin, startWiggle, stopWiggle]);
 
   // Wiggle while the die is waiting to be rolled. A roll in progress stops it
   // (above) without this effect re-running — `tappable` doesn't change on the
