@@ -160,7 +160,13 @@ export function Dice({ value, size = 64, spinSeq = 0, idle = false, theme, skin,
     // instead of rolling. Whole turns are the only way to keep spinning
     // without moving along the arc, and they cost nothing at the landing.
     holding.current = true;
-    roll.value = withTiming(HOLD_P, { duration: ROLL_MS * HOLD_P, easing: Easing.linear });
+    // Ease OUT into the park. The arc contributes rotation of its own while it
+    // moves, so stopping it linearly drops that contribution to zero in a single
+    // frame — a step down in the die's total speed, which is the hitch. Easing
+    // out brings the arc's own velocity smoothly to zero instead, and `spin`
+    // below is already turning at the rate it hands over at, so the die rolls
+    // through the junction at one unbroken speed.
+    roll.value = withTiming(HOLD_P, { duration: ROLL_MS * HOLD_P, easing: Easing.out(Easing.quad) });
     // ONE animation, not a repeat. withRepeat restarts its timing from the
     // start value every cycle, so the turn counter sawtoothed 0->1->0->1 and
     // the die hitched once per turn — the jerk you can see in the wait. Handing
@@ -196,7 +202,11 @@ export function Dice({ value, size = 64, spinSeq = 0, idle = false, theme, skin,
     cancelAnimation(spin);
     const p = Math.min(roll.value, HOLD_P);
     roll.value = p;
-    roll.value = withTiming(1, { duration: ROLL_MS * (1 - p), easing: Easing.linear });
+    // Mirror of the park: ease IN so the arc picks its rotation back up from
+    // zero rather than snapping straight to full speed the instant the server
+    // answers. Between the two, the die's speed is continuous across both ends
+    // of the wait instead of stepping down and back up.
+    roll.value = withTiming(1, { duration: ROLL_MS * (1 - p), easing: Easing.in(Easing.quad) });
     // Finish the turn the hold was part-way through, timed to complete exactly
     // as the cube goes flat — landing on a whole turn is what keeps the extra
     // rotation invisible in the settled face. Stopping mid-turn instead would
