@@ -53,6 +53,10 @@ const CUBE_END = 0.8;
 /** Where the arc parks while the server value is in flight: the apex, where the
  *  die is at its largest and most clearly off the ground. */
 const HOLD_P = CUBE_END * 0.5;
+/** Turns the hold spin is given up front. Only needs to outlast HOLD_BAIL_MS at
+ *  HOLD_TURN_MS each; it is a budget, not a target, since the landing cuts it
+ *  short at the next whole turn. */
+const HOLD_TURNS = 40;
 /** One whole extra turn of the hold spin. Roughly the rate the free tumble is
  *  already turning at when it reaches HOLD_P, so entering and leaving the hold
  *  doesn't read as a change of speed. */
@@ -157,7 +161,17 @@ export function Dice({ value, size = 64, spinSeq = 0, idle = false, theme, skin,
     // without moving along the arc, and they cost nothing at the landing.
     holding.current = true;
     roll.value = withTiming(HOLD_P, { duration: ROLL_MS * HOLD_P, easing: Easing.linear });
-    spin.value = withRepeat(withTiming(1, { duration: HOLD_TURN_MS, easing: Easing.linear }), -1);
+    // ONE animation, not a repeat. withRepeat restarts its timing from the
+    // start value every cycle, so the turn counter sawtoothed 0->1->0->1 and
+    // the die hitched once per turn — the jerk you can see in the wait. Handing
+    // the same linear timing a large target instead means the angle only ever
+    // increases, at a constant rate, with no boundary to stutter at: it just
+    // keeps rolling the way the local (value-known) tumble does, until the
+    // server answers.
+    spin.value = withTiming(HOLD_TURNS, {
+      duration: HOLD_TURNS * HOLD_TURN_MS,
+      easing: Easing.linear,
+    });
     const bail = setTimeout(() => {
       if (!holding.current) return;
       holding.current = false;
@@ -188,7 +202,10 @@ export function Dice({ value, size = 64, spinSeq = 0, idle = false, theme, skin,
     // rotation invisible in the settled face. Stopping mid-turn instead would
     // land the die tilted.
     const landMs = Math.max(0, ROLL_MS * (CUBE_END - p));
-    spin.value = withTiming(1, { duration: landMs, easing: Easing.linear });
+    // The hold's turn counter now climbs past 1, so land on the NEXT whole turn
+    // rather than on turn 1 — same invisible-rotation guarantee, but it can no
+    // longer ask the die to rewind several turns to get there.
+    spin.value = withTiming(Math.ceil(spin.value + 0.001), { duration: landMs, easing: Easing.linear });
     const settle = setTimeout(diceSettle, landMs);
     return () => clearTimeout(settle);
   }, [value, roll, spin]);

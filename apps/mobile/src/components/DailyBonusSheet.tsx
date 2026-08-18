@@ -97,7 +97,18 @@ export function DailyBonusSheet({ onClose }: { onClose: () => void }) {
           // still unreachable — fall through to the connection note
         }
       }
-      if (!settled) setNote("Couldn't reach the server. Check your connection and try again.");
+      if (!settled) {
+        // Say what actually went wrong. A blanket "check your connection" over
+        // every failure is why this was impossible to diagnose from a
+        // screenshot: an unreachable server, a refused claim and a bug in the
+        // client all read identically. Only a genuinely unanswered call gets
+        // the connection wording now.
+        setNote(
+          isTimeout(e)
+            ? "Couldn't reach the server. Check your connection and try again."
+            : `Couldn't claim the bonus: ${e instanceof Error ? e.message : String(e)}`,
+        );
+      }
       await useWallet.getState().refresh();
     } finally {
       setBusy(false);
