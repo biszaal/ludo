@@ -81,6 +81,22 @@ export function AccountScreen() {
   /** A real rename — the one that costs the allowance. */
   const spendsAllowance = changed && !onGuestHandle && !nameLocked;
 
+  /** Commit the first real name off this device's guest handle. Free — 0030's
+   *  trigger carries name_changed_at through untouched — so no confirmation,
+   *  but it is still an explicit press. Saving this one per keystroke is what
+   *  spent people's allowance on a half-typed name: the debounced sync pushed
+   *  "Bisha" as its own UPDATE, which left the guest handle behind, so the very
+   *  next keystroke's push was a rename FROM "Bisha" and the trigger charged
+   *  for it. One field, one write, one name. */
+  const onClaimName = useCallback(() => {
+    const next = draft.trim();
+    if (next.length === 0 || taken) return;
+    setName(next);
+    // The allowance is untouched by a claim off the guest handle, so carry
+    // nameChangedAt through rather than stamping it.
+    setMine({ displayName: next, nameChangedAt: mine?.nameChangedAt ?? null });
+  }, [draft, taken, setName, mine]);
+
   /** Commit a real rename. Irreversible and one-per-account, so it is confirmed
    *  explicitly and names both sides — never saved out from under a keystroke. */
   const onCommitName = useCallback(() => {
@@ -179,13 +195,7 @@ export function AccountScreen() {
                 <Field
                   accessibilityLabel="Display name"
                   value={draft}
-                  onChangeText={(t) => {
-                    setDraft(t);
-                    // A free claim off the guest handle saves as you type, the
-                    // way it always has. A real rename is irreversible, so it
-                    // waits for an explicit, confirmed commit below.
-                    if (!spendsAllowance) setName(t);
-                  }}
+                  onChangeText={setDraft}
                   focused={focused}
                   onFocus={() => setFocused(true)}
                   onBlur={() => {
@@ -202,9 +212,12 @@ export function AccountScreen() {
                     That name is already taken — others will keep seeing your previous one until you pick another.
                   </Text>
                 ) : onGuestHandle ? (
-                  <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel }}>
-                    Pick your username — friends find you by it. You can change it once after this.
-                  </Text>
+                  <>
+                    <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel }}>
+                      Pick your username — friends find you by it. You can change it once after this.
+                    </Text>
+                    {changed ? <Button label="Save username" onPress={onClaimName} /> : null}
+                  </>
                 ) : spendsAllowance ? (
                   <>
                     <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel }}>

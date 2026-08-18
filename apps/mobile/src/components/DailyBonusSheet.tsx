@@ -24,6 +24,7 @@ import { CoinGlyph } from "./CoinsPill";
 import { GemGlyph } from "./GemGlyph";
 import { CheckGlyph, ChestGlyph } from "./HomeGlyphs";
 import { useWallet } from "../store/walletStore";
+import { isTimeout } from "../net/api";
 import { useConfig } from "../store/configStore";
 import { dailyBonusLadder, type BonusDay } from "../lib/economy";
 import { formatExact } from "../lib/format";
@@ -67,11 +68,36 @@ export function DailyBonusSheet({ onClose }: { onClose: () => void }) {
         setNote("Today's bonus is already claimed. Come back tomorrow.");
       }
       await useWallet.getState().refresh();
-    } catch {
+    } catch (e) {
       // A failed request is NOT a spent bonus. Saying "already claimed" here
       // sent players away from coins that were still theirs to take; the refresh
       // below puts the button back so they can simply try again.
-      setNote("Couldn't reach the server. Check your connection and try again.");
+      //
+      // An UNANSWERED call is different from a refusal: the claim may have been
+      // applied and only the reply was lost, so telling the player to check
+      // their connection is wrong as often as it is right. The claim is
+      // idempotent by construction — daily_bonus_claim (0033) does the whole
+      // thing in one transaction under an ext_id of daily:<user>:<date> — so
+      // simply asking again is safe, and answers the question properly whether
+      // the first attempt landed or not.
+      let settled = false;
+      if (isTimeout(e)) {
+        try {
+          const again = await claimDailyBonus();
+          if (again > 0) {
+            playSound("cheer");
+            winHaptic();
+            setCelebrating(true);
+            setNote(null);
+          } else {
+            setNote("Today's bonus is already claimed. Come back tomorrow.");
+          }
+          settled = true;
+        } catch {
+          // still unreachable — fall through to the connection note
+        }
+      }
+      if (!settled) setNote("Couldn't reach the server. Check your connection and try again.");
       await useWallet.getState().refresh();
     } finally {
       setBusy(false);

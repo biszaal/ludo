@@ -74,16 +74,38 @@ export async function ensureSignedIn(): Promise<string> {
  */
 const CALL_TIMEOUT_MS = 20000;
 
-/** Thrown when the wait elapsed with the request still in flight. The action
- *  may well have succeeded — reconcile against the server, don't roll back. */
+/** Thrown when a call ended without the server ever answering: the wait elapsed
+ *  with the request in flight, OR the transport failed outright. Both mean the
+ *  same thing to a caller — the action may well have been applied, so reconcile
+ *  against the server, never roll back. */
 export class TimeoutError extends Error {
-  constructor() {
-    super("Still waiting on the server — check your connection.");
+  constructor(message = "Still waiting on the server — check your connection.") {
+    super(message);
     this.name = "TimeoutError";
   }
 }
 
 export const isTimeout = (e: unknown): boolean => e instanceof TimeoutError;
+
+/**
+ * Did the request fail before the server answered?
+ *
+ * functions-js reports three kinds of failure and only one of them is a verdict:
+ *
+ *   FunctionsHttpError  — the function RAN and returned non-2xx. A real answer.
+ *   FunctionsFetchError — the request never completed. No answer.
+ *   FunctionsRelayError — the gateway failed to relay it. No answer.
+ *
+ * The last two were being thrown as plain Errors, so isTimeout said false and
+ * every caller treated "I could not ask" as "the server said no". That is what
+ * snapped an optimistic move back on a congested network: the write may have
+ * landed perfectly well, and the client discarded its prediction anyway. The
+ * 20s timeout was never the only way to fail to get an answer — it was just
+ * the only one being modelled.
+ */
+function unanswered(error: { name?: string }): boolean {
+  return error.name === "FunctionsFetchError" || error.name === "FunctionsRelayError";
+}
 
 /** Invoke the `game` Edge Function and surface its `{ error }` payload as a throw. */
 async function callGame<T>(op: string, payload: Record<string, unknown> = {}): Promise<T> {
@@ -97,6 +119,8 @@ async function callGame<T>(op: string, payload: Record<string, unknown> = {}): P
     timeout,
   ]).finally(() => clearTimeout(timer));
   if (error) {
+    // No answer ever arrived — same contract as the timeout above.
+    if (unanswered(error)) throw new TimeoutError();
     let message = error.message;
     const ctx = (error as { context?: { json?: () => Promise<{ error?: string }> } }).context;
     if (ctx?.json) {
