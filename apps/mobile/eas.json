@@ -15,7 +15,8 @@
     },
     "preview": {
       "distribution": "internal",
-      "ios": { "simulator": true, "image": "macos-tahoe-26.4-xcode-26.4" }
+      "ios": { "simulator": true, "image": "macos-tahoe-26.4-xcode-26.4" },
+      "android": { "buildType": "apk" }
     },
     "production": {
       "autoIncrement": true,

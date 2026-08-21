@@ -220,9 +220,15 @@
         {
           "ios": {
             "deploymentTarget": "16.4"
+          },
+          "android": {
+            "enableMinifyInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true,
+            "extraProguardRules": "# Skia ships no consumer rules and C++ reaches its Java classes\n# through JNI FindClass, which R8 cannot see.\n-keep class com.shopify.reactnative.skia.** { *; }\n"
           }
         }
       ],
+      "./plugins/withAndroidLargeScreens",
       [
         "./plugins/withPodDeploymentTarget",
         {

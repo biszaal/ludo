@@ -15,11 +15,19 @@ vi.mock("../src/net/api", () => ({
   quickMatch: vi.fn(),
   quickBotFill: vi.fn(),
   startGame: vi.fn(),
+  // Self-contained counter: a vi.mock factory is hoisted, so it cannot close
+  // over a module-level binding without tripping its TDZ.
+  newActionId: (() => {
+    let n = 0;
+    return vi.fn(() => `act-${++n}`);
+  })(),
   rollAction: vi.fn(),
+  prepareRoll: vi.fn().mockResolvedValue(null),
   moveAction: vi.fn(),
   passAction: vi.fn(),
   timeoutAction: vi.fn(),
-  rematchAction: vi.fn(),
+  rematchVote: vi.fn(),
+  rematchClose: vi.fn(),
   leaveAction: vi.fn().mockResolvedValue(undefined),
   getLobby: vi.fn().mockResolvedValue([]),
   fetchGame: vi.fn(),

@@ -31,6 +31,75 @@ export const DICE_ROLL_MS = 700;
 /** Beat after the die lands before the pawn is allowed to move. */
 const DICE_READ_MS = 200;
 
+/** Fraction of a roll spent tumbling; the rest is the landing squash. */
+export const DICE_CUBE_END = 0.8;
+/** One lap of the cube: the tumble alone, without the squash that ends a roll. */
+export const DICE_TUMBLE_MS = Math.round(DICE_ROLL_MS * DICE_CUBE_END);
+
+/**
+ * The tail of a lap in which the camera face is readable.
+ *
+ * The tumble eases out, so it has spent ~95% of its rotation by this point and
+ * whatever is on the front face is what the player takes the roll to be.
+ */
+export const DICE_FACE_LOCK_MS = 200;
+
+/**
+ * How long a roll may keep looping before it stops and admits it has nothing.
+ *
+ * Past the first turn-op attempt's budget (api.TURN_TIMEOUT_MS, 6s) so an
+ * ordinary slow answer still lands on a lap rather than on this, and well short
+ * of the turn clock so a die whose roll is never coming back stops instead of
+ * spinning at the player indefinitely. A die that spins forever reads as a
+ * frozen app; one that stops with no number reads as what it is, and the store
+ * surfaces the connection error alongside it.
+ *
+ * Landing here is not the end of it: if the number turns up afterwards the die
+ * rolls again to receive it, so it is never painted onto a resting face.
+ */
+export const DICE_MAX_ROLL_MS = 9_000;
+
+/**
+ * At the end of a lap: does the die stop here, or go round again?
+ *
+ * The die tumbles in fixed laps and finishes on one of them, so this is the
+ * only decision the roll animation actually makes — and getting it wrong is
+ * visible either way. Land too eagerly and the number appears on a face the
+ * player has already read, which is the die changing its mind. Never land and
+ * it spins forever over a roll that was answered long ago.
+ *
+ * Landing requires the value to have been known for the whole readable part of
+ * this lap, which is why `seenAt` is a timestamp rather than a boolean: a value
+ * that arrived two frames ago has not been on the face long enough to be the
+ * one the player watched the die settle onto.
+ *
+ * Pure and clock-injected; Dice.tsx supplies the times. Kept here rather than
+ * in the component because this module is the timing authority for the die and
+ * has to stay importable from Node — Dice.tsx pulls in Skia.
+ */
+export function diceLandsThisLap(input: {
+  /** When a value first arrived for this roll, or null while still unknown. */
+  seenAt: number | null;
+  /** Is a value on screen RIGHT NOW? Belt to seenAt's braces: seenAt is a ref
+   *  the component latches, and a die must never keep spinning over a number it
+   *  is already holding just because the latch missed it. */
+  haveValue: boolean;
+  /** When the lap now ending began. */
+  lapStartedAt: number;
+  /** When the whole roll began, for the giving-up cap. */
+  rollStartedAt: number;
+  now: number;
+}): boolean {
+  const { seenAt, haveValue, lapStartedAt, rollStartedAt, now } = input;
+  // Out of patience: stop, whether or not there is a number to stop on.
+  if (now - rollStartedAt >= DICE_MAX_ROLL_MS) return true;
+  if (!haveValue) return false;
+  // Known, but not known WHEN — treat it as having just landed and give it a
+  // lap to sit on the face before the die is allowed to stop on it.
+  if (seenAt === null) return false;
+  return seenAt <= lapStartedAt + DICE_TUMBLE_MS - DICE_FACE_LOCK_MS;
+}
+
 /** Did `prev -> next` include a new roll landing on the board? */
 function rolled(prev: GameState, next: GameState): boolean {
   return next.diceValue != null && prev.diceValue !== next.diceValue;

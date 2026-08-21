@@ -78,6 +78,28 @@ on conflict (key) do update set value = excluded.value;
 Both sides fail closed: a missing secret means "no tick", never an open
 endpoint. See [supabase/migrations/0034_game_tick.sql](supabase/migrations/0034_game_tick.sql).
 
+### Dice secret
+
+Online dice are derived rather than drawn, from a keyed hash of the roll's own
+coordinates — game, seat, and `state_version`. That is what lets the server tell
+a player their number *before* they tap it, so the tumble never waits on the
+network (`prepareRoll`, [supabase/functions/game/turn.ts](supabase/functions/game/turn.ts)).
+
+```sh
+supabase secrets set DICE_SECRET=$(openssl rand -hex 32)
+```
+
+Unlike the tick secret this one fails *open*, deliberately: without it rolls
+fall back to `crypto.getRandomValues` and clients to the old tumble-until-the-
+answer-arrives path, so games still play — they just feel slower on a poor
+connection. Nothing in the repo stands in for it, because the derivation is a
+published function of public inputs and the key is the only thing making a roll
+unguessable. Watch for `[dice] DICE_SECRET is unset` in the function logs.
+
+Rotating it is safe between rolls and only ever costs a re-tumble: a roll whose
+number was fetched under the old key lands, disagrees with the server, and rolls
+again to show the real one.
+
 ## Architecture
 
 ```

@@ -15,17 +15,20 @@
  * Usernames change ONCE per account (0030), because they are how other players
  * find you. Two consequences for this screen:
  *
- *  - The taken-check compares against the name the SERVER holds, never against
- *    the local store — `setName` runs on every keystroke, so the store tracks
- *    the draft and comparing the two would always say "unchanged". Checking an
- *    unedited name is also what produced a false "already taken" on open, for
- *    anyone whose name sits on an orphaned row from a previous guest account.
+ *  - Availability is only asked about, and only reported, for a name you are
+ *    actually trying to claim — a draft that differs from the name you already
+ *    hold. Checking an unedited name is what produced a false "already taken"
+ *    on open, for anyone whose name sits on an orphaned row from a previous
+ *    guest account. "The name you hold" is the SERVER's, since that is what
+ *    other players see; the local store only stands in while that read is in
+ *    flight, and reading the unknown as "" is how an untouched field used to
+ *    look edited.
  *  - Claiming a name off the minted guestNNNNNN handle is free; only a real
  *    rename spends the allowance, and we say so before it is spent.
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { Alert, Pressable, ScrollView, Text, View } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { TableBackground } from "../components/TableBackground";
 import { ScreenHeader } from "../components/ScreenHeader";
@@ -42,6 +45,7 @@ import { StatsContent } from "../components/StatsContent";
 import { getMyProfile, isNameTaken, type MyProfile } from "../net/api";
 import { deleteAccount, getIdentity, signOutToGuest, type AuthIdentity } from "../lib/auth";
 import { MAX_NAME_LENGTH, useProfile } from "../store/profileStore";
+import { confirm } from "../store/confirmStore";
 import { font, palette, radius, space, teamColor } from "../theme";
 
 const NAME_CHECK_DEBOUNCE_MS = 600;
@@ -57,12 +61,19 @@ export function AccountScreen() {
   const setName = useProfile((s) => s.setName);
   const [focused, setFocused] = useState(false);
   const [draft, setDraft] = useState(displayName);
+  /** Whether the player has actually typed in the field. Until they have, the
+   *  draft is only a mirror of the name they hold, so nothing here is a name
+   *  they are "trying to claim" and nothing about availability is asked or
+   *  said. A restored account is the case a plain draft-vs-name comparison
+   *  misses: the local store is back to a fresh guest handle while the server
+   *  still holds the real name, so the two differ with nobody having typed. */
+  const [edited, setEdited] = useState(false);
   const [taken, setTaken] = useState(false);
   const [identity, setIdentity] = useState<AuthIdentity | null>(null);
   const [accountSheet, setAccountSheet] = useState<null | "save" | "signin">(null);
   /** The server's registered identity. Null while loading, offline or signed
-   *  out — every gate below stays permissive in that state rather than locking
-   *  the field on a failed read. */
+   *  out — `currentName` stands in with the local name there, and every gate
+   *  below stays permissive rather than locking the field on a failed read. */
   const [mine, setMine] = useState<MyProfile | null>(null);
 
   const refreshIdentity = useCallback(() => {
@@ -73,13 +84,29 @@ export function AccountScreen() {
     void getMyProfile().then(setMine);
   }, [refreshIdentity]);
 
-  const serverName = mine?.displayName ?? "";
-  const onGuestHandle = serverName.length === 0 || GUEST_NAME.test(serverName);
+  /** The name that is already yours. The server's copy is the authority, but
+   *  until that read lands the local store holds the same name — and treating
+   *  the unknown as "" made an untouched field look edited. Never empty:
+   *  displayName falls back to this device's guest handle. */
+  const currentName = mine?.displayName || displayName;
+  const onGuestHandle = GUEST_NAME.test(currentName);
+
+  // While untouched, the field just mirrors the name we hold — so the server's
+  // copy landing (or the persisted store rehydrating) fills it in rather than
+  // leaving a stale name behind that would read as an edit. Never over
+  // something the player is in the middle of typing.
+  useEffect(() => {
+    if (!edited) setDraft(currentName);
+  }, [edited, currentName]);
+
   /** Allowance is only spent once you've moved off the guest handle. */
   const nameLocked = !!mine?.nameChangedAt && !onGuestHandle;
-  const changed = draft.trim().toLowerCase() !== serverName.trim().toLowerCase();
+  /** A name the player is actually trying to claim: typed by them, and
+   *  different from the one they hold. Everything about the draft — the
+   *  availability lookup, its warning, the save button — hangs off this. */
+  const claiming = edited && draft.trim().toLowerCase() !== currentName.trim().toLowerCase();
   /** A real rename — the one that costs the allowance. */
-  const spendsAllowance = changed && !onGuestHandle && !nameLocked;
+  const spendsAllowance = claiming && !onGuestHandle && !nameLocked;
 
   /** Commit the first real name off this device's guest handle. Free — 0030's
    *  trigger carries name_changed_at through untouched — so no confirmation,
@@ -95,6 +122,7 @@ export function AccountScreen() {
     // The allowance is untouched by a claim off the guest handle, so carry
     // nameChangedAt through rather than stamping it.
     setMine({ displayName: next, nameChangedAt: mine?.nameChangedAt ?? null });
+    setEdited(false);
   }, [draft, taken, setName, mine]);
 
   /** Commit a real rename. Irreversible and one-per-account, so it is confirmed
@@ -102,31 +130,29 @@ export function AccountScreen() {
   const onCommitName = useCallback(() => {
     const next = draft.trim();
     if (next.length === 0 || taken) return;
-    Alert.alert(
-      "Change your username?",
-      `"${serverName}" becomes "${next}". You can only do this once, so this is your last change.`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Change it",
-          style: "destructive",
-          onPress: () => {
-            setName(next);
-            // Reflect the spend immediately; profileSync's readback is the
-            // authority and will correct this if the server refused.
-            setMine({ displayName: next, nameChangedAt: new Date().toISOString() });
-          },
-        },
-      ],
-    );
-  }, [draft, taken, serverName, setName]);
+    void (async () => {
+      const ok = await confirm({
+        title: "Change your username?",
+        message: `"${currentName}" becomes "${next}". You can only do this once, so this is your last change.`,
+        confirmLabel: "Change it",
+        destructive: true,
+      });
+      if (!ok) return;
+      setName(next);
+      // Reflect the spend immediately; profileSync's readback is the authority
+      // and will correct this if the server refused.
+      setMine({ displayName: next, nameChangedAt: new Date().toISOString() });
+      setEdited(false);
+    })();
+  }, [draft, taken, currentName, setName]);
 
   useEffect(() => {
     const name = draft.trim();
-    // Only ever ask about a name you're actually trying to claim. Checking the
-    // name you already own is what raised a false "taken" the moment this
-    // screen opened.
-    if (name.length === 0 || !changed) {
+    // Only ever ask about a name you're actually trying to claim, and only
+    // report the answer then. Checking the name you already own is what raised
+    // a false "taken" the moment this screen opened: an old row of your own can
+    // still carry your guest handle, and the answer is meaningless either way.
+    if (name.length === 0 || !claiming) {
       setTaken(false);
       return;
     }
@@ -140,7 +166,7 @@ export function AccountScreen() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [draft, changed]);
+  }, [draft, claiming]);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: palette.tableBlue }}>
@@ -183,7 +209,7 @@ export function AccountScreen() {
                   }}
                 >
                   <Text style={{ fontFamily: font.regular, fontSize: 16, color: palette.mutedSteel }}>
-                    {serverName}
+                    {currentName}
                   </Text>
                 </View>
                 <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel }}>
@@ -195,12 +221,18 @@ export function AccountScreen() {
                 <Field
                   accessibilityLabel="Display name"
                   value={draft}
-                  onChangeText={setDraft}
+                  onChangeText={(t) => {
+                    setEdited(true);
+                    setDraft(t);
+                  }}
                   focused={focused}
                   onFocus={() => setFocused(true)}
                   onBlur={() => {
                     setFocused(false);
-                    if (draft.trim().length === 0) setDraft(onGuestHandle ? displayName : serverName);
+                    if (draft.trim().length === 0) {
+                      setDraft(currentName);
+                      setEdited(false);
+                    }
                   }}
                   placeholder={guestName}
                   maxLength={MAX_NAME_LENGTH}
@@ -216,7 +248,7 @@ export function AccountScreen() {
                     <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel }}>
                       Pick your username — friends find you by it. You can change it once after this.
                     </Text>
-                    {changed ? <Button label="Save username" onPress={onClaimName} /> : null}
+                    {claiming ? <Button label="Save username" onPress={onClaimName} /> : null}
                   </>
                 ) : spendsAllowance ? (
                   <>
@@ -274,14 +306,17 @@ export function AccountScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="Delete account and data"
                 onPress={() =>
-                  Alert.alert(
-                    "Delete account?",
-                    "This permanently deletes your account and all data — coins, gems, purchases, cosmetics and friends. This can't be undone.",
-                    [
-                      { text: "Cancel", style: "cancel" },
-                      { text: "Delete", style: "destructive", onPress: () => void deleteAccount().then(refreshIdentity) },
-                    ],
-                  )
+                  void (async () => {
+                    const ok = await confirm({
+                      title: "Delete account?",
+                      message:
+                        "This permanently deletes your account and all data — coins, gems, purchases, cosmetics and friends. This can't be undone.",
+                      confirmLabel: "Delete",
+                      cancelLabel: "Keep it",
+                      destructive: true,
+                    });
+                    if (ok) await deleteAccount().then(refreshIdentity);
+                  })()
                 }
                 style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, alignSelf: "flex-start" })}
               >

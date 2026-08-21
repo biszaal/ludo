@@ -7,6 +7,7 @@
 import { Canvas, Circle, Group, Path, RoundedRect, Skia } from "@shopify/react-native-skia";
 import { BoardSurface, PawnShape } from "./Board";
 import type { BoardTheme } from "../render/boardThemes";
+import { DEFAULT_DIE } from "../render/diceSkins";
 import { palette } from "../theme";
 
 export const DIAGRAM_HEIGHT = 120;
@@ -77,7 +78,8 @@ function star(cx: number, cy: number, outer: number, inner: number, color: strin
   return <Path path={p} color={color} />;
 }
 
-function die(x: number, y: number, size: number, value: number, theme: BoardTheme) {
+/** The die is theme-independent (DEFAULT_DIE), so this one takes no theme. */
+function die(x: number, y: number, size: number, value: number) {
   const PIPS: Record<number, [number, number][]> = {
     6: [
       [0.28, 0.24],
@@ -91,10 +93,10 @@ function die(x: number, y: number, size: number, value: number, theme: BoardThem
   };
   return (
     <Group>
-      <RoundedRect x={x} y={y} width={size} height={size} r={size * 0.22} color={theme.dice.face} />
+      <RoundedRect x={x} y={y} width={size} height={size} r={size * 0.22} color={DEFAULT_DIE.face} />
       <RoundedRect x={x} y={y} width={size} height={size} r={size * 0.22} color={palette.hairline} style="stroke" strokeWidth={1.5} />
       {(PIPS[value] ?? PIPS[1]!).map(([px, py], i) => (
-        <Circle key={i} cx={x + px! * size} cy={y + py! * size} r={size * 0.08} color={theme.dice.pip} />
+        <Circle key={i} cx={x + px! * size} cy={y + py! * size} r={size * 0.08} color={DEFAULT_DIE.pip} />
       ))}
     </Group>
   );
@@ -121,7 +123,7 @@ export function RollSixDiagram({ width, theme }: DiagramProps) {
   const outX = width * 0.86;
   return (
     <Canvas style={{ width, height: DIAGRAM_HEIGHT }}>
-      {die(width * 0.14, cy - 24, 48, 6, theme)}
+      {die(width * 0.14, cy - 24, 48, 6)}
       {/* Yard slot with a waiting pawn */}
       <Circle cx={yardX} cy={cy} r={22} color={theme.team.red} />
       <Circle cx={yardX} cy={cy} r={18} color={theme.cellFill} />

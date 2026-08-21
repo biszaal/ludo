@@ -23,6 +23,25 @@ const FRIEND_REQUESTS_PER_HOUR = 20;
 const RECENT_OPPONENT_LIMIT = 20;
 
 /**
+ * "Your friend is online" pacing. Every number here is a spam control, and
+ * they matter more than the feature does: the notification competes for the
+ * same permission grant as room invites, which are the ones a player actually
+ * asked for. Get this wrong and they lose both.
+ */
+/** How stale a presence row must be before coming back counts as NEWS. Below
+ *  this it is the same session — backgrounding to read a message and coming
+ *  straight back must not tell thirty people you have arrived. */
+const ONLINE_AWAY_MINUTES = 45;
+/** Per pair. A friend who plays all evening is worth one notification. */
+const ONLINE_PAIR_COOLDOWN_HOURS = 8;
+/** Per recipient per day, across ALL friends. The pair cooldown alone does
+ *  nothing for someone with forty friends; this is the cap that does. */
+const ONLINE_MAX_PER_DAY = 3;
+/** Recipients per announcement. A large friends list should not turn one app
+ *  launch into a fan-out, and the people who care are a short list anyway. */
+const ONLINE_FANOUT_MAX = 10;
+
+/**
  * Permanently delete the caller's account and every trace of their data. Each
  * app table references auth.users(id) ON DELETE CASCADE, so removing the auth
  * user removes their wallet, gems, entitlements, purchases, profile, friends,
@@ -360,4 +379,186 @@ export async function opFriendsRecent(admin: SupabaseClient, userId: string): Pr
 
   const byId = new Map((profiles ?? []).map((p) => [p.user_id as string, p]));
   return json({ players: ordered.map((uid) => byId.get(uid)).filter(Boolean) });
+}
+
+/**
+ * Announce that the caller is back, and tell the friends who would want to
+ * know.
+ *
+ * Presence itself is client-written under RLS (0017) and stays that way for the
+ * heartbeat — but the FIRST write of a session comes through here instead,
+ * because the decision "is this news?" can only be made by comparing against
+ * the row as it was before the heartbeat freshened it. Doing that client-side
+ * would be a read-then-write race against the app's own heartbeat, and would
+ * put the spam caps somewhere every client could ignore them.
+ *
+ * A friend is worth telling only if all of this holds:
+ *   - the caller was actually away (ONLINE_AWAY_MINUTES of silence);
+ *   - the friend is NOT in the app right now — if they are, the presence dot
+ *     on their Friends screen already says it, and a push would duplicate
+ *     something they can see;
+ *   - neither has blocked the other, and the friend is not a hidden bot;
+ *   - the pair and the recipient are both inside their notification budgets.
+ *
+ * Everything after the presence write is best-effort and runs off the response.
+ * Being told your friend is around is a nicety; the app coming back online is
+ * not, and must not wait on a fan-out.
+ *
+ * No rateOk guard, deliberately: the op is self-limiting. Its first act is to
+ * stamp the presence row fresh, so a client hammering it finds `wasAway` false
+ * on every call after the first and never reaches the fan-out at all. A limiter
+ * on top would only add a counter write to the app-launch path.
+ */
+export async function opPresenceOnline(admin: SupabaseClient, userId: string): Promise<Response> {
+  const now = Date.now();
+
+  const { data: mine } = await admin
+    .from("user_presence")
+    .select("last_seen_at, status")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  // No row at all is a first launch, which is the most "just arrived" there is.
+  const lastSeen = mine?.last_seen_at ? Date.parse(mine.last_seen_at as string) : null;
+  const wasAway =
+    lastSeen === null ||
+    mine?.status === "offline" ||
+    now - lastSeen > ONLINE_AWAY_MINUTES * 60_000;
+
+  await admin
+    .from("user_presence")
+    .upsert(
+      { user_id: userId, last_seen_at: new Date(now).toISOString(), status: "online" },
+      { onConflict: "user_id" },
+    );
+
+  if (wasAway) afterResponse(notifyFriendsOnline(admin, userId, now).catch(() => {}));
+  return json({ ok: true });
+}
+
+/**
+ * Who, out of this player's friends, should actually be told they're back.
+ *
+ * Pure and fully injected, because this — not the sending — is the part that
+ * decides whether the feature is useful or the reason someone turns
+ * notifications off. It is exported so the caps are pinned by tests rather than
+ * by the reviewer's reading of a loop buried in an async fan-out.
+ *
+ * Order of the filters is not arbitrary: cheap, high-yield exclusions first, so
+ * a full friends list narrows to a handful before the fan-out cap ever applies.
+ */
+export function onlineNotifyTargets(input: {
+  friendIds: readonly string[];
+  /** Hidden bot seats — nobody is there to be notified. */
+  botIds: ReadonlySet<string>;
+  /** Friends with the app open; their Friends screen already shows the dot. */
+  inApp: ReadonlySet<string>;
+  /** Either direction of a block. */
+  blocked: ReadonlySet<string>;
+  /** When this player last told each friend they were online, epoch ms. */
+  lastToldAt: ReadonlyMap<string, number>;
+  /** How many of these a friend has already had today, from anyone. */
+  todayCount: ReadonlyMap<string, number>;
+  now: number;
+}): string[] {
+  const { friendIds, botIds, inApp, blocked, lastToldAt, todayCount, now } = input;
+  const out: string[] = [];
+  for (const id of friendIds) {
+    if (out.length >= ONLINE_FANOUT_MAX) break;
+    if (botIds.has(id) || inApp.has(id) || blocked.has(id)) continue;
+    if (now - (lastToldAt.get(id) ?? -Infinity) < ONLINE_PAIR_COOLDOWN_HOURS * 3600_000) continue;
+    if ((todayCount.get(id) ?? 0) >= ONLINE_MAX_PER_DAY) continue;
+    out.push(id);
+  }
+  return out;
+}
+
+/** The fan-out half of opPresenceOnline. Separate so the op reads as the two
+ *  things it does: record presence, then (maybe) tell people. */
+async function notifyFriendsOnline(admin: SupabaseClient, userId: string, now: number): Promise<void> {
+  const { data: rows } = await admin
+    .from("friendships")
+    .select("requester_user_id, addressee_user_id")
+    .eq("status", "accepted")
+    .or(`requester_user_id.eq.${userId},addressee_user_id.eq.${userId}`);
+
+  const friendIds = (rows ?? [])
+    .map((r) => (r.requester_user_id === userId ? r.addressee_user_id : r.requester_user_id) as string)
+    .filter((id) => id && id !== userId);
+  if (friendIds.length === 0) return;
+
+  // Everything the decision needs, in one round of parallel reads. This runs on
+  // every app launch that follows a real absence — which is most of them — so
+  // it must not be a query per friend.
+  const dayAgo = new Date(now - 24 * 3600_000).toISOString();
+  const [{ data: bots }, { data: presence }, { data: blocks }, { data: pairs }, { data: recent }] =
+    await Promise.all([
+      // Hidden bots are "friends" only by accident (they auto-decline, 0035),
+      // but a push aimed at one is outbound traffic for a seat nobody sits in.
+      admin.from("bot_identities").select("user_id").in("user_id", friendIds),
+      admin.from("user_presence").select("user_id, last_seen_at, status").in("user_id", friendIds),
+      // Either direction. A block already severs the friendship (0015 cascade),
+      // so this is belt and braces — but it is one query, and the one thing
+      // worse than no notification is a notification from someone you blocked.
+      admin
+        .from("blocks")
+        .select("blocker_user_id, blocked_user_id")
+        .or(`blocker_user_id.eq.${userId},blocked_user_id.eq.${userId}`),
+      admin
+        .from("friend_online_pings")
+        .select("to_user_id, sent_at")
+        .eq("from_user_id", userId)
+        .in("to_user_id", friendIds),
+      admin
+        .from("friend_online_pings")
+        .select("to_user_id")
+        .in("to_user_id", friendIds)
+        .gte("sent_at", dayAgo),
+    ]);
+
+  const botIds = new Set((bots ?? []).map((b) => String(b.user_id)));
+
+  // Anyone with the app open already sees the dot go green.
+  const inApp = new Set(
+    (presence ?? [])
+      .filter(
+        (r) =>
+          r.status !== "offline" &&
+          now - Date.parse(r.last_seen_at as string) < ONLINE_AWAY_MINUTES * 60_000,
+      )
+      .map((r) => String(r.user_id)),
+  );
+
+  const blocked = new Set<string>();
+  for (const b of blocks ?? []) {
+    const other = b.blocker_user_id === userId ? b.blocked_user_id : b.blocker_user_id;
+    blocked.add(String(other));
+  }
+
+  const lastToldAt = new Map<string, number>();
+  for (const r of pairs ?? []) lastToldAt.set(String(r.to_user_id), Date.parse(r.sent_at as string));
+
+  const todayCount = new Map<string, number>();
+  for (const r of recent ?? []) {
+    const id = String(r.to_user_id);
+    todayCount.set(id, (todayCount.get(id) ?? 0) + 1);
+  }
+
+  const targets = onlineNotifyTargets({ friendIds, botIds, inApp, blocked, lastToldAt, todayCount, now });
+  if (targets.length === 0) return;
+
+  const name = await displayNameOf(admin, userId);
+  await sendPush(admin, targets, {
+    title: `${name} is online`,
+    body: "They're free for a game right now.",
+    data: { type: "friend-online", userId },
+  });
+
+  // Recorded after the send, so a failed send does not burn the cooldown.
+  // Upsert because a pair row is a last-sent stamp, not a log — the reaper
+  // (0042) only has to cope with dead pairs, not with history.
+  await admin.from("friend_online_pings").upsert(
+    targets.map((to) => ({ from_user_id: userId, to_user_id: to, sent_at: new Date(now).toISOString() })),
+    { onConflict: "from_user_id,to_user_id" },
+  );
 }

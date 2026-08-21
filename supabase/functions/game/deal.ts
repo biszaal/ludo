@@ -105,7 +105,7 @@ export async function startGameNow(admin: SupabaseClient, gameId: string): Promi
     if ("error" in collected) return collected;
   }
 
-  const colors = seatColors(lobby.length);
+  const colors = seatColors(lobby.length, gameId);
   const players = lobby.map((p, i) => ({ id: p.id, userId: p.user_id, color: colors[i]! }));
   const state = engineCreateGame(players, { gameId });
 

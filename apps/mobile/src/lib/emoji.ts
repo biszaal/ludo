@@ -25,8 +25,8 @@ export const EMOJIS: EmojiSpec[] = [
   { id: "angry", source: require("../../assets/emoji/angry.png"), sound: "angry", label: "Angry" },
   { id: "shock", source: require("../../assets/emoji/shock.png"), sound: "shock", label: "Shocked" },
   { id: "cheer", source: require("../../assets/emoji/cheer.png"), sound: "cheer", label: "Celebrating" },
-  { id: "thumbs", source: require("../../assets/emoji/thumbs.png"), sound: "pop", label: "Thumbs up" },
-  { id: "gg", source: require("../../assets/emoji/gg.png"), sound: "finish", label: "Good game" },
+  { id: "thumbs", source: require("../../assets/emoji/thumbs.png"), sound: "thumbs", label: "Thumbs up" },
+  { id: "gg", source: require("../../assets/emoji/gg.png"), sound: "gg", label: "Good game" },
 ];
 
 export const EMOJI_BY_ID: Record<string, EmojiSpec> = Object.fromEntries(EMOJIS.map((e) => [e.id, e]));

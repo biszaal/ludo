@@ -70,6 +70,26 @@ async function broadcast(gameId: string, payload: Record<string, unknown>): Prom
 }
 
 /**
+ * Send as a seat the server itself controls (bots.ts).
+ *
+ * Deliberately not routed through opChat: there is no JWT to stamp an identity
+ * from, and LIMITS.chat is a per-human abuse budget that a hidden seat should
+ * neither consume nor be throttled by — its own cooldown and per-game cap are
+ * the limit. The value is still sanitized, because the render path downstream
+ * is the same one human messages reach.
+ */
+export async function relayChat(
+  gameId: string,
+  fromUserId: string,
+  kind: "reaction" | "text",
+  value: string,
+): Promise<boolean> {
+  const clean = sanitizeChatValue(value);
+  if (clean === null) return false;
+  return await broadcast(gameId, { kind, value: clean, fromUserId });
+}
+
+/**
  * Send a reaction or a short message to a room you hold a seat in.
  *
  * The seat lookup is the authorization: 0037 lets any participant JOIN the

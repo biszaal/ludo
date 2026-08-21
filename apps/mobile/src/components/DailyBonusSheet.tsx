@@ -27,6 +27,7 @@ import { useWallet } from "../store/walletStore";
 import { isTimeout } from "../net/api";
 import { useConfig } from "../store/configStore";
 import { dailyBonusLadder, type BonusDay } from "../lib/economy";
+import { offerBonusReminder } from "../lib/bonusReminder";
 import { formatExact } from "../lib/format";
 import { playSound } from "../lib/sound";
 import { win as winHaptic } from "../lib/haptics";
@@ -63,6 +64,10 @@ export function DailyBonusSheet({ onClose }: { onClose: () => void }) {
         winHaptic();
         setCelebrating(true);
         setNote(null);
+        // The one moment asking to remind them lands: they have just banked a
+        // day and the streak is now something to lose. Never blocks the
+        // celebration — the OS prompt (if it even appears) rides on top.
+        void offerBonusReminder(useWallet.getState().streakDay);
       } else {
         // Already taken today — another device, or a retry that raced the claim.
         setNote("Today's bonus is already claimed. Come back tomorrow.");

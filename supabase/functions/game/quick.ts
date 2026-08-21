@@ -110,6 +110,8 @@ export async function opQuickMatch(
 
   const { data: player, error: pErr } = await admin
     .from("players")
+    // Unrotated, like quick_match_claim's seats (see opQuickBotFill): the
+    // colors that actually play are chosen by the deal.
     .insert({ game_id: game.id, user_id: userId, color: "red", seat: 0, is_host: true })
     .select("id")
     .single();
@@ -140,12 +142,22 @@ export async function opQuickBotFill(admin: SupabaseClient, userId: string, game
   const { data: seated } = await admin.from("players").select("id, user_id, seat").eq("game_id", gameId).order("seat");
   if (!seated?.some((p) => p.user_id === userId)) return json({ error: "You are not in this game." });
 
-  // Seat bots into every still-empty chair. Colors follow the room size
-  // (1v1 diagonal red/yellow, 4-player clockwise) — mirrors the SQL claim.
-  // `visible: false` is load-bearing: a quick-match bot must be indistinguishable
-  // from a human, so the seat carries no marker (0035).
+  // Seat bots into every still-empty chair, left to right. Friend rooms move a
+  // lone pair of humans onto the diagonal (room.ts); quick match must NOT — the
+  // seats there are hidden bots, and a rule like "the humans always face each
+  // other" would let anyone at a four-handed table read which of their
+  // opponents were people.
+  // `visible: false` is load-bearing for the same reason: a quick-match bot must
+  // be indistinguishable from a human, so the seat carries no marker (0035).
+  //
+  // These colors are the UNROTATED ones, matching what quick_match_claim writes
+  // for the human seats (0011) — players carries unique (game_id, color), so a
+  // rotated color here would collide with a chair the SQL already took and the
+  // fill would silently seat nobody. Which colors actually play is decided by
+  // the deal, which rotates them per game for every seat at once.
   const colors = seatColors(size);
-  await seatBots(admin, gameId, seated.length, size, colors, false);
+  const chairs = Array.from({ length: size - seated.length }, (_, i) => seated.length + i);
+  await seatBots(admin, gameId, chairs, colors, false);
 
   const { count } = await admin
     .from("players")

@@ -7,7 +7,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { Text, View } from "react-native";
+import { ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Canvas, Group } from "@shopify/react-native-skia";
 import { TableBackground } from "../components/TableBackground";
@@ -107,6 +107,15 @@ export function HomeScreen() {
           comfortable width instead of stretching chips to the far edges; on a
           phone the column is full-width (a no-op). */}
       <ContentColumn style={{ flex: 1 }}>
+      {/* The hub is a fixed tower — chest, diorama, CTA, mode tiles, dock — and
+          a landscape phone is ~200pt too short for it. flexGrow keeps the flex
+          layout exactly as it is whenever the window can hold it, and lets the
+          tower scroll instead of clipping when it can't. */}
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ flexGrow: 1 }}
+        showsVerticalScrollIndicator={false}
+      >
       {/* Status header — wallet left, identity + settings right. The wordmark
           is dropped here (the diorama and app icon carry the brand; the
           animated mark still opens on the loading screen), so the two edges
@@ -119,8 +128,10 @@ export function HomeScreen() {
         <ProfileChip />
       </View>
 
-      {/* Hero zone — the only part of the column that flexes. */}
-      <View style={{ flex: 1, paddingHorizontal: space.lg, paddingTop: space.md, gap: space.sm }}>
+      {/* Hero zone — the only part of the column that flexes. flexGrow, not
+          flex: a flexBasis of 0 collapses to nothing once the scroll container
+          overflows, which is exactly the landscape case. */}
+      <View style={{ flexGrow: 1, paddingHorizontal: space.lg, paddingTop: space.md, gap: space.sm }}>
         <DailyChestTile
           onPress={() => setBonusSheet(true)}
           claimable={bonusClaimable}
@@ -176,6 +187,7 @@ export function HomeScreen() {
           equipped={stillDieColors(diceSkin, boardTheme)}
         />
       </View>
+      </ScrollView>
       </ContentColumn>
 
       {/* Anchored to the bottom edge: never rides over the hub, collapses to

@@ -11,7 +11,7 @@ import { useSettings } from "../store/settingsStore";
 
 export type SoundName =
   | "hop" | "dice" | "capture" | "finish" | "win" | "tap" | "turn" | "ding" | "pop" | "msg" | "safe"
-  | "laugh" | "crying" | "angry" | "tease" | "cheer" | "shock";
+  | "laugh" | "crying" | "angry" | "tease" | "cheer" | "shock" | "thumbs" | "gg";
 
 const SPECS: Record<SoundName, { source: number; pool: number; volume: number }> = {
   hop: { source: require("../../assets/hop.wav"), pool: 4, volume: 0.5 },
@@ -25,14 +25,18 @@ const SPECS: Record<SoundName, { source: number; pool: number; volume: number }>
   pop: { source: require("../../assets/pop.wav"), pool: 2, volume: 0.5 },
   msg: { source: require("../../assets/msg.wav"), pool: 2, volume: 0.45 },
   safe: { source: require("../../assets/safe.wav"), pool: 2, volume: 0.45 },
-  // Reaction-emoji voices — one per expressive sprite. laugh is a recorded
-  // human laugh; the rest come from gen-reaction-sfx.mjs.
+  // Reaction-emoji voices — one per sprite, so a reaction never borrows a UI
+  // sound. These are recorded audio normalized by scripts/process-reaction-sfx.mjs
+  // (sources in assets/raw-reactions/), not synthesis: a synthesized voice next
+  // to the recorded laugh reads as obviously fake.
   laugh: { source: require("../../assets/laugh.wav"), pool: 1, volume: 0.5 },
   crying: { source: require("../../assets/crying.wav"), pool: 1, volume: 0.5 },
   angry: { source: require("../../assets/angry.wav"), pool: 1, volume: 0.5 },
   tease: { source: require("../../assets/tease.wav"), pool: 1, volume: 0.5 },
   cheer: { source: require("../../assets/cheer.wav"), pool: 1, volume: 0.5 },
   shock: { source: require("../../assets/shock.wav"), pool: 1, volume: 0.5 },
+  thumbs: { source: require("../../assets/thumbs.wav"), pool: 1, volume: 0.5 },
+  gg: { source: require("../../assets/gg.wav"), pool: 1, volume: 0.5 },
 };
 
 const pools = {} as Record<SoundName, AudioPlayer[]>;

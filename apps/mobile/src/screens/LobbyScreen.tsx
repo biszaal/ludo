@@ -11,7 +11,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Alert, Pressable, Text, View } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { TableBackground } from "../components/TableBackground";
 import { Button } from "../components/Button";
@@ -23,6 +23,7 @@ import { Surface3D } from "../components/Surface3D";
 import { QuickMatchSearch } from "../components/QuickMatchSearch";
 import { useOnlineStore } from "../store/onlineStore";
 import { setBackInterceptor } from "../store/navStore";
+import { confirm } from "../store/confirmStore";
 import { seatColors } from "../lib/seating";
 import { CoinGlyph } from "../components/CoinsPill";
 import { copyCode } from "../lib/invite";
@@ -34,6 +35,7 @@ const COLOR_LABEL = { red: "Red", green: "Green", yellow: "Yellow", blue: "Blue"
 
 export function LobbyScreen() {
   const roomCode = useOnlineStore((s) => s.roomCode);
+  const gameId = useOnlineStore((s) => s.gameId);
   const lobby = useOnlineStore((s) => s.lobby);
   const profiles = useOnlineStore((s) => s.profiles);
   const isHost = useOnlineStore((s) => s.isHost);
@@ -69,16 +71,18 @@ export function LobbyScreen() {
       leave();
       return;
     }
-    Alert.alert(
-      isHost ? "Close this room?" : "Leave this room?",
-      isHost
-        ? "Everyone waiting will be sent back to the home screen."
-        : "You can rejoin with the same code while the room is open.",
-      [
-        { text: "Stay", style: "cancel" },
-        { text: isHost ? "Close room" : "Leave", style: "destructive", onPress: () => leave() },
-      ],
-    );
+    void (async () => {
+      const ok = await confirm({
+        title: isHost ? "Close this room?" : "Leave this room?",
+        message: isHost
+          ? "Everyone waiting will be sent back to the home screen."
+          : "You can rejoin with the same code while the room is open.",
+        confirmLabel: isHost ? "Close room" : "Leave",
+        cancelLabel: "Stay",
+        destructive: true,
+      });
+      if (ok) leave();
+    })();
   }, [isHost, isQuick, leave]);
 
   // Android back = leave the room (clears presence + subscription), not a bare
@@ -104,8 +108,13 @@ export function LobbyScreen() {
   // start — the 2-player floor is about having someone to play against.
   const canStart = isHost && (lobby.length >= 2 || fill) && !starting;
   const emptySlots = Math.max(0, 4 - lobby.length);
-  // Preview the colors the game will actually use (diagonal for 2 players).
-  const previewColors = seatColors(lobby.length);
+  // Preview the colors the game will actually use — the same rotation the
+  // server deals from the game id, so the lobby doesn't promise pawns nobody
+  // gets. With bots filling a two-person room the deal also moves the guest
+  // onto the diagonal (the humans face each other), so preview that too.
+  const fourUp = seatColors(4, gameId);
+  const previewColors =
+    fill && lobby.length === 2 ? [fourUp[0]!, fourUp[2]!] : seatColors(lobby.length, gameId);
 
   // Quick match: no shareable code, no start button — just the search state.
   // The game starts on its own the moment the table fills.
@@ -114,7 +123,14 @@ export function LobbyScreen() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: palette.tableBlue }}>
       <TableBackground />
-      <View style={{ flex: 1, paddingHorizontal: space.xl, paddingTop: space.sm, justifyContent: "space-between" }}>
+      {/* Code, seat list and the start block do not fit a landscape phone.
+          flexGrow leaves the space-between layout untouched wherever it fits
+          and scrolls rather than clipping where it doesn't. */}
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ flexGrow: 1, paddingHorizontal: space.xl, paddingTop: space.sm, justifyContent: "space-between" }}
+        showsVerticalScrollIndicator={false}
+      >
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
           <Text style={{ fontFamily: font.display, fontSize: 22, color: palette.porcelain }}>Lobby</Text>
           <Button label="Leave" onPress={confirmLeave} variant="ghost" />
@@ -174,7 +190,7 @@ export function LobbyScreen() {
         </View>
 
         {/* Players */}
-        <View style={{ flex: 1, justifyContent: "center", gap: space.sm }}>
+        <View style={{ flexGrow: 1, justifyContent: "center", gap: space.sm }}>
           <Text style={{ fontFamily: font.medium, fontSize: 13, color: palette.mutedSteel }}>
             PLAYERS ({lobby.length}/4)
           </Text>
@@ -265,7 +281,7 @@ export function LobbyScreen() {
             </Text>
           )}
         </View>
-      </View>
+      </ScrollView>
 
       {inviting && roomCode ? (
         <InviteFriendsSheet

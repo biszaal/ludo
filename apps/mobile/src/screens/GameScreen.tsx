@@ -88,6 +88,7 @@ export function GameScreen() {
       rollSeq={rollSeq}
       message={message}
       canAct={!botTurn && !bustHold && state.status === "active"}
+      bustHold={bustHold}
       waitingLabel={botTurn ? botLabel : null}
       onRoll={roll}
       onSelectToken={selectToken}

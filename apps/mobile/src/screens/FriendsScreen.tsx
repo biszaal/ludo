@@ -23,6 +23,7 @@ import { PresenceDot } from "../components/PresenceDot";
 import { pollPresence, useFriends } from "../store/friendsStore";
 import { useOnlineStore } from "../store/onlineStore";
 import { registerForPush } from "../lib/push";
+import { confirm } from "../store/confirmStore";
 import { useNav } from "../store/navStore";
 import {
   acceptedFriendIds,
@@ -114,7 +115,22 @@ export function FriendsScreen() {
                   <Button label="Accept" onPress={() => void accept(r.id)} />
                 </View>
                 <View style={{ width: 90 }}>
-                  <Button label="Ignore" variant="ghost" onPress={() => void remove(r.id)} />
+                  <Button
+                    label="Ignore"
+                    variant="ghost"
+                    onPress={() =>
+                      void (async () => {
+                        const name = nameOf(r.requester_user_id);
+                        const ok = await confirm({
+                          title: `Ignore ${name}?`,
+                          message: "Their request disappears. They can send another one later.",
+                          confirmLabel: "Ignore",
+                          destructive: true,
+                        });
+                        if (ok) await remove(r.id);
+                      })()
+                    }
+                  />
                 </View>
               </Row>
             ))}
@@ -133,7 +149,20 @@ export function FriendsScreen() {
                 onPress={() => void viewPlayer(r.addressee_user_id)}
               >
                 <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel }}>Pending</Text>
-                <TextLink label="Cancel" onPress={() => void remove(r.id)} />
+                <TextLink
+                  label="Cancel"
+                  onPress={() =>
+                    void (async () => {
+                      const ok = await confirm({
+                        title: "Cancel this request?",
+                        message: `${nameOf(r.addressee_user_id)} won't see it. You can send it again any time.`,
+                        confirmLabel: "Cancel request",
+                        cancelLabel: "Keep it",
+                      });
+                      if (ok) await remove(r.id);
+                    })()
+                  }
+                />
               </Row>
             ))}
           </View>
@@ -168,10 +197,20 @@ export function FriendsScreen() {
                 ) : (
                   <TextLink
                     label="Remove"
-                    onPress={() => {
-                      const id = rowIdForFriend(uid);
-                      if (id) void remove(id);
-                    }}
+                    onPress={() =>
+                      void (async () => {
+                        const id = rowIdForFriend(uid);
+                        if (!id) return;
+                        const ok = await confirm({
+                          title: `Remove ${nameOf(uid)}?`,
+                          message:
+                            "You'll both drop off each other's friends list, and you'll need their friend code to add them back.",
+                          confirmLabel: "Remove",
+                          destructive: true,
+                        });
+                        if (ok) await remove(id);
+                      })()
+                    }
                   />
                 )}
               </Row>
@@ -180,7 +219,7 @@ export function FriendsScreen() {
         </View>
 
         <Text style={{ fontFamily: font.regular, fontSize: 12, color: palette.mutedSteel, textAlign: "center" }}>
-          Invites arrive while the app is open.
+          Invites reach you even when the app is closed, if you allow notifications.
         </Text>
       </ContentColumn>
       </ScrollView>

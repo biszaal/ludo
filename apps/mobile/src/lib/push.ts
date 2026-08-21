@@ -1,10 +1,16 @@
 /**
  * Push notification registration and routing.
  *
- * Deliberately NOT initialised at cold start. iOS gives an app exactly one
- * permission prompt, and a player who sees it three seconds into their first
- * launch — before they have a single friend, let alone an invite — declines,
- * permanently. So registration is triggered from the places where the value is
+ * Three things arrive this way, all of them social and all sent by
+ * functions/game/social.ts: a room invite, a friend request, and a friend
+ * coming online. The daily-bonus reminder is NOT here — it is scheduled on the
+ * device (lib/bonusReminder.ts) because the reset time is knowable offline —
+ * but its taps land in the same router below.
+ *
+ * Registration is deliberately NOT done at cold start. iOS gives an app exactly
+ * one permission prompt, and a player who sees it three seconds into their
+ * first launch — before they have a single friend, let alone an invite —
+ * declines, permanently. So it is triggered from the places where the value is
  * already obvious (the Friends screen, a lobby you're inviting people to), and
  * the app works fine for anyone who never says yes: invites still arrive over
  * realtime while the app is open.
@@ -21,6 +27,7 @@ import Constants from "expo-constants";
 import { getSupabase } from "./supabase";
 import { ensureSignedIn } from "../net/api";
 import { useOnlineStore } from "../store/onlineStore";
+import { useNav } from "../store/navStore";
 import { useSettings } from "../store/settingsStore";
 
 /** Foreground presentation. SDK 53+ replaced shouldShowAlert with the
@@ -105,8 +112,10 @@ export async function unregisterPush(): Promise<void> {
   }
 }
 
-/** What the edge function puts in `data`. */
-interface InvitePayload {
+/** What the sender puts in `data`. `type` is the routing key; every producer
+ *  (social.ts for the friend notifications, bonusReminder.ts for the local
+ *  one) sets it, and an unknown value simply opens the app. */
+interface NotificationPayload {
   type?: string;
   roomCode?: string;
 }
@@ -114,15 +123,39 @@ interface InvitePayload {
 /**
  * Act on a tapped notification.
  *
- * Shares the "never yank someone out of a live game" guard with the deep-link
- * path — a friend's invite arriving mid-match must not eject you from it.
+ * Every branch shares one guard: a live game is never interrupted. A friend's
+ * invite, or a nudge about coins, arriving mid-match must not eject the player
+ * from the match — the notification has already done its job by getting them
+ * back into the app. Same rule the deep-link path follows.
  */
 function handleResponse(response: Notifications.NotificationResponse): void {
-  const data = response.notification.request.content.data as InvitePayload | undefined;
-  if (data?.type !== "invite" || !data.roomCode) return;
+  const data = response.notification.request.content.data as NotificationPayload | undefined;
+  if (!data?.type) return;
+
   const online = useOnlineStore.getState();
-  if (online.status !== "idle" && online.status !== "error") return;
-  void online.join(data.roomCode);
+  const busy = online.status !== "idle" && online.status !== "error";
+  if (busy) return;
+
+  switch (data.type) {
+    case "invite":
+      if (data.roomCode) void online.join(data.roomCode);
+      return;
+    // Both land on Friends: one has a request to answer, the other a friend to
+    // invite, and that screen is where each of those is done.
+    case "friend-request":
+    case "friend-online":
+      useNav.getState().push("friends");
+      return;
+    case "daily-bonus":
+      // Home, not a sheet opened from here: the calendar auto-opens there when
+      // a bonus is actually claimable (dailyBonusStore.shouldAutoShow), so the
+      // player lands on the same thing they would have seen by opening the app,
+      // and a stale reminder for a bonus already taken quietly does nothing.
+      useNav.getState().popTo("home");
+      return;
+    default:
+      return;
+  }
 }
 
 /**

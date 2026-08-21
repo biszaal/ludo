@@ -21,13 +21,21 @@ import { PauseMenu } from "./PauseMenu";
 import { PlayerChip } from "./PlayerChip";
 import { ReactionBar } from "./ReactionBar";
 import { ChatBubble } from "./ChatBubble";
-import { ResultsOverlay } from "./ResultsOverlay";
+import { ResultsOverlay, type RematchVoting } from "./ResultsOverlay";
 import { WinnerCelebration } from "./WinnerCelebration";
 import { FinishedPrompt } from "./FinishedPrompt";
 import { TableBackground } from "./TableBackground";
 import { CoinGlyph } from "./CoinsPill";
 import { ContentColumn } from "./ContentColumn";
 import { useLayout } from "../lib/useLayout";
+import {
+  CHIP_COLUMN,
+  GAME_RAIL_MIN,
+  gameColumnWidth,
+  gameShape,
+  railedBoardSize,
+  stackedBoardSize,
+} from "../lib/layout";
 import type { ChatEvent } from "../store/onlineStore";
 import { font, palette, radius, space, teamColor } from "../theme";
 import { BOARD_THEMES } from "../render/boardThemes";
@@ -40,6 +48,11 @@ import { useAds, canShowInterstitial } from "../store/adsStore";
 import { useConfig } from "../store/configStore";
 import { preloadInterstitial, showInterstitial } from "../lib/ads/provider";
 
+/** Height the top bar ("Ludo" and its pills) occupies. Only the railed layout
+ *  needs it: that one budgets the board's height by hand, where the stacked one
+ *  lets flex do the measuring. */
+const TOP_BAR_HEIGHT = 40;
+
 interface GameViewProps {
   state: GameState;
   validMoves: Move[];
@@ -48,13 +61,24 @@ interface GameViewProps {
   message: string;
   /** May the local user act right now? */
   canAct: boolean;
+  /**
+   * A busted third six is being held on screen before the turn hands over.
+   *
+   * The die needs this because the held state is still the PRE-bust one, so
+   * `phase` reads "awaiting-roll" throughout — and a die told it is awaiting a
+   * roll draws the swirl, wiping the six the hold exists to let people read.
+   */
+  bustHold?: boolean;
   /** Shown in the action area when it's not the local user's turn (and not finished). */
   waitingLabel?: string | null;
   onRoll: () => void;
   onSelectToken: (tokenId: string) => void;
   onLeave: () => void;
-  /** Results: hidden when undefined (online guest waits for the host). */
+  /** Results: restart with the same setup. Local play only — online, a rematch
+   *  is voted on (see `rematch`), not commanded. */
   onRematch?: () => void;
+  /** Online: the results screen's Rematch becomes a proposal the table votes on. */
+  rematch?: RematchVoting;
   /** Two-step leave confirmation (online). */
   confirmLeave?: boolean;
   /** Seat display names/avatars; fall back to color labels/chips. */
@@ -116,6 +140,7 @@ export function GameView({
   validMoves,
   lastRoll,
   rollSeq,
+  bustHold = false,
   message,
   canAct,
   waitingLabel,
@@ -123,6 +148,7 @@ export function GameView({
   onSelectToken,
   onLeave,
   onRematch,
+  rematch,
   confirmLeave,
   nameFor,
   avatarFor,
@@ -139,15 +165,24 @@ export function GameView({
   chat,
 }: GameViewProps) {
   const { width, height } = useWindowDimensions();
-  const { maxWidth, isTablet, scale } = useLayout();
+  const { tier, scale, insets } = useLayout();
   const theme = BOARD_THEMES[useSettings((s) => s.boardThemeId)];
   const [paused, setPaused] = useState(false);
   const [reactionsOpen, setReactionsOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
-  // On a tablet the board grows to fill the centered column and a bit more
-  // height; on a phone this is exactly the old min(width−48, height·0.44).
-  const colWidth = maxWidth ?? width;
-  const boardSize = Math.floor(Math.min(colWidth - space.xl * 2, height * (isTablet ? 0.5 : 0.44)));
+  // Landscape flips the game screen into its railed form — board flanked by two
+  // chip columns, die and buttons in a side rail. See layout.ts for why.
+  const shape = gameShape(width, height);
+  const railed = shape === "railed";
+  // SafeAreaView eats the insets before our column sees them, and in landscape
+  // a notch takes ~59pt a side — far too much to ignore the way portrait can.
+  const colWidth = gameColumnWidth(shape, tier, width - insets.left - insets.right);
+  // Height the board cluster actually gets in the rail: the window less the
+  // insets, the top bar and the column's own top padding.
+  const railedFreeHeight = height - insets.top - insets.bottom - TOP_BAR_HEIGHT - space.sm;
+  const boardSize = railed
+    ? railedBoardSize(colWidth, railedFreeHeight)
+    : stackedBoardSize(colWidth, height, tier);
   const diceSize = Math.round(48 * scale);
   const finished = state.status === "finished";
   // Every seat's entry, bot seats included — matches what the server pays out.
@@ -287,13 +322,13 @@ export function GameView({
   // The die rides next to whoever is active — by the local user when it's their
   // turn (bottom-left), matching Ludo Club — and IS the roll control: when the
   // local user may roll, the die wiggles and tapping it rolls.
-  const cornerChip = (screen: number) => {
+  const cornerChip = (screen: number, { withDice = true }: { withDice?: boolean } = {}) => {
     const align = screen === TL || screen === BL ? "left" : "right";
     // Bubbles always pop toward the board: top chips downward (never over the
     // top bar), bottom chips upward — like Ludo King / Ludo Club.
     const vAlign = screen === TL || screen === TR ? "below" : "above";
     const p = byColor.get(colorAtCorner(screen));
-    if (!p) return <View style={{ width: 92 }} />;
+    if (!p) return <View style={{ width: CHIP_COLUMN }} />;
     const isActive = p.id === state.currentTurnPlayerId && !finished;
     const gone = leftFor?.(p.id) ?? false;
     const bubble = gone ? undefined : chat?.latestBubbles[p.userId];
@@ -322,7 +357,7 @@ export function GameView({
           />
           {bubble ? <ChatBubble value={bubble.value} kind={bubble.kind} seq={bubble.seq} align={align} vAlign={vAlign} /> : null}
         </View>
-        {isActive ? (
+        {isActive && withDice ? (
           // Constant size — resizing mid-roll made the face flicker/jump.
           // On an autopilot seat the die stays tappable too: tapping it (like
           // tapping the avatar) hands control back to the human.
@@ -330,7 +365,7 @@ export function GameView({
             value={state.diceValue ?? lastRoll}
             spinSeq={rollSeq}
             size={diceSize}
-            idle={state.phase === "awaiting-roll"}
+            idle={state.phase === "awaiting-roll" && !bustHold}
             theme={theme}
             skin={resolveDiceSkin(diceSkinFor?.(p.id) ?? null)}
             onRollPress={canRoll ? onRoll : pilot ? autoPilot?.onTakeControl ?? null : null}
@@ -341,137 +376,203 @@ export function GameView({
     );
   };
 
+  const topBar = (
+    <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+      <Text style={{ fontFamily: font.display, fontSize: Math.round(22 * scale), color: palette.porcelain }}>Ludo</Text>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
+        {stake > 0 ? (
+          <View
+            accessibilityLabel={`Pot: ${pot} coins`}
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 5,
+              paddingHorizontal: space.sm,
+              paddingVertical: 4,
+              borderRadius: radius.pill,
+              backgroundColor: palette.liftedSlate,
+              borderTopWidth: 1,
+              borderTopColor: "rgba(255,255,255,0.10)",
+            }}
+          >
+            <CoinGlyph size={14} />
+            <Text style={{ fontFamily: font.mono, fontSize: 13, color: palette.porcelain }}>{pot}</Text>
+          </View>
+        ) : null}
+        {roomCode ? (
+          // Tapping the code opens the share sheet — invite a friend mid-room.
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Share room code ${roomCode}`}
+            onPress={() => void shareInvite(roomCode, stake)}
+            style={({ pressed }) => ({
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 6,
+              paddingHorizontal: space.sm,
+              paddingVertical: 4,
+              borderRadius: radius.sm,
+              backgroundColor: palette.liftedSlate,
+              borderTopWidth: 1,
+              borderTopColor: "rgba(255,255,255,0.10)",
+              opacity: pressed ? 0.8 : 1,
+            })}
+          >
+            <Text style={{ fontFamily: font.mono, fontSize: 14, color: palette.porcelain, letterSpacing: 2 }}>{roomCode}</Text>
+            <Text style={{ fontFamily: font.semibold, fontSize: 12, color: palette.mutedSteel }}>SHARE</Text>
+          </Pressable>
+        ) : null}
+      </View>
+    </View>
+  );
+
+  const boardWithToast = (
+      <View style={{ alignItems: "center" }}>
+        <Board size={boardSize} state={state} theme={theme} isMovable={movable} onSelectToken={canAct && !paused ? onSelectToken : noop} viewColor={viewColor} />
+        {toast ? (
+          <Animated.View
+            key={toast.seq}
+            entering={ZoomIn.delay(350).duration(220).easing(Easing.out(Easing.back(1.6)))}
+            exiting={FadeOut.duration(180)}
+            pointerEvents="none"
+            style={{
+              position: "absolute",
+              top: "42%",
+              paddingHorizontal: space.lg,
+              paddingVertical: space.sm,
+              borderRadius: radius.pill,
+              backgroundColor: "rgba(20,23,28,0.88)",
+              borderWidth: 1,
+              borderColor: "rgba(255,255,255,0.14)",
+              zIndex: 5,
+            }}
+          >
+            <Text style={{ fontFamily: font.display, fontSize: 18, color: palette.porcelain }}>{toast.text}</Text>
+          </Animated.View>
+        ) : null}
+      </View>
+  );
+
+  const messageBlock = (
+    <View style={{ gap: space.xs, marginBottom: space.sm, alignItems: "center" }}>
+      <Text style={{ fontFamily: font.medium, fontSize: Math.round(16 * scale), color: palette.porcelain, textAlign: "center" }}>{message}</Text>
+      <Text style={{ fontFamily: font.medium, fontSize: Math.round(13 * scale), color: palette.mutedSteel, textAlign: "center" }}>
+        {finished
+          ? " "
+          : !canAct
+            ? waitingLabel ?? "Waiting…"
+            : state.phase === "awaiting-roll"
+              ? "Tap the die to roll"
+              : validMoves.length === 0
+                ? "No moves — passing…"
+                : "Tap a glowing token to move"}
+      </Text>
+    </View>
+  );
+
+  // Reactions, chat and menu. Stacked keeps them bottom-left in the thumb zone
+  // (Ludo Club convention); railed moves them into the rail, which in landscape
+  // is where the right thumb already is.
+  const actionCluster = (
+    <View style={{ flexDirection: "row", gap: space.sm, marginBottom: space.sm }}>
+      {chat ? (
+        <>
+          <IconButton label="Reactions" glyph="🙂" onPress={() => setReactionsOpen((v) => !v)} />
+          {!chat.reactionsOnly ? (
+            <IconButton
+              label="Chat"
+              glyph="💬"
+              showDot={chat.unread > 0}
+              onPress={() => {
+                chat.onOpened();
+                setChatOpen(true);
+              }}
+            />
+          ) : null}
+        </>
+      ) : null}
+      <MenuButton onPress={() => setPaused(true)} />
+    </View>
+  );
+
+  // Railed only: the die leaves the active chip for the rail, because a chip
+  // column is CHIP_COLUMN wide and a die beside it would not fit. Whose turn it
+  // is still reads off that chip's ring and countdown.
+  const activeSeat = state.players.find((p) => p.id === state.currentTurnPlayerId) ?? null;
+  const activeIsPilot = !!activeSeat && autoPilot?.playerId === activeSeat.id;
+  const canRollNow = !!activeSeat && canAct && !paused && state.phase === "awaiting-roll";
+  const railDie =
+    activeSeat && !finished ? (
+      <Dice
+        value={state.diceValue ?? lastRoll}
+        spinSeq={rollSeq}
+        size={diceSize}
+        idle={state.phase === "awaiting-roll" && !bustHold}
+        theme={theme}
+        skin={resolveDiceSkin(diceSkinFor?.(activeSeat.id) ?? null)}
+        onRollPress={canRollNow ? onRoll : activeIsPilot ? autoPilot?.onTakeControl ?? null : null}
+        pressLabel={canRollNow ? "Roll the dice" : "Bot is playing for you — tap to take back control"}
+      />
+    ) : null;
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: palette.tableBlue }}>
       <TableBackground width={width} height={height} />
       {/* Centered column on tablet so the board and the corner chips share one
           readable width instead of spanning the whole iPad; full-width on phone. */}
-      <ContentColumn style={{ flex: 1, paddingHorizontal: space.xl, paddingTop: space.sm }}>
-        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-          <Text style={{ fontFamily: font.display, fontSize: Math.round(22 * scale), color: palette.porcelain }}>Ludo</Text>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
-            {stake > 0 ? (
-              <View
-                accessibilityLabel={`Pot: ${pot} coins`}
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 5,
-                  paddingHorizontal: space.sm,
-                  paddingVertical: 4,
-                  borderRadius: radius.pill,
-                  backgroundColor: palette.liftedSlate,
-                  borderTopWidth: 1,
-                  borderTopColor: "rgba(255,255,255,0.10)",
-                }}
-              >
-                <CoinGlyph size={14} />
-                <Text style={{ fontFamily: font.mono, fontSize: 13, color: palette.porcelain }}>{pot}</Text>
+      <ContentColumn style={{ flex: 1, paddingHorizontal: space.xl, paddingTop: space.sm, maxWidth: colWidth }}>
+        {topBar}
+
+        {railed ? (
+          // Board flanked by the two chip columns — each chip stays level with
+          // the board corner its yard sits in, so a player still reads as
+          // seated where they play. Die and actions go in the rail.
+          <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: space.md }}>
+            <View style={{ width: CHIP_COLUMN, height: boardSize, justifyContent: "space-between", zIndex: 2 }}>
+              {cornerChip(TL, { withDice: false })}
+              {cornerChip(BL, { withDice: false })}
+            </View>
+
+            {boardWithToast}
+
+            <View style={{ width: CHIP_COLUMN, height: boardSize, justifyContent: "space-between", zIndex: 2 }}>
+              {cornerChip(TR, { withDice: false })}
+              {cornerChip(BR, { withDice: false })}
+            </View>
+
+            <View style={{ flex: 1, minWidth: GAME_RAIL_MIN, alignItems: "center", justifyContent: "center", gap: space.md }}>
+              {/* Stretched so the turn message wraps to the rail's width; left
+                  to itself under alignItems:center it sizes to its longest line
+                  and spills out of the rail. */}
+              <View style={{ alignSelf: "stretch" }}>{messageBlock}</View>
+              {railDie}
+              {actionCluster}
+            </View>
+          </View>
+        ) : (
+          <>
+            <View style={{ flex: 1, justifyContent: "center" }}>
+              {/* Top-of-board profiles (screen corners), then the board, then
+                  bottom. zIndex keeps chat bubbles (which pop past the row's
+                  bounds toward the board) drawing over the board, not under. */}
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end", marginBottom: space.sm, zIndex: 2 }}>
+                {cornerChip(TL)}
+                {cornerChip(TR)}
               </View>
-            ) : null}
-            {roomCode ? (
-              // Tapping the code opens the share sheet — invite a friend mid-room.
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`Share room code ${roomCode}`}
-                onPress={() => void shareInvite(roomCode, stake)}
-                style={({ pressed }) => ({
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 6,
-                  paddingHorizontal: space.sm,
-                  paddingVertical: 4,
-                  borderRadius: radius.sm,
-                  backgroundColor: palette.liftedSlate,
-                  borderTopWidth: 1,
-                  borderTopColor: "rgba(255,255,255,0.10)",
-                  opacity: pressed ? 0.8 : 1,
-                })}
-              >
-                <Text style={{ fontFamily: font.mono, fontSize: 14, color: palette.porcelain, letterSpacing: 2 }}>{roomCode}</Text>
-                <Text style={{ fontFamily: font.semibold, fontSize: 12, color: palette.mutedSteel }}>SHARE</Text>
-              </Pressable>
-            ) : null}
-          </View>
-        </View>
 
-        <View style={{ flex: 1, justifyContent: "center" }}>
-          {/* Top-of-board profiles (screen corners), then the board, then bottom.
-              zIndex keeps chat bubbles (which pop past the row's bounds toward
-              the board) drawing over the board instead of under it. */}
-          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end", marginBottom: space.sm, zIndex: 2 }}>
-            {cornerChip(TL)}
-            {cornerChip(TR)}
-          </View>
+              {boardWithToast}
 
-          <View style={{ alignItems: "center" }}>
-            <Board size={boardSize} state={state} theme={theme} isMovable={movable} onSelectToken={canAct && !paused ? onSelectToken : noop} viewColor={viewColor} />
-            {toast ? (
-              <Animated.View
-                key={toast.seq}
-                entering={ZoomIn.delay(350).duration(220).easing(Easing.out(Easing.back(1.6)))}
-                exiting={FadeOut.duration(180)}
-                pointerEvents="none"
-                style={{
-                  position: "absolute",
-                  top: "42%",
-                  paddingHorizontal: space.lg,
-                  paddingVertical: space.sm,
-                  borderRadius: radius.pill,
-                  backgroundColor: "rgba(20,23,28,0.88)",
-                  borderWidth: 1,
-                  borderColor: "rgba(255,255,255,0.14)",
-                  zIndex: 5,
-                }}
-              >
-                <Text style={{ fontFamily: font.display, fontSize: 18, color: palette.porcelain }}>{toast.text}</Text>
-              </Animated.View>
-            ) : null}
-          </View>
+              {/* The local player's yard is bottom-left, so their chip + die live here. */}
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginTop: space.sm, zIndex: 2 }}>
+                {cornerChip(BL)}
+                {cornerChip(BR)}
+              </View>
+            </View>
 
-          {/* The local player's yard is bottom-left, so their chip + die live here. */}
-          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginTop: space.sm, zIndex: 2 }}>
-            {cornerChip(BL)}
-            {cornerChip(BR)}
-          </View>
-        </View>
-
-        <View style={{ gap: space.xs, marginBottom: space.sm, alignItems: "center" }}>
-          <Text style={{ fontFamily: font.medium, fontSize: Math.round(16 * scale), color: palette.porcelain, textAlign: "center" }}>{message}</Text>
-          <Text style={{ fontFamily: font.medium, fontSize: Math.round(13 * scale), color: palette.mutedSteel, textAlign: "center" }}>
-            {finished
-              ? " "
-              : !canAct
-                ? waitingLabel ?? "Waiting…"
-                : state.phase === "awaiting-roll"
-                  ? "Tap the die to roll"
-                  : validMoves.length === 0
-                    ? "No moves — passing…"
-                    : "Tap a glowing token to move"}
-          </Text>
-        </View>
-
-        {/* Bottom-left action cluster — reactions, chat and menu live in the
-            thumb zone (Ludo Club convention), not the top bar. */}
-        <View style={{ flexDirection: "row", gap: space.sm, marginBottom: space.sm }}>
-          {chat ? (
-            <>
-              <IconButton label="Reactions" glyph="🙂" onPress={() => setReactionsOpen((v) => !v)} />
-              {!chat.reactionsOnly ? (
-                <IconButton
-                  label="Chat"
-                  glyph="💬"
-                  showDot={chat.unread > 0}
-                  onPress={() => {
-                    chat.onOpened();
-                    setChatOpen(true);
-                  }}
-                />
-              ) : null}
-            </>
-          ) : null}
-          <MenuButton onPress={() => setPaused(true)} />
-        </View>
+            {messageBlock}
+            {actionCluster}
+          </>
+        )}
       </ContentColumn>
 
       {celebrating && champion && (
@@ -520,6 +621,7 @@ export function GameView({
           nameFor={nameFor}
           avatarFor={avatarFor}
           onRematch={onRematch}
+          rematch={rematch}
           footnote={resultsFootnote}
           canAddFriends={!!chat && !chat.reactionsOnly}
           stake={stake}

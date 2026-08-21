@@ -44,3 +44,12 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# stale credential backups - never commit
+*.bak
+_to_delete/
+
+# Reaction-sound sources. Only the processed assets/*.wav ship in the bundle;
+# these originals are large and re-fetchable from the URLs in
+# assets/REACTION-SOUNDS.md. Run scripts/process-reaction-sfx.mjs to rebuild.
+assets/raw-reactions/

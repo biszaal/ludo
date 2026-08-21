@@ -16,11 +16,19 @@ vi.mock("../src/net/api", () => ({
   createGame: vi.fn(),
   joinGame: vi.fn(),
   startGame: vi.fn(),
+  // Self-contained counter: a vi.mock factory is hoisted, so it cannot close
+  // over a module-level binding without tripping its TDZ.
+  newActionId: (() => {
+    let n = 0;
+    return vi.fn(() => `act-${++n}`);
+  })(),
   rollAction: vi.fn(),
+  prepareRoll: vi.fn().mockResolvedValue(null),
   moveAction: vi.fn(),
   passAction: vi.fn(),
   timeoutAction: vi.fn(),
-  rematchAction: vi.fn(),
+  rematchVote: vi.fn(),
+  rematchClose: vi.fn(),
   leaveAction: vi.fn().mockResolvedValue(undefined),
   getLobby: vi.fn().mockResolvedValue([]),
   fetchGame: vi.fn(),
@@ -36,7 +44,7 @@ vi.mock("../src/net/api", () => ({
 }));
 
 import * as api from "../src/net/api";
-import { useOnlineStore } from "../src/store/onlineStore";
+import { TURN_SECONDS, useOnlineStore } from "../src/store/onlineStore";
 
 const store = useOnlineStore;
 
@@ -125,5 +133,72 @@ describe("stall recovery on the local player's own turn", () => {
     // tell us whether the write landed.
     await vi.advanceTimersByTimeAsync(15_000);
     expect(api.fetchGame).toHaveBeenCalled();
+  });
+});
+
+/**
+ * A retry can overlap the very attempt it is replacing, so the server answers
+ * the loser with `duplicate` and a row that may predate the winner's write by
+ * milliseconds. Applied like an ordinary result it would undo the action — the
+ * exact snap-back the retry exists to prevent, now caused by the fix.
+ */
+describe("an action the server has already applied", () => {
+  it("leaves the moved pawn where the player put it", async () => {
+    vi.useFakeTimers();
+    const rolled = { ...myTurn(), phase: "awaiting-move" as const, diceValue: 6 };
+    await joinActiveGame(rolled, 5);
+
+    const moves = store.getState().validMoves;
+    expect(moves.length).toBeGreaterThan(0);
+    const tokenId = moves[0]!.tokenId;
+
+    // The stale row the overlapping attempt read: the state from BEFORE the move.
+    vi.mocked(api.moveAction).mockResolvedValue({ state: rolled, v: 5, duplicate: true });
+    await store.getState().selectToken(tokenId);
+
+    // The prediction is still on screen — the token did not walk back.
+    expect(store.getState().state).not.toEqual(rolled);
+    // And something is scheduled to reconcile it. Without this the client sits
+    // on an unconfirmed prediction with nothing armed to ever settle it: the
+    // version guard silently drops the stale row, and on our own seat nobody
+    // else writes the game.
+    vi.mocked(api.fetchGame).mockClear();
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(api.fetchGame).toHaveBeenCalled();
+  });
+
+  it("keeps the die airborne instead of settling it on a stale row", async () => {
+    vi.useFakeTimers();
+    const start = myTurn();
+    await joinActiveGame(start, 5);
+
+    vi.mocked(api.rollAction).mockResolvedValue({ state: start, v: 5, duplicate: true });
+    await store.getState().roll();
+
+    // No number to show yet — the real one arrives with the winning write.
+    expect(store.getState().lastRoll).toBeNull();
+    // And it must not be left waiting forever on it.
+    vi.mocked(api.fetchGame).mockClear();
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(api.fetchGame).toHaveBeenCalled();
+  });
+});
+
+describe("autopilot while an action of our own is in flight", () => {
+  it("does not take the seat from a player whose roll is still travelling", async () => {
+    vi.useFakeTimers();
+    await joinActiveGame(myTurn());
+
+    // A slow link: the call is retrying and has not answered yet.
+    let settle: (v: api.TurnResult) => void = () => {};
+    vi.mocked(api.rollAction).mockReturnValue(new Promise((resolve) => { settle = resolve; }));
+    void store.getState().roll();
+
+    // The idle clock runs out. The player is not idle — they rolled.
+    await vi.advanceTimersByTimeAsync(TURN_SECONDS * 1000 + 1000);
+    expect(store.getState().autoPilot).toBe(false);
+
+    settle({ state: myTurn(), v: 2 });
+    await vi.advanceTimersByTimeAsync(0);
   });
 });

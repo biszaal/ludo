@@ -1,12 +1,13 @@
 /**
  * Online game screen — wires the shared GameView to the online store. Input is
  * enabled only on the local player's turn. Seats show profile names/avatars
- * when a profile row exists (color labels otherwise). The host can trigger a
- * rematch from the results overlay; guests follow via the realtime update.
+ * when a profile row exists (color labels otherwise). A rematch is proposed
+ * from the results overlay and voted on by everyone still seated; the
+ * accepters are dealt the new board.
  */
 
 import { GameView } from "../components/GameView";
-import { TURN_SECONDS, useOnlineStore } from "../store/onlineStore";
+import { useOnlineStore } from "../store/onlineStore";
 import { useProfile } from "../store/profileStore";
 
 const COLOR_LABEL = { red: "Red", green: "Green", yellow: "Yellow", blue: "Blue" } as const;
@@ -20,11 +21,13 @@ export function OnlineGameScreen() {
   const message = useOnlineStore((s) => s.message);
   const roomCode = useOnlineStore((s) => s.roomCode);
   const myPlayerId = useOnlineStore((s) => s.myPlayerId);
-  const isHost = useOnlineStore((s) => s.isHost);
   const profiles = useOnlineStore((s) => s.profiles);
   const roll = useOnlineStore((s) => s.roll);
   const selectToken = useOnlineStore((s) => s.selectToken);
-  const rematch = useOnlineStore((s) => s.rematch);
+  const rematchProposal = useOnlineStore((s) => s.rematchProposal);
+  const rematchNotice = useOnlineStore((s) => s.rematchNotice);
+  const proposeRematch = useOnlineStore((s) => s.proposeRematch);
+  const answerRematch = useOnlineStore((s) => s.answerRematch);
   const leave = useOnlineStore((s) => s.leave);
   const userId = useOnlineStore((s) => s.userId);
   const chat = useOnlineStore((s) => s.chat);
@@ -34,6 +37,9 @@ export function OnlineGameScreen() {
   const sendMessage = useOnlineStore((s) => s.sendMessage);
   const markChatRead = useOnlineStore((s) => s.markChatRead);
   const turnSeq = useOnlineStore((s) => s.turnSeq);
+  // The server's clock for this turn, not an assumed one: an away seat gets a
+  // short one, and the ring has to sweep over what the room is actually waiting.
+  const turnSeconds = useOnlineStore((s) => s.turnSeconds);
   const autoPilot = useOnlineStore((s) => s.autoPilot);
   const bustHold = useOnlineStore((s) => s.bustHold);
   const takeControl = useOnlineStore((s) => s.takeControl);
@@ -99,6 +105,7 @@ export function OnlineGameScreen() {
       rollSeq={rollSeq}
       message={message}
       canAct={myTurn && !autoPilot && !bustHold}
+      bustHold={bustHold}
       waitingLabel={
         autoPilot && myTurn
           ? "Bot is playing for you — tap your avatar to take control"
@@ -108,8 +115,13 @@ export function OnlineGameScreen() {
       onSelectToken={(id) => void selectToken(id)}
       onLeave={leave}
       confirmLeave
-      onRematch={isHost ? () => void rematch() : undefined}
-      resultsFootnote={isHost ? null : "Waiting for the host to start a rematch…"}
+      rematch={{
+        proposal: rematchProposal,
+        myUserId: userId,
+        notice: rematchNotice,
+        onPropose: () => void proposeRematch(),
+        onAnswer: (accept) => void answerRematch(accept),
+      }}
       nameFor={(playerId) => (isMe(playerId) ? myName : null) ?? profileOf(playerId)?.display_name ?? null}
       // Local-first for my own seat (like nameFor / diceSkinFor): my profile row
       // may not be in the fetched cache yet, and I always know my own avatar.
@@ -123,7 +135,7 @@ export function OnlineGameScreen() {
       offlineFor={offlineOf}
       leftFor={leftOf}
       botFor={botOf}
-      turnTimer={state.status === "active" ? { seq: turnSeq, seconds: TURN_SECONDS } : null}
+      turnTimer={state.status === "active" ? { seq: turnSeq, seconds: turnSeconds } : null}
       autoPilot={autoPilot && myPlayerId ? { playerId: myPlayerId, onTakeControl: takeControl } : null}
       roomCode={roomCode}
       stake={stake}

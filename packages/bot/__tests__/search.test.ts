@@ -126,6 +126,92 @@ describe("evaluator", () => {
   });
 });
 
+/**
+ * The bot is supposed to play AT the other seats, not merely race past them:
+ * take the kill when it is there, and stand where a kill becomes possible when
+ * it isn't. Both halves are checked here — the evaluator's hunt term for the
+ * positional half, and whole-move choices for the rest — because a bot that
+ * only cashes in captures that fall into its lap reads to a human opponent as
+ * one that has not noticed them.
+ */
+describe("hunting", () => {
+  function withDice(state: GameState, diceValue: number): GameState {
+    return { ...state, phase: "awaiting-move", diceValue };
+  }
+
+  it("values a position with a shot at an opponent over the same position without one", () => {
+    // Identical red progress in both. The only difference is whether red-0 is
+    // sitting within a roll of green's runner.
+    let base = game(2);
+    base = withToken(base, "green-0", { type: "track", index: 30 });
+    const noShot = withToken(base, "red-0", { type: "track", index: 10 });
+    const inRange = withToken(base, "red-0", { type: "track", index: 26 }); // 4 behind
+    expect(evaluateFor(inRange, "p0", 0.55)).toBeGreaterThan(evaluateFor(noShot, "p0", 0.55));
+  });
+
+  it("rates a shot at a loaded runner above a shot at one that just left the yard", () => {
+    // Same geometry — four cells behind the prey — but the prey is worth very
+    // different amounts to lose, so the hunt term has to discriminate.
+    let big = game(2);
+    big = withToken(big, "green-0", { type: "track", index: 30 }); // deep into its lap
+    big = withToken(big, "red-0", { type: "track", index: 26 });
+    let small = game(2);
+    small = withToken(small, "green-0", { type: "track", index: 15 }); // green starts at 13
+    small = withToken(small, "red-0", { type: "track", index: 11 });
+    expect(evaluateFor(big, "p0", 0.55)).toBeGreaterThan(evaluateFor(small, "p0", 0.55));
+  });
+
+  it("sees no shot at prey standing on a safe square", () => {
+    // A star cannot be taken, so parking behind one buys nothing and must not
+    // read as pressure.
+    let base = game(2);
+    base = withToken(base, "green-0", { type: "track", index: 21 }); // a safe square
+    const behind = withToken(base, "red-0", { type: "track", index: 17 });
+    const away = withToken(base, "red-0", { type: "track", index: 5 });
+    // Positions differ only in red's own progress, so the further-on token wins
+    // on progress alone — with no hunt bonus for the one lurking behind a star.
+    expect(evaluateFor(behind, "p0", 0.55)).toBeGreaterThan(evaluateFor(away, "p0", 0.55));
+    const gap = evaluateFor(behind, "p0", 0.55) - evaluateFor(away, "p0", 0.55);
+    // The same lurk against a capturable token IS worth extra.
+    let takeable = game(2);
+    takeable = withToken(takeable, "green-0", { type: "track", index: 20 });
+    const lurk = withToken(takeable, "red-0", { type: "track", index: 16 });
+    const far = withToken(takeable, "red-0", { type: "track", index: 4 });
+    expect(evaluateFor(lurk, "p0", 0.55) - evaluateFor(far, "p0", 0.55)).toBeGreaterThan(gap);
+  });
+
+  it("takes an advanced runner rather than making the same progress safely", () => {
+    // red-0 can capture green's deep runner; red-1 can advance the same number
+    // of cells into empty space. Racing says they are close; hunting says take it.
+    let st = game(2);
+    st = withToken(st, "red-0", { type: "track", index: 26 });
+    st = withToken(st, "red-1", { type: "track", index: 8 });
+    st = withToken(st, "green-0", { type: "track", index: 30 }); // 4 ahead of red-0
+    st = withDice(st, 4);
+    const move = chooseMove(st, "p0", getValidMoves(st, "p0"));
+    expect(move.tokenId).toBe("red-0");
+    expect(move.captures).toContain("green-0");
+  });
+
+  it("picks the kill that hurts most when offered two", () => {
+    // Both moves capture with the same die, so everything except the victim is
+    // held constant. The appetite is scaled by what the victim loses, which is
+    // what keeps "be interested in captures" from collapsing into "take any
+    // capture" — sending a token that just left the yard back home is nearly
+    // free for its owner, and worth passing up for the runner.
+    let st = game(2);
+    st = withToken(st, "red-0", { type: "track", index: 40 });
+    st = withToken(st, "red-1", { type: "track", index: 12 });
+    st = withToken(st, "green-0", { type: "track", index: 42 }); // deep into its lap
+    st = withToken(st, "green-1", { type: "track", index: 14 }); // barely out of the yard
+    st = withDice(st, 2);
+    const moves = getValidMoves(st, "p0");
+    expect(moves.filter((m) => m.captures.length > 0)).toHaveLength(2);
+    const move = chooseMove(st, "p0", moves);
+    expect(move.captures).toContain("green-0");
+  });
+});
+
 describe("hard search vs the normal heuristic", () => {
   it("wins a clear majority heads-up over 400 seeded games", () => {
     const games = 400;

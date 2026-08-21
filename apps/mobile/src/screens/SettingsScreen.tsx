@@ -14,10 +14,13 @@ import { ContentColumn } from "../components/ContentColumn";
 import { SectionLabel } from "../components/SectionLabel";
 import { SettingRow } from "../components/SettingRow";
 import { registerForPush, unregisterPush } from "../lib/push";
+import { cancelBonusReminder, scheduleBonusReminder } from "../lib/bonusReminder";
 import { Surface3D } from "../components/Surface3D";
 import { BookGlyph, ChevronGlyph, NoteGlyph, PeopleGlyph, PulseGlyph, SpeakerGlyph } from "../components/HomeGlyphs";
+import { CoinGlyph } from "../components/CoinsPill";
 import { useNav } from "../store/navStore";
 import { useSettings } from "../store/settingsStore";
+import { useWallet } from "../store/walletStore";
 import { font, palette, radius, space } from "../theme";
 
 // Version straight from app config — no expo-constants dependency needed.
@@ -52,14 +55,30 @@ export function SettingsScreen() {
         <Tray title="Notifications">
           <Row glyph={<PeopleGlyph size={20} />}>
             <SettingRow
-              label="Friend invites"
-              hint="Get told when a friend asks you to play"
+              label="Friends"
+              hint="Invites, requests, and when a friend comes online"
               value={settings.pushOn}
               onChange={(v) => {
                 settings.setPush(v);
                 // Registration is what actually starts/stops delivery; the
                 // stored flag alone would leave a live token behind.
                 void (v ? registerForPush() : unregisterPush());
+              }}
+            />
+          </Row>
+          <Hairline />
+          <Row glyph={<CoinGlyph size={20} />}>
+            <SettingRow
+              label="Daily bonus"
+              hint="A nudge when your free coins are ready"
+              value={settings.bonusRemindersOn}
+              onChange={(v) => {
+                settings.setBonusReminders(v);
+                // Scheduled on the device, so turning it on has to re-arm the
+                // reminder from what the wallet already knows — waiting for the
+                // next refresh would silently skip a day.
+                const w = useWallet.getState();
+                void (v ? scheduleBonusReminder(w.bonusClaimable, w.streakDay) : cancelBonusReminder());
               }}
             />
           </Row>

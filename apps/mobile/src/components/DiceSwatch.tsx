@@ -15,7 +15,7 @@ import { Pressable, Text, View } from "react-native";
 import { BlurMask, Canvas, Circle, Group, LinearGradient, Path, RoundedRect, Skia, vec } from "@shopify/react-native-skia";
 import { PriceTag, type PriceCurrency } from "./PriceTag";
 import type { BoardTheme } from "../render/boardThemes";
-import { diceRenderParams, type DiceSkin } from "../render/diceSkins";
+import { DEFAULT_DIE, diceRenderParams, type DiceSkin } from "../render/diceSkins";
 import { appendPip, type PipShape } from "../render/pipShapes";
 import { font, palette, radius, shade, space } from "../theme";
 
@@ -34,8 +34,9 @@ const PIP5: [number, number][] = [
 
 interface DiceSwatchProps {
   skin: DiceSkin;
-  /** The viewer's board theme — classic previews against it, like in-game. */
-  theme: BoardTheme;
+  /** Kept for signature compatibility with the themed swatches beside it; the
+   *  die itself no longer reads it (see DEFAULT_DIE). */
+  theme?: BoardTheme;
   selected: boolean;
   /** Coins to unlock; 0 (or owned) means selectable. */
   price?: number;
@@ -45,10 +46,16 @@ interface DiceSwatchProps {
   onSelect: () => void;
 }
 
-export function DiceSwatch({ skin, theme, selected, price = 0, currency = "coins", locked = false, onSelect }: DiceSwatchProps) {
-  const sp = useMemo(() => diceRenderParams(skin, theme), [skin, theme]);
-  const faceHex = skin.face ? (skin.face.type === "solid" ? skin.face.color : skin.face.colors[0]!) : theme.dice.face;
-  const pipHex = skin.pip?.color ?? theme.dice.pip;
+export function DiceSwatch({ skin, selected, price = 0, currency = "coins", locked = false, onSelect }: DiceSwatchProps) {
+  const sp = useMemo(() => diceRenderParams(skin), [skin]);
+  // DEFAULT_DIE, not the board theme. Classic used to fall back to
+  // `theme.dice`, which made the shop tile for the plain white die repaint
+  // itself walnut-brown or slate-blue the moment you previewed another board —
+  // a skin advertising a color it does not have. The die stopped following the
+  // board theme when DEFAULT_DIE landed (a die belongs to its owner, not to the
+  // table); this tile was the last surface still reading the old fallback.
+  const faceHex = skin.face ? (skin.face.type === "solid" ? skin.face.color : skin.face.colors[0]!) : DEFAULT_DIE.face;
+  const pipHex = skin.pip?.color ?? DEFAULT_DIE.pip;
   const edgeHex = skin.edge ?? shade(faceHex, -0.25);
   // A darker rim around shaped pips (mirrors Dice.tsx): at this thumbnail size
   // a diamond/star/crown/flame's outline is what actually reads as a distinct

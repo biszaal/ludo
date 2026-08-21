@@ -11,7 +11,26 @@ import { Button } from "./Button";
 import type { ChatEvent } from "../store/onlineStore";
 import { depth, font, palette, radius, space } from "../theme";
 
-export const QUICK_MESSAGES = ["Good luck!", "Nice move!", "Hurry up!", "Ouch!", "GG", "One more?"] as const;
+/** Tap-to-send lines, one per moment a game actually produces (opening, a
+ *  capture either way, a near miss, the finish). Mirrored server-side in
+ *  supabase/functions/game/botChat.ts — a hidden seat only ever says something
+ *  a human could have tapped, so keep the two lists in step. */
+export const QUICK_MESSAGES = [
+  "Good luck!",
+  "Nice move!",
+  "Well played",
+  "Hurry up!",
+  "Ouch!",
+  "Nooo",
+  "So close!",
+  "Wow!",
+  "Lucky!",
+  "Almost there",
+  "My turn!",
+  "Sorry!",
+  "GG",
+  "One more?",
+] as const;
 
 interface ChatSheetProps {
   events: ChatEvent[];

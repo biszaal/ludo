@@ -17,8 +17,28 @@ import {
 } from "../_shared/engine/index.js";
 // @deno-types="../_shared/bot/index.d.ts"
 import { chooseMove } from "../_shared/bot/index.js";
-import { afterResponse, cryptoRng, sleep, TURN_SECONDS, type SupabaseClient } from "./lib.ts";
+import {
+  afterResponse,
+  AWAY_TURN_SECONDS,
+  cryptoRng,
+  deriveDie,
+  isAwaySeat,
+  rngForDie,
+  sleep,
+  TURN_SECONDS,
+  type SupabaseClient,
+} from "./lib.ts";
 import { recordFinishStats, settleIfFinished } from "./finish.ts";
+import { relayChat } from "./chat.ts";
+import {
+  classifyEvent,
+  composeMessage,
+  personalityFor,
+  REACT_DELAY_MAX_MS,
+  REACT_DELAY_MIN_MS,
+  shouldSpeak,
+  type ClassifyOpts,
+} from "./botChat.ts";
 
 /**
  * Pacing.
@@ -73,24 +93,57 @@ export function stepPauseMs(choices: number): number {
  *  any client's timeout call resumes the turn after ~12s instead of 30. */
 const BOT_TURN_SECONDS = 12;
 
+/**
+ * How a name or a face reads: feminine, masculine, or neither.
+ *
+ * "Neither" is not a hedge — six of the twelve avatars wear a cap, beanie,
+ * headphones, crown, afro or cat ears, which cover the hairline and leave
+ * nothing to read. Those go with any name at all.
+ */
+type Presents = "f" | "m" | "n";
+
 /** Fill-in identities: everyday first names (some with an initial), mixed with
- *  the app's own guest-handle format so the pool reads like the player base. */
-const BOT_NAMES = [
-  "Maya", "Arjun K", "Sofia", "Leo M", "Priya", "Daniel", "Amara", "Kenji",
-  "Lucas P", "Anika", "Mateo", "Zoe", "Rahul", "Elena V", "Sam T", "Nadia",
-  "Omar", "Isla", "Ravi J", "Clara", "Tomas", "Mina K", "Jonas", "Aisha",
-  "Nikhil", "Lena", "Marco B", "Tara", "Felix", "Divya", "Noah S", "Ipsita",
+ *  the app's own guest-handle format so the pool reads like the player base.
+ *  Tagged so the face can be chosen to match — an unmatched pair (Sofia in the
+ *  beard, Daniel in the pigtails) is the kind of detail a player notices even
+ *  when they can't say why the seat felt off. */
+const BOT_NAMES: readonly (readonly [string, Presents])[] = [
+  ["Maya", "f"], ["Arjun K", "m"], ["Sofia", "f"], ["Leo M", "m"],
+  ["Priya", "f"], ["Daniel", "m"], ["Amara", "f"], ["Kenji", "m"],
+  ["Lucas P", "m"], ["Anika", "f"], ["Mateo", "m"], ["Zoe", "f"],
+  ["Rahul", "m"], ["Elena V", "f"], ["Sam T", "n"], ["Nadia", "f"],
+  ["Omar", "m"], ["Isla", "f"], ["Ravi J", "m"], ["Clara", "f"],
+  ["Tomas", "m"], ["Mina K", "f"], ["Jonas", "m"], ["Aisha", "f"],
+  ["Nikhil", "m"], ["Lena", "f"], ["Marco B", "m"], ["Tara", "f"],
+  ["Felix", "m"], ["Divya", "f"], ["Noah S", "m"], ["Ipsita", "f"],
 ];
 
-function pickBotName(rng: () => number, attempt: number): string {
-  // A third of the pool presents as app guests; the rest as chosen names.
-  if (rng() < 0.34) return `guest${String(Math.floor(rng() * 900000) + 100000)}`;
-  const base = BOT_NAMES[Math.floor(rng() * BOT_NAMES.length)]!;
-  return attempt === 0 ? base : `${base}${Math.floor(rng() * 90) + 10}`;
+/** A chosen name, and what it implies about the face that should wear it. */
+function pickBotName(rng: () => number, attempt: number): { name: string; presents: Presents } {
+  // A third of the pool presents as app guests; the rest as chosen names. A
+  // guest handle says nothing about its owner, so any avatar suits it.
+  if (rng() < 0.34) {
+    return { name: `guest${String(Math.floor(rng() * 900000) + 100000)}`, presents: "n" };
+  }
+  const [base, presents] = BOT_NAMES[Math.floor(rng() * BOT_NAMES.length)]!;
+  return { name: attempt === 0 ? base : `${base}${Math.floor(rng() * 90) + 10}`, presents };
 }
 
-/** Avatar ids mirrored from the client's Avatar.tsx set. */
-const BOT_AVATARS = ["leo", "sunny", "coco", "zara", "rex", "nina", "milo", "ivy", "ace", "ruby", "bruno", "kito"];
+/** Avatar ids mirrored from the client's render/avatars.ts set, tagged by how
+ *  the drawn style reads (see Avatar.tsx buildOps): hair-forward faces present,
+ *  hat-and-ears faces don't. Keep in sync if the avatar set grows. */
+const BOT_AVATARS: readonly (readonly [string, Presents])[] = [
+  ["zara", "f"], ["nina", "f"], ["ruby", "f"],       // bun, pigtails, bow
+  ["sunny", "m"], ["milo", "m"], ["bruno", "m"],     // spiky, side part, beard
+  ["leo", "n"], ["coco", "n"], ["rex", "n"],         // crown, afro, cap
+  ["ivy", "n"], ["ace", "n"], ["kito", "n"],         // beanie, headphones, cat
+];
+
+/** A face that suits the name: same presentation, or one of the neutral ones. */
+function pickBotAvatar(rng: () => number, presents: Presents): string {
+  const fits = BOT_AVATARS.filter(([, p]) => p === presents || p === "n");
+  return fits[Math.floor(rng() * fits.length)]![0];
+}
 
 /** Dice skin ids mirrored from the client's diceSkins.ts set, weighted toward
  *  classic/cheap — the same distribution 0014_dice_skins.sql used to dress
@@ -125,31 +178,43 @@ export async function claimOrCreateBotIdentity(admin: SupabaseClient, gameId: st
   const uid = created.user.id;
   await admin.from("bot_identities").insert({ user_id: uid, in_use_game_id: gameId });
 
-  const avatar = BOT_AVATARS[Math.floor(cryptoRng() * BOT_AVATARS.length)]!;
   const diceSkin = pickBotDiceSkin(cryptoRng);
+  // Name first, face second. The other order (which is what this used to do)
+  // picks the avatar once, outside the retry loop, and leaves it to chance
+  // whether the two agree — which is how the pool filled up with mismatches.
   for (let attempt = 0; attempt < 5; attempt++) {
-    const name = pickBotName(cryptoRng, attempt);
+    const { name, presents } = pickBotName(cryptoRng, attempt);
     const { error: profErr } = await admin
       .from("profiles")
-      .insert({ user_id: uid, display_name: name, avatar_id: avatar, dice_skin: diceSkin });
+      .insert({ user_id: uid, display_name: name, avatar_id: pickBotAvatar(cryptoRng, presents), dice_skin: diceSkin });
     if (!profErr) return uid;
     if (!/unique|duplicate/i.test(profErr.message)) break;
   }
-  // Names exhausted (or another failure): a timestamp guest handle is unique enough.
+  // Names exhausted (or another failure): a timestamp guest handle is unique
+  // enough, and implies nothing, so any face suits it.
   await admin
     .from("profiles")
-    .insert({ user_id: uid, display_name: `guest${String(Date.now()).slice(-6)}`, avatar_id: avatar, dice_skin: diceSkin })
+    .insert({
+      user_id: uid,
+      display_name: `guest${String(Date.now()).slice(-6)}`,
+      avatar_id: pickBotAvatar(cryptoRng, "n"),
+      dice_skin: diceSkin,
+    })
     .then(undefined, () => {});
   return uid;
 }
 
 /**
- * Seat bots into every still-empty chair, from `seated.length` up to `size`.
+ * Seat bots into the given chairs.
  *
  * Shared by quick match (hidden fill-in when nobody shows up) and friend rooms
  * (the host explicitly asked to fill). `visible` is the only difference: it
  * sets players.is_bot, which the client turns into a BOT tag. Quick match must
  * pass false or the camouflage is gone (0035).
+ *
+ * The chairs are a list rather than a range because a friend room does not
+ * always fill left to right: two humans at a four-handed table take the
+ * diagonal, which leaves the bots seats 1 and 3 (room.ts).
  *
  * Returns how many were seated. A pool that can't produce an identity stops the
  * loop rather than failing the call — the caller decides whether what it got is
@@ -158,13 +223,12 @@ export async function claimOrCreateBotIdentity(admin: SupabaseClient, gameId: st
 export async function seatBots(
   admin: SupabaseClient,
   gameId: string,
-  fromSeat: number,
-  size: number,
+  seats: readonly number[],
   colors: readonly string[],
   visible: boolean,
 ): Promise<number> {
   let added = 0;
-  for (let seat = fromSeat; seat < size; seat++) {
+  for (const seat of seats) {
     const botUserId = await claimOrCreateBotIdentity(admin, gameId);
     if (!botUserId) break;
     const { error: seatErr } = await admin
@@ -186,48 +250,166 @@ export async function seatBots(
   return added;
 }
 
+/** A bot seat's chat budget in one game, straight off its game_bots row. */
+interface BotChatMeta {
+  chatCount: number;
+  lastChatAtMs: number | null;
+}
+type BotSeats = Map<string, BotChatMeta>;
+
+/** Read the game's bot seats and their chat budgets in one go. This select
+ *  already ran on every write; the two extra columns ride along for free. */
+async function loadBotSeats(admin: SupabaseClient, gameId: string): Promise<BotSeats> {
+  const { data } = await admin.from("game_bots").select("user_id, chat_count, last_chat_at").eq("game_id", gameId);
+  const seats: BotSeats = new Map();
+  for (const row of data ?? []) {
+    const lastAt = row.last_chat_at as string | null;
+    seats.set(String(row.user_id), {
+      chatCount: (row.chat_count as number | null) ?? 0,
+      lastChatAtMs: lastAt ? Date.parse(lastAt) : null,
+    });
+  }
+  return seats;
+}
+
 /**
  * Post-write hook for rooms with a hidden seat: on finish, release the bots'
- * identities back to the pool; while active, if the turn just landed on a bot,
- * drive it after a human-feeling pause. Runs via waitUntil — never on the
- * response path. Every write inside is version-guarded, so a duplicate driver
- * (racing calls, an opTimeout fallback) loses cleanly instead of double-acting.
+ * identities back to the pool; while active, react to what just happened and,
+ * if the turn just landed on a bot, drive it after a human-feeling pause. Runs
+ * via waitUntil — never on the response path. Every write inside is
+ * version-guarded, so a duplicate driver (racing calls, an opTimeout fallback)
+ * loses cleanly instead of double-acting.
  *
  * `hasBots` is the games row's own flag (0022), maintained by trigger. It
  * replaces an unconditional game_bots lookup on every single write — the vast
  * majority of which were quick games between two humans, asking a question
  * whose answer was already sitting on the row the caller had just fetched.
+ *
+ * `prev` is the state this write moved on FROM. Optional because not every
+ * caller has one (a freshly dealt game has no predecessor); the only thing that
+ * needs it is attributing a busted three-six roll, which has no token to read
+ * the actor off and has already handed the turn on by the time we see `next`.
  */
-export function afterGameWrite(admin: SupabaseClient, gameId: string, hasBots: boolean, next: GameState): void {
+export function afterGameWrite(
+  admin: SupabaseClient,
+  gameId: string,
+  hasBots: boolean,
+  next: GameState,
+  prev?: GameState | null,
+  opts: ClassifyOpts = {},
+): void {
   if (!hasBots) return;
   afterResponse(
     (async () => {
-      const { data } = await admin.from("game_bots").select("user_id").eq("game_id", gameId);
-      const botIds = new Set((data ?? []).map((r) => String(r.user_id)));
-      if (botIds.size === 0) return;
+      const seats = await loadBotSeats(admin, gameId);
+      if (seats.size === 0) return;
 
-      if (next.status === "finished") {
-        await admin.from("bot_identities").update({ in_use_game_id: null }).eq("in_use_game_id", gameId);
-        return;
-      }
-      if (next.status !== "active") return;
-
-      // A rematch re-deals the same room — re-mark the identities as in use
-      // (best-effort; purely advisory bookkeeping for the reuse pool).
-      if (next.lastAction?.type === "createGame") {
-        await admin
-          .from("bot_identities")
-          .update({ in_use_game_id: gameId })
-          .in("user_id", [...botIds])
-          .is("in_use_game_id", null);
-      }
-
-      const uid = next.players.find((p) => p.id === next.currentTurnPlayerId)?.userId;
-      if (!uid || !botIds.has(uid)) return;
-      await sleep(jitter(BOT_TURN_LEAD_MIN_MS, BOT_TURN_LEAD_MAX_MS));
-      await driveBotTurns(admin, gameId, botIds);
+      // Concurrent, not sequential: a reaction waits out its own beat, and the
+      // next bot's move must not queue behind it. Both are awaited together so
+      // this task — and the isolate waitUntil is keeping alive for it —
+      // outlives whichever of the two finishes last. Registering a second
+      // waitUntil from in here would be racing the runtime for that window.
+      await Promise.all([
+        maybeBotChat(admin, gameId, seats, prev ?? null, next, opts).catch(() => {}),
+        releaseAndDrive(admin, gameId, seats, next),
+      ]);
     })(),
   );
+}
+
+/** The identity bookkeeping and turn driving half of afterGameWrite. */
+async function releaseAndDrive(
+  admin: SupabaseClient,
+  gameId: string,
+  seats: BotSeats,
+  next: GameState,
+): Promise<void> {
+  const botIds = new Set(seats.keys());
+  if (next.status === "finished") {
+    await admin.from("bot_identities").update({ in_use_game_id: null }).eq("in_use_game_id", gameId);
+    return;
+  }
+  if (next.status !== "active") return;
+
+  // A rematch re-deals the same room — re-mark the identities as in use
+  // (best-effort; purely advisory bookkeeping for the reuse pool). The chat
+  // budget resets with it: a rematch reuses the same game_id, so without
+  // this the second game inherits a spent allowance and plays out silent.
+  if (next.lastAction?.type === "createGame") {
+    await admin
+      .from("bot_identities")
+      .update({ in_use_game_id: gameId })
+      .in("user_id", [...botIds])
+      .is("in_use_game_id", null);
+    await admin.from("game_bots").update({ chat_count: 0, last_chat_at: null }).eq("game_id", gameId);
+    for (const meta of seats.values()) {
+      meta.chatCount = 0;
+      meta.lastChatAtMs = null;
+    }
+  }
+
+  const uid = next.players.find((p) => p.id === next.currentTurnPlayerId)?.userId;
+  if (!uid || !botIds.has(uid)) return;
+  await sleep(jitter(BOT_TURN_LEAD_MIN_MS, BOT_TURN_LEAD_MAX_MS));
+  await driveBotTurns(admin, gameId, seats);
+}
+
+/**
+ * Decide whether a bot reacts to this write, and if so, send it.
+ *
+ * One speaker per moment, never a chorus: three bots independently rolling
+ * their own dice would make a four-handed table erupt every time anything
+ * happened. When a moment belongs to nobody in particular (a game start, two
+ * humans colliding) the speaker is drawn from the seats still holding budget.
+ *
+ * Failure is silence. Chat is decoration on top of a game that has to keep
+ * working, so every path here swallows rather than throws.
+ */
+async function maybeBotChat(
+  admin: SupabaseClient,
+  gameId: string,
+  seats: BotSeats,
+  prev: GameState | null,
+  next: GameState,
+  opts: ClassifyOpts,
+): Promise<void> {
+  const moment = classifyEvent(prev, next, new Set(seats.keys()), opts);
+  if (!moment) return;
+
+  const candidates = moment.speakerUserId
+    ? [moment.speakerUserId].filter((id) => seats.has(id))
+    : [...seats.keys()];
+  if (candidates.length === 0) return;
+  const speaker = candidates[Math.floor(cryptoRng() * candidates.length)]!;
+
+  const meta = seats.get(speaker)!;
+  const now = Date.now();
+  if (!shouldSpeak(personalityFor(speaker), moment.event, meta.chatCount, meta.lastChatAtMs, now, cryptoRng)) {
+    return;
+  }
+
+  // Spend the budget BEFORE the beat, not after. `seats` is a snapshot the
+  // caller holds for a whole driven chain, and this function sleeps in the
+  // middle — without reserving up front, every reaction in that chain would
+  // read the same stale count and the cap would mean nothing. Mutating the
+  // entry is what the map is for; the row write below is the durable copy.
+  const spent = { chatCount: meta.chatCount, lastChatAtMs: meta.lastChatAtMs };
+  meta.chatCount += 1;
+  meta.lastChatAtMs = now;
+
+  const { kind, value } = composeMessage(moment.event, cryptoRng);
+  await sleep(jitter(REACT_DELAY_MIN_MS, REACT_DELAY_MAX_MS));
+  if (!(await relayChat(gameId, speaker, kind, value))) {
+    // Nothing reached the room, so nothing was spent.
+    meta.chatCount = spent.chatCount;
+    meta.lastChatAtMs = spent.lastChatAtMs;
+    return;
+  }
+  await admin
+    .from("game_bots")
+    .update({ chat_count: meta.chatCount, last_chat_at: new Date(now).toISOString() })
+    .eq("game_id", gameId)
+    .eq("user_id", speaker);
 }
 
 /**
@@ -246,8 +428,31 @@ export function afterGameWrite(admin: SupabaseClient, gameId: string, hasBots: b
  * Racing drivers stay harmless because the CAS is what actually decides. A lost
  * write drops `cur` and the next iteration re-reads the winner's row, which is
  * the old behaviour on exactly the path that needs it.
+ *
+ * These writes bypass afterGameWrite, so the chat hook is called here too —
+ * without it a bot could never react to its OWN capture or win, which is most
+ * of what there is to react to.
  */
-async function driveBotTurns(admin: SupabaseClient, gameId: string, botIds: Set<string>): Promise<void> {
+async function driveBotTurns(admin: SupabaseClient, gameId: string, seats: BotSeats): Promise<void> {
+  // A reaction sleeps out its own beat, so it must not be awaited inside the
+  // loop — that would pace the bot's moves to the speed of its chat. They are
+  // collected instead and settled before this task ends, which is what keeps
+  // the isolate alive long enough for the last one to send.
+  const reactions: Promise<unknown>[] = [];
+  try {
+    await driveLoop(admin, gameId, seats, reactions);
+  } finally {
+    await Promise.allSettled(reactions);
+  }
+}
+
+async function driveLoop(
+  admin: SupabaseClient,
+  gameId: string,
+  seats: BotSeats,
+  reactions: Promise<unknown>[],
+): Promise<void> {
+  const botIds = new Set(seats.keys());
   let cur: GameState | null = null;
   let v = 0;
 
@@ -274,7 +479,11 @@ async function driveBotTurns(admin: SupabaseClient, gameId: string, botIds: Set<
     // a choice and plays a forced move straight away.
     let choices = 0;
     if (cur.phase === "awaiting-roll") {
-      const roll = rollDice(cur, cryptoRng);
+      // Derived like every other roll (see turn.ts rollRng). A hidden bot's seat
+      // is never one a client may call prepareRoll for, so nothing is revealed
+      // here — this is uniformity, so there is exactly one way a die is made.
+      const die = await deriveDie(gameId, v, pid);
+      const roll = rollDice(cur, die === null ? cryptoRng : rngForDie(die));
       next = roll.newState;
       logged = { action: "bot-roll", dice: roll.diceValue };
     } else {
@@ -292,7 +501,15 @@ async function driveBotTurns(admin: SupabaseClient, gameId: string, botIds: Set<
 
     const nextUid = next.players.find((p) => p.id === next.currentTurnPlayerId)?.userId;
     const nextIsBot = !!nextUid && botIds.has(nextUid);
-    const deadlineSecs = nextIsBot ? BOT_TURN_SECONDS : TURN_SECONDS;
+    // Handing back to a human the server already knows is away gets the short
+    // clock, so the room doesn't sit through a full 30 seconds of an empty seat
+    // before a client's timeout call plays it. Only asked at the end of a bot's
+    // run, never between its own steps.
+    const deadlineSecs = nextIsBot
+      ? BOT_TURN_SECONDS
+      : nextUid && next.status === "active" && (await isAwaySeat(admin, gameId, nextUid))
+        ? AWAY_TURN_SECONDS
+        : TURN_SECONDS;
     const { data: updated, error } = await admin
       .from("games")
       .update({
@@ -310,6 +527,8 @@ async function driveBotTurns(admin: SupabaseClient, gameId: string, botIds: Set<
 
     if (updated) {
       afterResponse(admin.from("moves").insert({ game_id: gameId, player_id: pid, action: logged }));
+      // Our own write, so `cur` is exactly the state it moved on from.
+      reactions.push(maybeBotChat(admin, gameId, seats, cur, next, {}).catch(() => {}));
       if (next.status !== "active") {
         await settleIfFinished(admin, gameId, next);
         recordFinishStats(admin, gameId, next);

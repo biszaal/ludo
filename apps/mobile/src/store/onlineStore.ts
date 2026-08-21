@@ -11,6 +11,7 @@ import {
   applyMove,
   endTurn,
   getValidMoves,
+  rollDice,
   type GameState,
   type Move,
 } from "@ludo/engine";
@@ -21,6 +22,7 @@ import { pushProfile } from "../net/profileSync";
 import { acceptChatPayload, applyChatEvent, CHAT_MAX_LEN, type ChatEvent } from "../lib/chat";
 import { stateAnimationMs } from "../lib/moveTiming";
 import { BUST_HOLD_MS, bustedRollDice, colorOf, isBustHandoff, project } from "../lib/projection";
+import { isOverdue, readProposal, type Proposal, type RematchVote } from "../lib/rematch";
 import { useNav } from "./navStore";
 import { useProfile } from "./profileStore";
 import { useWallet } from "./walletStore";
@@ -85,6 +87,10 @@ interface OnlineStore {
   turnStartedAt: number | null;
   /** Bumps each time the turn clock resets — re-keys the countdown animation. */
   turnSeq: number;
+  /** How long the current turn's clock actually runs. Normally TURN_SECONDS,
+   *  but the server shortens it for a seat it already knows is away, and the
+   *  countdown has to sweep over the real one or it lies about the wait. */
+  turnSeconds: number;
   /** A busted third six is being shown on the roller's own die; the seat has
    *  not changed hands yet and no input should be accepted. */
   bustHold: boolean;
@@ -108,8 +114,18 @@ interface OnlineStore {
   pass: () => Promise<void>;
   /** Tap-your-avatar reclaim: switch autopilot off and restart the idle clock. */
   takeControl: () => void;
-  /** Host-only: reset the finished game for everyone (guests follow via realtime). */
-  rematch: () => Promise<void>;
+  /** The standing rematch proposal, read off the lobby rows; null when none is
+   *  running. Everyone still seated answers it, and the accepters (two or more)
+   *  are dealt a fresh board. */
+  rematchProposal: Proposal | null;
+  /** Why the last proposal produced no game ("Nobody else wanted a rematch"),
+   *  shown under the results buttons until someone proposes again. */
+  rematchNotice: string | null;
+  /** Open a rematch proposal, or accept the one already standing. */
+  proposeRematch: () => Promise<void>;
+  /** Answer the standing proposal. Declining doesn't sink it — the others can
+   *  still play without you. */
+  answerRematch: (accept: boolean) => Promise<void>;
   leave: () => void;
   resync: () => Promise<void>;
   /** Flag own presence when the app backgrounds/foregrounds (best-effort). */
@@ -129,6 +145,8 @@ const INITIAL = {
   starting: false,
   isQuick: false,
   quickSize: 2,
+  rematchProposal: null as Proposal | null,
+  rematchNotice: null as string | null,
   stake: 0,
   lobby: [] as api.LobbyPlayer[],
   profiles: {} as Record<string, api.Profile>,
@@ -143,6 +161,7 @@ const INITIAL = {
   latestBubbles: {} as Record<string, { value: string; kind: ChatEvent["kind"]; seq: number }>,
   turnStartedAt: null,
   turnSeq: 0,
+  turnSeconds: TURN_SECONDS,
   bustHold: false,
   autoPilot: false,
 };
@@ -257,25 +276,93 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
 
   roll: async () => {
     clearAuto();
-    const { state, gameId, myPlayerId, rollSeq } = get();
+    const { state, gameId, myPlayerId, rollSeq, bustHold } = get();
     if (
       !state ||
       !gameId ||
+      state.status !== "active" ||
       state.phase !== "awaiting-roll" ||
       state.currentTurnPlayerId !== myPlayerId ||
+      bustHold ||
       rollInFlight
     )
       return;
-    // The number is server-generated, but the animation needn't wait for it:
-    // start the tumble on the tap with lastRoll cleared — a null value tells
-    // the die to hold airborne until the response lands the real one (a stale
-    // lastRoll here would hand it a wrong face to settle on). rollBumped stops
-    // the arriving state from re-triggering the tumble.
     rollInFlight = true;
-    rollBumped = true;
-    set({ rollSeq: rollSeq + 1, lastRoll: null });
+
+    // FAST PATH: the server already told us this roll's number (prefetched as
+    // the turn arrived, or sent back with the action that earned this roll), so
+    // the die tumbles once and lands on it — the offline animation exactly,
+    // however slow the link is.
+    //
+    // The version does the work: it proves the die was derived for the board
+    // we are looking at, and versions only ever move forward, so a die whose
+    // moment has passed can never look current again.
+    //
+    // `!pending` and consuming the cache on read are belt to that brace. An
+    // optimistic roll does not advance lastAppliedV, so inside a prediction
+    // window the version alone would still read as current — no route there is
+    // reachable today (a roll always leaves the phase awaiting a MOVE, and the
+    // move that follows carries its own prediction), but the cost of being
+    // wrong about that is a die showing a number the server never rolled, and
+    // the cost of the guards is two comparisons.
+    const prepared =
+      rollCache && rollCache.gameId === gameId && rollCache.v === lastAppliedV && !pending
+        ? rollCache
+        : null;
+    rollCache = null;
+
+    let predicted: GameState | null = null;
+    if (prepared) {
+      try {
+        predicted = rollDice(state, () => (prepared.dice - 0.5) / 6).newState;
+      } catch {
+        predicted = null; // engine refused it — fall back to the slow path
+      }
+    }
+
+    if (prepared && predicted) {
+      // No rollBumped here, and that is deliberate. It is a ONE-SHOT flag,
+      // spent by the next rolled state that gets applied — and this path never
+      // applies one: the state that confirms this prediction is dropped as
+      // already-on-screen, and a state that contradicts it MUST re-tumble.
+      // Setting it would leave it lying around for the next rolled state that
+      // does get applied, which is the player AFTER us: their number would
+      // land on a die that never rolled.
+      set({ rollSeq: rollSeq + 1, lastRoll: prepared.dice });
+      // Same mechanism the optimistic move and pass use: show it now, let the
+      // server's write confirm it. `rolled` is false because this apply is not
+      // what brought the number in — the tap was, and it has already bumped
+      // rollSeq. Saying otherwise would spend rollBumped here, on the one
+      // state that must not re-tumble, instead of leaving it for whichever
+      // authoritative state actually lands.
+      pending = { baseV: lastAppliedV, predicted };
+      applyState(predicted, false);
+    } else {
+      // SLOW PATH (no prepared die — old server, no DICE_SECRET, or the
+      // prefetch didn't make it). Here the server's answer IS applied when it
+      // lands, so the flag is needed to stop it starting a second tumble over
+      // the one this tap already began — and applying it spends the flag.
+      //
+      // Start the tumble anyway with lastRoll
+      // cleared. A null value makes the die run another lap rather than settle,
+      // so it can never be seen stopping on a face the server has not
+      // confirmed, and a stale lastRoll here would hand it exactly that. See
+      // the Dice.tsx header.
+      rollBumped = true;
+      set({ rollSeq: rollSeq + 1, lastRoll: null });
+    }
+
+    // One id for this tap, reused by every retry of it — see api.turnCall.
+    const actionId = api.newActionId();
     try {
-      const res = await enqueueSend(() => api.rollAction(gameId));
+      const res = await enqueueSend(() => api.rollAction(gameId, actionId));
+      // A retry that caught up with its own earlier attempt: the roll landed,
+      // so leave the die tumbling for the state that is already on its way
+      // rather than settling it on a row that may predate the write.
+      if (res.duplicate) {
+        slowResync(gameId);
+        return;
+      }
       applyTurnResult(res, true);
       const next = res.state;
       if (
@@ -323,9 +410,13 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
     const predicted = applyMove(state, { tokenId });
     pending = { baseV: lastAppliedV, predicted };
     applyState(predicted, false);
+    const actionId = api.newActionId();
     try {
-      const res = await enqueueSend(() => api.moveAction(gameId, tokenId));
-      applyTurnResult(res, false);
+      const res = await enqueueSend(() => api.moveAction(gameId, tokenId, actionId));
+      // Already applied — keep the pawn where the player put it and let the
+      // authoritative state confirm it. Applying this row could snap it back.
+      if (res.duplicate) slowResync(gameId);
+      else applyTurnResult(res, false);
     } catch (e) {
       onActionFailed(e, gameId);
     }
@@ -346,23 +437,28 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
     const predicted = endTurn(state);
     pending = { baseV: lastAppliedV, predicted };
     applyState(predicted, false);
+    const actionId = api.newActionId();
     try {
-      const res = await enqueueSend(() => api.passAction(gameId));
-      applyTurnResult(res, false);
+      const res = await enqueueSend(() => api.passAction(gameId, actionId));
+      if (res.duplicate) slowResync(gameId);
+      else applyTurnResult(res, false);
     } catch (e) {
       onActionFailed(e, gameId);
     }
   },
 
-  rematch: async () => {
-    const { gameId, isHost, state } = get();
-    if (!gameId || !isHost || state?.status !== "finished") return;
-    try {
-      const res = await api.rematchAction(gameId);
-      applyTurnResult(res, false);
-    } catch (e) {
-      set({ error: errorText(e) });
-    }
+  proposeRematch: async () => {
+    // Clearing the notice on the way out, not on the answer: the tap is the
+    // moment the player stops being told about the last proposal, and waiting
+    // for the round trip leaves "nobody wanted a rematch" under a button they
+    // have just pressed.
+    set({ rematchNotice: null });
+    await castRematchVote("yes");
+  },
+
+  answerRematch: async (accept) => {
+    set({ rematchNotice: null });
+    await castRematchVote(accept ? "yes" : "no");
   },
 
   takeControl: () => {
@@ -379,6 +475,7 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
     clearResync();
     clearLobbyTimer();
     clearQuickFill();
+    clearRematchTimer();
     resetSyncState();
     const { gameId } = get();
     if (channel) {
@@ -481,6 +578,25 @@ let rollInFlight = false;
 /** The tap already bumped rollSeq — swallow the arriving state's bump. */
 let rollBumped = false;
 
+/**
+ * The die the server has already committed to for our next roll.
+ *
+ * This is what makes an online roll land in one lap: with the number in hand at
+ * the tap, the die animates exactly as it does offline instead of tumbling
+ * until the network answers. It arrives either from a prefetch fired as the
+ * turn reaches us, or piggybacked on the response to the action that earned us
+ * another roll.
+ *
+ * `v` pins it to one board position. An optimistic roll does NOT advance
+ * lastAppliedV, so "is this still current?" cannot be answered by the version
+ * alone mid-chain — see roll() for the second half of that guard.
+ */
+let rollCache: { gameId: string; v: number; dice: number } | null = null;
+
+/** Discriminates prefetch responses: a slow one landing after a newer request
+ *  (or after the turn moved on) must not install itself over the current cache. */
+let prepareSeq = 0;
+
 function recordApplied(v: number | null | undefined): void {
   if (v != null && v > lastAppliedV) lastAppliedV = v;
 }
@@ -502,6 +618,108 @@ function enqueueSend<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 /**
+ * Ask the server for the die our next roll will produce.
+ *
+ * Fired when the turn ARRIVES rather than when the die is tapped, so the round
+ * trip happens during the previous player's animation and the tap has the
+ * number already. Best effort throughout: no retry, failures are null, and
+ * everything downstream still works without it.
+ *
+ * Only ever primed from an AUTHORITATIVE version. Priming while a prediction is
+ * outstanding would read a row the roll's own write has not reached yet and
+ * cache a die for a version we have already moved past — the same stale number
+ * twice. Chained rolls don't need it anyway: their die rides back on the
+ * response that earned them (see nextRoll).
+ */
+function primeRoll(): void {
+  const { state, gameId, myPlayerId } = useOnlineStore.getState();
+  if (!gameId || !state || pending || rollInFlight) return;
+  if (state.status !== "active" || state.phase !== "awaiting-roll") return;
+  if (state.currentTurnPlayerId !== myPlayerId) return;
+  const v = lastAppliedV;
+  if (v < 0) return;
+  if (rollCache && rollCache.gameId === gameId && rollCache.v === v) return; // already holding it
+  const seq = ++prepareSeq;
+  // Wrapped, not just awaited: this runs from the middle of applying an
+  // authoritative state, and a prefetch is an optimisation. Nothing about it
+  // — including a transport that throws on the way out — may be allowed to
+  // take down the state path it is riding on.
+  void Promise.resolve()
+    .then(() => api.prepareRoll(gameId))
+    .then((prepared) => {
+    // Anything that moved on while this was in flight invalidates it: a newer
+    // request, a different game, or a board that has advanced past the version
+    // the die was derived for.
+      if (!prepared || seq !== prepareSeq) return;
+      if (useOnlineStore.getState().gameId !== gameId) return;
+      if (prepared.v !== lastAppliedV) return;
+      rollCache = { gameId, v: prepared.v, dice: prepared.dice };
+      adoptPreparedRoll();
+    })
+    .catch(() => {});
+}
+
+/**
+ * A prefetch that arrived too late for the tap, but not too late for the die.
+ *
+ * The opening roll of a game is the one most likely to be tapped before its
+ * prefetch lands — the board has only just been dealt and the request is
+ * queued behind everything else the screen starts up. That roll then takes the
+ * slow path, and the die tumbles on a null value until the round trip answers.
+ * Past ~360ms it can no longer land on the lap it is running, so it runs a
+ * whole second one, which reads as the die rolling twice.
+ *
+ * But the prefetch was sent BEFORE the tap, so its answer very often beats the
+ * roll's. And it is the same number: both derive from the same game, seat and
+ * state_version, and the roll in flight was sent against that same version. So
+ * the moment it lands we can do what the tap could not — give the die its
+ * number and predict the state — and the roll already on the wire becomes the
+ * confirmation for it.
+ *
+ * Guarded to the exact situation it describes: our own roll in flight, nothing
+ * else predicted, no number on the die yet, and a board that has not moved.
+ */
+function adoptPreparedRoll(): void {
+  if (!rollInFlight || pending || !rollCache) return;
+  const st = useOnlineStore.getState();
+  if (st.lastRoll !== null || st.bustHold) return; // the die already has a number
+  if (!st.state || !st.gameId || st.gameId !== rollCache.gameId) return;
+  if (rollCache.v !== lastAppliedV) return;
+  if (st.state.status !== "active" || st.state.phase !== "awaiting-roll") return;
+  if (st.state.currentTurnPlayerId !== st.myPlayerId) return;
+
+  const dice = rollCache.dice;
+  rollCache = null;
+  let predicted: GameState;
+  try {
+    predicted = rollDice(st.state, () => (dice - 0.5) / 6).newState;
+  } catch {
+    return; // engine refused it — leave the slow path alone
+  }
+  // Fast-path semantics from here: the confirming state is no longer applied,
+  // so there is no bump left to swallow, and a contradicting one must tumble.
+  rollBumped = false;
+  pending = { baseV: lastAppliedV, predicted };
+  useOnlineStore.setState({ lastRoll: dice });
+  applyState(predicted, false);
+}
+
+/**
+ * A prediction we had on screen turned out to be wrong, and the authoritative
+ * state is about to replace it.
+ *
+ * If that prediction was a ROLL, its number is sitting on a die that has
+ * already stopped, and the correcting state carries a different one. Painting
+ * it straight on is the die changing its mind — the exact thing Dice.tsx loops
+ * its tumble to avoid. Clearing rollBumped lets applyStateNow bump rollSeq, so
+ * the corrected number arrives the way every number does: on a roll.
+ */
+function unwindPrediction(): void {
+  pending = null;
+  rollBumped = false;
+}
+
+/**
  * Apply a turn op's HTTP response, reconciling any optimistic prediction.
  * The realtime echo may have arrived first — versions decide, not timing.
  */
@@ -512,17 +730,39 @@ function applyTurnResult(res: api.TurnResult, rolled: boolean): void {
   if (pending) {
     const confirmed =
       (v == null || v === pending.baseV + 1) && statesEqual(state, pending.predicted);
-    pending = null;
-    recordApplied(v);
-    if (confirmed) return; // already on screen from the optimistic apply
+    if (confirmed) {
+      pending = null;
+      recordApplied(v);
+      cacheNextRoll(res);
+      primeRoll();
+      return; // already on screen from the optimistic apply
+    }
     // The server disagreed, or another write (stall bot) won the race and our
     // own write bounced off the version guard — snap to the server's truth.
+    unwindPrediction();
+    recordApplied(v);
     applyState(state, rolled);
+    cacheNextRoll(res);
     return;
   }
 
   recordApplied(v);
   applyState(state, rolled);
+  cacheNextRoll(res);
+}
+
+/**
+ * Keep the die the server sent back for a roll this action just earned us.
+ *
+ * Cached only once the response's own version is the applied one, so a stale
+ * or superseded answer can't leave a die behind for a board that has moved.
+ */
+function cacheNextRoll(res: api.TurnResult): void {
+  const { gameId } = useOnlineStore.getState();
+  if (!res.nextRoll || !gameId || res.duplicate) return;
+  if (res.nextRoll.v !== lastAppliedV) return;
+  prepareSeq++; // outrank any prefetch still in flight for the previous version
+  rollCache = { gameId, v: res.nextRoll.v, dice: res.nextRoll.dice };
 }
 
 /**
@@ -558,6 +798,8 @@ function resetSyncState(): void {
   pending = null;
   rollInFlight = false;
   rollBumped = false;
+  rollCache = null;
+  prepareSeq++;
   sendChain = Promise.resolve();
 }
 
@@ -577,11 +819,20 @@ function clearTimeoutTimer(): void {
  * the deadline with per-client jitter so racers don't all pile on; the server
  * re-checks the clock and has the bot play the stalled turn. Any fresh state
  * reschedules this, so only a genuinely stalled turn ever fires.
+ *
+ * `deadlineAt` is the server's own clock for this turn, carried on the games
+ * row. This used to assume every turn ran the full TURN_SECONDS, which was true
+ * until the server started handing a short clock to a seat it already knows is
+ * away — with the assumption baked in here, that shorter deadline was invisible
+ * to every device in the room and the table still waited out the whole 30
+ * seconds. Absent (a local action's response carries no row), the full clock
+ * remains the right guess.
  */
-function scheduleTimeout(active: boolean): void {
+function scheduleTimeout(active: boolean, deadlineAt: number | null = null): void {
   clearTimeoutTimer();
   if (!active) return;
-  const delay = TURN_SECONDS * 1000 + TIMEOUT_GRACE_MS + Math.random() * 2000;
+  const remaining = deadlineAt != null ? Math.max(0, deadlineAt - Date.now()) : TURN_SECONDS * 1000;
+  const delay = remaining + TIMEOUT_GRACE_MS + Math.random() * 2000;
   timeoutTimer = setTimeout(() => void requestTimeout(), delay);
 }
 
@@ -613,6 +864,7 @@ async function requestTimeout(): Promise<void> {
 function subscribe(gameId: string): void {
   if (channel) api.unsubscribe(channel);
   clearRowQueue();
+  clearRematchTimer();
   resetSyncState();
   channel = api.subscribeGame(gameId, {
     onGame: enqueueGameRow,
@@ -632,7 +884,7 @@ function subscribe(gameId: string): void {
 // directly (the actor wants instant feedback); their realtime echoes dedupe here.
 
 /** The slice of a games row the sync path actually consumes. */
-type GameSnapshot = Pick<api.GameRow, "state" | "status" | "state_version" | "stake">;
+type GameSnapshot = Pick<api.GameRow, "state" | "status" | "state_version" | "stake" | "turn_deadline">;
 
 /** Small buffer after each animation before the next state lands. */
 const ROW_HOLD_PAD_MS = 80;
@@ -681,7 +933,7 @@ function drainRowQueue(): void {
     // A write we didn't predict landed at or past our slot (stall bot won the
     // race; our own write bounced off the version guard). Snap to it and keep
     // draining — anything queued behind is newer still.
-    pending = null;
+    unwindPrediction();
   }
 
   applyGameRow(row);
@@ -717,6 +969,16 @@ function armAutoPilot(active: boolean): void {
     pilotTimer = setTimeout(autoPilotStep, PILOT_DELAY);
   } else {
     pilotTimer = setTimeout(() => {
+      // An action of our own still on the wire is the opposite of an idle
+      // player: they acted, and a slow link is retrying it for them. Handing
+      // the seat to the bot here takes the turn away mid-flight and drops
+      // canAct, which is the very "my roll got cancelled" this whole path
+      // exists to stop. Wait it out instead — a landing write re-arms this
+      // timer, and the retries give up well inside one more idle clock.
+      if (rollInFlight || pending) {
+        armAutoPilot(true);
+        return;
+      }
       useOnlineStore.setState({ autoPilot: true });
       autoPilotStep();
     }, TURN_SECONDS * 1000);
@@ -808,6 +1070,7 @@ async function doRefreshLobby(): Promise<void> {
     const lobby = await api.getLobby(gameId);
     useOnlineStore.setState({ lobby });
     void fetchProfiles(lobby);
+    readRematchVotes(gameId, lobby);
     if (
       isHost &&
       status === "lobby" &&
@@ -841,6 +1104,107 @@ async function fetchProfiles(lobby: api.LobbyPlayer[]): Promise<void> {
   }
 }
 
+// --- Rematch proposal ---------------------------------------------------------
+// The vote rides the players table (0043), so it arrives here the same way a
+// seat change does: a realtime event on that table, coalesced into one refetch,
+// which lands in readRematchVotes below. Nothing subscribes separately and no
+// vote is held in memory — the rows ARE the proposal (lib/rematch.ts).
+
+/** Fire the close call a moment after the window ends, with per-client jitter
+ *  so four devices watching the same clock don't all ask at once. */
+const REMATCH_CLOSE_GRACE_MS = 2000;
+const REMATCH_CLOSE_JITTER_MS = 1500;
+let rematchCloseTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearRematchTimer(): void {
+  if (rematchCloseTimer) clearTimeout(rematchCloseTimer);
+  rematchCloseTimer = null;
+}
+
+/**
+ * Adopt the proposal the freshly-read rows describe.
+ *
+ * Also the only place that can tell a proposal DIDN'T pass. Nothing announces
+ * that: the server clears the votes and writes no new state, so from here it
+ * looks like votes that were there a moment ago and now aren't, with the game
+ * still finished. Which is exactly the condition to say so on screen — without
+ * it the results overlay would silently drop back to a Rematch button and the
+ * player who accepted would be left wondering whether their tap registered.
+ */
+function readRematchVotes(gameId: string, lobby: api.LobbyPlayer[]): void {
+  const st = useOnlineStore.getState();
+  if (st.gameId !== gameId) return;
+  const had = st.rematchProposal;
+  const proposal = readProposal(lobby);
+
+  // Votes cleared while the game is still over: the proposal resolved into
+  // nothing. (Had it passed, the game would be active and this screen gone.)
+  const cancelled = !!had && !proposal && st.state?.status === "finished";
+  useOnlineStore.setState({
+    rematchProposal: proposal,
+    rematchNotice: cancelled ? "Not enough players wanted a rematch." : proposal ? null : st.rematchNotice,
+  });
+
+  clearRematchTimer();
+  if (isOverdue(lobby)) {
+    // The window already ran out before these rows reached us (a client that
+    // was backgrounded, or a proposal nobody's clock was watching). Settle it
+    // now rather than waiting for a deadline that has already passed.
+    void closeRematch(gameId);
+    return;
+  }
+  if (!proposal) return;
+
+  const wait = proposal.endsAt - Date.now() + REMATCH_CLOSE_GRACE_MS + Math.random() * REMATCH_CLOSE_JITTER_MS;
+  rematchCloseTimer = setTimeout(() => {
+    rematchCloseTimer = null;
+    void closeRematch(gameId);
+  }, Math.max(0, wait));
+}
+
+/**
+ * Ask the server to settle a proposal whose clock has run out.
+ *
+ * Best effort by design: this is a race every device in the room enters, and
+ * losing it is the normal outcome — the winner's write comes back to everyone
+ * over realtime. A failure isn't worth an error dialog on a results screen; the
+ * next lobby event re-arms this anyway.
+ */
+async function closeRematch(gameId: string): Promise<void> {
+  const st = useOnlineStore.getState();
+  if (st.gameId !== gameId || st.state?.status !== "finished") return;
+  try {
+    applyTurnResult(await api.rematchClose(gameId), false);
+  } catch {
+    // Somebody else will have got there, or the next refresh will retry.
+  }
+}
+
+/**
+ * Send my own answer.
+ *
+ * The response is applied for the one case where it carries something — this
+ * vote being the one that completed the tally, so the server dealt the rematch
+ * and answered with the new board. Every other time it echoes the finished game
+ * at its current version and applyTurnResult drops it as stale, which is
+ * correct: my vote's visible effect is a players-row write, and it comes back
+ * to this device through the lobby subscription like everyone else's.
+ */
+async function castRematchVote(vote: RematchVote): Promise<void> {
+  const { gameId, state } = useOnlineStore.getState();
+  if (!gameId || state?.status !== "finished") return;
+  try {
+    applyTurnResult(await api.rematchVote(gameId, vote), false);
+  } catch (e) {
+    useOnlineStore.setState({ error: errorText(e) });
+    return;
+  }
+  // Don't wait on the realtime echo to show my own tick: the round trip has
+  // already confirmed the write, and a button that stays un-answered for a
+  // beat is a button people press twice.
+  refreshLobby();
+}
+
 /** Publish my own profile BEFORE reading the table's, so the very first fetch
  *  of a fresh account can actually see my row instead of racing past it. */
 async function syncThenFetchProfiles(synced: Promise<void>, lobby: api.LobbyPlayer[]): Promise<void> {
@@ -872,7 +1236,7 @@ function clearBustHold(): void {
  * turn with nothing to look at. Paint the roller's own six first, then the
  * truth — everyone at the table sees the same beat.
  */
-function applyState(state: GameState, rolled: boolean): void {
+function applyState(state: GameState, rolled: boolean, deadlineAt: number | null = null): void {
   const st = useOnlineStore.getState();
   const prev = st.state;
   const busted = prev ? bustedRollDice(state) : null;
@@ -892,20 +1256,58 @@ function applyState(state: GameState, rolled: boolean): void {
       bustTimer = null;
       // The room may have moved on (resync, leave) during the hold.
       if (useOnlineStore.getState().state?.gameId !== state.gameId) return;
-      applyStateNow(state, false);
+      applyStateNow(state, false, deadlineAt);
     }, BUST_HOLD_MS);
     return;
   }
   clearBustHold(); // any newer authoritative state wins over a pending hold
-  applyStateNow(state, rolled);
+  applyStateNow(state, rolled, deadlineAt);
 }
 
-function applyStateNow(state: GameState, rolled: boolean): void {
+/**
+ * Did the room deal a new game without this seat?
+ *
+ * Only a rematch can do this. The accepters are dealt onto the same game id and
+ * everyone who declined — or never answered — is left behind, so the very next
+ * authoritative state simply has no chair for them.
+ *
+ * Applying it would put this device on a live board it has no player in: no
+ * seat to act with, somebody else's turn forever, and a results screen that
+ * vanished without explanation. Checked on the auth user id as well as the
+ * player handle, for the same reason OnlineGameScreen's isMe is — the handle is
+ * per-game and can drift, the user id cannot.
+ */
+function seatIsGone(state: GameState, myPlayerId: string | null, userId: string | null): boolean {
+  if (state.status !== "active" || !myPlayerId) return false;
+  return !state.players.some((p) => p.id === myPlayerId || (!!userId && p.userId === userId));
+}
+
+function applyStateNow(state: GameState, rolled: boolean, deadlineAt: number | null): void {
   const st = useOnlineStore.getState();
+  // The room played on without us. Hold the finished game we're looking at —
+  // its result is still the last thing that happened to this player — and say
+  // why nothing more is coming. Home is the only way on from here, and it is
+  // already on screen.
+  if (seatIsGone(state, st.myPlayerId, st.userId)) {
+    clearRematchTimer();
+    useOnlineStore.setState({
+      rematchProposal: null,
+      rematchNotice: "The rematch started without you.",
+    });
+    return;
+  }
   const prev = st.state;
   const proj = project(state, st.myPlayerId);
   const active = proj.status === "active";
   if (active) clearQuickFill(); // matched — no bot fill needed
+  // A board is on: whatever the last rematch proposal did or didn't do is
+  // finished business. Left standing, a "nobody wanted a rematch" from two
+  // games ago would reappear under the buttons the next time this room's
+  // results came up.
+  if (active && (st.rematchProposal || st.rematchNotice)) {
+    clearRematchTimer();
+    useOnlineStore.setState({ rematchProposal: null, rematchNotice: null });
+  }
   // Game over: the server just settled any pot — pull the fresh balance
   // (and its floor top-up) so the results and home screens show it.
   if (proj.status === "finished" && st.status !== "finished") void useWallet.getState().refresh();
@@ -939,8 +1341,9 @@ function applyStateNow(state: GameState, rolled: boolean): void {
     rollSeq: st.rollSeq + (bump ? 1 : 0),
     turnStartedAt: !active ? null : clockReset ? Date.now() : st.turnStartedAt,
     turnSeq: active && clockReset ? st.turnSeq + 1 : st.turnSeq,
+    turnSeconds: clockReset ? clockSeconds(deadlineAt) : st.turnSeconds,
   });
-  scheduleTimeout(active);
+  scheduleTimeout(active, deadlineAt);
   armAutoPilot(active);
   // Enter the game screen; replace a lobby entry so back never returns to a
   // dead lobby. A 2-player quick table can be dealt outright from the Home
@@ -949,6 +1352,10 @@ function applyStateNow(state: GameState, rolled: boolean): void {
   const top = nav.stack[nav.stack.length - 1]!.name;
   if (top === "lobby") nav.replace("onlineGame");
   else if (top !== "onlineGame") nav.push("onlineGame");
+
+  // The turn may have just reached us. Fetch the die now, while the board is
+  // still animating this state, so the tap that follows has nothing to wait for.
+  primeRoll();
 }
 
 function applyGameRow(row: GameSnapshot): void {
@@ -970,7 +1377,13 @@ function applyGameRow(row: GameSnapshot): void {
     busted ||
     (row.state.diceValue != null &&
       (st.state?.phase !== "awaiting-move" || prevDice !== row.state.diceValue));
-  applyState(row.state, rolled);
+  applyState(row.state, rolled, row.turn_deadline ? Date.parse(row.turn_deadline) : null);
+}
+
+/** The countdown length to draw for a turn, from the server's deadline. */
+function clockSeconds(deadlineAt: number | null): number {
+  if (deadlineAt == null) return TURN_SECONDS;
+  return Math.max(1, Math.min(TURN_SECONDS, Math.round((deadlineAt - Date.now()) / 1000)));
 }
 
 // Coalesced, single-flight resync. Errors and reconnects tend to arrive in
@@ -1053,8 +1466,12 @@ async function runResync(gameId: string): Promise<void> {
       void fetchProfiles(lobby);
     }
     const row = await api.fetchGame(gameId);
-    // The fetch is the freshest truth — anything queued or predicted is older.
+    // The fetch is the freshest truth — anything queued, predicted or prepared
+    // is older. A prepared die especially: it was derived for a version this
+    // fetch may well have moved past.
     pending = null;
+    rollCache = null;
+    prepareSeq++;
     clearRowQueue();
     applyGameRow(row);
     resyncBackoffMs = 0;

@@ -24,12 +24,48 @@ export interface GameRow {
   state_version: number | null;
   /** Coins each seat put in (0 = friendly game). Winner takes stake × seats. */
   stake?: number | null;
+  /** When the current turn's clock runs out, server-side. Usually TURN_SECONDS
+   *  out, but short for a seat the server already knows is away — clients read
+   *  it rather than assuming, so a shortened clock is honoured everywhere. */
+  turn_deadline?: string | null;
 }
 
 /** An authoritative state plus its version, as returned by every turn op. */
 export interface TurnResult {
   state: GameState;
   v: number | null;
+  /**
+   * The server had already applied this action id — this is a retry catching up
+   * with its own earlier attempt.
+   *
+   * The state here is authoritative but may be a beat STALE: a retry can
+   * overlap the attempt it is replacing, so the row read to answer it can
+   * predate the winner's write by milliseconds. Callers must not apply it over
+   * a prediction; the real state is already on its way over realtime.
+   */
+  duplicate?: boolean;
+  /**
+   * This action left the same player owing another roll (a six, a capture or a
+   * finish bonus), and here is the die that roll will produce.
+   *
+   * Carried on the response so a chained roll needs no prefetch of its own —
+   * it is the one roll with no gap in front of it to prefetch during. Absent
+   * from older servers and whenever the turn changed hands.
+   */
+  nextRoll?: PreparedRoll;
+}
+
+/**
+ * A die the server has committed to, for a roll that has not happened yet.
+ *
+ * `v` is the `state_version` the roll must be made at. It is the whole safety
+ * check: the number is only this roll's number while the board is still exactly
+ * where it was when the server derived it, so a holder that no longer matches
+ * the applied version has to be thrown away, not rolled.
+ */
+export interface PreparedRoll {
+  v: number;
+  dice: number;
 }
 
 export interface LobbyPlayer {
@@ -42,6 +78,11 @@ export interface LobbyPlayer {
   /** A bot the host asked for when filling a friend room (0035). Always false
    *  for quick match — those fill-ins are deliberately indistinguishable. */
   is_bot: boolean;
+  /** This seat's answer to the standing rematch proposal (0043); null until
+   *  they answer. The earliest `rematch_voted_at` in the room is the proposal
+   *  itself — see lib/rematch.ts. */
+  rematch_vote?: "yes" | "no" | null;
+  rematch_voted_at?: string | null;
 }
 
 export interface Membership {
@@ -108,11 +149,15 @@ function unanswered(error: { name?: string }): boolean {
 }
 
 /** Invoke the `game` Edge Function and surface its `{ error }` payload as a throw. */
-async function callGame<T>(op: string, payload: Record<string, unknown> = {}): Promise<T> {
+async function callGame<T>(
+  op: string,
+  payload: Record<string, unknown> = {},
+  timeoutMs = CALL_TIMEOUT_MS,
+): Promise<T> {
   const supabase = getSupabase();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new TimeoutError()), CALL_TIMEOUT_MS);
+    timer = setTimeout(() => reject(new TimeoutError()), timeoutMs);
   });
   const { data, error } = await Promise.race([
     supabase.functions.invoke("game", { body: { op, ...payload } }),
@@ -159,9 +204,78 @@ interface RoomResult {
   stake?: number;
 }
 
-async function turnCall(op: string, payload: Record<string, unknown>): Promise<TurnResult> {
-  const res = await callGame<{ state: GameState; v?: number | null }>(op, payload);
-  return { state: res.state, v: res.v ?? null };
+/**
+ * Budget for ONE attempt at a turn op, and how many attempts a tap gets.
+ *
+ * Shorter than CALL_TIMEOUT_MS on purpose. A single 20s wait was the only thing
+ * a dropped roll could do — 20 seconds of a 30-second turn spent on a request
+ * that was never going to be answered, and then a resync that snapped the board
+ * back and asked the player to roll again. Re-firing at 6s recovers a dropped
+ * packet in seconds instead of never, and four attempts still land inside the
+ * turn clock with room to spare.
+ *
+ * Re-firing is only safe because the server dedupes on the action id: a slow
+ * link that answers at 8s gets its first attempt abandoned and its second one
+ * deduped to the same result, never to a second roll.
+ *
+ * Do not shorten the first attempt to "recover a dropped packet sooner". That
+ * was tried, at 2s, and it is the mistake CALL_TIMEOUT_MS above already
+ * describes: a congested link routinely takes longer than that to answer, so
+ * every op became a phantom failure and re-fired up to four times — through
+ * enqueueSend, which serialises them. The link that most needed help got a
+ * retry storm on top of the congestion. Slow-link recovery has to come from
+ * somewhere other than a tighter deadline.
+ */
+const TURN_TIMEOUT_MS = 6000;
+const TURN_TRIES = 4;
+const TURN_RETRY_PAUSE_MS = 300;
+
+/** Distinct enough to be unique inside one game, short enough for the server's
+ *  64-char cap and the unique index behind it. */
+let actionCounter = 0;
+export function newActionId(): string {
+  const rand = Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10);
+  return `${Date.now().toString(36)}-${(actionCounter++).toString(36)}-${rand}`;
+}
+
+/**
+ * Send a turn op, re-firing it until the server actually answers.
+ *
+ * Only an UNANSWERED attempt is retried. A verdict — "Not your turn", "Illegal
+ * move" — is the server speaking, and asking again cannot change its mind, so
+ * it throws on the first attempt exactly as it always did.
+ *
+ * Every attempt carries the same `actionId`, which is what makes this safe:
+ * an attempt that was travelling all along still lands, and the server applies
+ * whichever arrives first and answers the rest with `duplicate`.
+ */
+async function turnCall(
+  op: string,
+  payload: Record<string, unknown>,
+  actionId?: string,
+): Promise<TurnResult> {
+  const body = actionId ? { ...payload, actionId } : payload;
+  const timeoutMs = actionId ? TURN_TIMEOUT_MS : CALL_TIMEOUT_MS;
+  const tries = actionId ? TURN_TRIES : 1;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const res = await callGame<{
+        state: GameState;
+        v?: number | null;
+        duplicate?: boolean;
+        nextRoll?: PreparedRoll;
+      }>(op, body, timeoutMs);
+      return {
+        state: res.state,
+        v: res.v ?? null,
+        duplicate: res.duplicate === true,
+        ...(res.nextRoll ? { nextRoll: res.nextRoll } : {}),
+      };
+    } catch (e) {
+      if (attempt >= tries || !isTimeout(e)) throw e;
+      await new Promise((resolve) => setTimeout(resolve, TURN_RETRY_PAUSE_MS));
+    }
+  }
 }
 
 export interface QuickMatchResult {
@@ -360,16 +474,57 @@ export async function startGame(gameId: string, fill = false): Promise<TurnResul
   return turnCall("start", { gameId, fill });
 }
 
-export async function rollAction(gameId: string): Promise<TurnResult> {
-  return turnCall("roll", { gameId });
+// The three player-driven turn ops. Each takes the caller's `actionId` for the
+// tap behind it — mint one per tap, never per attempt (see turnCall).
+
+export async function rollAction(gameId: string, actionId?: string): Promise<TurnResult> {
+  return turnCall("roll", { gameId }, actionId);
 }
 
-export async function moveAction(gameId: string, tokenId: string): Promise<TurnResult> {
-  return turnCall("move", { gameId, tokenId });
+export async function moveAction(gameId: string, tokenId: string, actionId?: string): Promise<TurnResult> {
+  return turnCall("move", { gameId, tokenId }, actionId);
 }
 
-export async function passAction(gameId: string): Promise<TurnResult> {
-  return turnCall("pass", { gameId });
+/**
+ * Budget for the dice prefetch. Short, and tried exactly once.
+ *
+ * Nothing waits on this call: it runs during the previous player's animation to
+ * make the NEXT tap instant, and if it doesn't arrive in time the tap simply
+ * takes the path it always took. So a slow answer is worth less than no answer
+ * — retrying it would only queue work behind a link that is already struggling,
+ * on behalf of an optimisation.
+ */
+const PREPARE_TIMEOUT_MS = 4000;
+
+/**
+ * Ask for the die our next roll will produce, so the tumble has something to
+ * land on the moment it starts.
+ *
+ * Deliberately NOT a turnCall: no action id, no retries, and it must never join
+ * the store's send chain — that chain waits on the previous turn op's
+ * settlement, which can be four attempts and 25 seconds, and putting a
+ * best-effort read in front of a real roll would make the die slower, not
+ * faster.
+ *
+ * Every failure is null, including a server too old to know the op. The caller
+ * treats null and "not available" identically: roll the slow way.
+ */
+export async function prepareRoll(gameId: string): Promise<PreparedRoll | null> {
+  try {
+    const res = await callGame<{ available?: boolean; v?: number; dice?: number }>(
+      "prepareRoll",
+      { gameId },
+      PREPARE_TIMEOUT_MS,
+    );
+    if (!res?.available || typeof res.v !== "number" || typeof res.dice !== "number") return null;
+    return { v: res.v, dice: res.dice };
+  } catch {
+    return null;
+  }
+}
+
+export async function passAction(gameId: string, actionId?: string): Promise<TurnResult> {
+  return turnCall("pass", { gameId }, actionId);
 }
 
 /** Skip the current turn once its server deadline has passed (any participant). */
@@ -378,8 +533,23 @@ export async function timeoutAction(gameId: string): Promise<TurnResult> {
 }
 
 /** Host-only: reset a finished game to a fresh one with the same players. */
-export async function rematchAction(gameId: string): Promise<TurnResult> {
-  return turnCall("rematch", { gameId });
+/**
+ * Answer the standing rematch proposal, opening one if there isn't any.
+ *
+ * The reply carries a state only when this vote was the one that settled it —
+ * otherwise it echoes the finished game at its current version, which
+ * applyTurnResult discards as an echo. The vote's visible effect arrives the
+ * other way: it is a players-row write, so every device in the room (this one
+ * included) sees it through the lobby subscription.
+ */
+export async function rematchVote(gameId: string, vote: "yes" | "no"): Promise<TurnResult> {
+  return turnCall("rematch", { gameId, vote });
+}
+
+/** Ask the server to settle a proposal whose clock has run out. Any participant
+ *  may call it; the server re-checks the deadline against its own clock. */
+export async function rematchClose(gameId: string): Promise<TurnResult> {
+  return turnCall("rematchClose", { gameId });
 }
 
 /** Quit the room for good: active game → tokens removed and turns skipped;
@@ -421,14 +591,23 @@ export interface MyProfile {
  * see, and the only safe thing to compare a draft against when deciding whether
  * a name is "changed" at all.
  *
- * Null when signed out or offline; callers treat that as "unknown" and stay
- * permissive rather than locking the field on a failed read.
+ * Null when there is no row yet, or when offline/sign-in failed; callers treat
+ * that as "unknown" — never as "no name" — and stay permissive rather than
+ * locking the field on a failed read.
  */
 export async function getMyProfile(): Promise<MyProfile | null> {
   const supabase = getSupabase();
-  const { data: sessionData } = await supabase.auth.getSession();
-  const userId = sessionData.session?.user.id;
-  if (!userId) return null;
+  // Wait for the session instead of reading whatever getSession() holds this
+  // instant: at launch the restore is still in flight, so an immediate read
+  // returns null — which callers read as "the server has no name for you", not
+  // as "ask again later". That is what made an untouched name field look like
+  // an edit on the Account screen.
+  let userId: string;
+  try {
+    userId = await ensureSignedIn();
+  } catch {
+    return null;
+  }
   const { data, error } = await supabase
     .from("profiles")
     .select("display_name, name_changed_at")
@@ -541,6 +720,21 @@ export async function inviteToRoomOp(toUserId: string, roomCode: string, stake =
   await callGame<{ ok: true }>("roomInvite", { toUserId, roomCode, stake });
 }
 
+/**
+ * Mark this session online, and let the server decide whether any friend
+ * should be told about it.
+ *
+ * Only the FIRST heartbeat of a session goes through here — the rest are the
+ * plain table upsert in net/friends.ts. The server has to see the presence row
+ * as it was BEFORE this session freshened it to know whether the player was
+ * genuinely away, and it owns the notification budgets, which is not somewhere
+ * a client can be trusted to enforce them.
+ */
+export async function announceOnlineOp(): Promise<void> {
+  await ensureSignedIn();
+  await callGame<{ ok: true }>("presenceOnline");
+}
+
 /** Send a friend request through the edge function, which enforces blocks and
  *  rate limits with readable errors and handles the hidden-bot case. */
 export async function requestFriend(toUserId: string): Promise<void> {
@@ -595,7 +789,8 @@ export class RowGoneError extends Error {
 
 /** Retry an idempotent read a couple of times with backoff — flaky mobile
  *  networks drop individual requests far more often than they go fully dark.
- *  Never used for turn ops: replaying a lost roll could double-act a turn.
+ *  Reads only; turn ops retry through turnCall, which carries an action id so
+ *  the server can tell a replay from a second roll.
  *
  *  A {@link RowGoneError} is rethrown immediately: it is an answer, and asking
  *  again three times only multiplies the requests behind a decision that has
@@ -618,7 +813,7 @@ export async function getLobby(gameId: string): Promise<LobbyPlayer[]> {
   return withRetry(async () => {
     const { data, error } = await supabase
       .from("players")
-      .select("id, user_id, color, seat, is_host, is_connected, is_bot")
+      .select("id, user_id, color, seat, is_host, is_connected, is_bot, rematch_vote, rematch_voted_at")
       .eq("game_id", gameId)
       .order("seat", { ascending: true });
     if (error) throw new Error(`Could not load players: ${error.message}`);
@@ -645,7 +840,7 @@ export async function fetchGame(gameId: string): Promise<GameRow> {
   return withRetry(async () => {
     const { data, error } = await supabase
       .from("games")
-      .select("id, room_code, host_user_id, status, state, current_turn_player_id, state_version, stake")
+      .select("id, room_code, host_user_id, status, state, current_turn_player_id, state_version, stake, turn_deadline")
       .eq("id", gameId)
       .limit(1);
     if (error) throw new Error(`Could not load game: ${error.message}`);

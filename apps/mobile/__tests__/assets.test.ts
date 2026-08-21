@@ -25,13 +25,47 @@ describe("generated assets", () => {
     }
   });
 
+  it("gives every reaction emoji a sound the sound layer actually defines", () => {
+    // resolveEmoji()'s consumers fall back to "pop" on a miss, so a typo'd or
+    // stale sound name degrades silently to a UI click instead of failing —
+    // exactly how thumbs/gg went unnoticed while borrowing pop/finish.
+    const declared = new Set(
+      [...readFileSync(join(SRC, "lib/sound.ts"), "utf8").matchAll(/^\s{2}(\w+): \{ source:/gm)].map(
+        (m) => m[1]!,
+      ),
+    );
+    expect(declared.size).toBeGreaterThanOrEqual(19);
+
+    const used = [
+      ...readFileSync(join(SRC, "lib/emoji.ts"), "utf8").matchAll(/sound: "(\w+)"/g),
+    ].map((m) => m[1]!);
+    expect(used.length).toBeGreaterThanOrEqual(8);
+
+    for (const name of used) {
+      expect(declared.has(name), `emoji.ts uses sound "${name}", absent from sound.ts SPECS`).toBe(
+        true,
+      );
+    }
+  });
+
+  it("keeps each reaction voice distinct, so none borrows a UI sound", () => {
+    const source = readFileSync(join(SRC, "lib/emoji.ts"), "utf8");
+    const sounds = [...source.matchAll(/sound: "(\w+)"/g)].map((m) => m[1]!);
+    expect(new Set(sounds).size, "two emoji share one sound").toBe(sounds.length);
+    for (const generic of ["pop", "finish", "ding", "tap", "msg"]) {
+      expect(sounds, `a reaction is reusing the generic "${generic}" UI sound`).not.toContain(
+        generic,
+      );
+    }
+  });
+
   it("has every wav referenced by the sound layer", () => {
     const paths = requiredAssets("lib/sound.ts");
     expect(paths.length).toBeGreaterThanOrEqual(17);
     for (const p of paths) {
       expect(
         existsSync(join(__dirname, "..", p)),
-        `missing ${p} — run scripts/gen-sfx.mjs / gen-reaction-sfx.mjs`,
+        `missing ${p} — run scripts/gen-sfx.mjs / process-reaction-sfx.mjs`,
       ).toBe(true);
     }
   });

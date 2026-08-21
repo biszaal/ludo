@@ -35,13 +35,53 @@
 import {
   applyMove,
   getValidMoves,
+  toRelativeIndex,
   type GameState,
   type Move,
 } from "@ludo/engine";
-import { evaluateFor } from "./evaluate.js";
+import { evaluateFor, tokenProgressValue } from "./evaluate.js";
 
 /** The six faces, weighted uniformly. Materialised once. */
 const DICE_FACES = [1, 2, 3, 4, 5, 6] as const;
+
+/**
+ * Extra weight on actually taking a token, over and above what the resulting
+ * position is worth — a fraction of the progress the victim loses.
+ *
+ * This is a deliberate tilt, not a correction. The search already prices a
+ * capture correctly: the victim shows up in the leaf position sitting in their
+ * yard, and the bonus roll is followed rather than assumed. But "correctly" and
+ * "the way this game is played" are not the same thing. Expectimax discounts a
+ * kill by how cheaply the victim walks back out, and the honest answer is often
+ * "quite cheaply" — which produces a bot that quietly declines contact and
+ * races, and reads to a human opponent as a bot that isn't paying attention to
+ * them. Ludo is a game people play at each other.
+ *
+ * Scaled by the victim's progress so it discriminates: sending a fresh token
+ * back to the yard costs them almost nothing and this barely moves, while
+ * knocking a runner off the doorstep of its home column is worth reaching for
+ * and worth some risk. It is well under the ~40 points the evaluator already
+ * pays for the same capture, so it tips close calls without ever outweighing a
+ * win, a finish, or escaping a bigger loss of our own.
+ *
+ * Applies to OUR candidate moves only. Inside the search, opponents are still
+ * modelled by static evaluation alone, so we credit them with the positional
+ * value of a capture but not this appetite for one — a conservative asymmetry:
+ * we never talk ourselves into a trade by assuming they will take the bait.
+ */
+const CAPTURE_APPETITE = 0.3;
+
+/** The tilt for one candidate move: what its captures cost their owners. */
+function captureAppetite(state: GameState, move: Move): number {
+  if (move.captures.length === 0) return 0;
+  let lost = 0;
+  for (const id of move.captures) {
+    const victim = state.tokens.find((t) => t.id === id);
+    if (!victim) continue;
+    lost += tokenProgressValue(toRelativeIndex(victim.color, victim.position));
+  }
+  return CAPTURE_APPETITE * lost;
+}
 
 export interface ScoredMove {
   move: Move;
@@ -132,7 +172,11 @@ export function scoreMoves(
   const out: ScoredMove[] = [];
   for (const move of moves) {
     const after = applyMove(state, { tokenId: move.tokenId });
-    out.push({ move, after, score: valueOf(after, playerId, risk, depth) });
+    out.push({
+      move,
+      after,
+      score: valueOf(after, playerId, risk, depth) + captureAppetite(state, move),
+    });
   }
   return out;
 }

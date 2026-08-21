@@ -12,6 +12,7 @@ import {
 import { JetBrainsMono_500Medium } from "@expo-google-fonts/jetbrains-mono";
 import { ScreenStack } from "./src/components/ScreenStack";
 import { InviteBanner } from "./src/components/InviteBanner";
+import { ConfirmDialog } from "./src/components/ConfirmDialog";
 import { LoadingScreen } from "./src/components/LoadingScreen";
 import { ErrorBoundary } from "./src/components/ErrorBoundary";
 import { useOnlineStore } from "./src/store/onlineStore";
@@ -20,6 +21,7 @@ import { initSound, setMusicActive } from "./src/lib/sound";
 import { initFeedback } from "./src/lib/feedback";
 import { initDeepLinks } from "./src/lib/invite";
 import { initPush } from "./src/lib/push";
+import { initBonusReminder } from "./src/lib/bonusReminder";
 import { initFriends, initPresence } from "./src/store/friendsStore";
 import { useConfig } from "./src/store/configStore";
 import { useAds } from "./src/store/adsStore";
@@ -89,6 +91,9 @@ export default function App() {
     // Listener only — registration (and the OS permission prompt) is deferred
     // to the screens where push is obviously worth something. See lib/push.ts.
     const stopPush = initPush();
+    // Watches the wallet and keeps the local "daily bonus ready" reminder
+    // pointed at the next unclaimed one.
+    const stopBonusReminder = initBonusReminder();
     return () => {
       stopFeedback();
       stopProfileSync();
@@ -96,6 +101,7 @@ export default function App() {
       stopFriends();
       stopPresence();
       stopPush();
+      stopBonusReminder();
     };
   }, []);
 
@@ -134,6 +140,9 @@ export default function App() {
         <ErrorBoundary onReset={recoverFromCrash}>
           <ScreenStack />
           <InviteBanner />
+          {/* Above everything, including the banner: it is asked about an
+              action the player just tried to take. */}
+          <ConfirmDialog />
         </ErrorBoundary>
       )}
       {!launched && <LoadingScreen done={ready} onHidden={onLaunched} />}

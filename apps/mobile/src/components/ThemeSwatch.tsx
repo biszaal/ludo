@@ -1,6 +1,10 @@
 /**
- * A selectable board-skin tile: live BoardSurface thumbnail + a dice chip in
- * the theme's face/pip colors + label. Selection ring is Porcelain (neutral).
+ * A selectable board-skin tile: live BoardSurface thumbnail + a dice chip +
+ * label. Selection ring is Porcelain (neutral).
+ *
+ * The chip is the DEFAULT die, not `theme.dice`. A die belongs to its owner
+ * rather than to the table it lands on (see DEFAULT_DIE), so tinting the chip
+ * per theme promised a board-colored die that the game never draws.
  */
 
 import { Pressable, Text, View } from "react-native";
@@ -8,6 +12,7 @@ import { Canvas } from "@shopify/react-native-skia";
 import { BoardSurface } from "./Board";
 import { PriceTag, type PriceCurrency } from "./PriceTag";
 import type { BoardTheme } from "../render/boardThemes";
+import { DEFAULT_DIE } from "../render/diceSkins";
 import { font, palette, radius, space } from "../theme";
 
 // Fits the ~72px cell that a 4-up ("22%") grid yields on a 375pt screen —
@@ -74,14 +79,14 @@ export function ThemeSwatch({ theme, selected, price = 0, currency = "coins", lo
             width: 14,
             height: 14,
             borderRadius: 4,
-            backgroundColor: theme.dice.face,
+            backgroundColor: DEFAULT_DIE.face,
             borderWidth: 1,
             borderColor: palette.hairline,
             alignItems: "center",
             justifyContent: "center",
           }}
         >
-          <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: theme.dice.pip }} />
+          <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: DEFAULT_DIE.pip }} />
         </View>
         <Text style={{ fontFamily: font.medium, fontSize: 13, color: selected ? palette.porcelain : palette.mutedSteel }}>
           {theme.label}

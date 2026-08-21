@@ -19,6 +19,27 @@ export const FULL_ORDER: Color[] = ["red", "green", "yellow", "blue"];
 /** How long a player has to act before any peer may skip their turn. */
 export const TURN_SECONDS = 30;
 
+/**
+ * The clock a seat gets once the server already knows nobody is behind it.
+ *
+ * A player who idled through a whole turn is presumed gone until they prove
+ * otherwise (an action, or their app coming back to the foreground, both of
+ * which clear `missed_turns`). Handing that seat another full 30 seconds every
+ * round is what made an abandoned table unplayable for everyone still there —
+ * the room spent more time watching a countdown than playing.
+ */
+export const AWAY_TURN_SECONDS = 6;
+
+/**
+ * How long a seat stays away before the server removes the player for good.
+ *
+ * Time, not turn count: away turns now resolve in seconds, so a strike counter
+ * alone would drop someone who put their phone down for a moment. This is the
+ * "they closed the app" threshold, and it has to stay comfortably longer than
+ * the round trip of backgrounding, reading a message and coming back.
+ */
+export const AWAY_KICK_SECONDS = 90;
+
 /** Quick-match default entry. */
 export const QUICK_STAKE = 100;
 
@@ -29,13 +50,60 @@ export const STAKE_TIERS = [100, 1000, 10000];
 export const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** A fresh deadline for an active turn, or null once the game is over. */
-export function turnDeadline(state: GameState): string | null {
-  return state.status === "active" ? new Date(Date.now() + TURN_SECONDS * 1000).toISOString() : null;
+export function turnDeadline(state: GameState, seconds = TURN_SECONDS): string | null {
+  return state.status === "active" ? new Date(Date.now() + seconds * 1000).toISOString() : null;
 }
 
-/** 2 players sit diagonally (red/yellow); otherwise clockwise. Mirrors the client. */
-export function seatColors(count: number): Color[] {
-  return count === 2 ? ["red", "yellow"] : FULL_ORDER.slice(0, count);
+/** Is this seat one the server has already seen idle through a whole clock?
+ *  `missed_turns` is the flag: every path that proves presence resets it. */
+export async function isAwaySeat(admin: SupabaseClient, gameId: string, userId: string): Promise<boolean> {
+  const { data } = await admin
+    .from("players")
+    .select("missed_turns")
+    .eq("game_id", gameId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  return ((data?.missed_turns as number | null) ?? 0) > 0;
+}
+
+/** The user this state hands the turn to, or null once the game is over. */
+export function turnHolder(state: GameState): string | null {
+  if (state.status !== "active") return null;
+  return state.players.find((p) => p.id === state.currentTurnPlayerId)?.userId ?? null;
+}
+
+/**
+ * Where each seat sits, for a table of `count`.
+ *
+ * Two rules, and the game id decides between the rotations:
+ *
+ *   - Seats are consecutive on the board's clockwise cycle, so seat i and seat
+ *     i+2 always face each other across the diagonal and turn order runs the
+ *     way the board is drawn. A 2-player table takes the diagonal directly.
+ *   - Which color a seat draws is rotated by the game id rather than fixed, so
+ *     the host is not red in every game they ever open. The id is a v4 uuid, so
+ *     its last hex digit is uniform; deriving the offset from it instead of
+ *     storing one keeps the client able to predict the deal (the lobby previews
+ *     these exact colors) without a column or a round trip.
+ *
+ * Mirrors apps/mobile/src/lib/seating.ts — keep the two in step.
+ */
+export function colorOffset(gameId?: string): number {
+  if (!gameId) return 0;
+  const last = parseInt(gameId.replace(/[^0-9a-f]/gi, "").slice(-1), 16);
+  return Number.isFinite(last) ? last % FULL_ORDER.length : 0;
+}
+
+/** The color for one seat, independent of how many end up seated. Used while a
+ *  room is still filling; the deal re-reads all of them through seatColors. */
+export function seatColor(seat: number, gameId?: string): Color {
+  return FULL_ORDER[(colorOffset(gameId) + seat) % FULL_ORDER.length]!;
+}
+
+export function seatColors(count: number, gameId?: string): Color[] {
+  const from = colorOffset(gameId);
+  const rotated = FULL_ORDER.map((_, i) => FULL_ORDER[(from + i) % FULL_ORDER.length]!);
+  return count === 2 ? [rotated[0]!, rotated[2]!] : rotated.slice(0, count);
 }
 
 export function genCode(): string {
@@ -46,7 +114,7 @@ export function genCode(): string {
 }
 
 /** Postgres unique_violation. */
-const UNIQUE_VIOLATION = "23505";
+export const UNIQUE_VIOLATION = "23505";
 
 /** Fresh codes to try before giving up on a room. */
 const CODE_ATTEMPTS = 5;
@@ -91,6 +159,103 @@ export const cryptoRng: Rng = () => {
   crypto.getRandomValues(buf);
   return buf[0]! / 4294967296;
 };
+
+/**
+ * The die a given roll will produce, derived rather than drawn.
+ *
+ * Online, the value used to come straight from `cryptoRng`, which meant the
+ * client had nothing to land its tumble on until the round trip came back — on
+ * a slow link, a die that rolls and rolls. Deriving it from a keyed hash of the
+ * roll's own coordinates lets the server hand a player their number BEFORE they
+ * tap (see opPrepareRoll), so the animation never waits on the network.
+ *
+ * The coordinates are `gameId:state_version:playerId`. `state_version` is the
+ * load-bearing one: every roll advances it, so every roll hashes something new,
+ * and nothing a client can do moves it during its own awaiting-roll turn — so
+ * there is no way to re-draw a roll you don't like. The seat is in there too,
+ * so one player's derivation says nothing about another's.
+ *
+ * Unguessable rests entirely on DICE_SECRET. Without it this is a published
+ * function of public inputs, which is why there is no in-repo fallback key.
+ */
+const DICE_INFO = "ludo-die-v1";
+
+/**
+ * Cached per secret rather than once per isolate.
+ *
+ * The import is the expensive part and it still happens once, but keying the
+ * cache on the secret itself means the unset case stays a live question rather
+ * than a verdict frozen at first call — which is what lets a test cover the
+ * no-key path in-process instead of taking the answer on trust.
+ */
+let diceKeyFor: { secret: string; key: Promise<CryptoKey | null> } | null = null;
+let warnedNoSecret = false;
+
+function diceKey(): Promise<CryptoKey | null> {
+  const secret = Deno.env.get("DICE_SECRET");
+  if (!secret) {
+    // Not fatal: rolls fall back to cryptoRng and clients take the slow path
+    // (tumble until the answer arrives), exactly as they did before. Loud once,
+    // because the fast path is silently off until someone sets this.
+    if (!warnedNoSecret) {
+      warnedNoSecret = true;
+      console.error("[dice] DICE_SECRET is unset — dice prefetch disabled, rolls fall back to cryptoRng");
+    }
+    return Promise.resolve(null);
+  }
+  if (diceKeyFor?.secret === secret) return diceKeyFor.key;
+  const key = crypto.subtle
+    .importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"])
+    .catch((e) => {
+      console.error("[dice] key import failed", e instanceof Error ? e.message : e);
+      return null;
+    });
+  diceKeyFor = { secret, key };
+  return key;
+}
+
+/**
+ * Fold a digest down to a die face.
+ *
+ * DIE_BYTES wide, and the width is the whole point. 256 is not a multiple of
+ * 6, so reducing a SINGLE byte hands faces 1-4 about a 1.6% relative excess —
+ * far too small to notice by eye or in any test of practical length, and far
+ * too large to be acceptable on rolls that settle coin stakes. Over 2^64 the
+ * same leftover is ~6/2^64.
+ *
+ * Separate from deriveDie so the width is directly testable: a reduction that
+ * quietly narrowed would stop depending on the later bytes, and that is a
+ * property a test can pin down in a way a distribution never could at this
+ * scale.
+ */
+const DIE_BYTES = 8;
+
+export function dieFromDigest(digest: Uint8Array): number {
+  let n = 0n;
+  for (let i = 0; i < DIE_BYTES; i++) n = (n << 8n) | BigInt(digest[i]!);
+  return Number(n % 6n) + 1;
+}
+
+/** The die for one roll, or null when there is no key to derive it with. */
+export async function deriveDie(gameId: string, v: number, playerId: string): Promise<number | null> {
+  const key = await diceKey();
+  if (!key) return null;
+  const msg = new TextEncoder().encode(`${DICE_INFO}:${gameId}:${v}:${playerId}`);
+  return dieFromDigest(new Uint8Array(await crypto.subtle.sign("HMAC", key, msg)));
+}
+
+/**
+ * An {@link Rng} that yields exactly `die` through the engine's
+ * `Math.floor(rng() * 6) + 1`.
+ *
+ * The midpoint of the bucket rather than its floor: `(die - 1) / 6` also
+ * round-trips today, but it sits exactly on the boundary, so it is one
+ * refactor of rollDie away from landing a value low. The middle has no such
+ * edge, and the engine is the only reader.
+ */
+export function rngForDie(die: number): Rng {
+  return () => (die - 0.5) / 6;
+}
 
 export function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {

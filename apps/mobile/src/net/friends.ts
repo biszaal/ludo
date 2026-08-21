@@ -13,7 +13,7 @@
 
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { getSupabase } from "../lib/supabase";
-import { ensureSignedIn, inviteToRoomOp } from "./api";
+import { announceOnlineOp, ensureSignedIn, inviteToRoomOp } from "./api";
 
 export interface Friendship {
   id: string;
@@ -124,6 +124,22 @@ export async function heartbeat(): Promise<void> {
   await supabase
     .from("user_presence")
     .upsert({ user_id: me, last_seen_at: new Date().toISOString(), status: "online" }, { onConflict: "user_id" });
+}
+
+/**
+ * The session's FIRST heartbeat, routed through the edge function so it can
+ * also notify friends that we're back (opPresenceOnline).
+ *
+ * Falls back to the plain heartbeat if that call fails. Presence is the part
+ * that has to work — a grey dot on a player who is sitting right there is a
+ * visible bug, whereas a missed "your friend is online" is nothing at all.
+ */
+export async function announceOnline(): Promise<void> {
+  try {
+    await announceOnlineOp();
+  } catch {
+    await heartbeat().catch(() => {});
+  }
 }
 
 /** Mark ourselves offline immediately (app backgrounded). The 90s TTL is only

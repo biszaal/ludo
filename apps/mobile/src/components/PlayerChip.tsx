@@ -25,6 +25,7 @@ import { Canvas, Path, Skia } from "@shopify/react-native-skia";
 import { TOKENS_PER_PLAYER, type GameState, type PlayerState } from "@ludo/engine";
 import { AvatarGlyph } from "./Avatar";
 import { depth, font, palette, radius, teamColor } from "../theme";
+import { CHIP_COLUMN } from "../lib/layout";
 
 const COLOR_LABEL: Record<PlayerState["color"], string> = {
   red: "Red",
@@ -92,7 +93,7 @@ export function PlayerChip({
       onPress={onPress ?? undefined}
       style={({ pressed }) => ({
         alignItems: "center",
-        width: 92,
+        width: CHIP_COLUMN,
         opacity: left ? 0.4 : offline ? 0.55 : 1,
         transform: [{ scale: pressed ? 0.93 : 1 }],
       })}

@@ -23,6 +23,7 @@ import { PresenceDot } from "../components/PresenceDot";
 import { useFriends } from "../store/friendsStore";
 import { useOnlineStore } from "../store/onlineStore";
 import { useNav } from "../store/navStore";
+import { confirm, type ConfirmRequest } from "../store/confirmStore";
 import { formatRecord, isOnline, relationshipTo } from "../lib/friendship";
 import { font, palette, space } from "../theme";
 
@@ -43,7 +44,6 @@ export function PlayerProfileScreen() {
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [confirmBlock, setConfirmBlock] = useState(false);
 
   const roomCode = useOnlineStore((s) => s.roomCode);
   const onlineStatus = useOnlineStore((s) => s.status);
@@ -74,6 +74,12 @@ export function PlayerProfileScreen() {
     } finally {
       setBusy(false);
     }
+  };
+
+  /** Ask first, then run. Every action on this screen is one a mis-tap should
+   *  not be able to complete — they all sever something. */
+  const confirmThen = async (request: ConfirmRequest, fn: () => Promise<void>) => {
+    if (await confirm(request)) await run(fn);
   };
 
   return (
@@ -123,13 +129,43 @@ export function PlayerProfileScreen() {
           {rel.kind === "outgoing" ? (
             <>
               <Button label="Request sent" disabled onPress={() => {}} />
-              <Button label="Cancel request" variant="ghost" disabled={busy} onPress={() => void run(async () => { await remove(rel.id); pop(); })} />
+              <Button
+                label="Cancel request"
+                variant="ghost"
+                disabled={busy}
+                onPress={() =>
+                  void confirmThen(
+                    {
+                      title: "Cancel this request?",
+                      message: `${name} won't see it. You can send it again any time.`,
+                      confirmLabel: "Cancel request",
+                      cancelLabel: "Keep it",
+                    },
+                    async () => { await remove(rel.id); pop(); },
+                  )
+                }
+              />
             </>
           ) : null}
           {rel.kind === "incoming" ? (
             <>
               <Button label="Accept request" disabled={busy} onPress={() => void run(() => accept(rel.id))} />
-              <Button label="Ignore" variant="ghost" disabled={busy} onPress={() => void run(async () => { await remove(rel.id); pop(); })} />
+              <Button
+                label="Ignore"
+                variant="ghost"
+                disabled={busy}
+                onPress={() =>
+                  void confirmThen(
+                    {
+                      title: `Ignore ${name}?`,
+                      message: "Their request disappears. They can send another one later.",
+                      confirmLabel: "Ignore",
+                      destructive: true,
+                    },
+                    async () => { await remove(rel.id); pop(); },
+                  )
+                }
+              />
             </>
           ) : null}
           {rel.kind === "friends" ? (
@@ -137,22 +173,47 @@ export function PlayerProfileScreen() {
               {canInvite ? (
                 <Button label="Invite to room" disabled={busy} onPress={() => void run(() => inviteToRoom(userId, roomCode!, stake))} />
               ) : null}
-              <Button label="Remove friend" variant="ghost" disabled={busy} onPress={() => void run(async () => { await remove(rel.id); pop(); })} />
+              <Button
+                label="Remove friend"
+                variant="ghost"
+                disabled={busy}
+                onPress={() =>
+                  void confirmThen(
+                    {
+                      title: `Remove ${name}?`,
+                      message:
+                        "You'll both drop off each other's friends list, and you'll need their friend code to add them back.",
+                      confirmLabel: "Remove",
+                      destructive: true,
+                    },
+                    async () => { await remove(rel.id); pop(); },
+                  )
+                }
+              />
             </>
           ) : null}
 
-          {/* Two-step, because blocking also severs the friendship server-side
-              (0015 cascade) and there is no undo in this screen. */}
-          {confirmBlock ? (
-            <Button
-              label="Tap again to block"
-              variant="ghost"
-              disabled={busy}
-              onPress={() => void run(async () => { await block(userId); pop(); })}
-            />
-          ) : (
-            <Button label="Block" variant="ghost" disabled={busy} onPress={() => setConfirmBlock(true)} />
-          )}
+          {/* Guarded, because blocking also severs the friendship server-side
+              (0015 cascade) and there is no undo in this screen. This used to
+              be a bespoke "tap again to block" button — the same question the
+              rest of the app now asks through one dialog. */}
+          <Button
+            label="Block"
+            variant="ghost"
+            disabled={busy}
+            onPress={() =>
+              void confirmThen(
+                {
+                  title: `Block ${name}?`,
+                  message:
+                    "They can't invite you, message you or send you a friend request. If you're friends, that ends too.",
+                  confirmLabel: "Block",
+                  destructive: true,
+                },
+                async () => { await block(userId); pop(); },
+              )
+            }
+          />
         </View>
 
         {error ? (

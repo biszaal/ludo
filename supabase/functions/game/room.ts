@@ -19,6 +19,8 @@ import {
   rateLimited,
   rateOk,
   safeError,
+  seatColor,
+  seatColors,
   serverConfig,
   STAKE_TIERS,
   turnDeadline,
@@ -68,9 +70,13 @@ export async function opCreate(admin: SupabaseClient, userId: string, rawStake: 
   );
   if ("error" in game) return json({ error: game.error });
 
+  // Not always red: the color a seat draws is rotated per game (lib.seatColor),
+  // so opening a room does not hand the host the same pawns every time. The
+  // deal re-reads every seat through seatColors, and the lobby previews the
+  // same rotation, so this and the dealt color agree.
   const { data: player, error: pErr } = await admin
     .from("players")
-    .insert({ game_id: game.id, user_id: userId, color: "red", seat: 0, is_host: true })
+    .insert({ game_id: game.id, user_id: userId, color: seatColor(0, game.id), seat: 0, is_host: true })
     .select("id")
     .single();
   if (pErr || !player) return safeError("room.seatHost", pErr, "Could not seat host.");
@@ -97,12 +103,46 @@ export async function opJoin(admin: SupabaseClient, userId: string, rawCode: str
   const seat = existing?.length ?? 0;
   const { data: player, error } = await admin
     .from("players")
-    .insert({ game_id: game.id, user_id: userId, color: FULL_ORDER[seat], seat })
+    .insert({ game_id: game.id, user_id: userId, color: seatColor(seat, String(game.id)), seat })
     .select("id")
     .single();
   if (error || !player) return json({ error: error?.message ?? "Could not join." });
 
   return json({ gameId: game.id, roomCode, playerId: player.id, stake });
+}
+
+/**
+ * Which chairs the bots take when the host fills a friend room — and, when it
+ * matters, moving a human out of the way first.
+ *
+ * Seats i and i+2 face each other across the board (lib.seatColors). Filling
+ * left to right therefore sat two friends side by side and put the two bots on
+ * the other pair of adjacent corners, so the humans never played across the
+ * diagonal from each other — the seating the game uses for every 2-player table
+ * precisely because it is the one that reads as "you two, facing off".
+ *
+ * So with exactly two humans the second one moves to seat 2 and the bots take 1
+ * and 3. Any other count has no diagonal to preserve (three humans always
+ * include an adjacent pair) and simply fills the remaining chairs in order.
+ *
+ * Returns the seats the bots should take.
+ */
+async function fillSeats(
+  admin: SupabaseClient,
+  seated: { id: string }[],
+  colors: readonly string[],
+): Promise<number[]> {
+  if (seated.length === 2) {
+    // The color moves with the seat: players carries unique (game_id, color),
+    // so leaving the guest holding seat 1's color would make the bot's insert
+    // into that chair collide and quietly leave the table a player short.
+    const { error } = await admin
+      .from("players")
+      .update({ seat: 2, color: colors[2] })
+      .eq("id", seated[1]!.id);
+    if (!error) return [1, 3];
+  }
+  return [0, 1, 2, 3].slice(seated.length);
 }
 
 /**
@@ -140,11 +180,12 @@ export async function opStart(
     if (((game.stake as number | null) ?? 0) > 0) {
       return json({ error: "Bots can only fill a friendly room. Coin games need real players." });
     }
-    const { data: seated } = await admin.from("players").select("id").eq("game_id", gameId);
+    const { data: seated } = await admin.from("players").select("id").eq("game_id", gameId).order("seat");
     const taken = seated?.length ?? 0;
     // A lone host filling up gets a full table; otherwise top up to four.
     if (taken < FULL_ORDER.length) {
-      await seatBots(admin, gameId, taken, FULL_ORDER.length, FULL_ORDER, true);
+      const colors = seatColors(FULL_ORDER.length, gameId);
+      await seatBots(admin, gameId, await fillSeats(admin, seated ?? [], colors), colors, true);
     }
   }
 
@@ -261,27 +302,98 @@ export async function opLeave(admin: SupabaseClient, userId: string, gameId: str
   afterResponse(admin.from("moves").insert({ game_id: gameId, player_id: me.id, action: { action: "leave" } }));
   await settleIfFinished(admin, gameId, next);
   recordFinishStats(admin, gameId, next);
-  afterGameWrite(admin, gameId, !!game.has_bots, next);
+  afterGameWrite(admin, gameId, !!game.has_bots, next, state);
   return json({ state: next, v: v + 1 });
 }
 
-/** Host-only: reset a finished game to a fresh state with the same seats/colors. */
-export async function opRematch(admin: SupabaseClient, userId: string, gameId: string): Promise<Response> {
-  const { data: game } = await admin
-    .from("games")
-    .select("id, host_user_id, status, state, state_version, has_bots")
-    .eq("id", gameId)
-    .single();
-  if (!game || !game.state) return json({ error: "Game not found." });
-  if (game.host_user_id !== userId) return json({ error: "Only the host can start a rematch." });
-  if (game.status !== "finished") return json({ error: "The game is still in progress." });
-  const v = (game.state_version as number | null) ?? 0;
+// --- Rematch -----------------------------------------------------------------
+// A rematch used to be the host's alone: they tapped, the finished game reset,
+// and everybody else found themselves on a fresh board without being asked. Now
+// it is a proposal. Anyone still seated can open one, everyone still seated
+// answers, and the new deal seats whoever said yes.
+//
+// The votes live on `players.rematch_vote` (0043) so they ride the realtime
+// path clients already listen to for that table, and so the games row — which
+// is the state-sync channel, matched on state_version — stays untouched until
+// there is an actual new state to send.
 
-  const prev = game.state as GameState;
-  // Players who left are gone for good — the rematch seats whoever stayed.
-  const stayed = prev.players.filter((p) => !p.hasLeft);
-  if (stayed.length < 2) return json({ error: "Not enough players left for a rematch." });
-  const players = stayed.map((p) => ({ id: p.id, userId: p.userId, color: p.color }));
+/** How long a proposal stands before it lapses. */
+const REMATCH_SECONDS = 30;
+/** Slack past the deadline before a client's close call is honoured, so devices
+ *  with a slightly fast clock can't retire a proposal early. */
+const REMATCH_GRACE_MS = 1500;
+/** Past this much slack, a lapsed proposal is swept rather than settled — see
+ *  opRematchClose. */
+const REMATCH_STALE_MS = 5 * 60 * 1000;
+
+/** The players-row shape the rematch path reads. */
+interface VoteRow {
+  user_id: string;
+  rematch_vote: "yes" | "no" | null;
+  rematch_voted_at: string | null;
+}
+
+/** Clear every vote in the room — a proposal has resolved, one way or another.
+ *  Nulling both columns together is what makes "no vote" unambiguous: a null
+ *  vote can only ever mean "hasn't answered the CURRENT proposal". */
+function clearVotes(admin: SupabaseClient, gameId: string): PromiseLike<unknown> {
+  return admin
+    .from("players")
+    .update({ rematch_vote: null, rematch_voted_at: null })
+    .eq("game_id", gameId)
+    .not("rematch_vote", "is", null);
+}
+
+/**
+ * When the most recent proposal was opened, live or not.
+ *
+ * Derived from the earliest vote rather than stored: the first vote IS the
+ * proposal, so there is no second fact to keep in step with it.
+ */
+function proposedAtMs(rows: VoteRow[]): number | null {
+  let earliest: number | null = null;
+  for (const r of rows) {
+    if (!r.rematch_vote || !r.rematch_voted_at) continue;
+    const at = Date.parse(r.rematch_voted_at);
+    if (!Number.isFinite(at)) continue;
+    if (earliest === null || at < earliest) earliest = at;
+  }
+  return earliest;
+}
+
+/** True while a proposal is still standing. Votes past the window are stale
+ *  rows nobody has cleaned up yet, not an open question — the next proposal
+ *  clears them before it opens. */
+function voteIsOpen(rows: VoteRow[]): boolean {
+  const at = proposedAtMs(rows);
+  return at !== null && Date.now() < at + REMATCH_SECONDS * 1000;
+}
+
+/**
+ * Deal the accepted seats into a fresh game on the same row.
+ *
+ * The seats keep their player ids and colors, so every client's own myPlayerId
+ * still points at their chair and the board doesn't reshuffle under them.
+ * Anyone who didn't accept is dropped from the room outright — their players
+ * row goes, the same way opLeave frees a seat — because they are not in the
+ * state that is about to be written and a row for a seat that doesn't exist is
+ * just a lie the lobby would keep repeating.
+ */
+async function startRematch(
+  admin: SupabaseClient,
+  gameId: string,
+  game: { state_version: number | null; has_bots: boolean | null },
+  prev: GameState,
+  accepted: Set<string>,
+): Promise<Response> {
+  const v = (game.state_version as number | null) ?? 0;
+  const seats = prev.players.filter((p) => !p.hasLeft && accepted.has(p.userId));
+  if (seats.length < 2) {
+    afterResponse(clearVotes(admin, gameId));
+    return json({ error: "Not enough players for a rematch." });
+  }
+
+  const players = seats.map((p) => ({ id: p.id, userId: p.userId, color: p.color }));
   const next = engineCreateGame(players, { gameId });
 
   const { data: updated, error } = await admin
@@ -294,13 +406,250 @@ export async function opRematch(admin: SupabaseClient, userId: string, gameId: s
     .eq("state_version", v)
     .select("id")
     .maybeSingle();
-  if (error) return safeError("room.write", error, WRITE_FAILED);
+  if (error) return safeError("room.rematch", error, WRITE_FAILED);
+  // Someone else's write won the race. Leave the votes alone: either their
+  // write was the same rematch (in which case they cleared them) or the game
+  // moved on and the next read will see the window lapsed.
   if (!updated) return await freshState(admin, gameId, prev);
 
-  afterResponse(admin.from("players").update({ missed_turns: 0 }).eq("game_id", gameId));
-  const me = prev.players.find((p) => p.userId === userId);
-  afterResponse(admin.from("moves").insert({ game_id: gameId, player_id: me?.id ?? null, action: { action: "rematch" } }));
-  afterGameWrite(admin, gameId, !!game.has_bots, next);
+  const seatedUsers = seats.map((p) => p.userId);
+  afterResponse(
+    admin
+      .from("players")
+      .update({ missed_turns: 0, is_connected: true, rematch_vote: null, rematch_voted_at: null })
+      .eq("game_id", gameId)
+      .in("user_id", seatedUsers),
+  );
+  // Everyone who didn't accept leaves with the old game.
+  afterResponse(admin.from("players").delete().eq("game_id", gameId).not("user_id", "in", `(${seatedUsers.join(",")})`));
+  afterResponse(admin.from("moves").insert({ game_id: gameId, player_id: null, action: { action: "rematch", seats: seats.length } }));
+  afterGameWrite(admin, gameId, !!game.has_bots, next, prev);
 
-  return json({ state: next, v: v + 1 });
+  return json({ state: next, v: v + 1, rematchStarted: true });
+}
+
+/**
+ * Decide what a proposal's current tally means, and act on it.
+ *
+ * Called after every vote and from the deadline sweep, so "all four answered"
+ * and "the clock ran out" resolve through identical code — the rule about what
+ * a proposal is worth belongs in one place, not two.
+ *
+ * `due` is true only when the window has actually expired; while it stands, an
+ * undecided seat is a seat still thinking, not a no.
+ */
+async function resolveRematch(
+  admin: SupabaseClient,
+  gameId: string,
+  game: { state_version: number | null; has_bots: boolean | null },
+  prev: GameState,
+  rows: VoteRow[],
+  due: boolean,
+): Promise<Response | null> {
+  // Counted over the SEATS, not over the rows: the game state decides who has
+  // a say, and a seat with no players row (or none we managed to read) is an
+  // unanswered question, not an absent one. Tallying rows instead would let a
+  // missing row close a proposal early on everyone else's behalf.
+  const voteOf = new Map(rows.map((r) => [r.user_id, r.rematch_vote]));
+  const eligible = prev.players.filter((p) => !p.hasLeft).map((p) => p.userId);
+  const yes = new Set(eligible.filter((u) => voteOf.get(u) === "yes"));
+  const undecided = eligible.filter((u) => voteOf.get(u) == null);
+
+  // Still someone to hear from, and time on the clock to hear from them. An
+  // undecided seat is never assumed: it is the one vote that could still turn
+  // a lone accepter into a game.
+  if (undecided.length > 0 && !due) return null;
+
+  if (yes.size >= 2) return await startRematch(admin, gameId, game, prev, yes);
+
+  // Nobody to play with. Clear the board of votes so the results screen goes
+  // back to offering a rematch rather than showing a proposal that can never
+  // pass.
+  afterResponse(clearVotes(admin, gameId));
+  return null;
+}
+
+/**
+ * Hidden seats answer a proposal too — a table that never rematches would out
+ * them as surely as one that always does.
+ *
+ * Deferred and jittered rather than written inline: a vote stamped the same
+ * millisecond as the proposal is not something a human hand produces, and
+ * `rematch_voted_at` is a column every client can read. The delay is why this
+ * re-resolves afterwards — the tally it lands on may be the one that closes
+ * the proposal.
+ *
+ * Reads `game_bots`, which is service-role only, so bot-ness never leaves the
+ * server (0009). Friend-room bots are flagged openly on the players row and are
+ * covered by the same read.
+ */
+function voteBotsSoon(admin: SupabaseClient, gameId: string): void {
+  afterResponse(
+    (async () => {
+      // game_bots holds every server-driven seat, hidden (quick match) and
+      // labelled (friend room) alike — seatBots writes a row for both.
+      const { data: bots } = await admin.from("game_bots").select("user_id").eq("game_id", gameId);
+      const ids = [...new Set((bots ?? []).map((r) => String(r.user_id)))];
+      if (ids.length === 0) return;
+
+      await new Promise((r) => setTimeout(r, 1200 + Math.random() * 2600));
+
+      // Only if the proposal is still the one we were asked about: a bot must
+      // not vote into a window that has since lapsed or been replaced.
+      const { data: game } = await admin
+        .from("games")
+        .select("id, status, state, state_version, has_bots")
+        .eq("id", gameId)
+        .maybeSingle();
+      if (!game?.state || game.status !== "finished") return;
+      const { data: rows } = await admin
+        .from("players")
+        .select("user_id, rematch_vote, rematch_voted_at")
+        .eq("game_id", gameId);
+      if (!voteIsOpen((rows ?? []) as VoteRow[])) return;
+
+      await admin
+        .from("players")
+        .update({ rematch_vote: "yes", rematch_voted_at: new Date().toISOString() })
+        .eq("game_id", gameId)
+        .in("user_id", ids)
+        .is("rematch_vote", null);
+
+      const { data: after } = await admin
+        .from("players")
+        .select("user_id, rematch_vote, rematch_voted_at")
+        .eq("game_id", gameId);
+      await resolveRematch(
+        admin,
+        gameId,
+        game as { state_version: number | null; has_bots: boolean | null },
+        game.state as GameState,
+        (after ?? []) as VoteRow[],
+        false,
+      );
+    })(),
+  );
+}
+
+/** The finished game plus its votes, or a refusal. Shared by vote and close. */
+async function loadRematch(
+  admin: SupabaseClient,
+  userId: string,
+  gameId: string,
+): Promise<
+  | { error: Response }
+  | {
+      game: { state_version: number | null; has_bots: boolean | null };
+      prev: GameState;
+      rows: VoteRow[];
+    }
+> {
+  const { data: game } = await admin
+    .from("games")
+    .select("id, status, state, state_version, has_bots")
+    .eq("id", gameId)
+    .maybeSingle();
+  if (!game || !game.state) return { error: json({ error: "Game not found." }) };
+  if (game.status !== "finished") return { error: json({ error: "The game is still in progress." }) };
+
+  const prev = game.state as GameState;
+  const me = prev.players.find((p) => p.userId === userId);
+  if (!me || me.hasLeft) return { error: json({ error: "You are not in this game." }) };
+
+  const { data: rows } = await admin
+    .from("players")
+    .select("user_id, rematch_vote, rematch_voted_at")
+    .eq("game_id", gameId);
+
+  return {
+    game: game as { state_version: number | null; has_bots: boolean | null },
+    prev,
+    rows: (rows ?? []) as VoteRow[],
+  };
+}
+
+/**
+ * Answer the standing rematch proposal — or, if there isn't one, open it.
+ *
+ * `vote` is absent on builds from before the vote existed, where this op meant
+ * "host, start the rematch now". Reading that as a yes keeps those clients
+ * working: their tap opens a proposal instead of restarting the table, which is
+ * the whole point of this change, and the newer clients at the table can accept
+ * it. Their own accept UI simply isn't there, so a proposal from someone else
+ * lapses for them — an old build's rematch degrades, it doesn't break.
+ */
+export async function opRematchVote(
+  admin: SupabaseClient,
+  userId: string,
+  gameId: string,
+  vote: "yes" | "no",
+): Promise<Response> {
+  const loaded = await loadRematch(admin, userId, gameId);
+  if ("error" in loaded) return loaded.error;
+  const { game, prev, rows } = loaded;
+
+  const standing = voteIsOpen(rows);
+
+  // Declining a proposal that isn't running is a no-op, not an error: it is
+  // what a stale results screen sends when its proposal lapsed a moment ago.
+  if (!standing && vote === "no") return json({ state: prev, v: game.state_version ?? null });
+
+  let votes = rows;
+  if (!standing) {
+    // Lapsed votes from an earlier proposal would otherwise be counted into
+    // this one — and would date it, since proposedAtMs reads the earliest stamp.
+    if (rows.some((r) => r.rematch_vote != null)) await clearVotes(admin, gameId);
+    votes = rows.map((r) => ({ ...r, rematch_vote: null, rematch_voted_at: null }));
+  }
+
+  const now = new Date().toISOString();
+  const { error } = await admin
+    .from("players")
+    .update({ rematch_vote: vote, rematch_voted_at: now })
+    .eq("game_id", gameId)
+    .eq("user_id", userId);
+  if (error) return safeError("room.rematchVote", error, WRITE_FAILED);
+  votes = votes.map((r) => (r.user_id === userId ? { ...r, rematch_vote: vote, rematch_voted_at: now } : r));
+
+  // Open the hidden seats' answers on the way out (deferred), but only for a
+  // proposal this call actually started.
+  if (!standing && game.has_bots) voteBotsSoon(admin, gameId);
+
+  const resolved = await resolveRematch(admin, gameId, game, prev, votes, false);
+  return resolved ?? json({ state: prev, v: game.state_version ?? null });
+}
+
+/**
+ * The proposal's clock ran out — settle it.
+ *
+ * Client-driven for the same reason the turn clock is (opTimeout): the players
+ * watching the screen are the ones who notice, and the server re-checks the
+ * real deadline off the rows rather than trusting the caller's opinion of the
+ * time. Any participant may call it; whoever gets there first does the work and
+ * the rest find nothing left to settle.
+ */
+export async function opRematchClose(admin: SupabaseClient, userId: string, gameId: string): Promise<Response> {
+  const loaded = await loadRematch(admin, userId, gameId);
+  if ("error" in loaded) return loaded.error;
+  const { game, prev, rows } = loaded;
+
+  const still = json({ state: prev, v: game.state_version ?? null });
+  const opened = proposedAtMs(rows);
+  if (opened === null) return still; // nothing was ever proposed
+
+  // Not out of time yet. The grace is judged against the server's clock, so a
+  // device running fast can't retire a proposal out from under a slower one.
+  const ranOutAt = opened + REMATCH_SECONDS * 1000;
+  if (Date.now() < ranOutAt + REMATCH_GRACE_MS) return still;
+
+  // Long dead. These are votes from a table everybody walked away from before
+  // anyone's clock fired — reviving a game off them would restart a board the
+  // accepters stopped looking at minutes ago. Sweep them instead.
+  if (Date.now() > ranOutAt + REMATCH_STALE_MS) {
+    afterResponse(clearVotes(admin, gameId));
+    return still;
+  }
+
+  const resolved = await resolveRematch(admin, gameId, game, prev, rows, true);
+  return resolved ?? still;
 }

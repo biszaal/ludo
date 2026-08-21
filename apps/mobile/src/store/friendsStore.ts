@@ -272,7 +272,11 @@ export function initPresence(): () => void {
 
   const start = () => {
     if (timer) return;
-    void friends.heartbeat();
+    // The first beat of a session announces; the rest are plain heartbeats.
+    // Order matters — the server decides whether coming back is worth telling
+    // anyone about by looking at how stale our presence row is, and a plain
+    // heartbeat first would erase exactly that evidence (net/friends.ts).
+    void friends.announceOnline();
     timer = setInterval(() => void friends.heartbeat(), HEARTBEAT_MS);
   };
   const stop = () => {
