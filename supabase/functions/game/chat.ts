@@ -46,9 +46,20 @@ export function sanitizeChatValue(raw: unknown): string | null {
   return clean.length > 0 ? clean : null;
 }
 
-/** Relay one message to the room's topic as the service role (bypasses the
- *  0037 policies, which is the point — no other sender can reach this topic). */
-async function broadcast(gameId: string, payload: Record<string, unknown>): Promise<boolean> {
+/**
+ * Relay one message to a room's topic as the service role (bypasses the 0037
+ * policies, which is the point — no other sender can reach this topic).
+ *
+ * Generalised over the event so the turn path can deliver a die the same way:
+ * that the service role is the ONLY possible sender here is exactly what makes
+ * a received payload trustworthy, and a die is worth no less trust than a
+ * chat bubble.
+ */
+export async function broadcastToRoom(
+  gameId: string,
+  event: string,
+  payload: Record<string, unknown>,
+): Promise<boolean> {
   const url = Deno.env.get("SUPABASE_URL")!;
   const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   try {
@@ -60,13 +71,18 @@ async function broadcast(gameId: string, payload: Record<string, unknown>): Prom
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        messages: [{ topic: `game:${gameId}`, event: "chat", payload, private: true }],
+        messages: [{ topic: `game:${gameId}`, event, payload, private: true }],
       }),
     });
     return res.ok;
   } catch {
     return false;
   }
+}
+
+/** Chat's own sender, unchanged in behavior. */
+function broadcast(gameId: string, payload: Record<string, unknown>): Promise<boolean> {
+  return broadcastToRoom(gameId, "chat", payload);
 }
 
 /**

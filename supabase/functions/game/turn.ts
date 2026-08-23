@@ -34,6 +34,7 @@ import {
   WRITE_FAILED,
 } from "./lib.ts";
 import { afterGameWrite, BOT_MAX_ACTIONS, stepPauseMs } from "./bots.ts";
+import { broadcastToRoom } from "./chat.ts";
 import { endIfNoHumansLeft, recordFinishStats, settleIfFinished } from "./finish.ts";
 
 /**
@@ -101,7 +102,11 @@ export async function opTurn(
   tokenId?: string,
   actionId?: string,
 ): Promise<Response> {
-  const { data: game } = await admin.from("games").select("id, state, state_version, has_bots").eq("id", gameId).single();
+  const { data: game } = await admin
+    .from("games")
+    .select("id, state, state_version, has_bots, fold_writes")
+    .eq("id", gameId)
+    .single();
   if (!game || !game.state) return json({ error: "Game not found." });
 
   const state = game.state as GameState;
@@ -129,6 +134,40 @@ export async function opTurn(
   const me = state.players.find((p) => p.userId === userId);
   if (!me) return await reject("You are not in this game.");
   if (me.id !== state.currentTurnPlayerId) return await reject("Not your turn.");
+
+  /**
+   * A folding table's roll writes nothing at all.
+   *
+   * The die is derived from (gameId, v, playerId), so the move op recomputes
+   * this exact value at this exact version — the write was never carrying
+   * information the server needed, only information other players needed to
+   * SEE. That goes out as ~60 bytes of broadcast instead of a 2.2KB state
+   * document re-authorized against RLS once per subscriber.
+   *
+   * Deliberately ahead of claimAction: with no write to replay there is
+   * nothing to make idempotent, and claiming an id here would answer the
+   * retry of a dropped roll with "already applied" plus a state that still
+   * says awaiting-roll — taking the player's die away to protect a write that
+   * never happened. Re-deriving at an unchanged v is idempotent by
+   * construction.
+   */
+  if (action === "roll" && game.fold_writes) {
+    if (state.phase !== "awaiting-roll") return await reject("You already rolled.");
+    // Derivability is a PRECONDITION of folding, not an optimisation. With
+    // DICE_SECRET unset deriveDie returns null and rolls fall back to
+    // cryptoRng — genuinely random per call — so the move op would re-derive a
+    // DIFFERENT die than the one just shown, and the pawn would move by a
+    // number the player never saw. Fall through to the writing path instead:
+    // slower, and correct.
+    const die = await deriveDie(gameId, v, me.id);
+    if (die !== null) {
+      const rolled = rollDice(state, rngForDie(die)).newState;
+      // Fire-and-forget: a lost broadcast costs one spectator one die
+      // animation, and the state push that follows is still authoritative.
+      afterResponse(broadcastToRoom(gameId, "roll", { die, playerId: me.id, v }));
+      return json({ state: rolled, v });
+    }
+  }
 
   let next: GameState;
   if (action === "roll") {

@@ -455,8 +455,14 @@ export function versionAtLeast(version: string | null, min: string): boolean {
  * Below this, a seat renders the opponent die from the roll WRITE, so folding
  * that write away takes the die from them and there is no OTA channel to fix
  * it.
+ *
+ * 1.0.2 carries both halves in one release: the appVersion handshake that
+ * makes this gate answerable, and the broadcast receiver that makes folding
+ * safe. The two must never be split across builds — a binary that reports
+ * 1.0.2 without the receiver would satisfy this gate and then fail to render
+ * a die it cannot hear.
  */
-export const FOLD_MIN_VERSION = "1.1.0";
+export const FOLD_MIN_VERSION = "1.0.2";
 
 /**
  * May this table be spoken to in the folded protocol?
