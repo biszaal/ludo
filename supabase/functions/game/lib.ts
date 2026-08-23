@@ -449,3 +449,31 @@ export function versionAtLeast(version: string | null, min: string): boolean {
   }
   return true;
 }
+
+/**
+ * The first client release that understands a die arriving over broadcast.
+ * Below this, a seat renders the opponent die from the roll WRITE, so folding
+ * that write away takes the die from them and there is no OTA channel to fix
+ * it.
+ */
+export const FOLD_MIN_VERSION = "1.1.0";
+
+/**
+ * May this table be spoken to in the folded protocol?
+ *
+ * Every human seat must be new enough. Bot seats are exempt: they have no
+ * client and never render, and their app_version is always null.
+ *
+ * `botUserIds` MUST come from `game_bots`, not from `players.is_bot` — the
+ * latter is the visible-tag flag and is false for hidden quick-match bots,
+ * which would make this return false for most real games.
+ */
+export function foldAllowed(
+  seats: Array<{ user_id: string; app_version: string | null }>,
+  botUserIds: Set<string>,
+): boolean {
+  if (seats.length === 0) return false;
+  return seats.every(
+    (s) => botUserIds.has(String(s.user_id)) || versionAtLeast(s.app_version, FOLD_MIN_VERSION),
+  );
+}

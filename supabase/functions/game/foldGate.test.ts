@@ -9,7 +9,7 @@
  */
 
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { versionAtLeast } from "./lib.ts";
+import { foldAllowed, FOLD_MIN_VERSION, versionAtLeast } from "./lib.ts";
 
 Deno.test("a build at the floor qualifies", () => {
   assertEquals(versionAtLeast("1.1.0", "1.1.0"), true);
@@ -44,4 +44,56 @@ Deno.test("anything unparseable is treated as unknown, never as current", () => 
 Deno.test("a short version string is padded, not rejected", () => {
   assertEquals(versionAtLeast("2", "1.1.0"), true);
   assertEquals(versionAtLeast("1.1", "1.1.0"), true);
+});
+
+const BOT_A = "bbbbbbbb-0000-0000-0000-000000000001";
+const HUMAN_A = "aaaaaaaa-0000-0000-0000-000000000001";
+const HUMAN_B = "aaaaaaaa-0000-0000-0000-000000000002";
+
+Deno.test("the floor is the release that adds the broadcast handler", () => {
+  assertEquals(FOLD_MIN_VERSION, "1.1.0");
+});
+
+Deno.test("a table of updated humans folds", () => {
+  const seats = [
+    { user_id: HUMAN_A, app_version: "1.1.0" },
+    { user_id: HUMAN_B, app_version: "1.2.0" },
+  ];
+  assertEquals(foldAllowed(seats, new Set<string>()), true);
+});
+
+Deno.test("one un-updated seat stops the whole table folding", () => {
+  const seats = [
+    { user_id: HUMAN_A, app_version: "1.1.0" },
+    { user_id: HUMAN_B, app_version: "1.0.2" },
+  ];
+  assertEquals(foldAllowed(seats, new Set<string>()), false);
+});
+
+Deno.test("a pre-handshake seat stops it too", () => {
+  const seats = [
+    { user_id: HUMAN_A, app_version: "1.1.0" },
+    { user_id: HUMAN_B, app_version: null },
+  ];
+  assertEquals(foldAllowed(seats, new Set<string>()), false);
+});
+
+Deno.test("a bot seat never blocks folding, despite having no version", () => {
+  // Hidden quick-match bots carry is_bot = false, so game_bots is the only
+  // honest source. A bot has no client and renders nothing.
+  const seats = [
+    { user_id: HUMAN_A, app_version: "1.1.0" },
+    { user_id: BOT_A, app_version: null },
+  ];
+  assertEquals(foldAllowed(seats, new Set([BOT_A])), true);
+});
+
+Deno.test("an all-bot table folds", () => {
+  const seats = [{ user_id: BOT_A, app_version: null }];
+  assertEquals(foldAllowed(seats, new Set([BOT_A])), true);
+});
+
+Deno.test("an empty table does not fold", () => {
+  // Defensive: no seats means nothing was verified, and the default is no.
+  assertEquals(foldAllowed([], new Set<string>()), false);
 });

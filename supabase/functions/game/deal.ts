@@ -6,7 +6,7 @@
 
 // @deno-types="../_shared/engine/index.d.ts"
 import { createGame as engineCreateGame, type GameState } from "../_shared/engine/index.js";
-import { afterResponse, seatColors, turnDeadline, type SupabaseClient, WRITE_FAILED } from "./lib.ts";
+import { afterResponse, foldAllowed, seatColors, turnDeadline, type SupabaseClient, WRITE_FAILED } from "./lib.ts";
 import { walletApply } from "./wallet.ts";
 import { afterGameWrite } from "./bots.ts";
 
@@ -91,16 +91,24 @@ export async function startGameNow(admin: SupabaseClient, gameId: string): Promi
     return game.state ? { state: game.state as GameState, v } : { error: "Game already started." };
   }
 
-  const { data: lobby } = await admin.from("players").select("id, user_id, color, seat").eq("game_id", gameId).order("seat");
+  const { data: lobby } = await admin
+    .from("players")
+    .select("id, user_id, color, seat, app_version")
+    .eq("game_id", gameId)
+    .order("seat");
   if (!lobby || lobby.length < 2) return { error: "Need at least 2 players." };
+
+  // Read once: the stake collection below needs it to know who pays, and the
+  // fold gate needs it to know whose missing app_version is a bot's rather
+  // than an un-updated player's.
+  const { data: bots } = await admin.from("game_bots").select("user_id").eq("game_id", gameId);
+  const botIds = new Set((bots ?? []).map((b) => String(b.user_id)));
 
   // Friend rooms collect the pot here, at the moment play actually begins.
   // Quick match is excluded: it already debited each player as they took a
   // seat (quick.ts), because there the seat is the matchmaking queue.
   const stake = (game.stake as number | null) ?? 0;
   if (!game.is_quick && stake > 0) {
-    const { data: bots } = await admin.from("game_bots").select("user_id").eq("game_id", gameId);
-    const botIds = new Set((bots ?? []).map((b) => String(b.user_id)));
     const collected = await collectStakes(admin, gameId, payingSeats(lobby, botIds), stake);
     if ("error" in collected) return collected;
   }
@@ -111,7 +119,19 @@ export async function startGameNow(admin: SupabaseClient, gameId: string): Promi
 
   const { data: updated, error } = await admin
     .from("games")
-    .update({ state, status: "active", current_turn_player_id: state.currentTurnPlayerId, turn_deadline: turnDeadline(state), state_version: v + 1 })
+    .update({
+      state,
+      status: "active",
+      current_turn_player_id: state.currentTurnPlayerId,
+      turn_deadline: turnDeadline(state),
+      state_version: v + 1,
+      // Decided here and only here — see 0047. Every seat's build is known by
+      // now, and it must not be re-asked once the table is being rendered.
+      fold_writes: foldAllowed(
+        lobby.map((p) => ({ user_id: String(p.user_id), app_version: (p.app_version as string | null) ?? null })),
+        botIds,
+      ),
+    })
     .eq("id", gameId)
     .eq("state_version", v)
     .select("id")
