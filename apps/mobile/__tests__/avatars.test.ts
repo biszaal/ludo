@@ -9,7 +9,7 @@ import { describe, it, expect } from "vitest";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-import { AVATARS, AVATAR_CHIP, contrastRatio, saturationOf } from "../scripts/gen-avatars.mjs";
+import { AVATARS, CHIP_TONES, PATTERNS, chipOps, contrastRatio, parseColor, saturationOf } from "../scripts/gen-avatars.mjs";
 import { AVATAR_IDS, DEFAULT_AVATAR_ID, resolveAvatarId } from "../src/render/avatars";
 import { teamColor } from "../src/theme";
 
@@ -38,18 +38,41 @@ describe("avatar catalog", () => {
 });
 
 describe("avatar chip background", () => {
-  it("is one shared neutral, never a per-character color", () => {
-    expect(AVATAR_CHIP.top).toMatch(/^#[0-9A-Fa-f]{6}$/);
-    expect(AVATAR_CHIP.bottom).toMatch(/^#[0-9A-Fa-f]{6}$/);
-    for (const a of AVATARS) {
-      expect(a, `${a.id} still carries its own chip background`).not.toHaveProperty("bgTop");
-      expect(a, `${a.id} still carries its own chip background`).not.toHaveProperty("bgBottom");
+  it("has no chroma that could read as a seat color", () => {
+    // The whole point of the patterned-neutral chip: seats are red, green,
+    // yellow and blue, which covers most of the hue wheel, so the background
+    // stays achromatic rather than trying to dodge four hues.
+    for (const [name, tone] of Object.entries(CHIP_TONES)) {
+      for (const stop of [tone.top, tone.bottom]) {
+        expect(stop, `${name}`).toMatch(/^#[0-9A-Fa-f]{6}$/);
+        expect(saturationOf(stop), `chip tone ${name} (${stop}) has too much chroma`).toBeLessThan(0.3);
+      }
     }
   });
 
-  it("is neutral enough to sit inside any team-colored frame", () => {
-    expect(saturationOf(AVATAR_CHIP.top)).toBeLessThan(0.45);
-    expect(saturationOf(AVATAR_CHIP.bottom)).toBeLessThan(0.45);
+  it("draws its pattern in pure black or white alpha, never a hue", () => {
+    // Patterns modulate tone only. Anything with a hue here could drift toward
+    // a seat color as the art changes.
+    for (const spec of AVATARS) {
+      for (const op of chipOps(spec)) {
+        const color = op.fill ?? op.color;
+        expect(color, `${spec.id}'s ${spec.pattern} pattern has a colorless op`).toBeDefined();
+        const [r, g, b] = parseColor(color!);
+        expect(r === g && g === b, `${spec.id}'s ${spec.pattern} pattern uses a hue: ${color}`).toBe(true);
+      }
+    }
+  });
+
+  it("gives every character a distinct tone and pattern pairing", () => {
+    const seen = new Map<string, string>();
+    for (const spec of AVATARS) {
+      expect(PATTERNS, `${spec.id} has an unknown pattern`).toContain(spec.pattern);
+      expect(Object.keys(CHIP_TONES), `${spec.id} has an unknown tone`).toContain(spec.tone);
+      const key = `${spec.tone}|${spec.pattern}`;
+      const clash = seen.get(key);
+      expect(clash, `${spec.id} has the same chip as ${clash}`).toBeUndefined();
+      seen.set(key, spec.id);
+    }
   });
 });
 
@@ -74,7 +97,7 @@ describe("avatar identity without a colored background", () => {
     // The head has a dark outline, so skin needs no contrast against the chip;
     // hair is drawn bare, so a pale hair color on a pale chip renders bald.
     for (const a of AVATARS) {
-      expect(contrastRatio(a.hair, AVATAR_CHIP.top), `${a.id}'s hair vanishes into the chip`).toBeGreaterThan(2);
+      expect(contrastRatio(a.hair, CHIP_TONES[a.tone].top), `${a.id}'s hair vanishes into the chip`).toBeGreaterThan(2);
     }
   });
 

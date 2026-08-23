@@ -30,24 +30,32 @@ const DESIGN = 100; // the coordinate space all the path data is written in
 
 // --- Catalog ----------------------------------------------------------------
 
-export const AVATAR_CHIP = { top: "#E8ECF2", bottom: "#C3CBD6" };
+/**
+ * The chip tones. Achromatic on purpose: the seats are red, green, yellow and
+ * blue, so rather than hunt for a hue none of them claims, the background
+ * carries no hue at all and varies by value and pattern instead.
+ */
+export const CHIP_TONES = {
+  stone: { top: "#EEF1F5", bottom: "#CBD2DA" },
+  ash: { top: "#DCE0E6", bottom: "#AEB6C2" },
+};
 
 export const AVATARS = [
-  { id: "leo", skin: "#FFD9B3", hair: "#7A4A21", shirt: "#B98A3E", style: "crown" },
-  { id: "sunny", skin: "#FFE0C2", hair: "#E8542F", shirt: "#C07551", style: "spiky" },
-  { id: "coco", skin: "#8A5A3B", hair: "#26150B", shirt: "#4E8A6B", style: "afro" },
-  { id: "zara", skin: "#C68642", hair: "#2B1B10", shirt: "#B06A82", style: "bun" },
-  { id: "rex", skin: "#FFD9B3", hair: "#5A3A1E", shirt: "#5F76B0", style: "cap" },
-  { id: "nina", skin: "#8A5A3B", hair: "#1E1208", shirt: "#8168AD", style: "pigtails" },
-  { id: "milo", skin: "#FFE0C2", hair: "#B0722F", shirt: "#4C8C87", style: "side" },
-  { id: "ivy", skin: "#F3C7A5", hair: "#C2572E", shirt: "#6E8C55", style: "beanie" },
-  { id: "ace", skin: "#E8B98A", hair: "#6E3FBF", shirt: "#6870AD", style: "headphones" },
-  { id: "ruby", skin: "#FFD9B3", hair: "#4A2C15", shirt: "#A85A5A", style: "bow" },
-  { id: "bruno", skin: "#E8B98A", hair: "#3D2A1A", shirt: "#B08A55", style: "beard" },
-  { id: "kito", skin: "#F5B78D", hair: "#E88A3C", shirt: "#6B8395", style: "cat" },
+  { id: "leo", skin: "#FFD9B3", hair: "#7A4A21", shirt: "#B98A3E", style: "crown", tone: "stone", pattern: "halo" },
+  { id: "sunny", skin: "#FFE0C2", hair: "#E8542F", shirt: "#C07551", style: "spiky", tone: "stone", pattern: "rays" },
+  { id: "coco", skin: "#8A5A3B", hair: "#26150B", shirt: "#4E8A6B", style: "afro", tone: "stone", pattern: "dots" },
+  { id: "zara", skin: "#C68642", hair: "#2B1B10", shirt: "#B06A82", style: "bun", tone: "stone", pattern: "arcs" },
+  { id: "rex", skin: "#FFD9B3", hair: "#5A3A1E", shirt: "#5F76B0", style: "cap", tone: "stone", pattern: "bands" },
+  { id: "nina", skin: "#8A5A3B", hair: "#1E1208", shirt: "#8168AD", style: "pigtails", tone: "ash", pattern: "split" },
+  { id: "milo", skin: "#FFE0C2", hair: "#B0722F", shirt: "#4C8C87", style: "side", tone: "stone", pattern: "checks" },
+  { id: "ivy", skin: "#F3C7A5", hair: "#C2572E", shirt: "#6E8C55", style: "beanie", tone: "ash", pattern: "dots" },
+  { id: "ace", skin: "#E8B98A", hair: "#6E3FBF", shirt: "#6870AD", style: "headphones", tone: "ash", pattern: "bands" },
+  { id: "ruby", skin: "#FFD9B3", hair: "#4A2C15", shirt: "#A85A5A", style: "bow", tone: "ash", pattern: "arcs" },
+  { id: "bruno", skin: "#E8B98A", hair: "#3D2A1A", shirt: "#B08A55", style: "beard", tone: "ash", pattern: "checks" },
+  { id: "kito", skin: "#F5B78D", hair: "#E88A3C", shirt: "#6B8395", style: "cat", tone: "stone", pattern: "split" },
   // The gem tier (0018 seed) — same drawn styles, premium shirt tones.
-  { id: "nova", skin: "#F3C7A5", hair: "#8E86AD", shirt: "#7A6BB5", style: "spiky" },
-  { id: "onyx", skin: "#C68642", hair: "#0B0C0F", shirt: "#2A2E36", style: "cap" },
+  { id: "nova", skin: "#F3C7A5", hair: "#8E86AD", shirt: "#7A6BB5", style: "spiky", tone: "ash", pattern: "rays" },
+  { id: "onyx", skin: "#C68642", hair: "#0B0C0F", shirt: "#2A2E36", style: "cap", tone: "ash", pattern: "halo" },
 ];;
 
 const NEUTRAL_BROW = "#5A4632";
@@ -211,6 +219,58 @@ function buildOps(spec) {
     { t: "oval", cx: 67, cy: 62, rx: 4.5, ry: 2.8, fill: "rgba(255,120,120,0.35)" },
   );
   return ops;
+}
+
+export const PATTERNS = ["checks", "halo", "rays", "dots", "arcs", "bands", "split"];
+
+const INK = "rgba(0,0,0,0.085)";
+const LIFT = "rgba(255,255,255,0.55)";
+
+/**
+ * The chip's pattern, drawn between the gradient and the character. Coarse on
+ * purpose — the chip renders at 48pt on a player card, where fine texture just
+ * turns to mud. Every shape is black or white alpha, so a pattern can only
+ * darken or lighten the tone, never tint it toward a seat color.
+ */
+export function chipOps(spec) {
+  switch (spec.pattern) {
+    case "checks":
+      // Two opposing quadrants — the coarsest pattern here, and the one that
+      // survives furthest down the size range.
+      return [
+        { t: "path", d: "M0 0 L50 0 L50 50 L0 50 Z", fill: INK },
+        { t: "path", d: "M50 50 L100 50 L100 100 L50 100 Z", fill: INK },
+      ];
+    case "halo":
+      return [{ t: "ring", cx: 50, cy: 50, r: 41, color: INK, w: 13 }];
+    case "rays": {
+      // Six wedges of twelve, alternating. Radius overshoots the chip so the
+      // straight chords still cover past the rim before it is clipped.
+      const ops = [];
+      for (let i = 0; i < 12; i += 2) {
+        const a0 = (i / 12) * Math.PI * 2, a1 = ((i + 1) / 12) * Math.PI * 2;
+        const pt = (a) => `${(50 + 80 * Math.cos(a)).toFixed(2)} ${(50 + 80 * Math.sin(a)).toFixed(2)}`;
+        ops.push({ t: "path", d: `M50 50 L${pt(a0)} L${pt(a1)} Z`, fill: INK });
+      }
+      return ops;
+    }
+    case "dots":
+      return [[20, 20], [50, 11], [80, 20], [11, 50], [89, 50], [23, 79], [77, 79]]
+        .map(([cx, cy]) => ({ t: "circle", cx, cy, r: 9, fill: INK }));
+    case "arcs":
+      return [22, 34, 46].map((r) => ({ t: "ring", cx: 50, cy: 50, r, color: INK, w: 6 }));
+    case "bands": {
+      const ops = [];
+      for (let x = -60; x < 110; x += 34) {
+        ops.push({ t: "path", d: `M${x} -10 L${x + 17} -10 L${x + 137} 110 L${x + 120} 110 Z`, fill: INK });
+      }
+      return ops;
+    }
+    case "split":
+      return [{ t: "path", d: "M0 0 L100 0 L0 100 Z", fill: LIFT }];
+    default:
+      throw new Error(`unknown chip pattern: ${spec.pattern}`);
+  }
 }
 
 /**
@@ -525,8 +585,10 @@ function resolve(cv, outSize) {
 /** Renders one avatar to RGBA8 at `size`. Mirrors AvatarGlyph's draw order. */
 export function renderAvatar(spec, size = OUT_SIZE) {
   const cv = makeCanvas(size * SS);
-  fillGradient(cv, AVATAR_CHIP.top, AVATAR_CHIP.bottom);
-  for (const o of buildOps(spec)) {
+  const tone = CHIP_TONES[spec.tone];
+  if (!tone) throw new Error(`${spec.id}: unknown chip tone ${spec.tone}`);
+  fillGradient(cv, tone.top, tone.bottom);
+  for (const o of [...chipOps(spec), ...buildOps(spec)]) {
     switch (o.t) {
       case "path": fillPolys(cv, parsePath(o.d), o.fill, o.op ?? 1); break;
       case "stroke": strokePolys(cv, parsePath(o.d), o.color, o.w, o.op ?? 1); break;
