@@ -6,17 +6,23 @@
  * table is the authority — but they must not drift.
  */
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { AVATARS } from "../src/render/avatars";
+import { AVATAR_IDS } from "../src/render/avatars";
 import { BOARD_THEMES } from "../src/render/boardThemes";
 import { DICE_SKINS } from "../src/render/diceSkins";
 
-const sql = readFileSync(
-  fileURLToPath(new URL("../../../supabase/migrations/0018_gems.sql", import.meta.url)),
-  "utf8",
-);
+const MIGRATIONS = fileURLToPath(new URL("../../../supabase/migrations/", import.meta.url));
+
+/** Every migration concatenated. Gem-priced items arrive tier by tier (0018
+ *  seeded the showcase set, 0044 the Numerals line), so scanning one file
+ *  would let the newest tier quietly escape the parity check. */
+const sql = readdirSync(MIGRATIONS)
+  .filter((f) => f.endsWith(".sql"))
+  .sort()
+  .map((f) => readFileSync(MIGRATIONS + f, "utf8"))
+  .join("\n");
 
 /** All gem-priced catalog rows in 0018: kind.sku -> price. */
 function gemSeeds(): Map<string, { kind: string; price: number }> {
@@ -27,7 +33,7 @@ function gemSeeds(): Map<string, { kind: string; price: number }> {
   return out;
 }
 
-describe("gem catalog seed parity (0018_gems.sql)", () => {
+describe("gem catalog seed parity (all migrations)", () => {
   const seeds = gemSeeds();
 
   it("seeds at least the showcase set", () => {
@@ -42,7 +48,7 @@ describe("gem catalog seed parity (0018_gems.sql)", () => {
       } else if (kind === "theme") {
         expect(Object.keys(BOARD_THEMES)).toContain(id);
       } else if (kind === "avatar") {
-        expect(AVATARS.some((a) => a.id === id), sku).toBe(true);
+        expect(AVATAR_IDS).toContain(id);
       } else {
         throw new Error(`unexpected gem kind: ${kind}`);
       }

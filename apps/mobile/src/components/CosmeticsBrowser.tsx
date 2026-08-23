@@ -22,10 +22,10 @@ import { CosmeticPreview } from "./CosmeticPreview";
 import { BuySheet } from "./PriceTag";
 import { GetGemsSheet } from "./GetGemsSheet";
 import { Button } from "./Button";
-import { avatarById } from "../render/avatars";
+import { resolveAvatarId } from "../render/avatars";
 import { BOARD_THEMES, type BoardThemeId } from "../render/boardThemes";
 import { DICE_SKINS, resolveDiceSkin, type DiceSkinId } from "../render/diceSkins";
-import { cosmeticItems, ownedItems, type CosmeticCategory, type CosmeticItem } from "../lib/cosmetics";
+import { cosmeticItems, ownedItems, sellableItems, type CosmeticCategory, type CosmeticItem } from "../lib/cosmetics";
 import { useCosmeticsUI } from "../store/cosmeticsUI";
 import { currencyOf, isUnlocked, priceOf, useEntitlements } from "../store/entitlementsStore";
 import { useProfile } from "../store/profileStore";
@@ -82,7 +82,7 @@ export function CosmeticsBrowser({ mode }: { mode: "locker" | "shop" }) {
   // lines up with the catalog tiles).
   const equippedId =
     category === "avatar"
-      ? avatarById(avatarId).id
+      ? resolveAvatarId(avatarId)
       : category === "board"
         ? boardThemeId
         : resolveDiceSkin(diceSkinId).id;
@@ -118,7 +118,7 @@ export function CosmeticsBrowser({ mode }: { mode: "locker" | "shop" }) {
     setPending(null);
   };
 
-  const items = mode === "locker" ? ownedItems(category, owned, prices) : cosmeticItems(category);
+  const items = mode === "locker" ? ownedItems(category, owned, prices) : sellableItems(category, owned, prices);
   const fillers = (COLS - (items.length % COLS)) % COLS;
 
   const highlightItem = cosmeticItems(category).find((it) => it.id === highlightId);
