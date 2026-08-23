@@ -4,7 +4,7 @@
     "slug": "ludo",
     "version": "1.0.1",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/images/app-icon/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
@@ -169,9 +169,9 @@
       "package": "com.biszaal.mobile",
       "adaptiveIcon": {
         "backgroundColor": "#1B3FA6",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "foregroundImage": "./assets/images/app-icon/android-icon-foreground.png",
+        "backgroundImage": "./assets/images/app-icon/android-icon-background.png",
+        "monochromeImage": "./assets/images/app-icon/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
       "permissions": [
@@ -180,7 +180,7 @@
       ]
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/images/app-icon/favicon.png"
     },
     "plugins": [
       "expo-font",

@@ -37,7 +37,7 @@ function writeWav(name, samples) {
   header.writeUInt16LE(16, 34);
   header.write("data", 36);
   header.writeUInt32LE(data.length, 40);
-  const outDir = join(dirname(fileURLToPath(import.meta.url)), "..", "assets");
+  const outDir = join(dirname(fileURLToPath(import.meta.url)), "..", "assets", "audio", "sfx");
   mkdirSync(outDir, { recursive: true });
   const outPath = join(outDir, name);
   writeFileSync(outPath, Buffer.concat([header, data]));

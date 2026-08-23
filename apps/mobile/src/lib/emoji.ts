@@ -19,14 +19,14 @@ export interface EmojiSpec {
 }
 
 export const EMOJIS: EmojiSpec[] = [
-  { id: "laugh", source: require("../../assets/emoji/laugh.png"), sound: "laugh", label: "Laughing" },
-  { id: "cry", source: require("../../assets/emoji/cry.png"), sound: "crying", label: "Crying" },
-  { id: "tease", source: require("../../assets/emoji/tease.png"), sound: "tease", label: "Teasing" },
-  { id: "angry", source: require("../../assets/emoji/angry.png"), sound: "angry", label: "Angry" },
-  { id: "shock", source: require("../../assets/emoji/shock.png"), sound: "shock", label: "Shocked" },
-  { id: "cheer", source: require("../../assets/emoji/cheer.png"), sound: "cheer", label: "Celebrating" },
-  { id: "thumbs", source: require("../../assets/emoji/thumbs.png"), sound: "thumbs", label: "Thumbs up" },
-  { id: "gg", source: require("../../assets/emoji/gg.png"), sound: "gg", label: "Good game" },
+  { id: "laugh", source: require("../../assets/images/emoji/laugh.png"), sound: "laugh", label: "Laughing" },
+  { id: "cry", source: require("../../assets/images/emoji/cry.png"), sound: "crying", label: "Crying" },
+  { id: "tease", source: require("../../assets/images/emoji/tease.png"), sound: "tease", label: "Teasing" },
+  { id: "angry", source: require("../../assets/images/emoji/angry.png"), sound: "angry", label: "Angry" },
+  { id: "shock", source: require("../../assets/images/emoji/shock.png"), sound: "shock", label: "Shocked" },
+  { id: "cheer", source: require("../../assets/images/emoji/cheer.png"), sound: "cheer", label: "Celebrating" },
+  { id: "thumbs", source: require("../../assets/images/emoji/thumbs.png"), sound: "thumbs", label: "Thumbs up" },
+  { id: "gg", source: require("../../assets/images/emoji/gg.png"), sound: "gg", label: "Good game" },
 ];
 
 export const EMOJI_BY_ID: Record<string, EmojiSpec> = Object.fromEntries(EMOJIS.map((e) => [e.id, e]));

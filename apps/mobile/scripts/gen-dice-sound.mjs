@@ -1,5 +1,5 @@
 /**
- * Generates assets/dice.wav — a short dice-rattle for the roll animation.
+ * Generates assets/audio/sfx/dice.wav — a short dice-rattle for the roll animation.
  * Run: node scripts/gen-dice-sound.mjs
  *
  * A handful of fast-decaying noise "clacks" reads as dice tumbling in a cup.
@@ -96,7 +96,7 @@ header.writeUInt16LE(16, 34);
 header.write("data", 36);
 header.writeUInt32LE(data.length, 40);
 
-const outDir = join(dirname(fileURLToPath(import.meta.url)), "..", "assets");
+const outDir = join(dirname(fileURLToPath(import.meta.url)), "..", "assets", "audio", "sfx");
 mkdirSync(outDir, { recursive: true });
 const outPath = join(outDir, "dice.wav");
 writeFileSync(outPath, Buffer.concat([header, data]));

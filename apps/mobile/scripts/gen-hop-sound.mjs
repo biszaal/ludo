@@ -1,5 +1,5 @@
 /**
- * Generates assets/hop.wav — a short, cartoon "boing" used for each token hop.
+ * Generates assets/audio/sfx/hop.wav — a short, cartoon "boing" used for each token hop.
  * Run: node scripts/gen-hop-sound.mjs
  *
  * A downward pitch glide (≈900→520 Hz) with a fast decay reads as a bouncy hop.
@@ -41,7 +41,7 @@ header.writeUInt16LE(16, 34); // bits per sample
 header.write("data", 36);
 header.writeUInt32LE(data.length, 40);
 
-const outDir = join(dirname(fileURLToPath(import.meta.url)), "..", "assets");
+const outDir = join(dirname(fileURLToPath(import.meta.url)), "..", "assets", "audio", "sfx");
 mkdirSync(outDir, { recursive: true });
 const outPath = join(outDir, "hop.wav");
 writeFileSync(outPath, Buffer.concat([header, data]));

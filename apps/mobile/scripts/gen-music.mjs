@@ -1,5 +1,5 @@
 /**
- * Generates assets/music.wav — a 16-second seamless ambient loop for the table.
+ * Generates assets/audio/music/music.wav — a 16-second seamless ambient loop for the table.
  * Run: node scripts/gen-music.mjs
  *
  * A soft marimba-like arpeggio over two chords (Am7 → Fmaj7) above a quiet
@@ -95,7 +95,7 @@ header.writeUInt16LE(16, 34);
 header.write("data", 36);
 header.writeUInt32LE(data.length, 40);
 
-const outDir = join(dirname(fileURLToPath(import.meta.url)), "..", "assets");
+const outDir = join(dirname(fileURLToPath(import.meta.url)), "..", "assets", "audio", "music");
 mkdirSync(outDir, { recursive: true });
 const outPath = join(outDir, "music.wav");
 writeFileSync(outPath, Buffer.concat([header, data]));

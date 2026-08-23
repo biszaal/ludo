@@ -49,7 +49,7 @@ yarn-error.*
 *.bak
 _to_delete/
 
-# Reaction-sound sources. Only the processed assets/*.wav ship in the bundle;
+# Reaction-sound sources. Only the processed assets/audio/reactions/*.wav ship in the bundle;
 # these originals are large and re-fetchable from the URLs in
-# assets/REACTION-SOUNDS.md. Run scripts/process-reaction-sfx.mjs to rebuild.
-assets/raw-reactions/
+# assets/source/REACTION-SOUNDS.md. Run scripts/process-reaction-sfx.mjs to rebuild.
+assets/source/raw-reactions/

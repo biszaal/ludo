@@ -14,29 +14,29 @@ export type SoundName =
   | "laugh" | "crying" | "angry" | "tease" | "cheer" | "shock" | "thumbs" | "gg";
 
 const SPECS: Record<SoundName, { source: number; pool: number; volume: number }> = {
-  hop: { source: require("../../assets/hop.wav"), pool: 4, volume: 0.5 },
-  dice: { source: require("../../assets/dice.wav"), pool: 2, volume: 0.6 },
-  capture: { source: require("../../assets/capture.wav"), pool: 2, volume: 0.55 },
-  finish: { source: require("../../assets/finish.wav"), pool: 2, volume: 0.5 },
-  win: { source: require("../../assets/win.wav"), pool: 1, volume: 0.6 },
-  tap: { source: require("../../assets/tap.wav"), pool: 2, volume: 0.35 },
-  turn: { source: require("../../assets/turn.wav"), pool: 2, volume: 0.4 },
-  ding: { source: require("../../assets/ding.wav"), pool: 2, volume: 0.5 },
-  pop: { source: require("../../assets/pop.wav"), pool: 2, volume: 0.5 },
-  msg: { source: require("../../assets/msg.wav"), pool: 2, volume: 0.45 },
-  safe: { source: require("../../assets/safe.wav"), pool: 2, volume: 0.45 },
+  hop: { source: require("../../assets/audio/sfx/hop.wav"), pool: 4, volume: 0.5 },
+  dice: { source: require("../../assets/audio/sfx/dice.wav"), pool: 2, volume: 0.6 },
+  capture: { source: require("../../assets/audio/sfx/capture.wav"), pool: 2, volume: 0.55 },
+  finish: { source: require("../../assets/audio/sfx/finish.wav"), pool: 2, volume: 0.5 },
+  win: { source: require("../../assets/audio/sfx/win.wav"), pool: 1, volume: 0.6 },
+  tap: { source: require("../../assets/audio/sfx/tap.wav"), pool: 2, volume: 0.35 },
+  turn: { source: require("../../assets/audio/sfx/turn.wav"), pool: 2, volume: 0.4 },
+  ding: { source: require("../../assets/audio/sfx/ding.wav"), pool: 2, volume: 0.5 },
+  pop: { source: require("../../assets/audio/sfx/pop.wav"), pool: 2, volume: 0.5 },
+  msg: { source: require("../../assets/audio/sfx/msg.wav"), pool: 2, volume: 0.45 },
+  safe: { source: require("../../assets/audio/sfx/safe.wav"), pool: 2, volume: 0.45 },
   // Reaction-emoji voices — one per sprite, so a reaction never borrows a UI
   // sound. These are recorded audio normalized by scripts/process-reaction-sfx.mjs
-  // (sources in assets/raw-reactions/), not synthesis: a synthesized voice next
+  // (sources in assets/source/raw-reactions/), not synthesis: a synthesized voice next
   // to the recorded laugh reads as obviously fake.
-  laugh: { source: require("../../assets/laugh.wav"), pool: 1, volume: 0.5 },
-  crying: { source: require("../../assets/crying.wav"), pool: 1, volume: 0.5 },
-  angry: { source: require("../../assets/angry.wav"), pool: 1, volume: 0.5 },
-  tease: { source: require("../../assets/tease.wav"), pool: 1, volume: 0.5 },
-  cheer: { source: require("../../assets/cheer.wav"), pool: 1, volume: 0.5 },
-  shock: { source: require("../../assets/shock.wav"), pool: 1, volume: 0.5 },
-  thumbs: { source: require("../../assets/thumbs.wav"), pool: 1, volume: 0.5 },
-  gg: { source: require("../../assets/gg.wav"), pool: 1, volume: 0.5 },
+  laugh: { source: require("../../assets/audio/reactions/laugh.wav"), pool: 1, volume: 0.5 },
+  crying: { source: require("../../assets/audio/reactions/crying.wav"), pool: 1, volume: 0.5 },
+  angry: { source: require("../../assets/audio/reactions/angry.wav"), pool: 1, volume: 0.5 },
+  tease: { source: require("../../assets/audio/reactions/tease.wav"), pool: 1, volume: 0.5 },
+  cheer: { source: require("../../assets/audio/reactions/cheer.wav"), pool: 1, volume: 0.5 },
+  shock: { source: require("../../assets/audio/reactions/shock.wav"), pool: 1, volume: 0.5 },
+  thumbs: { source: require("../../assets/audio/reactions/thumbs.wav"), pool: 1, volume: 0.5 },
+  gg: { source: require("../../assets/audio/reactions/gg.wav"), pool: 1, volume: 0.5 },
 };
 
 const pools = {} as Record<SoundName, AudioPlayer[]>;
@@ -112,7 +112,7 @@ export async function initSound(): Promise<void> {
       });
       cursors[name] = 0;
     }
-    music = createAudioPlayer(require("../../assets/music.wav"));
+    music = createAudioPlayer(require("../../assets/audio/music/music.wav"));
     music.loop = true;
     music.volume = 0.25;
     ready = true;

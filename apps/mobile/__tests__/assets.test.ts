@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 const SRC = join(__dirname, "..", "src");
@@ -16,7 +16,46 @@ function requiredAssets(file: string): string[] {
   return [...source.matchAll(/require\("\.\.\/\.\.\/(assets\/[^"]+)"\)/g)].map((m) => m[1]!);
 }
 
+/** Every .ts/.tsx under src/, recursively. */
+function sourceFiles(dir: string): string[] {
+  return readdirSync(dir).flatMap((entry) => {
+    const full = join(dir, entry);
+    if (statSync(full).isDirectory()) return sourceFiles(full);
+    return /\.tsx?$/.test(entry) ? [full] : [];
+  });
+}
+
 describe("generated assets", () => {
+  // The two checks below name the specific registries and the script that
+  // rebuilds them. This one is the net for everything else — a new module that
+  // require()s an asset, or a file moved without its references.
+  it("has every asset require()'d anywhere in src/", () => {
+    const broken: string[] = [];
+    for (const file of sourceFiles(SRC)) {
+      const text = readFileSync(file, "utf8");
+      for (const m of text.matchAll(/require\(\s*"([^"]*assets\/[^"]+)"\s*\)/g)) {
+        const target = join(file, "..", m[1]!);
+        if (!existsSync(target)) broken.push(`${file.slice(SRC.length + 1)} -> ${m[1]}`);
+      }
+    }
+    expect(broken).toEqual([]);
+  });
+
+  // Expo reads these at build time, so a stale path is not a type error and not
+  // a bundle error — it is a missing or wrong icon in a store build.
+  it("has every asset app.json points at", () => {
+    const app = JSON.parse(readFileSync(join(__dirname, "..", "app.json"), "utf8")).expo;
+    const paths: string[] = [
+      app.icon,
+      app.web?.favicon,
+      app.android?.adaptiveIcon?.foregroundImage,
+      app.android?.adaptiveIcon?.backgroundImage,
+      app.android?.adaptiveIcon?.monochromeImage,
+    ].filter(Boolean);
+    expect(paths.length).toBe(5);
+    expect(paths.filter((p) => !existsSync(join(__dirname, "..", p)))).toEqual([]);
+  });
+
   it("has every sprite/sound referenced by the emoji registry", () => {
     const paths = requiredAssets("lib/emoji.ts");
     expect(paths.length).toBeGreaterThanOrEqual(8);

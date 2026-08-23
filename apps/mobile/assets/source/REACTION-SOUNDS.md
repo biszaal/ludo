@@ -4,7 +4,7 @@ Every reaction-emoji voice is recorded audio, normalized into the app's format
 by `scripts/process-reaction-sfx.mjs` (mono, 44.1 kHz, 16-bit PCM, RMS matched
 to −16 dB with peaks limited to −1 dBFS, so no reaction is louder than another).
 
-Sources live in `assets/raw-reactions/<name>.<ext>` and are gitignored — refetch
+Sources live in `assets/source/raw-reactions/<name>.<ext>` and are gitignored — refetch
 them from the URLs below and re-run the script to rebuild any asset.
 
 Only CC0 / public-domain sources are used, so the app carries no attribution

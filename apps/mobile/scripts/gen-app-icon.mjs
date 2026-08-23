@@ -158,7 +158,7 @@ function encodePNG(size, rgba) {
 }
 
 // --- Emit -------------------------------------------------------------------
-const outDir = join(dirname(fileURLToPath(import.meta.url)), "..", "assets");
+const outDir = join(dirname(fileURLToPath(import.meta.url)), "..", "assets", "images", "app-icon");
 mkdirSync(outDir, { recursive: true });
 
 const files = [

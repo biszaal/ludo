@@ -2,8 +2,8 @@
  * Normalizes sourced reaction-emoji recordings into the app's sound assets.
  *
  * Reaction voices are recorded audio, not synthesis: drop a source file (any
- * format ffmpeg reads) into assets/raw-reactions/<name>.<ext> and run this to
- * produce assets/<name>.wav in the exact shape the sound layer expects — mono,
+ * format ffmpeg reads) into assets/source/raw-reactions/<name>.<ext> and run this to
+ * produce assets/audio/reactions/<name>.wav in the exact shape the sound layer expects — mono,
  * 44.1 kHz, 16-bit PCM, trimmed, faded, and level-matched to the other
  * reactions so none of them jumps out over the game.
  *
@@ -11,7 +11,7 @@
  * what protects laugh.wav: it was dropped in as a finished asset and has no raw
  * source here, so running this can only leave it alone.
  *
- * Requires ffmpeg on PATH. Provenance lives in assets/REACTION-SOUNDS.md.
+ * Requires ffmpeg on PATH. Provenance lives in assets/source/REACTION-SOUNDS.md.
  * Run: node scripts/process-reaction-sfx.mjs [name ...]
  */
 import { execFileSync, spawnSync } from "node:child_process";
@@ -20,8 +20,8 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const RAW_DIR = join(ROOT, "assets", "raw-reactions");
-const OUT_DIR = join(ROOT, "assets");
+const RAW_DIR = join(ROOT, "assets", "source", "raw-reactions");
+const OUT_DIR = join(ROOT, "assets", "audio", "reactions");
 
 /**
  * Match average level, not peak. Reactions differ wildly in crest factor — a
@@ -89,7 +89,7 @@ for (const name of names) {
   }
   const raw = findRaw(name);
   if (!raw) {
-    console.log(`skip ${name} (no assets/raw-reactions/${name}.*)`);
+    console.log(`skip ${name} (no assets/source/raw-reactions/${name}.*)`);
     continue;
   }
 

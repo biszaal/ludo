@@ -5,7 +5,7 @@
  * matching the app's glossy game-piece look.
  *
  * Run: node scripts/gen-emoji.mjs
- * Outputs: assets/emoji/{laugh,cry,angry,tease,cheer,shock,thumbs,gg}.png (128px)
+ * Outputs: assets/images/emoji/{laugh,cry,angry,tease,cheer,shock,thumbs,gg}.png (128px)
  */
 import { deflateSync } from "node:zlib";
 import { writeFileSync, mkdirSync } from "node:fs";
@@ -253,7 +253,7 @@ function encodePNG(size, rgba) {
 }
 
 // --- Emit --------------------------------------------------------------------
-const outDir = join(dirname(fileURLToPath(import.meta.url)), "..", "assets", "emoji");
+const outDir = join(dirname(fileURLToPath(import.meta.url)), "..", "assets", "images", "emoji");
 mkdirSync(outDir, { recursive: true });
 
 const SIZE = 128;
