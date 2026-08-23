@@ -415,3 +415,37 @@ export async function serverConfig(admin: SupabaseClient): Promise<Json> {
   const { data } = await admin.from("app_config").select("value").eq("key", "default").maybeSingle();
   return (data?.value ?? {}) as Json;
 }
+
+/**
+ * Is `version` at least `min`, comparing numerically?
+ *
+ * `app_version` is free text a client wrote, so this must not trust its shape.
+ * Anything that does not parse — including the null every pre-handshake binary
+ * sends — is "no": the gate's safe direction is always toward the protocol
+ * that works everywhere.
+ *
+ * Numeric per component on purpose. "1.10.0" < "1.9.0" as strings, which would
+ * quietly disable folding for every build after 1.9.
+ */
+export function versionAtLeast(version: string | null, min: string): boolean {
+  if (!version) return false;
+  const parse = (s: string): number[] | null => {
+    const parts = s.split(".");
+    const nums: number[] = [];
+    for (const p of parts) {
+      if (!/^\d+$/.test(p)) return null;
+      nums.push(Number(p));
+    }
+    return nums.length > 0 ? nums : null;
+  };
+  const a = parse(version);
+  const b = parse(min);
+  if (!a || !b) return false;
+  const len = Math.max(a.length, b.length);
+  for (let i = 0; i < len; i++) {
+    const x = a[i] ?? 0;
+    const y = b[i] ?? 0;
+    if (x !== y) return x > y;
+  }
+  return true;
+}
