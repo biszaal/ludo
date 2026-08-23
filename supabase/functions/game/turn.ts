@@ -169,25 +169,46 @@ export async function opTurn(
     }
   }
 
+  /**
+   * On a folding table the roll never wrote, so the row still says
+   * awaiting-roll when the move or pass arrives. Re-derive the die at this
+   * same version — the number the roller was already shown — and carry both
+   * transitions into the single write below.
+   *
+   * `working` is `state` untouched on every other path, so the non-folding
+   * sequence stays byte-identical to what it has always been.
+   */
+  let working = state;
+  if (
+    game.fold_writes &&
+    state.phase === "awaiting-roll" &&
+    (action === "move" || action === "pass")
+  ) {
+    const die = await deriveDie(gameId, v, me.id);
+    // Same precondition as the roll: an underivable die cannot be reproduced,
+    // so there is nothing to fold and the client must be on the writing path.
+    if (die !== null) working = rollDice(state, rngForDie(die)).newState;
+  }
+
   let next: GameState;
   if (action === "roll") {
     if (state.phase !== "awaiting-roll") return await reject("You already rolled.");
     next = rollDice(state, await rollRng(gameId, v, me.id)).newState;
   } else if (action === "pass") {
-    if (state.phase !== "awaiting-move") return await reject("Roll first.");
-    if (getValidMoves(state, me.id).length > 0) return await reject("You still have a move.");
-    next = endTurn(state);
+    if (working.phase !== "awaiting-move") return await reject("Roll first.");
+    if (getValidMoves(working, me.id).length > 0) return await reject("You still have a move.");
+    next = endTurn(working);
   } else {
-    if (state.phase !== "awaiting-move") return await reject("Roll first.");
-    const check = validateMove(state, { tokenId: tokenId ?? "" });
+    if (working.phase !== "awaiting-move") return await reject("Roll first.");
+    const check = validateMove(working, { tokenId: tokenId ?? "" });
     if (!check.valid) return await reject(check.reason ?? "Illegal move.");
-    next = applyMove(state, { tokenId: tokenId ?? "" });
+    next = applyMove(working, { tokenId: tokenId ?? "" });
   }
 
   const logged = {
     game_id: gameId,
     player_id: me.id,
-    action: { action, tokenId: tokenId ?? null, dice: next.diceValue },
+    action: { action, tokenId: tokenId ?? null, dice: next.diceValue ?? working.diceValue },
     ...(actionId ? { client_action_id: actionId } : {}),
   };
 

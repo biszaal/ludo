@@ -11,9 +11,16 @@
 
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { opTurn } from "./turn.ts";
-import type { SupabaseClient } from "./lib.ts";
+import { rngForDie, type SupabaseClient } from "./lib.ts";
 // @deno-types="../_shared/engine/index.d.ts"
-import { createGame, type GameState } from "../_shared/engine/index.js";
+import {
+  applyMove,
+  createGame,
+  endTurn,
+  getValidMoves,
+  rollDice,
+  type GameState,
+} from "../_shared/engine/index.js";
 
 const GAME = "33333333-3333-3333-3333-333333333333";
 const USER = "44444444-4444-4444-4444-444444444444";
@@ -41,11 +48,11 @@ function baseState(): GameState {
   );
 }
 
-function fake(foldWrites: boolean): Fake {
+function fake(foldWrites: boolean, startState: GameState = baseState()): Fake {
   const self: Fake = {
     admin: null as unknown as SupabaseClient,
     patches: [],
-    row: { state: baseState(), state_version: 0 },
+    row: { state: startState, state_version: 0 },
   };
 
   // deno-lint-ignore no-explicit-any
@@ -202,4 +209,117 @@ Deno.test("a retried roll on a folding table returns the die again, not a duplic
   assertEquals(retry.result.state.diceValue, first.result.state.diceValue);
   assertEquals(retry.result.duplicate, undefined);
   assertEquals(f.patches.length, 0);
+});
+
+// --- Task 5: the fold itself ------------------------------------------------
+
+/** Roll on a folding table (which writes nothing), then act. */
+async function rollThen(
+  f: Fake,
+  action: "move" | "pass",
+  tokenId?: string,
+): Promise<{ die: number; body: Record<string, unknown> }> {
+  const { result, sent } = await recordingBroadcasts(async () =>
+    await (await opTurn(f.admin, USER, GAME, "roll")).json()
+  );
+  const die = Number(sent[0]!.payload.die);
+  // The roll did not advance the version, so the act reads the same state.
+  const body = await recordingBroadcasts(async () =>
+    await (await opTurn(f.admin, USER, GAME, action, tokenId)).json()
+  );
+  void result;
+  return { die, body: body.result as Record<string, unknown> };
+}
+
+/**
+ * A position with red already on the board, so almost any die yields a legal
+ * move. Testing the fold only from the opening would be near-vacuous: every
+ * opener but a six is a dud, and the move path would never run.
+ */
+function redPawnOut(): GameState {
+  const opened = rollDice(baseState(), rngForDie(6)).newState;
+  const moves = getValidMoves(opened, opened.currentTurnPlayerId);
+  return applyMove(opened, { tokenId: moves[0]!.tokenId });
+}
+
+Deno.test("a move on a folding table applies the roll and the move in one write", async () => {
+  const start = redPawnOut();
+  // A six keeps the turn with red, so red is still to play here.
+  assertEquals(start.currentTurnPlayerId, "p1");
+  const f = fake(true, start);
+
+  const { sent } = await recordingBroadcasts(() => opTurn(f.admin, USER, GAME, "roll"));
+  const die = Number(sent[0]!.payload.die);
+  const rolled = rollDice(start, rngForDie(die)).newState;
+  const moves = getValidMoves(rolled, rolled.currentTurnPlayerId);
+  // With a pawn out this must not be vacuous — fail loudly if it becomes so.
+  assertEquals(moves.length > 0, true);
+
+  assertEquals(f.patches.length, 0); // the roll wrote nothing
+  await recordingBroadcasts(() => opTurn(f.admin, USER, GAME, "move", moves[0]!.tokenId));
+
+  assertEquals(f.patches.length, 1);
+  assertEquals(f.patches[0]!.state_version, 1);
+  // The single write is exactly the two transitions composed.
+  assertEquals(f.patches[0]!.state, applyMove(rolled, { tokenId: moves[0]!.tokenId }));
+});
+
+Deno.test("a pass on a folding table also costs one write", async () => {
+  const f = fake(true);
+  const { sent } = await recordingBroadcasts(() => opTurn(f.admin, USER, GAME, "roll"));
+  const die = Number(sent[0]!.payload.die);
+  const rolled = rollDice(baseState(), rngForDie(die)).newState;
+  if (getValidMoves(rolled, rolled.currentTurnPlayerId).length > 0) return; // not a dud
+
+  await recordingBroadcasts(() => opTurn(f.admin, USER, GAME, "pass"));
+
+  assertEquals(f.patches.length, 1);
+  assertEquals(f.patches[0]!.state_version, 1);
+});
+
+Deno.test("the folded write carries the same die the roller was shown", async () => {
+  const f = fake(true);
+  const { sent } = await recordingBroadcasts(() => opTurn(f.admin, USER, GAME, "roll"));
+  const shown = Number(sent[0]!.payload.die);
+  const rolled = rollDice(baseState(), rngForDie(shown)).newState;
+  const moves = getValidMoves(rolled, rolled.currentTurnPlayerId);
+  const action = moves.length > 0 ? "move" : "pass";
+
+  await recordingBroadcasts(() =>
+    opTurn(f.admin, USER, GAME, action, moves[0]?.tokenId)
+  );
+
+  const written = f.patches[0]!.state as GameState;
+  // On a pass the die is cleared by the handoff, so check what was applied via
+  // the resulting position instead: re-running the same transition must match.
+  const expected = moves.length > 0
+    ? applyMove(rollDice(baseState(), rngForDie(shown)).newState, { tokenId: moves[0]!.tokenId })
+    : endTurn(rollDice(baseState(), rngForDie(shown)).newState);
+  assertEquals(written, expected);
+});
+
+Deno.test("reconnecting mid-turn re-rolls to the same die", async () => {
+  // A client that drops after rolling refetches, sees awaiting-roll at v, and
+  // rolls again. Because the die derives from the unchanged v it gets the same
+  // number — self-healing, with no recovery path to write.
+  const f = fake(true);
+  const first = await recordingBroadcasts(() => opTurn(f.admin, USER, GAME, "roll"));
+  const again = await recordingBroadcasts(() => opTurn(f.admin, USER, GAME, "roll"));
+
+  assertEquals(Number(again.sent[0]!.payload.die), Number(first.sent[0]!.payload.die));
+  assertEquals(f.patches.length, 0);
+});
+
+Deno.test("a move on a non-folding table still costs two writes", async () => {
+  // Compatibility: live 1.0.1 tables keep today's exact sequence.
+  const f = fake(false);
+  await recordingBroadcasts(() => opTurn(f.admin, USER, GAME, "roll"));
+  assertEquals(f.patches.length, 1);
+
+  const rolledState = f.patches[0]!.state as GameState;
+  const moves = getValidMoves(rolledState, rolledState.currentTurnPlayerId);
+  const action = moves.length > 0 ? "move" : "pass";
+  await recordingBroadcasts(() => opTurn(f.admin, USER, GAME, action, moves[0]?.tokenId));
+
+  assertEquals(f.patches.length, 2);
 });
