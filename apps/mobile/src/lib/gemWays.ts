@@ -1,27 +1,23 @@
 /**
- * Whether the Shop's gem strip is worth drawing, and which halves of it are.
+ * Which ways into gems are live, and whether any of them are.
  *
- * The strip is a promotion surface, not a checkout: it shows the packs and the
- * rewarded ad, and hands the actual buying to the Gems sheet (which owns the
- * purchase state and is reachable from Home and the browser too). Pure, so the
+ * The Gems tab offers packs and a rewarded ad. Either can be switched off on
+ * its own, so "is there any way in at all" is a real question. Pure, so the
  * combinations can be tested without an ad SDK or a store.
  *
  * The rule it exists to hold: never draw a "Get gems" heading over nothing.
- * Each way in can be switched off on its own — `purchasesEnabled` is the
- * billing flag, the ad has its own placement kill switch — so "some way in is
- * live" is a real question rather than an obvious one.
  */
 
-export type GemStripView = {
-  /** Draw the strip at all. */
+export type GemWaysView = {
+  /** Any way in is live — draw the "Get gems" heading. */
   visible: boolean;
-  /** Draw the pack chips. */
+  /** Draw the pack rows. */
   showPacks: boolean;
-  /** Draw the watch-an-ad chip. */
+  /** Draw the watch-an-ad row. */
   showAd: boolean;
 };
 
-export function gemStripView(opts: {
+export function gemWaysView(opts: {
   /** gems.enabled — the whole premium tier. Off means the currency does not
    *  exist for this player, whatever the sub-placements say. */
   tierOn: boolean;
@@ -29,7 +25,7 @@ export function gemStripView(opts: {
   packsBuyable: boolean;
   /** The rewarded-ad row is showable (see gemAdRowView). */
   adVisible: boolean;
-}): GemStripView {
+}): GemWaysView {
   const { tierOn, packsBuyable, adVisible } = opts;
 
   const showPacks = tierOn && packsBuyable;

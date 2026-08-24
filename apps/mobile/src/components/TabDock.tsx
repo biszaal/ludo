@@ -35,6 +35,10 @@ import { space } from "../theme";
  * Apply a dock press. Which stack move it is depends on where you are — see
  * `tabNavOp`; the point is that hopping between doorways never stacks them.
  */
+export function goToTab(target: TabName): void {
+  go(useNav.getState().stack[useNav.getState().stack.length - 1]!.name, target);
+}
+
 function go(current: ScreenName, target: TabName): void {
   const nav = useNav.getState();
   const move = tabNavOp(current, target);

@@ -1,16 +1,16 @@
 /**
  * Shop — the one place to buy every cosmetic (avatars, boards, dice).
  *
- * Two bands, in the order a player needs them: how to get gems, then what to
- * spend them on. Header pills open the matching top-up sheets (coins → Get
- * coins, gems → Gems) and show the exact balance inside.
+ * The coins pill opens the Get coins sheet; the gems pill goes to the Gems
+ * tab, which is where gems live now.
  *
  * There used to be a PREMIUM rail above the browser, showcasing every
  * gem-priced item as a horizontal carousel. It went because it was redundant
  * as well as crowded: every item it showed appears in the browser directly
  * below it, so the top of the screen was spent saying the same thing twice.
- * GemStrip takes that space back for the one thing the browser cannot answer —
- * where gems come from.
+ *
+ * Where gems come from is the browser's fourth tab now, next to the three
+ * cosmetic kinds — one destination every gem pill in the app leads to.
  */
 
 import { useState } from "react";
@@ -22,15 +22,12 @@ import { useDockClearance } from "../components/TabDock";
 import { ContentColumn } from "../components/ContentColumn";
 import { CoinsPill } from "../components/CoinsPill";
 import { GemsPill } from "../components/GemsPill";
-import { GemStrip } from "../components/GemStrip";
 import { CosmeticsBrowser } from "../components/CosmeticsBrowser";
 import { GetCoinsSheet } from "../components/GetCoinsSheet";
-import { GetGemsSheet } from "../components/GetGemsSheet";
 import { palette, space } from "../theme";
 
 export function ShopScreen() {
   const [coinsSheet, setCoinsSheet] = useState(false);
-  const [gemsSheet, setGemsSheet] = useState(false);
 
   const dockPad = useDockClearance();
 
@@ -43,7 +40,7 @@ export function ShopScreen() {
         title="Shop"
         right={
           <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
-            <GemsPill compact onPress={() => setGemsSheet(true)} />
+            <GemsPill compact />
             <CoinsPill compact onPress={() => setCoinsSheet(true)} />
           </View>
         }
@@ -51,13 +48,11 @@ export function ShopScreen() {
 
       <ScrollView contentContainerStyle={{ paddingTop: space.lg, paddingBottom: space.xxl + dockPad, alignItems: "center" }}>
         <ContentColumn style={{ paddingHorizontal: space.xl, gap: space.lg }}>
-          <GemStrip onOpenGems={() => setGemsSheet(true)} />
           <CosmeticsBrowser mode="shop" />
         </ContentColumn>
       </ScrollView>
 
       {coinsSheet && <GetCoinsSheet onClose={() => setCoinsSheet(false)} />}
-      {gemsSheet && <GetGemsSheet onClose={() => setGemsSheet(false)} />}
     </SafeAreaView>
   );
 }

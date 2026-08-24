@@ -9,19 +9,10 @@ export interface AvatarArtSpec {
   shirt: string;
   style: string;
   tone: ChipTone;
-  pattern: string;
 }
 
-/** A single drawing instruction; `fill` for shapes, `color` for strokes/rings. */
-export interface ChipOp {
-  t: "path" | "circle" | "ring";
-  fill?: string;
-  color?: string;
-}
-
-export const CHIP_TONES: Record<ChipTone, { readonly top: string; readonly bottom: string }>;
-export const PATTERNS: string[];
-export function chipOps(spec: AvatarArtSpec): ChipOp[];
+/** One flat fill per tone — the chip has no gradient and no pattern. */
+export const CHIP_TONES: Record<ChipTone, string>;
 export const AVATARS: AvatarArtSpec[];
 export const OUT_DIR: string;
 

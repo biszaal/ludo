@@ -9,7 +9,7 @@ import { describe, it, expect } from "vitest";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-import { AVATARS, CHIP_TONES, PATTERNS, chipOps, contrastRatio, hslOf, parseColor, saturationOf } from "../scripts/gen-avatars.mjs";
+import { AVATARS, CHIP_TONES, contrastRatio, hslOf, parseColor, saturationOf } from "../scripts/gen-avatars.mjs";
 import { AVATAR_IDS, DEFAULT_AVATAR_ID, resolveAvatarId } from "../src/render/avatars";
 import { teamColor } from "../src/theme";
 
@@ -38,11 +38,16 @@ describe("avatar catalog", () => {
 });
 
 describe("avatar chip background", () => {
-  const toneStops = () =>
-    Object.entries(CHIP_TONES).flatMap(([name, t]) => [
-      [`${name}.top`, t.top] as const,
-      [`${name}.bottom`, t.bottom] as const,
-    ]);
+  const tones = () => Object.entries(CHIP_TONES) as [string, string][];
+
+  // The chip is a flat fill and nothing else — no gradient, no motif behind the
+  // character. A patterned chip reads as texture at 48pt on a player card and
+  // competes with the board mid-turn, which is what got the patterns removed.
+  it("is one plain color per tone", () => {
+    for (const [name, tone] of tones()) {
+      expect(tone, `chip ${name} is not a plain hex fill`).toMatch(/^#[0-9A-Fa-f]{6}$/);
+    }
+  });
 
   // The load-bearing rule. Hue distance alone is not enough: it collapses under
   // colorblindness (deuteranopia merges red and green; violet drifts toward
@@ -50,9 +55,9 @@ describe("avatar chip background", () => {
   // tinted paper next to the frame's vivid ring, whatever your color vision.
   it("stays paler and flatter than every seat color", () => {
     const seats = Object.entries(teamColor).map(([n, hex]) => [n, hslOf(hex)] as const);
-    for (const [name, stop] of toneStops()) {
-      const c = hslOf(stop);
-      expect(c.s, `chip ${name} (${stop}) is too saturated`).toBeLessThanOrEqual(0.35);
+    for (const [name, tone] of tones()) {
+      const c = hslOf(tone);
+      expect(c.s, `chip ${name} (${tone}) is too saturated`).toBeLessThanOrEqual(0.35);
       for (const [seat, sc] of seats) {
         expect(c.s, `chip ${name} is as saturated as the ${seat} seat`).toBeLessThan(sc.s);
         expect(c.l - sc.l, `chip ${name} is not clearly lighter than the ${seat} seat`).toBeGreaterThan(0.1);
@@ -65,15 +70,15 @@ describe("avatar chip background", () => {
   // band, which is the widest gap the seat hues leave (blue->red, 132deg).
   it("uses no seat colour family — only true greys and violets", () => {
     const VIOLET_BAND = [270, 330] as const;
-    for (const [name, stop] of toneStops()) {
-      const c = hslOf(stop);
+    for (const [name, tone] of tones()) {
+      const c = hslOf(tone);
       if (c.s < 0.06) {
-        const [r, g, b] = parseColor(stop);
-        expect(r === g && g === b, `chip ${name} (${stop}) is nearly grey but not exactly`).toBe(true);
+        const [r, g, b] = parseColor(tone);
+        expect(r === g && g === b, `chip ${name} (${tone}) is nearly grey but not exactly`).toBe(true);
         continue;
       }
-      expect(c.h, `chip ${name} (${stop}) is outside the violet band`).toBeGreaterThanOrEqual(VIOLET_BAND[0]);
-      expect(c.h, `chip ${name} (${stop}) is outside the violet band`).toBeLessThanOrEqual(VIOLET_BAND[1]);
+      expect(c.h, `chip ${name} (${tone}) is outside the violet band`).toBeGreaterThanOrEqual(VIOLET_BAND[0]);
+      expect(c.h, `chip ${name} (${tone}) is outside the violet band`).toBeLessThanOrEqual(VIOLET_BAND[1]);
     }
   });
 
@@ -83,37 +88,20 @@ describe("avatar chip background", () => {
       const d = Math.abs(a - b) % 360;
       return d > 180 ? 360 - d : d;
     };
-    for (const [name, stop] of toneStops()) {
-      const c = hslOf(stop);
+    for (const [name, tone] of tones()) {
+      const c = hslOf(tone);
       if (c.s < 0.06) continue; // a true grey has no hue to compare
       for (const [seat, h] of seatHues) {
-        expect(apart(c.h, h), `chip ${name} (${stop}) sits too near the ${seat} seat hue`).toBeGreaterThanOrEqual(40);
+        expect(apart(c.h, h), `chip ${name} (${tone}) sits too near the ${seat} seat hue`).toBeGreaterThanOrEqual(40);
       }
     }
   });
 
-  it("draws its pattern in pure black or white alpha, never a hue", () => {
-    // Patterns modulate tone only. Anything with a hue here could drift toward
-    // a seat color as the art changes.
+  it("gives every character a known tone", () => {
+    // Tones repeat on purpose — the chip is a backdrop, and a character is told
+    // apart by its face, hair and shirt (asserted below), never by its chip.
     for (const spec of AVATARS) {
-      for (const op of chipOps(spec)) {
-        const color = op.fill ?? op.color;
-        expect(color, `${spec.id}'s ${spec.pattern} pattern has a colorless op`).toBeDefined();
-        const [r, g, b] = parseColor(color!);
-        expect(r === g && g === b, `${spec.id}'s ${spec.pattern} pattern uses a hue: ${color}`).toBe(true);
-      }
-    }
-  });
-
-  it("gives every character a distinct tone and pattern pairing", () => {
-    const seen = new Map<string, string>();
-    for (const spec of AVATARS) {
-      expect(PATTERNS, `${spec.id} has an unknown pattern`).toContain(spec.pattern);
       expect(Object.keys(CHIP_TONES), `${spec.id} has an unknown tone`).toContain(spec.tone);
-      const key = `${spec.tone}|${spec.pattern}`;
-      const clash = seen.get(key);
-      expect(clash, `${spec.id} has the same chip as ${clash}`).toBeUndefined();
-      seen.set(key, spec.id);
     }
   });
 });
@@ -139,7 +127,7 @@ describe("avatar identity without a colored background", () => {
     // The head has a dark outline, so skin needs no contrast against the chip;
     // hair is drawn bare, so a pale hair color on a pale chip renders bald.
     for (const a of AVATARS) {
-      expect(contrastRatio(a.hair, CHIP_TONES[a.tone].top), `${a.id}'s hair vanishes into the chip`).toBeGreaterThan(2);
+      expect(contrastRatio(a.hair, CHIP_TONES[a.tone]), `${a.id}'s hair vanishes into the chip`).toBeGreaterThan(2);
     }
   });
 

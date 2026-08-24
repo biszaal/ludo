@@ -31,43 +31,47 @@ const DESIGN = 100; // the coordinate space all the path data is written in
 // --- Catalog ----------------------------------------------------------------
 
 /**
- * The chip tones. The seats own red, green, yellow and blue, so the chips use
- * none of those families: a tone is either a true grey (r === g === b, no hue
- * at all) or sits in the violet/magenta band, which is the widest gap the seat
- * hues leave — 132deg between blue at 226 and red at 358. Every violet here is
- * at least 40deg from all four.
+ * The chip tones — one flat color each, no gradient and no pattern behind the
+ * character. The chip is a background: anything drawn in it competes with the
+ * board during a turn, so it stays a single quiet fill.
+ *
+ * The seats own red, green, yellow and blue, so the chips use none of those
+ * families: a tone is either a true grey (r === g === b, no hue at all) or sits
+ * in the violet/magenta band, which is the widest gap the seat hues leave —
+ * 132deg between blue at 226 and red at 358. Every violet here is at least
+ * 40deg from all four.
  *
  * Hue is only half of it, and the weaker half — it collapses under
  * colorblindness. Every tone is also far paler and flatter than any seat
- * (sat <= 0.30 vs 0.56-0.86, light >= 0.74 vs 0.42-0.59), so the frame reads
+ * (sat <= 0.35 vs 0.56-0.86, light >= 0.80 vs 0.42-0.59), so the frame reads
  * as the color and the chip reads as tinted paper. See the tests in
  * __tests__/avatars.test.ts, which enforce all of it.
  */
 export const CHIP_TONES = {
-  pearl: { top: "#F0F0F0", bottom: "#C9C9C9" },
-  slate: { top: "#DEDEDE", bottom: "#B5B5B5" },
-  lilac: { top: "#EBE1EF", bottom: "#C8AAD5" },
-  violet: { top: "#EFE1EF", bottom: "#D5AAD5" },
-  orchid: { top: "#EEE1EC", bottom: "#D3AACB" },
+  pearl: "#EDEDED",
+  slate: "#D2D2D2",
+  lilac: "#E4D8EC",
+  violet: "#EBD9EC",
+  orchid: "#ECDAE8",
 };
 
 export const AVATARS = [
-  { id: "leo", skin: "#FFD9B3", hair: "#7A4A21", shirt: "#B98A3E", style: "crown", tone: "pearl", pattern: "halo" },
-  { id: "sunny", skin: "#FFE0C2", hair: "#E8542F", shirt: "#C07551", style: "spiky", tone: "pearl", pattern: "rays" },
-  { id: "coco", skin: "#8A5A3B", hair: "#26150B", shirt: "#4E8A6B", style: "afro", tone: "violet", pattern: "dots" },
-  { id: "zara", skin: "#C68642", hair: "#2B1B10", shirt: "#B06A82", style: "bun", tone: "orchid", pattern: "arcs" },
-  { id: "rex", skin: "#FFD9B3", hair: "#5A3A1E", shirt: "#5F76B0", style: "cap", tone: "slate", pattern: "bands" },
-  { id: "nina", skin: "#8A5A3B", hair: "#1E1208", shirt: "#8168AD", style: "pigtails", tone: "lilac", pattern: "split" },
-  { id: "milo", skin: "#FFE0C2", hair: "#B0722F", shirt: "#4C8C87", style: "side", tone: "violet", pattern: "checks" },
-  { id: "ivy", skin: "#F3C7A5", hair: "#C2572E", shirt: "#6E8C55", style: "beanie", tone: "pearl", pattern: "dots" },
-  { id: "ace", skin: "#E8B98A", hair: "#6E3FBF", shirt: "#6870AD", style: "headphones", tone: "lilac", pattern: "bands" },
-  { id: "ruby", skin: "#FFD9B3", hair: "#4A2C15", shirt: "#A85A5A", style: "bow", tone: "orchid", pattern: "rays" },
-  { id: "bruno", skin: "#E8B98A", hair: "#3D2A1A", shirt: "#B08A55", style: "beard", tone: "pearl", pattern: "checks" },
-  { id: "kito", skin: "#F5B78D", hair: "#E88A3C", shirt: "#6B8395", style: "cat", tone: "pearl", pattern: "split" },
+  { id: "leo", skin: "#FFD9B3", hair: "#7A4A21", shirt: "#B98A3E", style: "crown", tone: "pearl" },
+  { id: "sunny", skin: "#FFE0C2", hair: "#E8542F", shirt: "#C07551", style: "spiky", tone: "pearl" },
+  { id: "coco", skin: "#8A5A3B", hair: "#26150B", shirt: "#4E8A6B", style: "afro", tone: "violet" },
+  { id: "zara", skin: "#C68642", hair: "#2B1B10", shirt: "#B06A82", style: "bun", tone: "orchid" },
+  { id: "rex", skin: "#FFD9B3", hair: "#5A3A1E", shirt: "#5F76B0", style: "cap", tone: "slate" },
+  { id: "nina", skin: "#8A5A3B", hair: "#1E1208", shirt: "#8168AD", style: "pigtails", tone: "lilac" },
+  { id: "milo", skin: "#FFE0C2", hair: "#B0722F", shirt: "#4C8C87", style: "side", tone: "violet" },
+  { id: "ivy", skin: "#F3C7A5", hair: "#C2572E", shirt: "#6E8C55", style: "beanie", tone: "pearl" },
+  { id: "ace", skin: "#E8B98A", hair: "#6E3FBF", shirt: "#6870AD", style: "headphones", tone: "lilac" },
+  { id: "ruby", skin: "#FFD9B3", hair: "#4A2C15", shirt: "#A85A5A", style: "bow", tone: "orchid" },
+  { id: "bruno", skin: "#E8B98A", hair: "#3D2A1A", shirt: "#B08A55", style: "beard", tone: "pearl" },
+  { id: "kito", skin: "#F5B78D", hair: "#E88A3C", shirt: "#6B8395", style: "cat", tone: "pearl" },
   // The gem tier (0018 seed) — same drawn styles, premium shirt tones.
-  { id: "nova", skin: "#F3C7A5", hair: "#8E86AD", shirt: "#7A6BB5", style: "spiky", tone: "lilac", pattern: "halo" },
-  { id: "onyx", skin: "#C68642", hair: "#0B0C0F", shirt: "#2A2E36", style: "cap", tone: "slate", pattern: "checks" },
-];;
+  { id: "nova", skin: "#F3C7A5", hair: "#8E86AD", shirt: "#7A6BB5", style: "spiky", tone: "lilac" },
+  { id: "onyx", skin: "#C68642", hair: "#0B0C0F", shirt: "#2A2E36", style: "cap", tone: "slate" },
+];
 
 const NEUTRAL_BROW = "#5A4632";
 
@@ -230,58 +234,6 @@ function buildOps(spec) {
     { t: "oval", cx: 67, cy: 62, rx: 4.5, ry: 2.8, fill: "rgba(255,120,120,0.35)" },
   );
   return ops;
-}
-
-export const PATTERNS = ["checks", "halo", "rays", "dots", "arcs", "bands", "split"];
-
-const INK = "rgba(0,0,0,0.085)";
-const LIFT = "rgba(255,255,255,0.55)";
-
-/**
- * The chip's pattern, drawn between the gradient and the character. Coarse on
- * purpose — the chip renders at 48pt on a player card, where fine texture just
- * turns to mud. Every shape is black or white alpha, so a pattern can only
- * darken or lighten the tone, never tint it toward a seat color.
- */
-export function chipOps(spec) {
-  switch (spec.pattern) {
-    case "checks":
-      // Two opposing quadrants — the coarsest pattern here, and the one that
-      // survives furthest down the size range.
-      return [
-        { t: "path", d: "M0 0 L50 0 L50 50 L0 50 Z", fill: INK },
-        { t: "path", d: "M50 50 L100 50 L100 100 L50 100 Z", fill: INK },
-      ];
-    case "halo":
-      return [{ t: "ring", cx: 50, cy: 50, r: 41, color: INK, w: 13 }];
-    case "rays": {
-      // Six wedges of twelve, alternating. Radius overshoots the chip so the
-      // straight chords still cover past the rim before it is clipped.
-      const ops = [];
-      for (let i = 0; i < 12; i += 2) {
-        const a0 = (i / 12) * Math.PI * 2, a1 = ((i + 1) / 12) * Math.PI * 2;
-        const pt = (a) => `${(50 + 80 * Math.cos(a)).toFixed(2)} ${(50 + 80 * Math.sin(a)).toFixed(2)}`;
-        ops.push({ t: "path", d: `M50 50 L${pt(a0)} L${pt(a1)} Z`, fill: INK });
-      }
-      return ops;
-    }
-    case "dots":
-      return [[20, 20], [50, 11], [80, 20], [11, 50], [89, 50], [23, 79], [77, 79]]
-        .map(([cx, cy]) => ({ t: "circle", cx, cy, r: 9, fill: INK }));
-    case "arcs":
-      return [22, 34, 46].map((r) => ({ t: "ring", cx: 50, cy: 50, r, color: INK, w: 6 }));
-    case "bands": {
-      const ops = [];
-      for (let x = -60; x < 110; x += 34) {
-        ops.push({ t: "path", d: `M${x} -10 L${x + 17} -10 L${x + 137} 110 L${x + 120} 110 Z`, fill: INK });
-      }
-      return ops;
-    }
-    case "split":
-      return [{ t: "path", d: "M0 0 L100 0 L0 100 Z", fill: LIFT }];
-    default:
-      throw new Error(`unknown chip pattern: ${spec.pattern}`);
-  }
 }
 
 /**
@@ -557,14 +509,9 @@ function strokePolys(cv, polys, color, width, opacity = 1) {
 }
 
 /** Vertical linear gradient across the whole design box. */
-function fillGradient(cv, top, bottom) {
-  const [r0, g0, b0] = parseColor(top);
-  const [r1, g1, b1] = parseColor(bottom);
-  for (let y = 0; y < cv.size; y++) {
-    const t = (y + 0.5) / cv.size;
-    const r = r0 + (r1 - r0) * t, g = g0 + (g1 - g0) * t, b = b0 + (b1 - b0) * t;
-    for (let x = 0; x < cv.size; x++) blend(cv, (y * cv.size + x) * 4, r, g, b, 1);
-  }
+function fillFlat(cv, color) {
+  const [r, g, b] = parseColor(color);
+  for (let i = 0; i < cv.px.length; i += 4) blend(cv, i, r, g, b, 1);
 }
 
 /** Multiplies alpha by an antialiased disc — the chip's clip. */
@@ -612,8 +559,8 @@ export function renderAvatar(spec, size = OUT_SIZE) {
   const cv = makeCanvas(size * SS);
   const tone = CHIP_TONES[spec.tone];
   if (!tone) throw new Error(`${spec.id}: unknown chip tone ${spec.tone}`);
-  fillGradient(cv, tone.top, tone.bottom);
-  for (const o of [...chipOps(spec), ...buildOps(spec)]) {
+  fillFlat(cv, tone);
+  for (const o of buildOps(spec)) {
     switch (o.t) {
       case "path": fillPolys(cv, parsePath(o.d), o.fill, o.op ?? 1); break;
       case "stroke": strokePolys(cv, parsePath(o.d), o.color, o.w, o.op ?? 1); break;

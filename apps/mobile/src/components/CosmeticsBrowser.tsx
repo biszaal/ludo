@@ -20,13 +20,14 @@ import { ThemeSwatch } from "./ThemeSwatch";
 import { DiceSwatch } from "./DiceSwatch";
 import { CosmeticPreview } from "./CosmeticPreview";
 import { BuySheet } from "./PriceTag";
-import { GetGemsSheet } from "./GetGemsSheet";
+import { GemsSection } from "./GemsSection";
+import { goToTab } from "./TabDock";
 import { Button } from "./Button";
 import { resolveAvatarId } from "../render/avatars";
 import { BOARD_THEMES, type BoardThemeId } from "../render/boardThemes";
 import { DICE_SKINS, resolveDiceSkin, type DiceSkinId } from "../render/diceSkins";
 import { cosmeticItems, ownedItems, sellableItems, type CosmeticCategory, type CosmeticItem } from "../lib/cosmetics";
-import { useCosmeticsUI } from "../store/cosmeticsUI";
+import { useCosmeticsUI, type ShopTab } from "../store/cosmeticsUI";
 import { currencyOf, isUnlocked, priceOf, useEntitlements } from "../store/entitlementsStore";
 import { useProfile } from "../store/profileStore";
 import { useSettings } from "../store/settingsStore";
@@ -34,7 +35,7 @@ import { useWallet } from "../store/walletStore";
 import { useNav } from "../store/navStore";
 import { font, palette, radius, space } from "../theme";
 
-const TABS: { key: CosmeticCategory; label: string }[] = [
+const TABS: { key: ShopTab; label: string }[] = [
   { key: "avatar", label: "Avatar" },
   { key: "board", label: "Board" },
   { key: "dice", label: "Dice" },
@@ -44,6 +45,12 @@ const COLS = 4;
 
 export function CosmeticsBrowser({ mode }: { mode: "locker" | "shop" }) {
   const category = useCosmeticsUI((s) => s.category);
+  const tab = useCosmeticsUI((s) => s.tab);
+  const setTab = useCosmeticsUI((s) => s.setTab);
+  // Gems are not a cosmetic and the locker has no business selling them, so
+  // the fourth tab exists in the Shop only.
+  const tabs = mode === "shop" ? [...TABS, { key: "gems" as const, label: "Gems" }] : TABS;
+  const showingGems = mode === "shop" && tab === "gems";
   const setCategory = useCosmeticsUI((s) => s.setCategory);
 
   const owned = useEntitlements((s) => s.owned);
@@ -71,7 +78,6 @@ export function CosmeticsBrowser({ mode }: { mode: "locker" | "shop" }) {
   });
   const [pending, setPending] = useState<{ category: CosmeticCategory; item: CosmeticItem } | null>(null);
   const [buyError, setBuyError] = useState<string | null>(null);
-  const [gemsSheet, setGemsSheet] = useState(false);
 
   // Ownership is server-held; this surface only reflects it.
   useEffect(() => {
@@ -139,14 +145,14 @@ export function CosmeticsBrowser({ mode }: { mode: "locker" | "shop" }) {
           borderColor: palette.hairline,
         }}
       >
-        {TABS.map((t) => {
-          const active = t.key === category;
+        {tabs.map((t) => {
+          const active = t.key === (mode === "shop" ? tab : category);
           return (
             <Pressable
               key={t.key}
               accessibilityRole="tab"
               accessibilityState={{ selected: active }}
-              onPress={() => setCategory(t.key)}
+              onPress={() => (mode === "shop" ? setTab(t.key) : setCategory(t.key as CosmeticCategory))}
               style={{
                 flex: 1,
                 paddingVertical: space.sm,
@@ -169,6 +175,7 @@ export function CosmeticsBrowser({ mode }: { mode: "locker" | "shop" }) {
         })}
       </View>
 
+      {showingGems ? <GemsSection /> : <>
       {/* Hero preview + caption */}
       <View style={{ gap: space.sm }}>
         <CosmeticPreview category={category} itemId={highlightId} boardTheme={boardTheme} />
@@ -235,6 +242,7 @@ export function CosmeticsBrowser({ mode }: { mode: "locker" | "shop" }) {
       {mode === "locker" ? (
         <Button label="Shop for more" variant="ghost" onPress={() => push("shop")} />
       ) : null}
+      </>}
 
       {pending ? (
         <BuySheet
@@ -249,15 +257,17 @@ export function CosmeticsBrowser({ mode }: { mode: "locker" | "shop" }) {
           onGetCurrency={
             currencyOf(currencies, pending.item.sku) === "gems"
               ? () => {
+                  // Straight to where gems come from — the same destination the
+                  // gem pill goes to, rather than a sheet over a sheet.
                   setPending(null);
-                  setGemsSheet(true);
+                  setTab("gems");
+                  goToTab("shop");
                 }
               : undefined
           }
         />
       ) : null}
 
-      {gemsSheet ? <GetGemsSheet onClose={() => setGemsSheet(false)} /> : null}
     </View>
   );
 }

@@ -28,7 +28,6 @@ import { ProfileChip } from "../components/ProfileChip";
 import { CoinsPill } from "../components/CoinsPill";
 import { GemsPill } from "../components/GemsPill";
 import { GetCoinsSheet } from "../components/GetCoinsSheet";
-import { GetGemsSheet } from "../components/GetGemsSheet";
 import { DailyBonusSheet } from "../components/DailyBonusSheet";
 import { AdSlot } from "../components/AdSlot";
 import { CycleGlyph, PeopleGlyph } from "../components/HomeGlyphs";
@@ -56,7 +55,6 @@ export function HomeScreen() {
   const [coinsSheet, setCoinsSheet] = useState(false);
   const [roomSheet, setRoomSheet] = useState(false);
   const [quickSheet, setQuickSheet] = useState(false);
-  const [gemsSheet, setGemsSheet] = useState(false);
   const [bonusSheet, setBonusSheet] = useState(false);
   const [dioramaBox, setDioramaBox] = useState({ w: 0, h: 0 });
   const newLocalGame = useGameStore((s) => s.newLocalGame);
@@ -129,7 +127,7 @@ export function HomeScreen() {
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: space.lg, paddingTop: metrics.headerPad }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
           <CoinsPill onPress={() => setCoinsSheet(true)} />
-          <GemsPill onPress={() => setGemsSheet(true)} />
+          <GemsPill />
         </View>
         <ProfileChip />
       </View>
@@ -228,7 +226,6 @@ export function HomeScreen() {
 
       {coinsSheet && <GetCoinsSheet onClose={() => setCoinsSheet(false)} onDailyBonus={() => { setCoinsSheet(false); setBonusSheet(true); }} />}
       {bonusSheet && <DailyBonusSheet onClose={() => setBonusSheet(false)} />}
-      {gemsSheet && <GetGemsSheet onClose={() => setGemsSheet(false)} />}
       {roomSheet && <RoomSheet onClose={() => setRoomSheet(false)} />}
       {quickSheet && (
         <QuickSetupSheet
