@@ -53,7 +53,12 @@ async function validRoomStake(admin: SupabaseClient, raw: number | null): Promis
   return tiers.includes(raw) ? raw : null;
 }
 
-export async function opCreate(admin: SupabaseClient, userId: string, rawStake: number | null): Promise<Response> {
+export async function opCreate(
+  admin: SupabaseClient,
+  userId: string,
+  rawStake: number | null,
+  appVersion: string | null,
+): Promise<Response> {
   if (!(await rateOk(admin, userId, "roomCreate", LIMITS.roomCreate))) return rateLimited();
 
   const stake = await validRoomStake(admin, rawStake);
@@ -76,7 +81,7 @@ export async function opCreate(admin: SupabaseClient, userId: string, rawStake: 
   // same rotation, so this and the dealt color agree.
   const { data: player, error: pErr } = await admin
     .from("players")
-    .insert({ game_id: game.id, user_id: userId, color: seatColor(0, game.id), seat: 0, is_host: true })
+    .insert({ game_id: game.id, user_id: userId, color: seatColor(0, game.id), seat: 0, is_host: true, app_version: appVersion })
     .select("id")
     .single();
   if (pErr || !player) return safeError("room.seatHost", pErr, "Could not seat host.");
@@ -84,7 +89,12 @@ export async function opCreate(admin: SupabaseClient, userId: string, rawStake: 
   return json({ gameId: game.id, roomCode: game.roomCode, playerId: player.id, stake });
 }
 
-export async function opJoin(admin: SupabaseClient, userId: string, rawCode: string): Promise<Response> {
+export async function opJoin(
+  admin: SupabaseClient,
+  userId: string,
+  rawCode: string,
+  appVersion: string | null,
+): Promise<Response> {
   const roomCode = rawCode.trim().toUpperCase();
   const { data: game } = await admin
     .from("games")
@@ -103,7 +113,7 @@ export async function opJoin(admin: SupabaseClient, userId: string, rawCode: str
   const seat = existing?.length ?? 0;
   const { data: player, error } = await admin
     .from("players")
-    .insert({ game_id: game.id, user_id: userId, color: seatColor(seat, String(game.id)), seat })
+    .insert({ game_id: game.id, user_id: userId, color: seatColor(seat, String(game.id)), seat, app_version: appVersion })
     .select("id")
     .single();
   if (error || !player) return json({ error: error?.message ?? "Could not join." });

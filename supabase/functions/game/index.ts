@@ -89,15 +89,20 @@ Deno.serve(async (req: Request) => {
     // a signed-in caller.
     if (body.op === "tick") return await opTick(admin, req);
 
+    // Which build is speaking. Absent from every client shipped before the
+    // handshake existed, and null is the honest record of that — the fold gate
+    // downstream must read "unknown" as "cannot fold", never as "current".
+    const appVersion = typeof body.appVersion === "string" ? body.appVersion : null;
+
     const token = (req.headers.get("Authorization") ?? "").replace("Bearer ", "");
     const userId = await authUserId(admin, token);
     if (!userId) return json({ error: "Not authenticated." });
 
     switch (body.op) {
       case "create":
-        return await opCreate(admin, userId, body.stake == null ? null : Number(body.stake));
+        return await opCreate(admin, userId, body.stake == null ? null : Number(body.stake), appVersion);
       case "join":
-        return await opJoin(admin, userId, String(body.code ?? ""));
+        return await opJoin(admin, userId, String(body.code ?? ""), appVersion);
       case "start":
         return await opStart(admin, userId, String(body.gameId), body.fill === true);
       case "prepareRoll":
@@ -120,7 +125,13 @@ Deno.serve(async (req: Request) => {
       case "leave":
         return await opLeave(admin, userId, String(body.gameId));
       case "quickMatch":
-        return await opQuickMatch(admin, userId, Number(body.size ?? 2), body.stake == null ? null : Number(body.stake));
+        return await opQuickMatch(
+          admin,
+          userId,
+          Number(body.size ?? 2),
+          body.stake == null ? null : Number(body.stake),
+          appVersion,
+        );
       case "quickBotFill":
         return await opQuickBotFill(admin, userId, String(body.gameId));
       case "config":

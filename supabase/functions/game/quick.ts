@@ -9,6 +9,7 @@
 // @deno-types="../_shared/engine/index.d.ts"
 import type { GameState } from "../_shared/engine/index.js";
 import {
+  afterResponse,
   insertGameWithCode,
   json,
   LIMITS,
@@ -37,6 +38,7 @@ export async function opQuickMatch(
   userId: string,
   rawSize: number,
   rawStake: number | null,
+  appVersion: string | null,
 ): Promise<Response> {
   if (!(await rateOk(admin, userId, "quickMatch", LIMITS.quickMatch))) return rateLimited();
   const size = rawSize === 4 ? 4 : 2;
@@ -80,6 +82,11 @@ export async function opQuickMatch(
     const gameId = String(claimed.game_id);
     const playerId = String(claimed.player_id);
     const seated = Number(claimed.seated ?? size);
+    // The seat was inserted inside quick_match_claim, so stamp it here rather
+    // than adding a parameter to an RPC whose signature is kept stable across
+    // deploys on purpose (0018). Fire-and-forget: a lost stamp reads as "old
+    // client" downstream, which is the safe direction to fail.
+    afterResponse(admin.from("players").update({ app_version: appVersion }).eq("id", playerId));
     // Seat first, stake second: an overdraw hands the seat straight back.
     const debited = await walletApply(admin, userId, -stake, "stake", gameId);
     if (debited === null) {
@@ -112,7 +119,7 @@ export async function opQuickMatch(
     .from("players")
     // Unrotated, like quick_match_claim's seats (see opQuickBotFill): the
     // colors that actually play are chosen by the deal.
-    .insert({ game_id: game.id, user_id: userId, color: "red", seat: 0, is_host: true })
+    .insert({ game_id: game.id, user_id: userId, color: "red", seat: 0, is_host: true, app_version: appVersion })
     .select("id")
     .single();
   if (pErr || !player) {
