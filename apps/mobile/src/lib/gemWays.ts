@@ -33,3 +33,20 @@ export function gemWaysView(opts: {
 
   return { visible: showPacks || showAd, showPacks, showAd };
 }
+
+/** Which of GemHoard's three tiers a pack earns. */
+export type HoardTier = "small" | "medium" | "large";
+
+/**
+ * Chosen by position in the lineup, never by gem count.
+ *
+ * The packs come from server config and their sizes move — 0051 has already
+ * moved the economy around them once — so keying the art to "750 means chest"
+ * would quietly mismatch the moment someone retunes a pack. Cheapest gets the
+ * loose stones, dearest gets the chest, everything between gets the heap.
+ */
+export function hoardTierFor(index: number, total: number): HoardTier {
+  if (total <= 1 || index >= total - 1) return "large";
+  if (index === 0) return "small";
+  return "medium";
+}

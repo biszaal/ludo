@@ -1,9 +1,11 @@
 /**
- * One line in the gem economy: a pack, a rewarded ad, an exchange.
+ * A plain line in the gem economy — now just the coin exchanges.
  *
- * Shared by the Gems sheet and the Shop's Gems tab so the two surfaces cannot
- * drift apart — they show the same things and should read identically wherever
- * a player meets them.
+ * The packs and the rewarded ad graduated to cards with their own art, because
+ * those are the offers a player is choosing BETWEEN and the art does the
+ * comparing. An exchange is not an offer, it is a conversion at a fixed rate:
+ * three amounts of the same trade, where a row is the honest shape and cards
+ * would be three pieces of furniture pretending to be a decision.
  *
  * `dimmed` and `disabled` are deliberately different. Dimmed still takes the
  * tap, because the greyest row here ("None left today") is the one a player is

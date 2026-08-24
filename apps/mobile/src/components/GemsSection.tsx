@@ -17,11 +17,14 @@
 
 import { useEffect, useState } from "react";
 import { Text, View } from "react-native";
+import { Pressable } from "react-native";
 import { GemRow } from "./GemRow";
+import { GemHoard } from "./GemHoard";
+import { Surface3D } from "./Surface3D";
 import { SectionLabel } from "./SectionLabel";
 import { gemAdRowView } from "../lib/gemAdRow";
 import { gemPriceView } from "../lib/gemPricing";
-import { gemWaysView } from "../lib/gemWays";
+import { gemWaysView, hoardTierFor } from "../lib/gemWays";
 import { formatCompact } from "../lib/format";
 import { playSound } from "../lib/sound";
 import { getGemProducts, isPurchasesConfigured } from "../lib/purchases";
@@ -32,7 +35,7 @@ import { confirm, notice } from "../store/confirmStore";
 import { exchangeGemsPrompt } from "../lib/gemPrompts";
 import { useWallet } from "../store/walletStore";
 import { useConfig } from "../store/configStore";
-import { font, palette, space } from "../theme";
+import { font, palette, radius, space, teamColor } from "../theme";
 
 const EXCHANGE_PRESETS = [10, 50, 100];
 
@@ -130,29 +133,31 @@ export function GemsSection() {
 
       {ways.visible ? <SectionLabel>Get gems</SectionLabel> : null}
 
-      {ways.showPacks
-        ? packs.map((p) => (
-            <GemRow
+      {ways.showPacks ? (
+        <View style={{ flexDirection: "row", gap: space.sm }}>
+          {packs.map((p, i) => (
+            <PackCard
               key={p.id}
-              title={`${p.gems} gems`}
-              subtitle={p.view.label}
+              gems={p.gems}
+              price={p.view.label}
+              tier={hoardTierFor(i, packs.length)}
               disabled={!p.view.buyable || busy}
               // Straight to the store's own confirmation — it names the price
               // and takes the approval, so nothing useful sits in front of it.
               onPress={() => void run(() => buyGems(p.id), (n) => `+${n} gems`)}
             />
-          ))
-        : null}
+          ))}
+        </View>
+      ) : null}
 
       {ways.showAd ? (
-        <GemRow
-          title="Watch an ad"
-          subtitle={ad.label}
-          // Spent is DIMMED, not disabled: the tap still lands so the row can
-          // say why it is grey.
-          dimmed={ad.spent}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Watch an ad for gems. ${ad.label}`}
           disabled={busy}
           onPress={() => {
+            // Spent is DIMMED, not disabled: the tap still lands so the row can
+            // say why it is grey.
             if (ad.spent) {
               void notice({ title: "That's all for today", message: CAP_MESSAGE });
               return;
@@ -173,7 +178,38 @@ export function GemsSection() {
               "",
             );
           }}
-        />
+        >
+          {({ pressed }) => (
+            <Surface3D
+              pressed={pressed && !ad.spent && !busy}
+              rad={radius.md}
+              style={{ opacity: ad.spent || busy ? 0.5 : 1 }}
+              faceStyle={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: space.md,
+                paddingVertical: space.md,
+                paddingHorizontal: space.lg,
+              }}
+            >
+              <GemHoard tier="small" size={44} />
+              <View style={{ flex: 1, gap: 1 }}>
+                <Text style={{ fontFamily: font.semibold, fontSize: 16, color: palette.porcelain }}>
+                  Watch an ad
+                </Text>
+                <Text style={{ fontFamily: font.regular, fontSize: 12, color: palette.mutedSteel }}>
+                  {ad.label}
+                </Text>
+              </View>
+              {/* Marigold, alone on the screen: the one thing here that costs
+                  nothing, and the only place the free-vs-paid split is stated
+                  in colour rather than words. */}
+              <Text style={{ fontFamily: font.display, fontSize: 18, color: teamColor.yellow }}>
+                {ad.spent ? "—" : `+${quota?.amount ?? cfg.adGrant.amount}`}
+              </Text>
+            </Surface3D>
+          )}
+        </Pressable>
       ) : null}
 
       <SectionLabel>Exchange for coins</SectionLabel>
@@ -201,5 +237,53 @@ export function GemsSection() {
         Gems unlock premium looks and convert to coins. They never affect how a game plays out.
       </Text>
     </View>
+  );
+}
+
+/**
+ * One pack, sold by its hoard rather than its number.
+ *
+ * The art does the comparing — loose stones, a heap, a chest — so the eye picks
+ * a tier before it reads a digit. Everything else stays quiet: one count, one
+ * price, no badges, no "best value" ribbon. The chest is the loudest thing here
+ * and that is the whole point.
+ */
+function PackCard({
+  gems,
+  price,
+  tier,
+  disabled,
+  onPress,
+}: {
+  gems: number;
+  price: string;
+  tier: "small" | "medium" | "large";
+  disabled: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Buy ${gems} gems, ${price}`}
+      accessibilityState={{ disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      style={{ flex: 1 }}
+    >
+      {({ pressed }) => (
+        <Surface3D
+          pressed={pressed && !disabled}
+          rad={radius.md}
+          style={{ opacity: disabled ? 0.5 : 1 }}
+          faceStyle={{ alignItems: "center", paddingVertical: space.md, paddingHorizontal: space.xs, gap: 2 }}
+        >
+          <GemHoard tier={tier} size={72} />
+          <Text style={{ fontFamily: font.display, fontSize: 20, color: palette.porcelain }}>{gems}</Text>
+          <Text numberOfLines={1} style={{ fontFamily: font.mono, fontSize: 12, color: palette.mutedSteel }}>
+            {price}
+          </Text>
+        </Surface3D>
+      )}
+    </Pressable>
   );
 }

@@ -12,7 +12,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { gemWaysView } from "../src/lib/gemWays";
+import { gemWaysView, hoardTierFor } from "../src/lib/gemWays";
 
 describe("gemWaysView", () => {
   it("shows both ways in when both are live", () => {
@@ -45,5 +45,31 @@ describe("gemWaysView", () => {
     expect(v.visible).toBe(false);
     expect(v.showPacks).toBe(false);
     expect(v.showAd).toBe(false);
+  });
+});
+
+describe("hoardTierFor", () => {
+  // Packs are server config and their sizes move, so the art is chosen by
+  // position in the lineup, never by a hard-coded gem count.
+  it("gives the cheapest pack the smallest hoard and the dearest the chest", () => {
+    expect(hoardTierFor(0, 3)).toBe("small");
+    expect(hoardTierFor(1, 3)).toBe("medium");
+    expect(hoardTierFor(2, 3)).toBe("large");
+  });
+
+  it("gives everything between the ends the middle hoard", () => {
+    expect(hoardTierFor(1, 5)).toBe("medium");
+    expect(hoardTierFor(2, 5)).toBe("medium");
+    expect(hoardTierFor(3, 5)).toBe("medium");
+  });
+
+  it("shows a chest when there is only one pack to show", () => {
+    // A lone pack is the best pack on offer, so it gets the best art.
+    expect(hoardTierFor(0, 1)).toBe("large");
+  });
+
+  it("has no middle to give when there are only two packs", () => {
+    expect(hoardTierFor(0, 2)).toBe("small");
+    expect(hoardTierFor(1, 2)).toBe("large");
   });
 });
