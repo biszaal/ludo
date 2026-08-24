@@ -32,7 +32,7 @@ import { watchForReward } from "../lib/ads/rewarded";
 import { adRewardQuota, type AdRewardQuota } from "../net/api";
 import { useAdsReady } from "../lib/ads/useAdsReady";
 import { confirm, notice } from "../store/confirmStore";
-import { exchangeGemsPrompt } from "../lib/gemPrompts";
+import { buyGemsPrompt, exchangeGemsPrompt } from "../lib/gemPrompts";
 import { useWallet } from "../store/walletStore";
 import { useConfig } from "../store/configStore";
 import { font, palette, radius, space, teamColor } from "../theme";
@@ -142,9 +142,16 @@ export function GemsSection() {
               price={p.view.label}
               tier={hoardTierFor(i, packs.length)}
               disabled={!p.view.buyable || busy}
-              // Straight to the store's own confirmation — it names the price
-              // and takes the approval, so nothing useful sits in front of it.
-              onPress={() => void run(() => buyGems(p.id), (n) => `+${n} gems`)}
+              onPress={async () => {
+                // Normally straight to the store's own sheet: it names the
+                // price and takes the approval, so asking first would confirm
+                // one decision twice. The dev stub has no sheet, and without
+                // this a tap would grant a pack with nothing in between —
+                // which is exactly what it looked like.
+                if (busy) return;
+                if (p.view.confirmFirst && !(await confirm(buyGemsPrompt(p.gems, prices[p.id])))) return;
+                await run(() => buyGems(p.id), (n) => `+${n} gems`);
+              }}
             />
           ))}
         </View>
@@ -156,8 +163,15 @@ export function GemsSection() {
           accessibilityLabel={`Watch an ad for gems. ${ad.label}`}
           disabled={busy}
           onPress={() => {
-            // Spent is DIMMED, not disabled: the tap still lands so the row can
-            // say why it is grey.
+            // Both greyed states still take the tap, because a dead button
+            // explains nothing and these are the two a player pokes twice.
+            if (ad.unavailable) {
+              void notice({
+                title: "Ads aren't ready",
+                message: "This build can't show an ad right now. Gem packs still work.",
+              });
+              return;
+            }
             if (ad.spent) {
               void notice({ title: "That's all for today", message: CAP_MESSAGE });
               return;
@@ -181,9 +195,9 @@ export function GemsSection() {
         >
           {({ pressed }) => (
             <Surface3D
-              pressed={pressed && !ad.spent && !busy}
+              pressed={pressed && !ad.spent && !ad.unavailable && !busy}
               rad={radius.md}
-              style={{ opacity: ad.spent || busy ? 0.5 : 1 }}
+              style={{ opacity: ad.spent || ad.unavailable || busy ? 0.5 : 1 }}
               faceStyle={{
                 flexDirection: "row",
                 alignItems: "center",
@@ -205,7 +219,7 @@ export function GemsSection() {
                   nothing, and the only place the free-vs-paid split is stated
                   in colour rather than words. */}
               <Text style={{ fontFamily: font.display, fontSize: 18, color: teamColor.yellow }}>
-                {ad.spent ? "—" : `+${quota?.amount ?? cfg.adGrant.amount}`}
+                {ad.spent || ad.unavailable ? "—" : `+${quota?.amount ?? cfg.adGrant.amount}`}
               </Text>
             </Surface3D>
           )}

@@ -16,7 +16,7 @@ const base = { purchasesEnabled: true, storeConfigured: true, pricesLoaded: true
 
 describe("gemPriceView", () => {
   it("shows the store's localized string verbatim", () => {
-    expect(gemPriceView({ ...base, storePrice: "₹89.00" })).toEqual({ label: "₹89.00", buyable: true });
+    expect(gemPriceView({ ...base, storePrice: "₹89.00" })).toEqual({ label: "₹89.00", buyable: true, confirmFirst: false });
     expect(gemPriceView({ ...base, storePrice: "£0.99" }).label).toBe("£0.99");
   });
 
@@ -27,13 +27,14 @@ describe("gemPriceView", () => {
   });
 
   it("admits the pack is unavailable once the fetch came back empty", () => {
-    expect(gemPriceView({ ...base, storePrice: undefined })).toEqual({ label: "Unavailable", buyable: false });
+    expect(gemPriceView({ ...base, storePrice: undefined })).toEqual({ label: "Unavailable", buyable: false, confirmFirst: false });
   });
 
   it("stays 'Coming soon' while billing is flagged off", () => {
     expect(gemPriceView({ ...base, purchasesEnabled: false, storePrice: "$0.99" })).toEqual({
       label: "Coming soon",
       buyable: false,
+      confirmFirst: false,
     });
   });
 
@@ -41,12 +42,14 @@ describe("gemPriceView", () => {
     expect(gemPriceView({ ...base, storeConfigured: false, dev: true })).toEqual({
       label: "Test purchase",
       buyable: true,
+      confirmFirst: true,
     });
     // A shipped build with no SDK key has no price and nothing that can
     // succeed — it must not invite the tap, and must not invent a figure.
     expect(gemPriceView({ ...base, storeConfigured: false, dev: false })).toEqual({
       label: "Unavailable",
       buyable: false,
+      confirmFirst: false,
     });
   });
 
@@ -94,5 +97,33 @@ describe("no screen renders a config currency amount", () => {
       .filter((f) => readFileSync(f, "utf8").includes(".priceUsd"))
       .map((f) => f.slice(SRC.length));
     expect(readers).toEqual([]);
+  });
+});
+
+describe("who asks before the money moves", () => {
+  // Buying a pack normally hands off to the store, whose own sheet names the
+  // price and takes the approval — asking first would confirm one decision
+  // twice. But the dev stub has no such sheet, so nothing at all would stand
+  // between a tap and a granted pack. Whoever can ask, asks; exactly once.
+  const base = {
+    purchasesEnabled: true,
+    storeConfigured: true,
+    pricesLoaded: true,
+    dev: false,
+  };
+
+  it("does not ask when the store will ask", () => {
+    expect(gemPriceView({ ...base, storePrice: "$0.99" }).confirmFirst).toBe(false);
+  });
+
+  it("asks when the purchase goes through the dev stub", () => {
+    // No store sheet is coming, so this is the only chance to confirm.
+    expect(gemPriceView({ ...base, storeConfigured: false, dev: true }).confirmFirst).toBe(true);
+  });
+
+  it("never asks about a purchase that cannot happen", () => {
+    expect(gemPriceView({ ...base, purchasesEnabled: false }).confirmFirst).toBe(false);
+    expect(gemPriceView({ ...base, storeConfigured: false, dev: false }).confirmFirst).toBe(false);
+    expect(gemPriceView({ ...base, storePrice: undefined, pricesLoaded: false }).confirmFirst).toBe(false);
   });
 });

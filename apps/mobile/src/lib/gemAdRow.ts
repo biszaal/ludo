@@ -26,6 +26,9 @@ export type GemAdRowView = {
   visible: boolean;
   /** Greyed, but the tap still lands so it can explain the limit. */
   spent: boolean;
+  /** No ad can be served in this build or runtime — greyed and inert.
+   *  Different from `spent`, which is "not until tomorrow". */
+  unavailable: boolean;
 };
 
 export function gemAdRowView(opts: {
@@ -49,11 +52,17 @@ export function gemAdRowView(opts: {
 }): GemAdRowView {
   const { flagOn, tierOn, adsAvailable, busy, amount, cap, remaining, serverEnabled } = opts;
 
-  const visible = flagOn && tierOn && adsAvailable && serverEnabled !== false;
+  // Switched OFF hides the offer; CANNOT SERVE keeps its place and says so.
+  // A hole where a row was reads as a bug, and the offer is real either way —
+  // this build just cannot deliver it right now.
+  const visible = flagOn && tierOn && serverEnabled !== false;
+  const unavailable = !adsAvailable;
   const spent = remaining === 0;
   const gems = (n: number) => `${n} gem${n === 1 ? "" : "s"}`;
 
-  const label = busy
+  const label = unavailable
+    ? "Not available right now"
+    : busy
     ? "Loading…"
     : spent
       ? "None left today"
@@ -61,5 +70,5 @@ export function gemAdRowView(opts: {
         ? `${gems(amount)} · ${cap} a day`
         : `${gems(amount)} · ${remaining} of ${cap} left today`;
 
-  return { label, visible, spent };
+  return { label, visible, spent, unavailable };
 }

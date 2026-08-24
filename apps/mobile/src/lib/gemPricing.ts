@@ -19,6 +19,15 @@ export type GemPriceView = {
   label: string;
   /** Whether the row may be tapped to start a purchase. */
   buyable: boolean;
+  /**
+   * Whether WE have to ask before spending.
+   *
+   * The store's own sheet names the price and takes the approval, so a
+   * purchase that reaches it needs nothing in front — asking would confirm one
+   * decision twice. The dev stub has no such sheet, and without this a tap
+   * would grant a pack with nothing between. Whoever can ask, asks; once.
+   */
+  confirmFirst: boolean;
 };
 
 export function gemPriceView(opts: {
@@ -35,15 +44,19 @@ export function gemPriceView(opts: {
 }): GemPriceView {
   const { purchasesEnabled, storeConfigured, storePrice, pricesLoaded, dev } = opts;
 
-  if (!purchasesEnabled) return { label: "Coming soon", buyable: false };
+  if (!purchasesEnabled) return { label: "Coming soon", buyable: false, confirmFirst: false };
 
   // No SDK in this build: the server stub is the only path, and it is
   // double-locked server-side. Offer it in dev; in a shipped build there is no
   // price to show and nothing that could succeed, so say it plainly.
   if (!storeConfigured) {
-    return dev ? { label: "Test purchase", buyable: true } : { label: "Unavailable", buyable: false };
+    return dev
+      ? { label: "Test purchase", buyable: true, confirmFirst: true }
+      : { label: "Unavailable", buyable: false, confirmFirst: false };
   }
 
-  if (storePrice) return { label: storePrice, buyable: true };
-  return pricesLoaded ? { label: "Unavailable", buyable: false } : { label: "…", buyable: false };
+  if (storePrice) return { label: storePrice, buyable: true, confirmFirst: false };
+  return pricesLoaded
+    ? { label: "Unavailable", buyable: false, confirmFirst: false }
+    : { label: "…", buyable: false, confirmFirst: false };
 }
