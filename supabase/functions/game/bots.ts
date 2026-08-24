@@ -29,7 +29,7 @@ import {
   type SupabaseClient,
 } from "./lib.ts";
 import { recordFinishStats, settleIfFinished } from "./finish.ts";
-import { relayChat } from "./chat.ts";
+import { broadcastToRoom, relayChat } from "./chat.ts";
 import {
   classifyEvent,
   composeMessage,
@@ -255,7 +255,7 @@ interface BotChatMeta {
   chatCount: number;
   lastChatAtMs: number | null;
 }
-type BotSeats = Map<string, BotChatMeta>;
+export type BotSeats = Map<string, BotChatMeta>;
 
 /** Read the game's bot seats and their chat budgets in one go. This select
  *  already ran on every write; the two extra columns ride along for free. */
@@ -433,7 +433,9 @@ async function maybeBotChat(
  * without it a bot could never react to its OWN capture or win, which is most
  * of what there is to react to.
  */
-async function driveBotTurns(admin: SupabaseClient, gameId: string, seats: BotSeats): Promise<void> {
+/** Exported for tests: the fold changes how many writes a bot turn costs, and
+ *  that is only observable by driving the loop directly. */
+export async function driveBotTurns(admin: SupabaseClient, gameId: string, seats: BotSeats): Promise<void> {
   // A reaction sleeps out its own beat, so it must not be awaited inside the
   // loop — that would pace the bot's moves to the speed of its chat. They are
   // collected instead and settled before this task ends, which is what keeps
@@ -455,14 +457,21 @@ async function driveLoop(
   const botIds = new Set(seats.keys());
   let cur: GameState | null = null;
   let v = 0;
+  /** Read with the row: whether this table can be folded to. */
+  let foldWrites = false;
 
   for (let step = 0; step < BOT_MAX_ACTIONS * 3; step++) {
     if (!cur) {
-      const { data: game } = await admin.from("games").select("state, state_version").eq("id", gameId).single();
+      const { data: game } = await admin
+        .from("games")
+        .select("state, state_version, fold_writes")
+        .eq("id", gameId)
+        .single();
       const fetched = game?.state as GameState | undefined;
       if (!fetched) return;
       cur = fetched;
       v = (game!.state_version as number | null) ?? 0;
+      foldWrites = !!game!.fold_writes;
     }
 
     if (cur.status !== "active") {
@@ -484,6 +493,29 @@ async function driveLoop(
       // here — this is uniformity, so there is exactly one way a die is made.
       const die = await deriveDie(gameId, v, pid);
       const roll = rollDice(cur, die === null ? cryptoRng : rngForDie(die));
+
+      /**
+       * On a folding table this roll does not write. The die goes out as a
+       * broadcast and the state is carried forward in memory, so the move that
+       * follows writes both transitions at once.
+       *
+       * The pause at the bottom of this loop is unchanged and is now what the
+       * die animates inside — the rhythm a player sees is the same, it just
+       * costs one write instead of two. Requires a derivable die for the same
+       * reason turn.ts does: cryptoRng cannot be reproduced.
+       */
+      if (foldWrites && die !== null) {
+        afterResponse(broadcastToRoom(gameId, "roll", { die, playerId: pid, v }));
+        afterResponse(admin.from("moves").insert({
+          game_id: gameId,
+          player_id: pid,
+          action: { action: "bot-roll", dice: roll.diceValue },
+        }));
+        cur = roll.newState;
+        await sleep(stepPauseMs(0));
+        continue;
+      }
+
       next = roll.newState;
       logged = { action: "bot-roll", dice: roll.diceValue };
     } else {
