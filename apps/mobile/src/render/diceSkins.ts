@@ -16,7 +16,8 @@
  */
 
 import type { BoardTheme } from "./boardThemes";
-import type { OverlayKind, PipShape } from "./pipShapes";
+import type { MotifKind } from "./faceMotifs";
+import type { FaceMark, OverlayKind } from "./pipShapes";
 
 export type DiceSkinId =
   | "classic"
@@ -32,7 +33,14 @@ export type DiceSkinId =
   | "ember"
   | "diamond"
   | "obsidian-king"
-  | "prism";
+  | "prism"
+  | "ivory"
+  | "jade"
+  | "oxblood"
+  | "bullion"
+  | "bloom"
+  | "lapis"
+  | "sovereign";
 
 export type DiceFaceSpec =
   | null // the default die (classic only) — see DEFAULT_DIE
@@ -41,7 +49,7 @@ export type DiceFaceSpec =
 
 export type DicePipSpec =
   | null // the default die, dot shape (classic only)
-  | { color: string; shape: PipShape; glow?: string };
+  | { color: string; shape: FaceMark; glow?: string };
 
 /**
  * What "classic" actually looks like: the original pre-cosmetics die.
@@ -73,6 +81,32 @@ export interface DiceSkin {
   frame?: string;
   /** A cheap deterministic decorative pass over the landed face. */
   overlay?: OverlayKind;
+  /**
+   * Polished-finish strength, 0..1. Omitted = matte.
+   *
+   * A gloss sweep across the face and a lit edge along the top of the mark —
+   * the difference between a color printed on a cube and a surface with
+   * something over it. It is the tier's tell: gems are the wallet you reach
+   * for with money rather than play time, so a gem-priced die is lacquered
+   * and a coin-priced one is not, and you can see which is which across the
+   * table without reading a label. Purely a finish; it says nothing about the
+   * roll (see the header).
+   */
+  sheen?: number;
+  /**
+   * Ornament struck into the face, behind the numeral — a petal rosette,
+   * engine-turned guilloché, a Deco sunburst (render/faceMotifs.ts).
+   *
+   * Distinct from `overlay`, which is a texture saying what the face is MADE
+   * of. A motif is a figure saying the face was DECORATED, and it is what
+   * separates the top of the tier from a well-chosen color: material alone
+   * runs out of ways to look more expensive, ornament does not.
+   *
+   * `scale` is the ornament's radius as a fraction of the die's width (so
+   * 0.44 very nearly fills the face); `alpha` keeps it behind the numeral
+   * rather than competing with it.
+   */
+  motif?: { kind: MotifKind; color: string; alpha: number; scale: number };
 }
 
 // Declared cheap → prestige; __tests__/diceSkins.test.ts asserts this order
@@ -190,6 +224,17 @@ export const DICE_SKINS: Record<DiceSkinId, DiceSkin> = {
   },
   // The gem tier (0018 seed). Declared after the coin ladder — the ascending-
   // price check applies to coin skins only; gem prices are a separate scale.
+  // ---------------------------------------------------------------------
+  // The Numerals line (0044 seed). Four gem-priced skins that ink a single
+  // figure on each face instead of a pip cluster — shape: "numeral", drawn by
+  // render/dieNumerals.ts. Purely a change of marking: a 4 is still a 4, and
+  // nothing here touches the roll (see the header's cosmetic-only rule).
+  //
+  // Deliberately one light, two jewel tones and one dark flagship, so no two
+  // read alike across a board, and none reads as the free classic white die
+  // at a glance. All four stay well under the "premium" trap of a neon or
+  // fully-saturated face — the tier sells material, not brightness.
+  // ---------------------------------------------------------------------
   prism: {
     id: "prism",
     label: "Prism",
@@ -200,6 +245,96 @@ export const DICE_SKINS: Record<DiceSkinId, DiceSkin> = {
     edge: "#6E5BD6",
     frame: "#E8E2FF",
     overlay: "facets",
+    sheen: 0.5,
+  },
+  ivory: {
+    id: "ivory",
+    label: "Ivory Atelier",
+    price: 180,
+    currency: "gems",
+    face: { type: "linear", colors: ["#FBF7EF", "#E7DAC3"] },
+    pip: { color: "#2A231B", shape: "numeral" },
+    edge: "#C4B49A",
+    frame: "#C6A664",
+    overlay: "grain", // the tooth of pressed ivory, not wood
+    sheen: 0.3,
+  },
+  jade: {
+    id: "jade",
+    label: "Imperial Jade",
+    price: 260,
+    currency: "gems",
+    face: { type: "linear", colors: ["#356254", "#16302A"] },
+    pip: { color: "#EFE7D2", shape: "numeral" },
+    edge: "#0E2019",
+    overlay: "veins", // pale mineral veining, which is what makes it stone
+    sheen: 0.45,
+  },
+  oxblood: {
+    id: "oxblood",
+    label: "Oxblood Lacquer",
+    price: 320,
+    currency: "gems",
+    face: { type: "linear", colors: ["#5E1F26", "#331016"] },
+    pip: { color: "#EBB98E", shape: "numeral" },
+    edge: "#1E0A0E",
+    frame: "#C98B5E",
+    // No overlay on purpose: lacquer is a flawless surface. Texturing it
+    // would read as a scratch, not as a finish.
+    sheen: 0.6,
+  },
+  bullion: {
+    id: "bullion",
+    label: "Bullion",
+    price: 420,
+    currency: "gems",
+    face: { type: "linear", colors: ["#24252C", "#101116"] },
+    pip: { color: "#E8C77A", shape: "numeral", glow: "#F2D89A" },
+    edge: "#0C0D11",
+    frame: "#C9A227",
+    overlay: "grain", // brushed striations, in the numeral's own gold
+    sheen: 0.55,
+  },
+  // The ornamented top of the line. Material alone runs out of ways to look
+  // more expensive somewhere around a polished lacquer, so these three carry a
+  // struck figure as well as a finish — a bloom, a sunburst, engine turning.
+  bloom: {
+    id: "bloom",
+    label: "Cloisonné Bloom",
+    price: 460,
+    currency: "gems",
+    face: { type: "linear", colors: ["#1F5A57", "#0C2B2C"] },
+    pip: { color: "#F6EDD8", shape: "numeral" },
+    edge: "#08191A",
+    frame: "#E0BC79",
+    sheen: 0.5,
+    motif: { kind: "rosette", color: "#EBC886", alpha: 0.66, scale: 0.42 },
+  },
+  lapis: {
+    id: "lapis",
+    label: "Lapis Deco",
+    price: 520,
+    currency: "gems",
+    face: { type: "linear", colors: ["#2E52A0", "#111F45"] },
+    pip: { color: "#F7E3AC", shape: "numeral" },
+    edge: "#0A1128",
+    frame: "#D4AC33",
+    sheen: 0.5,
+    motif: { kind: "deco", color: "#F0D08A", alpha: 0.78, scale: 0.46 },
+  },
+  sovereign: {
+    id: "sovereign",
+    label: "Sovereign",
+    price: 600,
+    currency: "gems",
+    face: { type: "linear", colors: ["#F7E6AC", "#D8AE45", "#9C6E22"], stops: [0, 0.55, 1] },
+    pip: { color: "#422E0C", shape: "numeral" },
+    edge: "#6E4E16",
+    frame: "#FCF2CE",
+    sheen: 0.6,
+    // Cut lines rather than inlay: the ornament is the same metal as the face,
+    // which is exactly what engine turning is.
+    motif: { kind: "guilloche", color: "#7E5A1E", alpha: 0.45, scale: 0.44 },
   },
 };
 
@@ -231,18 +366,22 @@ export interface DiceRenderParams {
   faceRGB: [number, number, number];
   pipRGB: [number, number, number];
   gradient: { colors: string[]; stops: number[] | null } | null;
-  pipShape: PipShape;
+  pipShape: FaceMark;
   glow: string | null;
   edgeRGB: [number, number, number] | null;
   frame: string | null;
   overlay: OverlayKind | null;
+  /** Polished-finish strength, 0 when the skin is matte. */
+  sheen: number;
+  /** Face ornament, or null when the skin carries none. */
+  motif: { kind: MotifKind; color: string; alpha: number; scale: number } | null;
   /** Stable per-skin seed for the deterministic overlay pass — independent of
    *  the viewer's board theme, so the same skin always textures the same way. */
   overlaySeed: number;
 }
 
 /** FNV-1a string hash — deterministic, tiny, no collisions that matter for a
- *  13-entry catalog used only to seed a decorative pattern. */
+ *  catalog this size, used only to seed a decorative pattern. */
 function hashSeed(id: string): number {
   let h = 2166136261;
   for (let i = 0; i < id.length; i++) {
@@ -269,6 +408,8 @@ export function diceRenderParams(skin: DiceSkin | undefined, _theme?: BoardTheme
     edgeRGB: skin?.edge ? hexRGB(skin.edge) : null,
     frame: skin?.frame ?? null,
     overlay: skin?.overlay ?? null,
+    sheen: skin?.sheen ?? 0,
+    motif: skin?.motif ?? null,
     overlaySeed: skin ? hashSeed(skin.id) : 0,
   };
 }

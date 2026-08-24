@@ -97,6 +97,20 @@ export function BookGlyph({ size, color = palette.mutedSteel }: { size: number; 
   );
 }
 
+/** Home: a pitched roof over a squat body, drawn to sit on the same baseline
+ *  as the other dock glyphs rather than centred in its own box. */
+export function HouseGlyph({ size, color = palette.mutedSteel }: { size: number; color?: string }) {
+  const s = size;
+  return (
+    <Canvas style={{ width: s, height: s }}>
+      <Path path={`M ${s * 0.5} ${s * 0.14} L ${s * 0.94} ${s * 0.5} L ${s * 0.06} ${s * 0.5} Z`} color={color} />
+      <RoundedRect x={s * 0.18} y={s * 0.47} width={s * 0.64} height={s * 0.39} r={s * 0.06} color={color} />
+      {/* Doorway punched in the darker rim tone the other glyphs use. */}
+      <RoundedRect x={s * 0.42} y={s * 0.62} width={s * 0.16} height={s * 0.24} r={s * 0.03} color="rgba(0,0,0,0.35)" />
+    </Canvas>
+  );
+}
+
 /** Pass & play: a hand-off loop — two arcs with arrowheads. */
 export function CycleGlyph({ size, color = palette.mutedSteel }: { size: number; color?: string }) {
   const s = size;

@@ -29,7 +29,10 @@ vi.mock("../src/net/api", () => ({
   rematchVote: vi.fn(),
   rematchClose: vi.fn(),
   leaveAction: vi.fn().mockResolvedValue(undefined),
+  warmUp: vi.fn(),
   getLobby: vi.fn().mockResolvedValue([]),
+  lobbyEqual: (a: unknown[], b: unknown[]) =>
+    a.length === b.length && a.every((x, i) => JSON.stringify(x) === JSON.stringify(b[i])),
   fetchGame: vi.fn(),
   getProfiles: vi.fn().mockResolvedValue([]),
   upsertMyProfile: vi.fn().mockResolvedValue(undefined),

@@ -10,16 +10,17 @@ import { Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { TableBackground } from "../components/TableBackground";
 import { ScreenHeader } from "../components/ScreenHeader";
+import { useDockClearance } from "../components/TabDock";
 import { ContentColumn } from "../components/ContentColumn";
 import { SectionLabel } from "../components/SectionLabel";
 import { Surface3D } from "../components/Surface3D";
-import { Canvas, Group } from "@shopify/react-native-skia";
+import { Canvas } from "@shopify/react-native-skia";
 import { CoinsPill } from "../components/CoinsPill";
 import { GemsPill } from "../components/GemsPill";
 import { GemGlyph } from "../components/GemGlyph";
 import { AvatarGlyph } from "../components/Avatar";
 import { BoardSurface } from "../components/Board";
-import { DieStill, stillDieColors } from "../components/DieStill";
+import { DieCube } from "../components/DieCube";
 import { CosmeticsBrowser } from "../components/CosmeticsBrowser";
 import { GetCoinsSheet } from "../components/GetCoinsSheet";
 import { GetGemsSheet } from "../components/GetGemsSheet";
@@ -29,15 +30,18 @@ import { BOARD_THEMES, type BoardThemeId } from "../render/boardThemes";
 import { DICE_SKINS, type DiceSkinId } from "../render/diceSkins";
 import { currencyOf, isUnlocked, priceOf, useEntitlements } from "../store/entitlementsStore";
 import { useCosmeticsUI } from "../store/cosmeticsUI";
-import { useSettings } from "../store/settingsStore";
 import { font, palette, radius, space } from "../theme";
 
 export function ShopScreen() {
   const [coinsSheet, setCoinsSheet] = useState(false);
   const [gemsSheet, setGemsSheet] = useState(false);
 
+  const dockPad = useDockClearance();
+
+  // No bottom edge: the dock floats over this screen and pays that inset
+  // itself. The scroll content buys its own room back with dockClearance.
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: palette.tableBlue }}>
+    <SafeAreaView edges={["top", "left", "right"]} style={{ flex: 1, backgroundColor: palette.tableBlue }}>
       <TableBackground />
       <ScreenHeader
         title="Shop"
@@ -49,7 +53,7 @@ export function ShopScreen() {
         }
       />
 
-      <ScrollView contentContainerStyle={{ paddingTop: space.lg, paddingBottom: space.xxl, alignItems: "center" }}>
+      <ScrollView contentContainerStyle={{ paddingTop: space.lg, paddingBottom: space.xxl + dockPad, alignItems: "center" }}>
         <ContentColumn style={{ paddingHorizontal: space.xl, gap: space.lg }}>
           <PremiumRail />
           <CosmeticsBrowser mode="shop" />
@@ -70,7 +74,6 @@ function PremiumRail() {
   const prices = useEntitlements((s) => s.prices);
   const owned = useEntitlements((s) => s.owned);
   const setCategory = useCosmeticsUI((s) => s.setCategory);
-  const boardTheme = BOARD_THEMES[useSettings((s) => s.boardThemeId)];
 
   const premium: { category: CosmeticCategory; item: CosmeticItem }[] = (
     ["dice", "board", "avatar"] as CosmeticCategory[]
@@ -107,11 +110,11 @@ function PremiumRail() {
                         <BoardSurface size={64} theme={BOARD_THEMES[item.id as BoardThemeId]} />
                       </Canvas>
                     ) : (
-                      <Canvas style={{ width: 64, height: 72 }}>
-                        <Group transform={[{ translateX: 32 }, { translateY: 32 }]}>
-                          <DieStill size={44} {...stillDieColors(DICE_SKINS[item.id as DiceSkinId], boardTheme)} />
-                        </Group>
-                      </Canvas>
+                      // The same cube the Shop grid draws. DieStill's flat
+                      // square could only show one face in the face's first
+                      // gradient color with plain dots — which for a numeral
+                      // skin advertised neither its marking nor its finish.
+                      <DieCube skin={DICE_SKINS[item.id as DiceSkinId]} size={72} />
                     )}
                   </View>
                   <Text numberOfLines={1} style={{ fontFamily: font.semibold, fontSize: 13, color: palette.porcelain, textTransform: "capitalize" }}>

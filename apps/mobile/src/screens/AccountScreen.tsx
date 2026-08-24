@@ -32,6 +32,7 @@ import { Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { TableBackground } from "../components/TableBackground";
 import { ScreenHeader } from "../components/ScreenHeader";
+import { useDockClearance } from "../components/TabDock";
 import { ContentColumn } from "../components/ContentColumn";
 import { SectionLabel } from "../components/SectionLabel";
 import { Surface3D } from "../components/Surface3D";
@@ -168,8 +169,12 @@ export function AccountScreen() {
     };
   }, [draft, claiming]);
 
+  const dockPad = useDockClearance();
+
+  // No bottom edge: the dock floats over this screen and pays that inset
+  // itself. The scroll content buys its own room back with dockClearance.
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: palette.tableBlue }}>
+    <SafeAreaView edges={["top", "left", "right"]} style={{ flex: 1, backgroundColor: palette.tableBlue }}>
       <TableBackground />
       <ScreenHeader
         title="Account"
@@ -181,7 +186,7 @@ export function AccountScreen() {
         }
       />
 
-      <ScrollView contentContainerStyle={{ paddingTop: space.lg, paddingBottom: space.xxl, alignItems: "center" }}>
+      <ScrollView contentContainerStyle={{ paddingTop: space.lg, paddingBottom: space.xxl + dockPad, alignItems: "center" }}>
         <ContentColumn style={{ paddingHorizontal: space.xl, gap: space.xl }}>
           {/* Identity tray */}
           <Surface3D rad={radius.lg} faceStyle={{ padding: space.lg, gap: space.md }}>

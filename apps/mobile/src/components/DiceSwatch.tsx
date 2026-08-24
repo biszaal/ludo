@@ -1,36 +1,23 @@
 /**
- * A selectable dice-skin tile: a static preview of the landed face — same
- * face treatment, pip shape and glow Dice.tsx paints in the game, built
- * declaratively since a shop tile never animates — plus label and price.
- * Mirrors ThemeSwatch.tsx's layout and lock treatment exactly.
+ * A selectable dice-skin tile: the die as a small 3D cube (DieCube), plus
+ * label and price. The tile chrome around it — selection border, raised-slate
+ * fill, PriceTag — is unchanged and shared with ThemeSwatch.tsx.
  *
- * The face's decorative overlay (grain/veins/stars/facets) is skipped here on
- * purpose: at this size it would be a few near-invisible flecks, not worth
- * the extra draw calls. It's the payoff for playing with the skin equipped —
- * this tile only needs to sell color, pip shape and glow.
+ * The die itself deliberately lives in DieCube.tsx rather than here: the
+ * Premium rail on the Shop screen shows the same skins, and when the two
+ * surfaces drew their own previews they disagreed about what a skin looks
+ * like. See that file for why it is a cube and not the flat face this tile
+ * used to draw.
  */
 
-import { useMemo } from "react";
 import { Pressable, Text, View } from "react-native";
-import { BlurMask, Canvas, Circle, Group, LinearGradient, Path, RoundedRect, Skia, vec } from "@shopify/react-native-skia";
+import { DieCube } from "./DieCube";
 import { PriceTag, type PriceCurrency } from "./PriceTag";
 import type { BoardTheme } from "../render/boardThemes";
-import { DEFAULT_DIE, diceRenderParams, type DiceSkin } from "../render/diceSkins";
-import { appendPip, type PipShape } from "../render/pipShapes";
-import { font, palette, radius, shade, space } from "../theme";
+import type { DiceSkin } from "../render/diceSkins";
+import { font, palette, radius, space } from "../theme";
 
 const THUMB = 72;
-const PAD = 6;
-const FACE = THUMB - PAD * 2;
-/** Value-5 pip layout on a unit face — mirrors Dice.tsx's PIP_XY[5] (each
- *  Skia die-face surface keeps its own small copy; see DieStill.tsx too). */
-const PIP5: [number, number][] = [
-  [0.26, 0.26],
-  [0.74, 0.26],
-  [0.5, 0.5],
-  [0.26, 0.74],
-  [0.74, 0.74],
-];
 
 interface DiceSwatchProps {
   skin: DiceSkin;
@@ -47,34 +34,6 @@ interface DiceSwatchProps {
 }
 
 export function DiceSwatch({ skin, selected, price = 0, currency = "coins", locked = false, onSelect }: DiceSwatchProps) {
-  const sp = useMemo(() => diceRenderParams(skin), [skin]);
-  // DEFAULT_DIE, not the board theme. Classic used to fall back to
-  // `theme.dice`, which made the shop tile for the plain white die repaint
-  // itself walnut-brown or slate-blue the moment you previewed another board —
-  // a skin advertising a color it does not have. The die stopped following the
-  // board theme when DEFAULT_DIE landed (a die belongs to its owner, not to the
-  // table); this tile was the last surface still reading the old fallback.
-  const faceHex = skin.face ? (skin.face.type === "solid" ? skin.face.color : skin.face.colors[0]!) : DEFAULT_DIE.face;
-  const pipHex = skin.pip?.color ?? DEFAULT_DIE.pip;
-  const edgeHex = skin.edge ?? shade(faceHex, -0.25);
-  // A darker rim around shaped pips (mirrors Dice.tsx): at this thumbnail size
-  // a diamond/star/crown/flame's outline is what actually reads as a distinct
-  // shape — the fill color alone looks like a plain dot.
-  const outlineHex = shade(pipHex, -0.45);
-  const rounded = FACE * 0.24;
-  const dotR = FACE * 0.085;
-  const shapedR = FACE * 0.11;
-
-  const pipPaths = useMemo(() => {
-    if (sp.pipShape === "dot") return null;
-    const shape = sp.pipShape as Exclude<PipShape, "dot">;
-    return PIP5.map(([px, py]) => {
-      const p = Skia.Path.Make();
-      appendPip(p, shape, px * FACE, py * (FACE - 2), shapedR);
-      return p;
-    });
-  }, [sp.pipShape, shapedR]);
-
   return (
     <Pressable
       accessibilityRole="radio"
@@ -94,45 +53,7 @@ export function DiceSwatch({ skin, selected, price = 0, currency = "coins", lock
     >
       <View>
         <View style={{ width: THUMB, height: THUMB, opacity: locked ? 0.4 : 1 }}>
-          <Canvas style={{ width: THUMB, height: THUMB }}>
-            <Group transform={[{ translateX: PAD }, { translateY: PAD }]}>
-              <RoundedRect x={0} y={2} width={FACE} height={FACE} r={rounded} color={edgeHex} />
-              <RoundedRect x={0} y={0} width={FACE} height={FACE - 2} r={rounded} color={sp.gradient ? undefined : faceHex}>
-                {sp.gradient ? (
-                  <LinearGradient start={vec(0, 0)} end={vec(FACE, FACE - 2)} colors={sp.gradient.colors} positions={sp.gradient.stops ?? undefined} />
-                ) : null}
-              </RoundedRect>
-              {sp.frame ? (
-                <RoundedRect
-                  x={0}
-                  y={0}
-                  width={FACE}
-                  height={FACE - 2}
-                  r={rounded}
-                  color={sp.frame}
-                  style="stroke"
-                  strokeWidth={FACE * 0.045}
-                />
-              ) : null}
-              {PIP5.map(([px, py], i) =>
-                sp.pipShape === "dot" ? (
-                  <Circle key={i} cx={px * FACE} cy={py * (FACE - 2)} r={dotR} color={pipHex}>
-                    {sp.glow ? <BlurMask style="normal" blur={FACE * 0.05} respectCTM /> : null}
-                  </Circle>
-                ) : (
-                  <Group key={i}>
-                    {sp.glow ? (
-                      <Path path={pipPaths![i]!} color={sp.glow}>
-                        <BlurMask style="normal" blur={FACE * 0.07} respectCTM />
-                      </Path>
-                    ) : null}
-                    <Path path={pipPaths![i]!} color={outlineHex} style="stroke" strokeWidth={FACE * 0.03} strokeJoin="round" />
-                    <Path path={pipPaths![i]!} color={pipHex} />
-                  </Group>
-                ),
-              )}
-            </Group>
-          </Canvas>
+          <DieCube skin={skin} size={THUMB} />
         </View>
         {locked ? (
           <View style={{ position: "absolute", left: 0, right: 0, bottom: -6, alignItems: "center" }}>

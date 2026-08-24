@@ -67,10 +67,11 @@ export declare function chaseCount(state: GameState, playerId: string, pos: Toke
  */
 export declare function opponentsBehind(state: GameState, playerId: string, pos: TokenPosition, range: number): number;
 /**
- * Probability that `hunter`'s next roll captures the token `victim` has at
- * `pos`. The exact mirror of {@link threatProb} — same single-die model, same
- * exemptions for safe cells and protected stacks — read from the other side of
- * the board.
+ * Probability that `hunter`'s next roll captures whatever is standing at `pos`.
+ * The exact mirror of {@link threatProb} — same single-die model, same
+ * exemptions for safe cells and immune piles — read from the other side of the
+ * board. Whose token it is does not enter into it: immunity is a property of
+ * the cell, so only the hunter's shooters and the cell itself matter.
  *
  * threatProb answers "what am I about to lose"; this answers "what can I take".
  * A position evaluator needs both, and having only the first is what makes a
@@ -78,26 +79,26 @@ export declare function opponentsBehind(state: GameState, playerId: string, pos:
  * happily take a capture that falls into its lap, and will never once line one
  * up.
  */
-export declare function captureProb(state: GameState, hunter: string, victim: string, pos: TokenPosition): number;
+export declare function captureProb(state: GameState, hunter: string, pos: TokenPosition): number;
 /**
  * {@link captureProb} against a prebuilt index.
  *
  * Checks run cheapest-first, and the range test comes before the exemptions on
  * purpose: most opponent tokens are nowhere near a shooter, so the common path
  * is a handful of subtractions and an early return. Only a token actually under
- * the gun pays for the safe-square and stack lookups.
+ * the gun pays for the safe-square and immunity lookups.
  */
-export declare function captureProbFrom(state: GameState, index: TrackIndex, hunterSlot: number, victim: string, pos: TokenPosition): number;
+export declare function captureProbFrom(state: GameState, index: TrackIndex, hunterSlot: number, pos: TokenPosition): number;
 /**
- * {@link captureProb} with everything already resolved: both slots, and the
- * victim's absolute cell.
+ * {@link captureProb} with everything already resolved: the hunter's slot and
+ * the target cell.
  *
  * This is the innermost form, and the evaluator calls it once per token per
  * rival at every leaf — so it deliberately takes what the caller already has
  * rather than re-deriving it. The range test comes first for the same reason:
  * most tokens are nowhere near a shooter, so the common path is a handful of
  * subtractions and an early return, and only a token actually under the gun
- * pays for the safe-square and stack checks.
+ * pays for the safe-square and immunity checks.
  */
-export declare function captureProbAt(state: GameState, index: TrackIndex, hunterSlot: number, victimSlot: number, abs: number): number;
+export declare function captureProbAt(state: GameState, index: TrackIndex, hunterSlot: number, abs: number): number;
 //# sourceMappingURL=threat.d.ts.map

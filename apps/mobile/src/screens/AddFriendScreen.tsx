@@ -275,9 +275,9 @@ function PlayerRow({
           Sent
         </Text>
       ) : (
-        <View style={{ width: 84 }}>
-          <Button label="Add" onPress={onAdd} />
-        </View>
+        // Row scale, sized to its own label: a page-scale button boxed to a
+        // fixed width wraps "Add" mid-word as soon as text scaling kicks in.
+        <Button compact label="Add" onPress={onAdd} />
       )}
     </Surface3D>
   );

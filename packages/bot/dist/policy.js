@@ -122,18 +122,28 @@ function scoreSmart(state, playerId, color, move) {
     // the token, the more urgent), and don't land inside an opponent's reach.
     score += threatProb(state, playerId, move.from) * (400 + 10 * fromProgress);
     score -= threatProb(state, playerId, move.to) * (700 + 12 * toProgress);
-    // Reaching cover: a safe square, or turning into the private home column.
-    // Yard entries don't earn it — the start cell is safe by definition, and
-    // rewarding it made every 6 an auto-enter over rescuing threatened runners.
+    // Reaching cover: a safe square, an immune pile, or turning into the private
+    // home column. Yard entries don't earn it — the start cell is safe by
+    // definition, and rewarding it made every 6 an auto-enter over rescuing
+    // threatened runners.
     const toAbs = absoluteTrackIndex(move.to);
     const toSafe = toAbs !== null && state.rules.safeSquares && isSafeSquare(toAbs);
+    // A pile is cover the same way a star is. Landing where a token already
+    // stands — ours or anyone's — leaves the cell two deep, and a cell two deep
+    // cannot be captured on. Capturing is the exception: it clears the cell and
+    // we end up standing there alone, exposed.
+    const toPile = toAbs !== null &&
+        state.rules.protectStacks &&
+        move.captures.length === 0 &&
+        state.tokens.some((t) => absoluteTrackIndex(t.position) === toAbs);
+    const toCovered = toSafe || toPile;
     const entersHomePath = typeof move.to === "object" && move.to.type === "homePath";
-    if ((toSafe || entersHomePath) && move.from !== "home")
+    if ((toCovered || entersHomePath) && move.from !== "home")
         score += 600;
     // Offense: land where next turn's roll can reach prey…
     score += (250 * Math.min(chaseCount(state, playerId, move.to), 6)) / 6;
-    // …and camp stars ahead of oncoming traffic: sit in ambush at no risk.
-    if (toSafe && opponentsBehind(state, playerId, move.to, 12) > 0)
+    // …and camp cover ahead of oncoming traffic: sit in ambush at no risk.
+    if (toCovered && opponentsBehind(state, playerId, move.to, 12) > 0)
         score += 250;
     if (move.from === "home") {
         // Spread: a lone runner is fragile — bring reinforcements out early.

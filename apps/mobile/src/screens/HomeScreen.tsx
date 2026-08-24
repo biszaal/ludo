@@ -1,13 +1,17 @@
 /**
- * Home hub — a fixed, no-scroll arcade lobby in the app's own felt language:
+ * Home hub — a genuinely no-scroll arcade lobby in the app's own felt language:
  * status header, the equipped-cosmetics diorama in the lamplight over one
- * dominant PLAY CTA, a terse mode-tile row, and the drawn-glyph dock. Only
- * the diorama flexes; everything else is fixed-height, so nothing can
- * overlap on small phones and the ad strip's height variance is absorbed.
+ * dominant PLAY CTA, a terse mode-tile row, and the drawn-glyph dock.
+ *
+ * The hub fits the window it is given rather than assuming one. We measure the
+ * column (window minus safe area minus whatever the ad strip actually claims)
+ * and homeMetrics budgets the tower into it: the furniture compresses on a
+ * short phone, grows a little on a tall one, and the still-life takes what is
+ * left. No ScrollView — on every screen the dock is on screen, not under a fold.
  */
 
 import { useEffect, useState } from "react";
-import { ScrollView, Text, View } from "react-native";
+import { Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Canvas, Group } from "@shopify/react-native-skia";
 import { TableBackground } from "../components/TableBackground";
@@ -31,6 +35,7 @@ import { CycleGlyph, PeopleGlyph } from "../components/HomeGlyphs";
 import { ContentColumn } from "../components/ContentColumn";
 import { stillDieColors } from "../components/DieStill";
 import { useLayout } from "../lib/useLayout";
+import { homeMetrics } from "../lib/layout";
 import { useWallet } from "../store/walletStore";
 import { useConfig } from "../store/configStore";
 import { BOARD_THEMES } from "../render/boardThemes";
@@ -74,8 +79,17 @@ export function HomeScreen() {
   const streakDay = useWallet((s) => s.streakDay);
   const bonusClaimable = useWallet((s) => s.bonusClaimable);
 
-  const { isTablet, scale } = useLayout();
+  const { insets, height: windowH, scale } = useLayout();
   const s = (n: number) => Math.round(n * scale);
+
+  // The tower's own box: the ad strip is a sibling below it, so this is the
+  // exact room the hub has. The window-minus-insets estimate only covers the
+  // first frame, before onLayout lands.
+  const [columnH, setColumnH] = useState(0);
+  const metrics = homeMetrics(columnH || windowH - insets.top - insets.bottom, scale);
+  // Tile art tracks the budgeted tile, so a compressed row shrinks its glyphs
+  // with it instead of pressing fixed-size art against the label.
+  const tileK = metrics.tile / Math.round(96 * scale);
 
   // Balance freshness: on mount, and again whenever a game hands us back home
   // (the online store refreshes on finish; this catches stake debits too).
@@ -107,20 +121,12 @@ export function HomeScreen() {
           comfortable width instead of stretching chips to the far edges; on a
           phone the column is full-width (a no-op). */}
       <ContentColumn style={{ flex: 1 }}>
-      {/* The hub is a fixed tower — chest, diorama, CTA, mode tiles, dock — and
-          a landscape phone is ~200pt too short for it. flexGrow keeps the flex
-          layout exactly as it is whenever the window can hold it, and lets the
-          tower scroll instead of clipping when it can't. */}
-      <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={{ flexGrow: 1 }}
-        showsVerticalScrollIndicator={false}
-      >
+      <View style={{ flex: 1 }} onLayout={(e) => setColumnH(e.nativeEvent.layout.height)}>
       {/* Status header — wallet left, identity + settings right. The wordmark
           is dropped here (the diorama and app icon carry the brand; the
           animated mark still opens on the loading screen), so the two edges
-          balance instead of piling four chips against the right. Fixed. */}
-      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: space.lg, paddingTop: space.md }}>
+          balance instead of piling four chips against the right. */}
+      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: space.lg, paddingTop: metrics.headerPad }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
           <CoinsPill onPress={() => setCoinsSheet(true)} />
           <GemsPill onPress={() => setGemsSheet(true)} />
@@ -128,22 +134,20 @@ export function HomeScreen() {
         <ProfileChip />
       </View>
 
-      {/* Hero zone — the only part of the column that flexes. flexGrow, not
-          flex: a flexBasis of 0 collapses to nothing once the scroll container
-          overflows, which is exactly the landscape case. */}
-      <View style={{ flexGrow: 1, paddingHorizontal: space.lg, paddingTop: space.md, gap: space.sm }}>
+      {/* Hero zone — the only part of the column that flexes, so any slack the
+          budget leaves (or any point it misjudges) lands on the felt around the
+          still-life rather than pushing the dock off the bottom. */}
+      <View style={{ flex: 1, minHeight: 0, paddingHorizontal: space.lg, paddingTop: metrics.gap, gap: metrics.gap }}>
         <DailyChestTile
           onPress={() => setBonusSheet(true)}
           claimable={bonusClaimable}
           streakDay={streakDay}
           nextBonus={nextDailyBonus(streakDay, economy)}
+          height={metrics.chest}
         />
 
         <View
-          // Floor so the still-life never collapses when the ad claims its
-          // strip on a short phone; tablet cap so a tall screen doesn't strand
-          // acres of felt above and below a floating board.
-          style={{ flex: 1, minHeight: 160, maxHeight: isTablet ? 560 : undefined, alignSelf: "stretch", justifyContent: "center" }}
+          style={{ flex: 1, minHeight: 0, alignSelf: "stretch", justifyContent: "center" }}
           onLayout={(e) => {
             const { width, height } = e.nativeEvent.layout;
             setDioramaBox({ w: width, h: height });
@@ -152,42 +156,59 @@ export function HomeScreen() {
           <HeroDiorama theme={boardTheme} diceSkin={diceSkin} width={dioramaBox.w} height={dioramaBox.h} scale={scale} />
         </View>
 
-        <PlayCta stake={stake} busy={connecting} onPress={() => setQuickSheet(true)} />
+        <PlayCta stake={stake} busy={connecting} onPress={() => setQuickSheet(true)} height={metrics.cta} />
 
-        {/* Real presence only — invisible (not collapsed) at zero so the
-            layout never reflows and the number is never faked. */}
-        <View style={{ height: s(18), flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, opacity: onlineCount > 0 ? 1 : 0 }}>
-          <View style={{ width: 7, height: 7, borderRadius: 3.5, backgroundColor: "#4ADE80" }} />
-          <Text style={{ fontFamily: font.medium, fontSize: s(13), color: palette.mutedSteel }}>
-            {onlineCount === 1 ? "1 friend online" : `${onlineCount} friends online`}
-          </Text>
-        </View>
+        {/* Real presence only — invisible (not collapsed) at zero so the layout
+            never reflows and the number is never faked. The budget drops the
+            row entirely on a screen too short to spare it. */}
+        {metrics.presence > 0 && (
+          <View style={{ height: metrics.presence, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, opacity: onlineCount > 0 ? 1 : 0 }}>
+            <View style={{ width: 7, height: 7, borderRadius: 3.5, backgroundColor: "#4ADE80" }} />
+            <Text style={{ fontFamily: font.medium, fontSize: s(13), color: palette.mutedSteel }}>
+              {onlineCount === 1 ? "1 friend online" : `${onlineCount} friends online`}
+            </Text>
+          </View>
+        )}
       </View>
 
       {/* Mode tiles — three across, deliberately equal (hub-only allowance). */}
-      <View style={{ flexDirection: "row", gap: space.sm, paddingHorizontal: space.lg, paddingTop: space.sm }}>
+      <View style={{ flexDirection: "row", gap: space.sm, paddingHorizontal: space.lg, paddingTop: metrics.gap }}>
         <ModeTile
           label="Vs AI"
-          glyph={<VsAiGlyph theme={boardTheme} scale={scale} />}
+          glyph={<VsAiGlyph theme={boardTheme} scale={scale * tileK} />}
           onPress={() => setSheetMode("ai")}
+          height={metrics.tile}
         />
-        <ModeTile label="Pass & play" glyph={<CycleGlyph size={s(28)} />} onPress={() => setSheetMode("pass")} />
-        <ModeTile label="Friends room" glyph={<PeopleGlyph size={s(28)} />} onPress={() => setRoomSheet(true)} />
+        <ModeTile
+          label="Pass & play"
+          glyph={<CycleGlyph size={Math.round(28 * scale * tileK)} />}
+          onPress={() => setSheetMode("pass")}
+          height={metrics.tile}
+        />
+        <ModeTile
+          label="Friends room"
+          glyph={<PeopleGlyph size={Math.round(28 * scale * tileK)} />}
+          onPress={() => setRoomSheet(true)}
+          height={metrics.tile}
+        />
       </View>
 
       {/* Dock — doorways to everything that isn't playing. */}
-      <View style={{ paddingHorizontal: space.lg, paddingTop: space.sm, paddingBottom: space.sm }}>
+      <View style={{ paddingHorizontal: space.lg, paddingTop: metrics.gap, paddingBottom: metrics.gap }}>
+        {/* Home is the room you are already in: its item is lit, and inert. */}
         <HomeDock
+          onHome={() => {}}
           onShop={() => push("shop")}
           onFriends={() => push("friends")}
           onAccount={() => push("account")}
-          onHowToPlay={() => push("howToPlay")}
+          active="home"
           requestCount={requestCount}
           onlineCount={onlineCount}
           equipped={stillDieColors(diceSkin, boardTheme)}
+          height={metrics.dock}
         />
       </View>
-      </ScrollView>
+      </View>
       </ContentColumn>
 
       {/* Anchored to the bottom edge: never rides over the hub, collapses to

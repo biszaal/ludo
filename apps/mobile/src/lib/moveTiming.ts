@@ -13,7 +13,7 @@
  */
 
 import type { Color, GameState, TokenPosition } from "@ludo/engine";
-import { walkDurationMs } from "../render/waypoints";
+import { positionKey, walkDurationMs } from "../render/waypoints";
 import { BUST_HOLD_MS, isBustHandoff } from "./projection";
 
 export { FLY_MS, HOP_STEP_MS } from "../render/waypoints";
@@ -135,7 +135,7 @@ export function stateAnimationMs(prev: GameState, next: GameState): number {
   let captureMs = 0;
   for (const t of next.tokens) {
     const was = prevPos.get(t.id);
-    if (was === undefined || JSON.stringify(was) === JSON.stringify(t.position)) continue;
+    if (was === undefined || positionKey(was) === positionKey(t.position)) continue;
     if (t.position === "home") captureMs = Math.max(captureMs, walkDurationMs(t.color, was, t.position));
     else moverMs = Math.max(moverMs, walkDurationMs(t.color, was, t.position));
   }

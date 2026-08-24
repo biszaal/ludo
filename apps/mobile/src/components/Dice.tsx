@@ -32,7 +32,7 @@
  * moveTiming.diceLandsThisLap, which is where it can be tested.
  */
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef } from "react";
 import { Pressable, View } from "react-native";
 import { BlurStyle, Canvas, ClipOp, Picture, PaintStyle, Skia, StrokeCap, StrokeJoin, TileMode } from "@shopify/react-native-skia";
 import Animated, {
@@ -50,8 +50,10 @@ import { diceSettle } from "../lib/haptics";
 import { DICE_CUBE_END, DICE_ROLL_MS, DICE_TUMBLE_MS, diceLandsThisLap } from "../lib/moveTiming";
 import type { BoardTheme } from "../render/boardThemes";
 import { diceRenderParams, type DiceSkin } from "../render/diceSkins";
-import { cubeFaces, faceMatrix, lambert, rotateScaleAbout, rotateVec } from "../render/dieMath";
+import { cubeFaces, faceMatrix, lambert, rotateScaleAbout, rotateVec, type Vec3 } from "../render/dieMath";
+import { appendMotif, motifStyle } from "../render/faceMotifs";
 import { appendPip, overlayArt } from "../render/pipShapes";
+import { appendNumeral, NUMERAL_FACE_R, NUMERAL_KEYLINE, NUMERAL_STROKE, type Numeral } from "../render/dieNumerals";
 
 /** Pip centers on a unit face (x, y in 0..1), per die value. */
 const PIP_XY: Record<number, [number, number][]> = {
@@ -62,6 +64,22 @@ const PIP_XY: Record<number, [number, number][]> = {
   5: [[0.26, 0.26], [0.74, 0.26], [0.5, 0.5], [0.26, 0.74], [0.74, 0.74]],
   6: [[0.26, 0.22], [0.74, 0.22], [0.26, 0.5], [0.74, 0.5], [0.26, 0.78], [0.74, 0.78]],
 };
+
+/**
+ * Blend a color toward white (`amt > 0`) or black (`amt < 0`).
+ *
+ * Marked "worklet" because both sides need it: the memoized paint kit builds
+ * its constant colors with it on the JS thread, and the picture below still
+ * shades each tumbling face with it per frame on the UI thread. A plain
+ * closure captured into a worklet cannot be called from one.
+ */
+function mixColor(rgb: [number, number, number], amt: number) {
+  "worklet";
+  const target = amt >= 0 ? 255 : 0;
+  const p = Math.abs(amt);
+  const ch = (v: number) => Math.round((target - v) * p + v);
+  return Skia.Color((((255 << 24) | (ch(rgb[0]) << 16) | (ch(rgb[1]) << 8) | ch(rgb[2])) >>> 0));
+}
 
 /**
  * Roll timing, all of it owned by lib/moveTiming — the sync path holds the next
@@ -103,7 +121,14 @@ interface DiceProps {
   pressLabel?: string;
 }
 
-export function Dice({ value, size = 64, spinSeq = 0, idle = false, theme, skin, onRollPress = null, pressLabel = "Roll the dice" }: DiceProps) {
+/**
+ * Memoized. Every prop is a primitive or a module-constant object (`theme` and
+ * `skin` both resolve to catalog constants), so this holds on the re-renders
+ * that matter: online, the game screen re-renders for chat, presence, lobby
+ * and timer traffic, and each of those used to re-run the derived value below
+ * — which is a full picture re-record — for a die that had not changed.
+ */
+export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = false, theme, skin, onRollPress = null, pressLabel = "Roll the dice" }: DiceProps) {
   // 0→1 over one lap plus its squash; rests at 1 (settled). Starts settled so
   // remounting at the next player's corner never replays the tumble (the old
   // double-roll bug).
@@ -262,6 +287,126 @@ export function Dice({ value, size = 64, spinSeq = 0, idle = false, theme, skin,
   // component exists to avoid).
   const sp = useMemo(() => diceRenderParams(skin, theme), [skin, theme]);
 
+  /**
+   * Everything the tumble draws with that does not change between frames.
+   *
+   * The picture below is re-recorded every frame — that is how a `<Picture>`
+   * driven by a shared value works, and it is fine. What was NOT fine was
+   * rebuilding the tools each time: seven `Skia.Paint()`s, a fresh
+   * `MakeLinearGradient` per visible face (twice over, face then sheen), the
+   * six cube faces, and a `Skia.Path` per face for numeral/shaped pips —
+   * upwards of a hundred JSI objects a frame, at 60-120Hz, on the UI thread,
+   * for 700ms a roll and up to nine seconds of it when an online roll is still
+   * waiting on its number. On Hermes that is pure GC pressure landing on the
+   * animation thread.
+   *
+   * None of it depends on the frame. It depends on the skin, which is `sp`.
+   * So it is built once here and only mutated per frame — `setAlphaf` over a
+   * cached shader gives exactly the value the per-frame gradient did, because
+   * a paint's alpha modulates its shader's output.
+   */
+  const kit = useMemo(() => {
+    const mix = mixColor;
+
+    // Opaque black; the per-frame airborne fade rides on setAlphaf instead of
+    // a fresh Skia.Color every frame.
+    const shadow = Skia.Paint();
+    shadow.setAntiAlias(true);
+    shadow.setColor(Skia.Color("rgb(0, 0, 0)"));
+
+    const core = Skia.Paint();
+    core.setAntiAlias(true);
+    core.setColor(sp.edgeRGB ? mix(sp.edgeRGB, 0) : mix(sp.faceRGB, -0.55));
+
+    const facePaint = Skia.Paint();
+    facePaint.setAntiAlias(true);
+
+    const pipPaint = Skia.Paint();
+    pipPaint.setAntiAlias(true);
+    pipPaint.setColor(mix(sp.pipRGB, 0));
+
+    // Same darker-rim trick as the landed face: a shaped pip is only a couple
+    // of local units across here, so the outline — not the fill — is what
+    // actually reads as a shape while the cube is spinning.
+    const outlinePaint = Skia.Paint();
+    outlinePaint.setAntiAlias(true);
+    outlinePaint.setStyle(PaintStyle.Stroke);
+    outlinePaint.setStrokeWidth(0.05);
+    outlinePaint.setStrokeJoin(StrokeJoin.Round);
+    outlinePaint.setColor(mix(sp.pipRGB, -0.45));
+
+    const glossPaint = Skia.Paint();
+    glossPaint.setAntiAlias(true);
+
+    // Numeral skins ink a stroked centerline instead of a pip cluster; one
+    // paint, restroked per pass (keyline then ink) for each visible face.
+    const numeralPaint = Skia.Paint();
+    numeralPaint.setAntiAlias(true);
+    numeralPaint.setStyle(PaintStyle.Stroke);
+    numeralPaint.setStrokeCap(StrokeCap.Round);
+    numeralPaint.setStrokeJoin(StrokeJoin.Round);
+
+    // Face-local, so the endpoints never move: one shader for every face of
+    // every frame, with the per-face lambert term applied as paint alpha.
+    const faceShader = sp.gradient
+      ? Skia.Shader.MakeLinearGradient(
+          { x: -1, y: -1 },
+          { x: 1, y: 1 },
+          sp.gradient.colors.map((cc) => Skia.Color(cc)),
+          sp.gradient.stops,
+          TileMode.Clamp,
+        )
+      : null;
+    // Built at full white; the sheen strength and the face's own lambert term
+    // multiply in through setAlphaf, which is what the per-frame rebuild did
+    // by baking them into the gradient's own colors.
+    const glossShader =
+      sp.sheen > 0
+        ? Skia.Shader.MakeLinearGradient(
+            { x: -1, y: -1 },
+            { x: -0.7, y: 0.45 },
+            [Skia.Color("rgba(255,255,255,1)"), Skia.Color("rgba(255,255,255,0)")],
+            null,
+            TileMode.Clamp,
+          )
+        : null;
+
+    // The six faces, arranged for each possible camera value (index = value-1).
+    const facesFor = [1, 2, 3, 4, 5, 6].map((v) => cubeFaces(v));
+
+    // Tumble-time pip geometry, one path per face value. Face-local units, so
+    // a path is identical on every face that shows that value, on every frame.
+    const pipPathFor: (ReturnType<typeof Skia.Path.Make> | null)[] = [1, 2, 3, 4, 5, 6].map((v) => {
+      if (sp.pipShape === "dot") return null; // drawn as circles, no path
+      const path = Skia.Path.Make();
+      if (sp.pipShape === "numeral") {
+        appendNumeral(path, v as Numeral, 0, 0, NUMERAL_FACE_R);
+      } else {
+        for (const [px, py] of PIP_XY[v]!) {
+          appendPip(path, sp.pipShape, (px - 0.5) * 1.84, (py - 0.5) * 1.84, 0.19);
+        }
+      }
+      return path;
+    });
+
+    return {
+      shadow,
+      core,
+      facePaint,
+      pipPaint,
+      outlinePaint,
+      glossPaint,
+      numeralPaint,
+      faceShader,
+      glossShader,
+      facesFor,
+      pipPathFor,
+      numeralKeyColor: mix(sp.pipRGB, -0.45),
+      numeralInkColor: mix(sp.pipRGB, 0),
+    };
+  }, [sp]);
+
+
   // Canvas is padded beyond the die so the mid-flight scale-up and the ground
   // shadow have room (corner-on at apex the cube's half-diagonal reaches
   // √3 · 1.3 · size/2 ≈ 1.13 · size/2); the layout footprint stays `size`.
@@ -275,12 +420,7 @@ export function Dice({ value, size = 64, spinSeq = 0, idle = false, theme, skin,
   const shownValue = value ?? 1;
 
   const picture = useDerivedValue(() => {
-    const mix = (rgb: [number, number, number], amt: number) => {
-      const target = amt >= 0 ? 255 : 0;
-      const p = Math.abs(amt);
-      const ch = (v: number) => Math.round((target - v) * p + v);
-      return Skia.Color((((255 << 24) | (ch(rgb[0]) << 16) | (ch(rgb[1]) << 8) | ch(rgb[2])) >>> 0));
-    };
+    const mix = mixColor;
 
     const rec = Skia.PictureRecorder();
     const canvas = rec.beginRecording(Skia.XYWHRect(0, 0, canvasSide, canvasSide));
@@ -291,9 +431,8 @@ export function Dice({ value, size = 64, spinSeq = 0, idle = false, theme, skin,
     const lift = Math.sin(Math.PI * t); // 0 grounded → 1 apex → 0 landed
 
     // Ground shadow: shrinks and fades while the die is airborne.
-    const shadow = Skia.Paint();
-    shadow.setAntiAlias(true);
-    shadow.setColor(Skia.Color(`rgba(0, 0, 0, ${0.26 * (1 - lift * 0.55)})`));
+    const shadow = kit.shadow;
+    shadow.setAlphaf(0.26 * (1 - lift * 0.55));
     const shW = size * 0.5 * (1 - lift * 0.3);
     const shH = size * 0.13 * (1 - lift * 0.3);
     canvas.drawOval(Skia.XYWHRect(c - shW, c + size * 0.56 - shH, shW * 2, shH * 2), shadow);
@@ -317,33 +456,28 @@ export function Dice({ value, size = 64, spinSeq = 0, idle = false, theme, skin,
       const az = 0.4 * back * Math.sin(Math.PI * (6 + (n % 3)) * t);
       const h = (size / 2) * (1 + 0.3 * lift); // grows toward the camera mid-flight
 
-      const core = Skia.Paint();
-      core.setAntiAlias(true);
-      core.setColor(sp.edgeRGB ? mix(sp.edgeRGB, 0) : mix(sp.faceRGB, -0.55));
-      const facePaint = Skia.Paint();
-      facePaint.setAntiAlias(true);
-      const pipPaint = Skia.Paint();
-      pipPaint.setAntiAlias(true);
-      pipPaint.setColor(mix(sp.pipRGB, 0));
-      // Same darker-rim trick as the landed face: a shaped pip is only a
-      // couple of local units across here, so the outline — not the fill —
-      // is what actually reads as a shape while the cube is spinning.
-      const outlinePaint = Skia.Paint();
-      outlinePaint.setAntiAlias(true);
-      outlinePaint.setStyle(PaintStyle.Stroke);
-      outlinePaint.setStrokeWidth(0.05);
-      outlinePaint.setStrokeJoin(StrokeJoin.Round);
-      outlinePaint.setColor(mix(sp.pipRGB, -0.45));
+      // All of these were built here, every frame. They belong to the skin,
+      // not the frame — see `kit`.
+      const core = kit.core;
+      const facePaint = kit.facePaint;
+      const pipPaint = kit.pipPaint;
+      const outlinePaint = kit.outlinePaint;
+      const glossPaint = kit.glossPaint;
+      const numeralPaint = kit.numeralPaint;
 
       // Cull faces nearly edge-on (they draw as stray hairline slivers).
-      const visible = cubeFaces(shownValue)
-        .map((face) => ({
-          face,
-          n: rotateVec(face.n, ax, ay, az),
-          u: rotateVec(face.u, ax, ay, az),
-          v: rotateVec(face.v, ax, ay, az),
-        }))
-        .filter(({ n }) => n.z < -0.06);
+      // One pass, and the cull happens BEFORE the other two axes are rotated:
+      // the map/filter pair this replaces rotated all three vectors of all six
+      // faces before throwing half of them away. (A scratch array reused
+      // between frames would be better still, but Reanimated freezes the plain
+      // objects a worklet captures, so the allocation has to live in here.)
+      const visible: { face: (typeof kit.facesFor)[number][number]; n: Vec3; u: Vec3; v: Vec3 }[] = [];
+      for (const face of kit.facesFor[shownValue - 1]!) {
+        const n = rotateVec(face.n, ax, ay, az);
+        if (n.z >= -0.06) continue;
+        visible.push({ face, n, u: rotateVec(face.u, ax, ay, az), v: rotateVec(face.v, ax, ay, az) });
+      }
+      const visibleCount = visible.length;
 
       // Pass 1 — slightly oversized dark cores behind the faces, so the gaps
       // left by rounded face corners read as the die's darker edges. Core
@@ -352,8 +486,9 @@ export function Dice({ value, size = 64, spinSeq = 0, idle = false, theme, skin,
       // span 2 per edge, so 0.5 here is that same 24% scaled up 4%. Skipped
       // when the die is face-on (single face): there are no gaps to fill and
       // the core would show as a rim around the landing face.
-      if (visible.length > 1) {
-        for (const { n, u, v } of visible) {
+      if (visibleCount > 1) {
+        for (let i = 0; i < visibleCount; i++) {
+          const { n, u, v } = visible[i]!;
           canvas.save();
           canvas.concat(Skia.Matrix(faceMatrix(u, v, n, h, c, c)));
           canvas.drawRRect(Skia.RRectXY(Skia.XYWHRect(-1.04, -1.04, 2.08, 2.08), 0.5, 0.5), core);
@@ -368,19 +503,12 @@ export function Dice({ value, size = 64, spinSeq = 0, idle = false, theme, skin,
       // pip shape here too, not just once landed — only the decorative
       // overlay texture and the pip glow stay landed-only: those cost a lot
       // more per draw, and at tumbling speed neither would read anyway.
-      for (const { face, n, u, v } of visible) {
+      for (let i = 0; i < visibleCount; i++) {
+        const { face, n, u, v } = visible[i]!;
         canvas.save();
         canvas.concat(Skia.Matrix(faceMatrix(u, v, n, h, c, c)));
-        if (sp.gradient) {
-          facePaint.setShader(
-            Skia.Shader.MakeLinearGradient(
-              { x: -1, y: -1 },
-              { x: 1, y: 1 },
-              sp.gradient.colors.map((cc) => Skia.Color(cc)),
-              sp.gradient.stops,
-              TileMode.Clamp,
-            ),
-          );
+        if (kit.faceShader) {
+          facePaint.setShader(kit.faceShader);
           // The shader replaces per-face lambert shading, so fake back a hint
           // of it via alpha (modulates the shader's own output) — otherwise a
           // gradient skin's cube looks flat next to a solid-color one's.
@@ -390,6 +518,15 @@ export function Dice({ value, size = 64, spinSeq = 0, idle = false, theme, skin,
           facePaint.setColor(mix(sp.faceRGB, -0.46 + 0.62 * lambert(n)));
         }
         canvas.drawRRect(Skia.RRectXY(Skia.XYWHRect(-1, -1, 2, 2), 0.48, 0.48), facePaint);
+        if (kit.glossShader) {
+          // Scaled by the face's own lambert term so the cube's polish turns
+          // with it, instead of every side glinting equally. The gradient runs
+          // full white to clear, so this alpha reproduces exactly what baking
+          // it into the gradient's colors used to.
+          glossPaint.setShader(kit.glossShader);
+          glossPaint.setAlphaf(sp.sheen * (0.35 + 0.65 * lambert(n)));
+          canvas.drawRRect(Skia.RRectXY(Skia.XYWHRect(-1, -1, 2, 2), 0.48, 0.48), glossPaint);
+        }
         // Blank while the roll is still waiting on its number. Pips appear the
         // moment the value lands, which is also the moment the landing arc is
         // allowed to start — so every face the player can actually read is the
@@ -398,11 +535,22 @@ export function Dice({ value, size = 64, spinSeq = 0, idle = false, theme, skin,
           for (const [px, py] of PIP_XY[face.value]!) {
             canvas.drawCircle((px - 0.5) * 1.84, (py - 0.5) * 1.84, 0.17, pipPaint);
           }
+        } else if (sp.pipShape === "numeral") {
+          // One figure per face, at the same cap height the landed face uses
+          // (0.29 of the die, and a face spans 2 local units). Stroked, so the
+          // rim trick above becomes a plain wider under-stroke rather than an
+          // outline around a fill. The path is face-local, so it is the same
+          // one on every face and every frame showing this value.
+          const nr = NUMERAL_FACE_R;
+          const numeral = kit.pipPathFor[face.value - 1]!;
+          numeralPaint.setStrokeWidth(nr * NUMERAL_STROKE * NUMERAL_KEYLINE);
+          numeralPaint.setColor(kit.numeralKeyColor);
+          canvas.drawPath(numeral, numeralPaint);
+          numeralPaint.setStrokeWidth(nr * NUMERAL_STROKE);
+          numeralPaint.setColor(kit.numeralInkColor);
+          canvas.drawPath(numeral, numeralPaint);
         } else {
-          const facePips = Skia.Path.Make();
-          for (const [px, py] of PIP_XY[face.value]!) {
-            appendPip(facePips, sp.pipShape, (px - 0.5) * 1.84, (py - 0.5) * 1.84, 0.19);
-          }
+          const facePips = kit.pipPathFor[face.value - 1]!;
           canvas.drawPath(facePips, outlinePaint);
           canvas.drawPath(facePips, pipPaint);
         }
@@ -477,6 +625,74 @@ export function Dice({ value, size = 64, spinSeq = 0, idle = false, theme, skin,
         canvas.restore();
       }
 
+      // Ornament: a struck figure behind the numeral, clipped to the face.
+      // Drawn after the overlay texture (which says what the face is made of)
+      // and before the gloss, so the polish sits over the decoration the way
+      // a lacquer coat sits over an inlay.
+      if (sp.motif) {
+        const art = Skia.Path.Make();
+        const mr = size * sp.motif.scale;
+        appendMotif(art, sp.motif.kind, c, c - 1.5, mr);
+        const style = motifStyle(sp.motif.kind);
+        const paint = Skia.Paint();
+        paint.setAntiAlias(true);
+        paint.setColor(Skia.Color(sp.motif.color));
+        paint.setAlphaf(sp.motif.alpha);
+        if (style.style === "stroke") {
+          paint.setStyle(PaintStyle.Stroke);
+          paint.setStrokeWidth(style.width * mr);
+        }
+        canvas.save();
+        canvas.clipRRect(faceRRect, ClipOp.Intersect, true);
+        canvas.drawPath(art, paint);
+        canvas.restore();
+      }
+
+      // Polished finish: a light sweep off the top-left of the face, fading out
+      // by mid-face. This is what makes a bought die look bought — a flat
+      // gradient reads as a printed color, the same face under a highlight
+      // reads as lacquer, stone or metal with something over it. Matte skins
+      // pass sheen 0 and skip the pass entirely, so the free die is untouched.
+      if (sp.sheen > 0) {
+        const gloss = Skia.Paint();
+        gloss.setAntiAlias(true);
+        gloss.setShader(
+          Skia.Shader.MakeLinearGradient(
+            { x, y },
+            { x: x + size * 0.15, y: y + faceH * 0.72 },
+            [
+              Skia.Color(`rgba(255,255,255,${sp.sheen})`),
+              Skia.Color(`rgba(255,255,255,${sp.sheen * 0.45})`),
+              Skia.Color("rgba(255,255,255,0)"),
+            ],
+            [0, 0.38, 0.62],
+            TileMode.Clamp,
+          ),
+        );
+        canvas.save();
+        canvas.clipRRect(faceRRect, ClipOp.Intersect, true);
+        canvas.drawRRect(faceRRect, gloss);
+        canvas.restore();
+
+        // A lit rim just inside the face edge — the highlight a polished
+        // surface catches all the way round, which is what stops the gloss
+        // above reading as a smudge on a flat panel.
+        const rim = Skia.Paint();
+        rim.setAntiAlias(true);
+        rim.setStyle(PaintStyle.Stroke);
+        rim.setStrokeWidth(size * 0.028);
+        rim.setColor(Skia.Color(`rgba(255,255,255,${sp.sheen * 0.42})`));
+        const inset = size * 0.018;
+        canvas.drawRRect(
+          Skia.RRectXY(
+            Skia.XYWHRect(x + inset, y + inset, size - inset * 2, faceH - inset * 2),
+            rounded * 0.92,
+            rounded * 0.92,
+          ),
+          rim,
+        );
+      }
+
       // Frame: a rim stroke reserved for the top prestige skins.
       if (sp.frame) {
         const frame = Skia.Paint();
@@ -513,6 +729,54 @@ export function Dice({ value, size = 64, spinSeq = 0, idle = false, theme, skin,
         for (const [px, py] of PIP_XY[shownValue]!) {
           canvas.drawCircle(x + px * size, y + py * faceH, pip / 2, ink);
         }
+      } else if (sp.pipShape === "numeral") {
+        // A single figure at the face's optical center (the same 1.5px lift
+        // the swirl uses, since faceH is the die minus its edge lip). Three
+        // passes over one path: the optional glow, a wider keyline in a darker
+        // shade of the ink, then the ink itself — the stroked-centerline
+        // equivalent of the outline-then-fill the shaped pips use below, and
+        // it's what keeps a numeral crisp against its own face at ~48pt.
+        const nr = size * (NUMERAL_FACE_R / 2); // face-local -> px: a face spans `size`
+        const numeral = Skia.Path.Make();
+        appendNumeral(numeral, shownValue as Numeral, c, c - 1.5, nr);
+        const w = nr * NUMERAL_STROKE;
+
+        const stroke = Skia.Paint();
+        stroke.setAntiAlias(true);
+        stroke.setStyle(PaintStyle.Stroke);
+        stroke.setStrokeCap(StrokeCap.Round);
+        stroke.setStrokeJoin(StrokeJoin.Round);
+
+        // One path, stroked repeatedly from widest to narrowest, so each pass
+        // survives only as a rim around the next. Nothing is clipped: a clip
+        // would take the path's FILL, and an open centerline has no useful
+        // fill — the ordering IS the containment.
+        const pass = (width: number, color: ReturnType<typeof Skia.Color>, alpha: number, dy: number) => {
+          stroke.setStrokeWidth(width);
+          stroke.setColor(color);
+          stroke.setAlphaf(alpha);
+          canvas.save();
+          canvas.translate(0, dy);
+          canvas.drawPath(numeral, stroke);
+          canvas.restore();
+        };
+
+        if (sp.glow) {
+          stroke.setMaskFilter(Skia.MaskFilter.MakeBlur(BlurStyle.Normal, size * 0.06, true));
+          pass(w, Skia.Color(sp.glow), 1, 0);
+          stroke.setMaskFilter(null);
+        }
+        // Keyline under everything: without it a gold figure on graphite or an
+        // ivory one on jade loses its edge the moment the die is small.
+        pass(w * NUMERAL_KEYLINE, mix(sp.pipRGB, -0.45), 1, 0);
+        // Polished skins get a bevel — shaded below, lit above. This is the
+        // difference between a numeral printed on the face and one struck into
+        // it, and it is the tier's tell at arm's length (see DiceSkin.sheen).
+        if (sp.sheen > 0) {
+          pass(w * 1.22, mix(sp.pipRGB, -0.55), Math.min(1, sp.sheen * 1.3), nr * 0.055);
+          pass(w * 1.22, mix(sp.pipRGB, 0.6), Math.min(1, sp.sheen * 1.5), -nr * 0.055);
+        }
+        pass(w, mix(sp.pipRGB, 0), 1, 0);
       } else {
         // Shaped pips (skins above the starter tier). At the die's actual
         // in-game size (~48px) a heart/star/diamond/crown/flame silhouette is
@@ -578,4 +842,4 @@ export function Dice({ value, size = 64, spinSeq = 0, idle = false, theme, skin,
       </View>
     </Pressable>
   );
-}
+});

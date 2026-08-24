@@ -14,6 +14,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { TableBackground } from "../components/TableBackground";
 import { Button } from "../components/Button";
 import { ScreenHeader } from "../components/ScreenHeader";
+import { useDockClearance } from "../components/TabDock";
 import { ContentColumn } from "../components/ContentColumn";
 import { SectionLabel } from "../components/SectionLabel";
 import { Surface3D } from "../components/Surface3D";
@@ -85,12 +86,16 @@ export function FriendsScreen() {
         (f.requester_user_id === uid || f.addressee_user_id === uid),
     )?.id;
 
+  const dockPad = useDockClearance();
+
+  // No bottom edge: the dock floats over this screen and pays that inset
+  // itself. The scroll content buys its own room back with dockClearance.
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: palette.tableBlue }}>
+    <SafeAreaView edges={["top", "left", "right"]} style={{ flex: 1, backgroundColor: palette.tableBlue }}>
       <TableBackground />
       <ScreenHeader title="Friends" />
 
-      <ScrollView contentContainerStyle={{ paddingTop: space.lg, paddingBottom: space.xxl, alignItems: "center" }}>
+      <ScrollView contentContainerStyle={{ paddingTop: space.lg, paddingBottom: space.xxl + dockPad, alignItems: "center" }}>
         <ContentColumn style={{ paddingHorizontal: space.xl, gap: space.xl }}>
         {canInvite ? (
           <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel }}>
@@ -111,27 +116,24 @@ export function FriendsScreen() {
                 avatar={avatarOf(r.requester_user_id)}
                 onPress={() => void viewPlayer(r.requester_user_id)}
               >
-                <View style={{ width: 96 }}>
-                  <Button label="Accept" onPress={() => void accept(r.id)} />
-                </View>
-                <View style={{ width: 90 }}>
-                  <Button
-                    label="Ignore"
-                    variant="ghost"
-                    onPress={() =>
-                      void (async () => {
-                        const name = nameOf(r.requester_user_id);
-                        const ok = await confirm({
-                          title: `Ignore ${name}?`,
-                          message: "Their request disappears. They can send another one later.",
-                          confirmLabel: "Ignore",
-                          destructive: true,
-                        });
-                        if (ok) await remove(r.id);
-                      })()
-                    }
-                  />
-                </View>
+                <Button compact label="Accept" onPress={() => void accept(r.id)} />
+                <Button
+                  compact
+                  label="Ignore"
+                  variant="ghost"
+                  onPress={() =>
+                    void (async () => {
+                      const name = nameOf(r.requester_user_id);
+                      const ok = await confirm({
+                        title: `Ignore ${name}?`,
+                        message: "Their request disappears. They can send another one later.",
+                        confirmLabel: "Ignore",
+                        destructive: true,
+                      });
+                      if (ok) await remove(r.id);
+                    })()
+                  }
+                />
               </Row>
             ))}
           </View>
@@ -191,9 +193,7 @@ export function FriendsScreen() {
                 onPress={() => void viewPlayer(uid)}
               >
                 {canInvite ? (
-                  <View style={{ width: 100 }}>
-                    <Button label="Invite" onPress={() => void inviteToRoom(uid, roomCode!, stake)} />
-                  </View>
+                  <Button compact label="Invite" onPress={() => void inviteToRoom(uid, roomCode!, stake)} />
                 ) : (
                   <TextLink
                     label="Remove"
@@ -227,9 +227,16 @@ export function FriendsScreen() {
   );
 }
 
+/** Minimum width the identity half keeps before the actions give up and wrap
+ *  onto their own line. Two actions plus an avatar plus a name do not fit on a
+ *  small phone (or at a large text size); rather than shave the name down to an
+ *  ellipsis, the row becomes two lines and everything stays readable. */
+const IDENTITY_MIN = 150;
+
 /** One player row: avatar (with an optional presence dot), name, then actions.
  *  The row itself opens the public profile; the action buttons sit outside the
- *  Pressable so tapping Accept never also navigates. */
+ *  Pressable so tapping Accept never also navigates. Actions are grouped so
+ *  they wrap as a pair — never one button stranded on a line of its own. */
 function Row({
   name,
   avatar,
@@ -244,22 +251,47 @@ function Row({
   children: React.ReactNode;
 }) {
   return (
-    <Surface3D edge={2} faceStyle={{ flexDirection: "row", alignItems: "center", gap: space.md, padding: space.md }}>
+    <Surface3D
+      edge={2}
+      faceStyle={{
+        flexDirection: "row",
+        flexWrap: "wrap",
+        alignItems: "center",
+        // Only bites on a wrapped second line: on one line the identity half
+        // has already grown into the slack, so there is nothing left to justify.
+        justifyContent: "flex-end",
+        gap: space.sm,
+        padding: space.md,
+      }}
+    >
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`View ${name}'s profile`}
         onPress={onPress}
-        style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: space.md, flex: 1, opacity: pressed ? 0.85 : 1 })}
+        style={({ pressed }) => ({
+          flexDirection: "row",
+          alignItems: "center",
+          gap: space.md,
+          flexGrow: 1,
+          flexShrink: 1,
+          flexBasis: IDENTITY_MIN,
+          opacity: pressed ? 0.85 : 1,
+        })}
       >
         <View>
           <AvatarGlyph id={avatar} size={36} />
           {online !== undefined ? <PresenceDot online={online} /> : null}
         </View>
-        <Text style={{ flex: 1, fontFamily: font.semibold, fontSize: 15, color: palette.porcelain }} numberOfLines={1}>
+        <Text
+          style={{ flexShrink: 1, fontFamily: font.semibold, fontSize: 15, color: palette.porcelain }}
+          numberOfLines={1}
+        >
           {name}
         </Text>
       </Pressable>
-      {children}
+      <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
+        {children}
+      </View>
     </Surface3D>
   );
 }

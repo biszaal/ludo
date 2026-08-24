@@ -11,6 +11,7 @@ import {
 } from "@expo-google-fonts/outfit";
 import { JetBrainsMono_500Medium } from "@expo-google-fonts/jetbrains-mono";
 import { ScreenStack } from "./src/components/ScreenStack";
+import { SheetHost } from "./src/components/SheetHost";
 import { InviteBanner } from "./src/components/InviteBanner";
 import { ConfirmDialog } from "./src/components/ConfirmDialog";
 import { LoadingScreen } from "./src/components/LoadingScreen";
@@ -139,6 +140,10 @@ export default function App() {
       {ready && (
         <ErrorBoundary onReset={recoverFromCrash}>
           <ScreenStack />
+          {/* Bottom sheets draw here, not where they are declared — above the
+              screens and the floating dock, anchored to the screen rather than
+              to whatever scroll view happened to contain them. */}
+          <SheetHost />
           <InviteBanner />
           {/* Above everything, including the banner: it is asked about an
               action the player just tried to take. */}

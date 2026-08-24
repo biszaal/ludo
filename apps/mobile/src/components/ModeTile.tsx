@@ -10,15 +10,38 @@ import { Surface3D } from "./Surface3D";
 import { useLayout } from "../lib/useLayout";
 import { font, palette, radius, space } from "../theme";
 
-export function ModeTile({ label, glyph, onPress }: { label: string; glyph: ReactNode; onPress: () => void }) {
+export function ModeTile({
+  label,
+  glyph,
+  onPress,
+  height,
+}: {
+  label: string;
+  glyph: ReactNode;
+  onPress: () => void;
+  /** Height from the hub's budget; natural size when unset. */
+  height?: number;
+}) {
   const { scale } = useLayout();
-  const height = Math.round(96 * scale);
+  const natural = Math.round(96 * scale);
+  const h = height ?? natural;
+  // Glyph well and label ride the tile so a compressed row stays legible
+  // rather than letting fixed-size art crowd out the word beneath it.
+  const k = h / natural;
+  const well = Math.round(Math.max(20, 32 * scale * k));
+  const lbl = Math.round(Math.max(11, Math.min(17, 13 * scale * k)));
   return (
     <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={{ flex: 1 }}>
       {({ pressed }) => (
-        <Surface3D rad={radius.lg} pressed={pressed} faceStyle={{ height: height - 3, alignItems: "center", justifyContent: "center", gap: space.sm }}>
-          <View style={{ height: Math.round(32 * scale), alignItems: "center", justifyContent: "center" }}>{glyph}</View>
-          <Text style={{ fontFamily: font.semibold, fontSize: Math.round(13 * scale), color: palette.porcelain }}>{label}</Text>
+        <Surface3D
+          rad={radius.lg}
+          pressed={pressed}
+          faceStyle={{ height: h - 3, alignItems: "center", justifyContent: "center", gap: Math.round(space.sm * k) }}
+        >
+          <View style={{ height: well, alignItems: "center", justifyContent: "center" }}>{glyph}</View>
+          <Text numberOfLines={1} style={{ fontFamily: font.semibold, fontSize: lbl, color: palette.porcelain }}>
+            {label}
+          </Text>
         </Surface3D>
       )}
     </Pressable>

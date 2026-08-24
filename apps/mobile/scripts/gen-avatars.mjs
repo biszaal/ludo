@@ -31,31 +31,42 @@ const DESIGN = 100; // the coordinate space all the path data is written in
 // --- Catalog ----------------------------------------------------------------
 
 /**
- * The chip tones. Achromatic on purpose: the seats are red, green, yellow and
- * blue, so rather than hunt for a hue none of them claims, the background
- * carries no hue at all and varies by value and pattern instead.
+ * The chip tones. The seats own red, green, yellow and blue, so the chips use
+ * none of those families: a tone is either a true grey (r === g === b, no hue
+ * at all) or sits in the violet/magenta band, which is the widest gap the seat
+ * hues leave — 132deg between blue at 226 and red at 358. Every violet here is
+ * at least 40deg from all four.
+ *
+ * Hue is only half of it, and the weaker half — it collapses under
+ * colorblindness. Every tone is also far paler and flatter than any seat
+ * (sat <= 0.30 vs 0.56-0.86, light >= 0.74 vs 0.42-0.59), so the frame reads
+ * as the color and the chip reads as tinted paper. See the tests in
+ * __tests__/avatars.test.ts, which enforce all of it.
  */
 export const CHIP_TONES = {
-  stone: { top: "#EEF1F5", bottom: "#CBD2DA" },
-  ash: { top: "#DCE0E6", bottom: "#AEB6C2" },
+  pearl: { top: "#F0F0F0", bottom: "#C9C9C9" },
+  slate: { top: "#DEDEDE", bottom: "#B5B5B5" },
+  lilac: { top: "#EBE1EF", bottom: "#C8AAD5" },
+  violet: { top: "#EFE1EF", bottom: "#D5AAD5" },
+  orchid: { top: "#EEE1EC", bottom: "#D3AACB" },
 };
 
 export const AVATARS = [
-  { id: "leo", skin: "#FFD9B3", hair: "#7A4A21", shirt: "#B98A3E", style: "crown", tone: "stone", pattern: "halo" },
-  { id: "sunny", skin: "#FFE0C2", hair: "#E8542F", shirt: "#C07551", style: "spiky", tone: "stone", pattern: "rays" },
-  { id: "coco", skin: "#8A5A3B", hair: "#26150B", shirt: "#4E8A6B", style: "afro", tone: "stone", pattern: "dots" },
-  { id: "zara", skin: "#C68642", hair: "#2B1B10", shirt: "#B06A82", style: "bun", tone: "stone", pattern: "arcs" },
-  { id: "rex", skin: "#FFD9B3", hair: "#5A3A1E", shirt: "#5F76B0", style: "cap", tone: "stone", pattern: "bands" },
-  { id: "nina", skin: "#8A5A3B", hair: "#1E1208", shirt: "#8168AD", style: "pigtails", tone: "ash", pattern: "split" },
-  { id: "milo", skin: "#FFE0C2", hair: "#B0722F", shirt: "#4C8C87", style: "side", tone: "stone", pattern: "checks" },
-  { id: "ivy", skin: "#F3C7A5", hair: "#C2572E", shirt: "#6E8C55", style: "beanie", tone: "ash", pattern: "dots" },
-  { id: "ace", skin: "#E8B98A", hair: "#6E3FBF", shirt: "#6870AD", style: "headphones", tone: "ash", pattern: "bands" },
-  { id: "ruby", skin: "#FFD9B3", hair: "#4A2C15", shirt: "#A85A5A", style: "bow", tone: "ash", pattern: "arcs" },
-  { id: "bruno", skin: "#E8B98A", hair: "#3D2A1A", shirt: "#B08A55", style: "beard", tone: "ash", pattern: "checks" },
-  { id: "kito", skin: "#F5B78D", hair: "#E88A3C", shirt: "#6B8395", style: "cat", tone: "stone", pattern: "split" },
+  { id: "leo", skin: "#FFD9B3", hair: "#7A4A21", shirt: "#B98A3E", style: "crown", tone: "pearl", pattern: "halo" },
+  { id: "sunny", skin: "#FFE0C2", hair: "#E8542F", shirt: "#C07551", style: "spiky", tone: "pearl", pattern: "rays" },
+  { id: "coco", skin: "#8A5A3B", hair: "#26150B", shirt: "#4E8A6B", style: "afro", tone: "violet", pattern: "dots" },
+  { id: "zara", skin: "#C68642", hair: "#2B1B10", shirt: "#B06A82", style: "bun", tone: "orchid", pattern: "arcs" },
+  { id: "rex", skin: "#FFD9B3", hair: "#5A3A1E", shirt: "#5F76B0", style: "cap", tone: "slate", pattern: "bands" },
+  { id: "nina", skin: "#8A5A3B", hair: "#1E1208", shirt: "#8168AD", style: "pigtails", tone: "lilac", pattern: "split" },
+  { id: "milo", skin: "#FFE0C2", hair: "#B0722F", shirt: "#4C8C87", style: "side", tone: "violet", pattern: "checks" },
+  { id: "ivy", skin: "#F3C7A5", hair: "#C2572E", shirt: "#6E8C55", style: "beanie", tone: "pearl", pattern: "dots" },
+  { id: "ace", skin: "#E8B98A", hair: "#6E3FBF", shirt: "#6870AD", style: "headphones", tone: "lilac", pattern: "bands" },
+  { id: "ruby", skin: "#FFD9B3", hair: "#4A2C15", shirt: "#A85A5A", style: "bow", tone: "orchid", pattern: "rays" },
+  { id: "bruno", skin: "#E8B98A", hair: "#3D2A1A", shirt: "#B08A55", style: "beard", tone: "pearl", pattern: "checks" },
+  { id: "kito", skin: "#F5B78D", hair: "#E88A3C", shirt: "#6B8395", style: "cat", tone: "pearl", pattern: "split" },
   // The gem tier (0018 seed) — same drawn styles, premium shirt tones.
-  { id: "nova", skin: "#F3C7A5", hair: "#8E86AD", shirt: "#7A6BB5", style: "spiky", tone: "ash", pattern: "rays" },
-  { id: "onyx", skin: "#C68642", hair: "#0B0C0F", shirt: "#2A2E36", style: "cap", tone: "ash", pattern: "halo" },
+  { id: "nova", skin: "#F3C7A5", hair: "#8E86AD", shirt: "#7A6BB5", style: "spiky", tone: "lilac", pattern: "halo" },
+  { id: "onyx", skin: "#C68642", hair: "#0B0C0F", shirt: "#2A2E36", style: "cap", tone: "slate", pattern: "checks" },
 ];;
 
 const NEUTRAL_BROW = "#5A4632";
@@ -302,6 +313,20 @@ export function parseColor(c) {
     return [p[0], p[1], p[2], p.length > 3 ? p[3] : 1];
   }
   throw new Error(`unparseable color: ${c}`);
+}
+
+/** Hue (deg), saturation and lightness (0-1) of a #rrggbb color. */
+export function hslOf(hex) {
+  const [r255, g255, b255] = parseColor(hex);
+  const [r, g, b] = [r255 / 255, g255 / 255, b255 / 255];
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+  const l = (max + min) / 2;
+  let h = 0;
+  if (d) {
+    h = max === r ? (g - b) / d + (g < b ? 6 : 0) : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    h *= 60;
+  }
+  return { h, s: d ? d / (l > 0.5 ? 2 - max - min : max + min) : 0, l };
 }
 
 /** HSL saturation, 0-1; NaN for non-hex input. Guards shirts against seat colors. */

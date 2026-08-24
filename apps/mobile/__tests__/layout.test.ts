@@ -11,6 +11,11 @@ import {
   GAME_COLUMN_MAX,
   gameColumnWidth,
   gameShape,
+  HERO_MAX,
+  HERO_MIN,
+  homeFurniture,
+  homeMetrics,
+  HOME_NATURAL,
   layoutTier,
   railedBoardSize,
   stackedBoardSize,
@@ -115,5 +120,84 @@ describe("board sizing", () => {
 
   it("never returns a negative side on an absurdly narrow window", () => {
     expect(railedBoardSize(200, 300)).toBe(0);
+  });
+});
+
+describe("homeMetrics", () => {
+  // Column heights: the window minus safe-area insets minus the ad strip.
+  const columns: Array<[string, number, number]> = [
+    ["iPhone SE (1st gen)", 568 - 20 - 50, 1],
+    ["iPhone SE (3rd gen)", 667 - 20 - 50, 1],
+    ["iPhone 13 mini", 812 - 50 - 34 - 50, 1],
+    ["iPhone 15 Pro", 852 - 59 - 34 - 50, 1],
+    ["iPhone 15 Pro Max", 932 - 62 - 34 - 50, 1],
+    ["phone, landscape", 430 - 21 - 50, 1],
+    ["iPad 10.9", 1180 - 24 - 20 - 50, 1.3],
+    ["iPad Pro 12.9", 1366 - 24 - 20 - 50, 1.3],
+  ];
+
+  it.each(columns)("fits the whole tower inside %s without scrolling", (_name, column, scale) => {
+    const m = homeMetrics(column, scale);
+    expect(homeFurniture(m) + m.hero).toBeLessThanOrEqual(column);
+  });
+
+  it.each(columns)("keeps every tap target comfortable on %s", (_name, column, scale) => {
+    const m = homeMetrics(column, scale);
+    expect(m.cta).toBeGreaterThanOrEqual(44);
+    expect(m.dock).toBeGreaterThanOrEqual(44);
+    expect(m.tile).toBeGreaterThanOrEqual(44);
+    expect(m.chest).toBeGreaterThanOrEqual(32);
+  });
+
+  it.each(columns)("leaves the still-life something to draw on %s", (_name, column, scale) => {
+    expect(homeMetrics(column, scale).hero).toBeGreaterThan(80);
+  });
+
+  it("leaves a roomy phone at natural size", () => {
+    const m = homeMetrics(667 - 20 - 50, 1);
+    expect(m.tile).toBe(HOME_NATURAL.tile);
+    expect(m.dock).toBe(HOME_NATURAL.dock);
+    expect(m.presence).toBe(HOME_NATURAL.presence);
+  });
+
+  it("drops the friends line before it shrinks anything tappable", () => {
+    // Just short of natural: the 18pt line is exactly what has to give.
+    const natural = homeFurniture(homeMetrics(667 - 20 - 50, 1));
+    const m = homeMetrics(natural + HERO_MIN - 10, 1);
+    expect(m.presence).toBe(0);
+    expect(m.tile).toBe(HOME_NATURAL.tile);
+    expect(m.dock).toBe(HOME_NATURAL.dock);
+  });
+
+  it("compresses the furniture once dropping the line is not enough", () => {
+    const m = homeMetrics(568 - 20 - 50, 1);
+    expect(m.presence).toBe(0);
+    expect(m.tile).toBeLessThan(HOME_NATURAL.tile);
+    expect(m.dock).toBeLessThan(HOME_NATURAL.dock);
+    expect(m.hero).toBeGreaterThanOrEqual(HERO_MIN - 1);
+  });
+
+  it("grows the furniture on a tall screen instead of stranding felt", () => {
+    const tall = 932 - 62 - 34;
+    const m = homeMetrics(tall, 1);
+    expect(m.tile).toBeGreaterThan(HOME_NATURAL.tile);
+    expect(m.dock).toBeGreaterThan(HOME_NATURAL.dock);
+    // Growth is capped, so the still-life can still exceed HERO_MAX on the
+    // tallest phones — but it must have given some of that felt back.
+    expect(m.hero).toBeLessThan(tall - homeFurniture(homeMetrics(667 - 20 - 50, 1)));
+  });
+
+  it("shrinks monotonically as the column shrinks", () => {
+    let previous = Infinity;
+    for (let column = 900; column >= 320; column -= 10) {
+      const total = homeFurniture(homeMetrics(column, 1));
+      expect(total).toBeLessThanOrEqual(previous + 1);
+      previous = total;
+    }
+  });
+
+  it("falls back to natural size before the column has been measured", () => {
+    expect(homeMetrics(0, 1).tile).toBe(HOME_NATURAL.tile);
+    expect(homeMetrics(Number.NaN, 1).tile).toBe(HOME_NATURAL.tile);
   });
 });

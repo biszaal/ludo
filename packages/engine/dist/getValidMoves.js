@@ -50,13 +50,14 @@ function resolveMove(state, token, color, dice) {
     return buildMove(state, token, color, to);
 }
 /**
- * Attach capture/finish metadata to a candidate destination, or null when the
- * destination is barred — today only by an opponent's protected stack.
+ * Attach capture/finish metadata to a candidate destination.
+ *
+ * Every destination is reachable: a crowded cell is immune (see
+ * {@link computeCaptures}), never barred. Landing on one just adds a token to
+ * the pile.
  */
 function buildMove(state, token, color, to) {
     const destAbs = absoluteTrackIndex(to);
-    if (destAbs !== null && isBlockedByStack(state, token.playerId, destAbs))
-        return null;
     const captures = destAbs === null ? [] : computeCaptures(state, token.playerId, destAbs);
     return {
         tokenId: token.id,
@@ -66,60 +67,27 @@ function buildMove(state, token, color, to) {
         finishes: to === "finished",
     };
 }
-/** Opponent tokens sitting on `absIndex`, grouped by owner. */
-function opponentsOn(state, moverPlayerId, absIndex) {
-    const byOwner = new Map();
-    for (const t of state.tokens) {
-        if (t.playerId === moverPlayerId)
-            continue;
-        if (absoluteTrackIndex(t.position) !== absIndex)
-            continue;
-        const owned = byOwner.get(t.playerId);
-        if (owned)
-            owned.push(t.id);
-        else
-            byOwner.set(t.playerId, [t.id]);
-    }
-    return byOwner;
-}
 /**
- * Is landing on `absIndex` barred by a protected stack?
+ * Ids of opponent tokens sent home by landing on `absIndex`.
  *
- * A stack is two or more tokens of the SAME opponent on one cell — they guard
- * each other, so the move has to be played with a different token. Two
- * different opponents each holding one token there is not a stack: neither is
- * protected and both are captured, as before.
+ * A cell already carrying two or more tokens is immune, and immunity counts
+ * TOKENS rather than owners: the pile may be one player's pair, that pair with
+ * an opponent stacked on top, or the single tokens two players are left with
+ * after such a pile decays. All of them are two-deep, so none of them can be
+ * captured — the cell only opens up again once it is back to one token.
  *
- * Safe squares are exempt on purpose. Nothing is capturable there anyway, and
- * barring the landing would let a pair of tokens parked on a start cell lock
- * their owner out of leaving the yard.
- */
-function isBlockedByStack(state, moverPlayerId, absIndex) {
-    if (!state.rules.protectStacks)
-        return false;
-    if (state.rules.safeSquares && isSafeSquare(absIndex))
-        return false;
-    for (const ids of opponentsOn(state, moverPlayerId, absIndex).values()) {
-        if (ids.length >= 2)
-            return true;
-    }
-    return false;
-}
-/**
- * Ids of opponent tokens sent home by landing on `absIndex`. None on safe
- * squares, and none from a protected stack — {@link isBlockedByStack} has
- * already rejected that destination, so anything reaching here is a lone token.
+ * The mover's own token counts toward the pile, so bringing a second token
+ * onto a cell shared with a lone opponent shields that opponent rather than
+ * sending it home.
+ *
+ * Safe squares never capture, as before.
  */
 function computeCaptures(state, moverPlayerId, absIndex) {
     if (state.rules.safeSquares && isSafeSquare(absIndex))
         return [];
-    const byOwner = opponentsOn(state, moverPlayerId, absIndex);
-    const captured = [];
-    for (const ids of byOwner.values()) {
-        if (state.rules.protectStacks && ids.length >= 2)
-            continue;
-        captured.push(...ids);
-    }
-    return captured;
+    const occupants = state.tokens.filter((t) => absoluteTrackIndex(t.position) === absIndex);
+    if (state.rules.protectStacks && occupants.length >= 2)
+        return [];
+    return occupants.filter((t) => t.playerId !== moverPlayerId).map((t) => t.id);
 }
 //# sourceMappingURL=getValidMoves.js.map

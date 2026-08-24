@@ -1,6 +1,6 @@
 /** Types for gen-avatars.mjs, so the Node test suite can import the art catalog. */
 
-export type ChipTone = "stone" | "ash";
+export type ChipTone = "pearl" | "slate" | "lilac" | "violet" | "orchid";
 
 export interface AvatarArtSpec {
   id: string;
@@ -26,6 +26,7 @@ export const AVATARS: AvatarArtSpec[];
 export const OUT_DIR: string;
 
 export function saturationOf(hex: string): number;
+export function hslOf(hex: string): { h: number; s: number; l: number };
 export function contrastRatio(a: string, b: string): number;
 export function parseColor(c: string): [number, number, number, number];
 export function parsePath(d: string): [number, number][][];

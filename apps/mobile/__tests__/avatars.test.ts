@@ -9,7 +9,7 @@ import { describe, it, expect } from "vitest";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-import { AVATARS, CHIP_TONES, PATTERNS, chipOps, contrastRatio, parseColor, saturationOf } from "../scripts/gen-avatars.mjs";
+import { AVATARS, CHIP_TONES, PATTERNS, chipOps, contrastRatio, hslOf, parseColor, saturationOf } from "../scripts/gen-avatars.mjs";
 import { AVATAR_IDS, DEFAULT_AVATAR_ID, resolveAvatarId } from "../src/render/avatars";
 import { teamColor } from "../src/theme";
 
@@ -38,14 +38,56 @@ describe("avatar catalog", () => {
 });
 
 describe("avatar chip background", () => {
-  it("has no chroma that could read as a seat color", () => {
-    // The whole point of the patterned-neutral chip: seats are red, green,
-    // yellow and blue, which covers most of the hue wheel, so the background
-    // stays achromatic rather than trying to dodge four hues.
-    for (const [name, tone] of Object.entries(CHIP_TONES)) {
-      for (const stop of [tone.top, tone.bottom]) {
-        expect(stop, `${name}`).toMatch(/^#[0-9A-Fa-f]{6}$/);
-        expect(saturationOf(stop), `chip tone ${name} (${stop}) has too much chroma`).toBeLessThan(0.3);
+  const toneStops = () =>
+    Object.entries(CHIP_TONES).flatMap(([name, t]) => [
+      [`${name}.top`, t.top] as const,
+      [`${name}.bottom`, t.bottom] as const,
+    ]);
+
+  // The load-bearing rule. Hue distance alone is not enough: it collapses under
+  // colorblindness (deuteranopia merges red and green; violet drifts toward
+  // blue). A chip that is always paler and flatter than any seat reads as
+  // tinted paper next to the frame's vivid ring, whatever your color vision.
+  it("stays paler and flatter than every seat color", () => {
+    const seats = Object.entries(teamColor).map(([n, hex]) => [n, hslOf(hex)] as const);
+    for (const [name, stop] of toneStops()) {
+      const c = hslOf(stop);
+      expect(c.s, `chip ${name} (${stop}) is too saturated`).toBeLessThanOrEqual(0.35);
+      for (const [seat, sc] of seats) {
+        expect(c.s, `chip ${name} is as saturated as the ${seat} seat`).toBeLessThan(sc.s);
+        expect(c.l - sc.l, `chip ${name} is not clearly lighter than the ${seat} seat`).toBeGreaterThan(0.1);
+      }
+    }
+  });
+
+  // The seats own red, green, yellow and blue, so the chips use none of those
+  // families at all: a tone is either a true grey or sits in the violet/magenta
+  // band, which is the widest gap the seat hues leave (blue->red, 132deg).
+  it("uses no seat colour family — only true greys and violets", () => {
+    const VIOLET_BAND = [270, 330] as const;
+    for (const [name, stop] of toneStops()) {
+      const c = hslOf(stop);
+      if (c.s < 0.06) {
+        const [r, g, b] = parseColor(stop);
+        expect(r === g && g === b, `chip ${name} (${stop}) is nearly grey but not exactly`).toBe(true);
+        continue;
+      }
+      expect(c.h, `chip ${name} (${stop}) is outside the violet band`).toBeGreaterThanOrEqual(VIOLET_BAND[0]);
+      expect(c.h, `chip ${name} (${stop}) is outside the violet band`).toBeLessThanOrEqual(VIOLET_BAND[1]);
+    }
+  });
+
+  it("keeps every tone well clear of each seat hue", () => {
+    const seatHues = Object.entries(teamColor).map(([n, hex]) => [n, hslOf(hex).h] as const);
+    const apart = (a: number, b: number) => {
+      const d = Math.abs(a - b) % 360;
+      return d > 180 ? 360 - d : d;
+    };
+    for (const [name, stop] of toneStops()) {
+      const c = hslOf(stop);
+      if (c.s < 0.06) continue; // a true grey has no hue to compare
+      for (const [seat, h] of seatHues) {
+        expect(apart(c.h, h), `chip ${name} (${stop}) sits too near the ${seat} seat hue`).toBeGreaterThanOrEqual(40);
       }
     }
   });

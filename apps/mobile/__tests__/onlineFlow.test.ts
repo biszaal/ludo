@@ -38,7 +38,10 @@ vi.mock("../src/net/api", () => ({
   rematchVote: vi.fn(),
   rematchClose: vi.fn(),
   leaveAction: vi.fn().mockResolvedValue(undefined),
+  warmUp: vi.fn(),
   getLobby: vi.fn().mockResolvedValue([]),
+  lobbyEqual: (a: unknown[], b: unknown[]) =>
+    a.length === b.length && a.every((x, i) => JSON.stringify(x) === JSON.stringify(b[i])),
   fetchGame: vi.fn(),
   getProfiles: vi.fn().mockResolvedValue([]),
   upsertMyProfile: vi.fn().mockResolvedValue(null),
@@ -882,5 +885,84 @@ describe("prefetched dice", () => {
     await joinActiveGame(theirs as GameState, 1);
     await flush();
     expect(api.prepareRoll).not.toHaveBeenCalled();
+  });
+});
+
+describe("keeping the game function awake", () => {
+  // The opening roll is the one roll with nothing in front of it: no previous
+  // turn to prefetch under, and after a lobby wait very likely a cold isolate
+  // to ask. prepareRoll gives up at four seconds, and a roll that times out
+  // there tumbles on a null value until the round trip lands — the die visibly
+  // rolling five or six times before it settles.
+
+  it("knocks on the function as soon as a room is entered", async () => {
+    vi.mocked(api.warmUp).mockClear();
+    await joinActiveGame(freshGame());
+    expect(api.warmUp).toHaveBeenCalled();
+  });
+
+  /** Join g1 and STAY in the lobby — the room exists but has not been dealt. */
+  async function joinWaitingRoom(): Promise<void> {
+    vi.mocked(api.getLobby).mockResolvedValue([]);
+    vi.mocked(api.getProfiles).mockResolvedValue([]);
+    vi.mocked(api.upsertMyProfile).mockResolvedValue(null);
+    vi.mocked(api.leaveAction).mockResolvedValue(undefined);
+    vi.mocked(api.joinGame).mockResolvedValue({
+      gameId: "g1",
+      roomCode: "ABCD",
+      userId: "u1",
+      myPlayerId: "p1",
+    });
+    vi.mocked(api.fetchGame).mockResolvedValue({
+      ...row(freshGame(), 1),
+      status: "waiting",
+      state: null,
+    });
+    vi.mocked(api.subscribeGame).mockImplementation((_gameId, handlers) => {
+      subs = handlers;
+      return {} as RealtimeChannel;
+    });
+    await store.getState().join("ABCD");
+    expect(store.getState().status).toBe("lobby");
+  }
+
+  it("keeps knocking while the room is still waiting to start", async () => {
+    vi.useFakeTimers();
+    try {
+      await joinWaitingRoom();
+      vi.mocked(api.warmUp).mockClear();
+      await vi.advanceTimersByTimeAsync(46_000);
+      expect(api.warmUp).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops knocking once the room leaves the lobby", async () => {
+    vi.useFakeTimers();
+    try {
+      await joinWaitingRoom();
+      // The board is dealt: the match's own traffic keeps the isolate hot.
+      subs.onGame(row(freshGame(), 2));
+      await vi.advanceTimersByTimeAsync(2000); // past the row queue's hold
+      vi.mocked(api.warmUp).mockClear();
+      await vi.advanceTimersByTimeAsync(200_000);
+      expect(api.warmUp).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops on leave", async () => {
+    vi.useFakeTimers();
+    try {
+      await joinWaitingRoom();
+      store.getState().leave();
+      vi.mocked(api.warmUp).mockClear();
+      await vi.advanceTimersByTimeAsync(200_000);
+      expect(api.warmUp).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

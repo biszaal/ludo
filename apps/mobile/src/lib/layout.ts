@@ -93,3 +93,142 @@ export function railedBoardSize(columnWidth: number, freeHeight: number): number
   const widthForBoard = columnWidth - space.xl * 2 - CHIP_COLUMN * 2 - GAME_RAIL_MIN - space.md * 3;
   return Math.max(0, Math.floor(Math.min(widthForBoard, freeHeight)));
 }
+
+/**
+ * The home hub's vertical budget.
+ *
+ * Home is a fixed tower — header, chest, still-life, PLAY, mode tiles, dock —
+ * and it used to be laid out at one hard-coded size with a ScrollView behind it
+ * as the escape hatch. That hatch fired on every short phone: the tower simply
+ * did not fit, so the dock slid under the fold and the hub stopped being a hub.
+ *
+ * Instead, budget it. The furniture is elastic and the still-life takes what is
+ * left, so the whole thing lands inside the window on any screen. Degradation
+ * has a deliberate order: full size first, then the friends-online line (the
+ * one row carrying no tap target), then a single compression factor across the
+ * rest — floored per piece so nothing shrinks below a comfortable touch target.
+ * A tall screen runs the same machinery in reverse, growing the furniture a
+ * little rather than stranding acres of felt around a floating board.
+ */
+
+/** Natural (uncompressed) heights, in points, before the tier's uiScale. */
+export const HOME_NATURAL = {
+  /** Wallet pills / profile chip row — a tap target, so never compressed. */
+  header: 44,
+  headerPad: 12,
+  chest: 48,
+  /** PLAY, including its 4pt under-edge. */
+  cta: 64,
+  presence: 18,
+  tile: 96,
+  dock: 64,
+  gap: 8,
+} as const;
+
+/** Per-piece floors. Interactive rows stay at/above a comfortable target. */
+const HOME_FLOOR = {
+  headerPad: 6,
+  chest: 34,
+  cta: 48,
+  tile: 62,
+  dock: 46,
+  gap: 4,
+} as const;
+
+/** Below this the still-life reads as a stamp, not a diorama. */
+export const HERO_MIN = 150;
+
+/** Past this the board is just floating in felt; spend the rest on furniture. */
+export const HERO_MAX = 360;
+
+/** How far the furniture may compress (short phone) or grow (tall phone). */
+const K_MIN = 0.6;
+const K_MAX = 1.12;
+
+export interface HomeMetrics {
+  headerPad: number;
+  chest: number;
+  cta: number;
+  /** 0 when the line has been dropped to buy the still-life its floor. */
+  presence: number;
+  tile: number;
+  dock: number;
+  gap: number;
+  /** What is left for the still-life once the furniture has taken its share. */
+  hero: number;
+}
+
+/**
+ * @param available height of the hub column: the window minus safe-area insets
+ *   and minus the anchored ad strip (measure it — don't estimate the ad away).
+ * @param scale the tier's uiScale.
+ */
+export function homeMetrics(available: number, scale = 1): HomeMetrics {
+  const nat = {
+    header: HOME_NATURAL.header,
+    headerPad: HOME_NATURAL.headerPad * scale,
+    chest: HOME_NATURAL.chest * scale,
+    cta: HOME_NATURAL.cta * scale,
+    presence: HOME_NATURAL.presence * scale,
+    tile: HOME_NATURAL.tile * scale,
+    dock: HOME_NATURAL.dock * scale,
+    gap: HOME_NATURAL.gap * scale,
+  };
+  const heroMin = HERO_MIN * scale;
+
+  // Gaps in the tower: hero's top pad, chest→hero, hero→PLAY, PLAY→presence,
+  // tiles' top pad, dock's top and bottom pads.
+  const gaps = (withPresence: boolean) => (withPresence ? 7 : 6);
+  const sum = (k: number, presence: number) =>
+    nat.header +
+    Math.max(HOME_FLOOR.headerPad, nat.headerPad * k) +
+    gaps(presence > 0) * Math.max(HOME_FLOOR.gap, nat.gap * k) +
+    Math.max(HOME_FLOOR.chest, nat.chest * k) +
+    Math.max(HOME_FLOOR.cta, nat.cta * k) +
+    presence +
+    Math.max(HOME_FLOOR.tile, nat.tile * k) +
+    Math.max(HOME_FLOOR.dock, nat.dock * k);
+
+  // Unmeasured (first frame): natural size, corrected on the layout pass.
+  const room = Number.isFinite(available) && available > 0 ? available : sum(1, nat.presence) + heroMin;
+
+  let presence = nat.presence;
+  let k = 1;
+  const slack = room - sum(1, presence);
+  if (slack < heroMin) {
+    // 1. The friends line goes first — it is the only row with nothing to tap.
+    presence = 0;
+    if (room - sum(1, presence) < heroMin) {
+      // 2. Compress the rest. The header row is excluded: 44pt is a floor, not
+      //    a preference. Solved against the uncompressed springy total, then
+      //    re-summed, because the per-piece floors bend the result upward.
+      const springy = sum(1, presence) - nat.header;
+      k = Math.min(1, Math.max(K_MIN, (room - heroMin - nat.header) / springy));
+    }
+  } else if (slack > HERO_MAX * scale) {
+    // 3. Room to spare: grow the furniture rather than the felt.
+    const springy = sum(1, presence) - nat.header;
+    k = Math.min(K_MAX, 1 + (slack - HERO_MAX * scale) / springy);
+  }
+
+  const m: HomeMetrics = {
+    headerPad: Math.round(Math.max(HOME_FLOOR.headerPad, nat.headerPad * k)),
+    chest: Math.round(Math.max(HOME_FLOOR.chest, nat.chest * k)),
+    cta: Math.round(Math.max(HOME_FLOOR.cta, nat.cta * k)),
+    presence: Math.round(presence),
+    tile: Math.round(Math.max(HOME_FLOOR.tile, nat.tile * k)),
+    dock: Math.round(Math.max(HOME_FLOOR.dock, nat.dock * k)),
+    gap: Math.round(Math.max(HOME_FLOOR.gap, nat.gap * k)),
+    hero: 0,
+  };
+  m.hero = Math.max(0, Math.round(room - homeFurniture(m)));
+  return m;
+}
+
+/** Everything in the tower except the still-life — what `hero` is the rest of. */
+export function homeFurniture(m: HomeMetrics): number {
+  const gaps = m.presence > 0 ? 7 : 6;
+  return (
+    HOME_NATURAL.header + m.headerPad + gaps * m.gap + m.chest + m.cta + m.presence + m.tile + m.dock
+  );
+}

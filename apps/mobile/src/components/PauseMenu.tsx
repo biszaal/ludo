@@ -2,6 +2,9 @@
  * In-game pause sheet: quick sound/music/haptics toggles, How to play, and
  * Leave. The game stays live behind the dim backdrop (tap it to resume).
  * Online leave asks an inline confirmation — opponents keep playing.
+ *
+ * A seat that has already finished also gets "See standings" here, so choosing
+ * to watch the rest of the match never costs them the way back to the results.
  */
 
 import { useState } from "react";
@@ -21,9 +24,12 @@ interface PauseMenuProps {
   /** Coins this seat staked and would forfeit by walking out mid-match. 0 for a
    *  friendly game, and 0 once this seat has finished (their place is banked). */
   forfeitCoins?: number;
+  /** Set only for a seat that has already brought all four tokens home: reopen
+   *  the standings they may have dismissed to watch the rest of the match. */
+  onSeeStandings?: () => void;
 }
 
-export function PauseMenu({ onResume, onLeave, confirmLeave = false, forfeitCoins = 0 }: PauseMenuProps) {
+export function PauseMenu({ onResume, onLeave, confirmLeave = false, forfeitCoins = 0, onSeeStandings }: PauseMenuProps) {
   const settings = useSettings();
   const push = useNav((s) => s.push);
   const [confirming, setConfirming] = useState(false);
@@ -75,6 +81,18 @@ export function PauseMenu({ onResume, onLeave, confirmLeave = false, forfeitCoin
         <SettingRow label="Sound effects" value={settings.soundOn} onChange={settings.setSound} />
         <SettingRow label="Music" value={settings.musicOn} onChange={settings.setMusic} />
         <SettingRow label="Haptics" value={settings.hapticsOn} onChange={settings.setHaptics} />
+
+        {onSeeStandings ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="See standings"
+            onPress={onSeeStandings}
+            style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", minHeight: 48, opacity: pressed ? 0.85 : 1 })}
+          >
+            <Text style={{ flex: 1, fontFamily: font.medium, fontSize: 16, color: palette.porcelain }}>See standings</Text>
+            <Text style={{ fontFamily: font.semibold, fontSize: 20, color: palette.mutedSteel }}>›</Text>
+          </Pressable>
+        ) : null}
 
         <Pressable
           accessibilityRole="button"

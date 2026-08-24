@@ -1,8 +1,16 @@
 /**
- * Full-screen results shown while state.status === "finished". Fades in after a
- * beat so the winning move finishes on the board first. Winner block up top,
- * ranked rows, then Rematch/Home in the thumb zone. Confetti bursts once in the
- * winner's color + Porcelain + a tint.
+ * Full-screen results. Fades in after a beat so the winning move finishes on
+ * the board first. Winner block up top, ranked rows, then Rematch/Home in the
+ * thumb zone. Confetti bursts once in the winner's color + Porcelain + a tint.
+ *
+ * Two modes. Normally this is the end of the match (status === "finished") and
+ * every row is settled. In `live` mode a player who has brought all four tokens
+ * home has opened it early, while the rest of the table is still racing: their
+ * own placement is banked and readable right now, so they never have to sit out
+ * the remaining minor places to find out where they came. Everything that isn't
+ * settled yet then says so — no projected payouts on seats still playing, no
+ * confetti (that belongs to the final whistle), and no Rematch, because there
+ * is no match to re-run until this one ends.
  *
  * Online, Rematch is a proposal rather than a command (see lib/rematch.ts): the
  * button opens it, everyone still seated answers, and the accepters get dealt a
@@ -59,6 +67,11 @@ interface ResultsOverlayProps {
   canAddFriends?: boolean;
   /** Coins each seat staked (0/undefined = friendly game, no payout lines). */
   stake?: number;
+  /** The match is still running and a finished seat opened this early: rank
+   *  only what is banked, and offer the way back to the board. */
+  live?: boolean;
+  /** `live` only: return to watching the rest of the match. */
+  onBackToGame?: () => void;
   /** Entry delay (ms) — long by default so the winning move lands on the board
    *  first; short when revealed from the celebration screen (a tapped button
    *  must answer immediately). */
@@ -71,7 +84,7 @@ function ordinal(rank: number): string {
   return rank === 1 ? "1st" : rank === 2 ? "2nd" : rank === 3 ? "3rd" : `${rank}th`;
 }
 
-export function ResultsOverlay({ state, nameFor, avatarFor, onRematch, rematch, footnote, canAddFriends = false, stake = 0, enterDelayMs = 900, onHome }: ResultsOverlayProps) {
+export function ResultsOverlay({ state, nameFor, avatarFor, onRematch, rematch, footnote, canAddFriends = false, stake = 0, live = false, onBackToGame, enterDelayMs = 900, onHome }: ResultsOverlayProps) {
   const userIdOf = (playerId: string) => state.players.find((p) => p.id === playerId)?.userId ?? null;
   const { width, height } = useWindowDimensions();
   const { maxWidth } = useLayout();
@@ -79,6 +92,9 @@ export function ResultsOverlay({ state, nameFor, avatarFor, onRematch, rematch, 
   // instead of stretching them across the whole screen.
   const col = { width: "100%" as const, maxWidth, alignSelf: "center" as const };
   const standings = computeStandings(state);
+  // Seats whose placement is banked. Live, everyone else is still racing, and
+  // their rank/payout is a guess this screen has no business making.
+  const placed = new Set(state.finishedOrder ?? []);
   // What each place is actually credited — see payoutSplit. Index 0 is the
   // winner, so a row at rank N reads shares[N - 1].
   const shares = payoutSplit(stake, state.players.length);
@@ -103,18 +119,22 @@ export function ResultsOverlay({ state, nameFor, avatarFor, onRematch, rematch, 
         justifyContent: "space-between",
       }}
     >
-      <Confetti
-        width={width}
-        height={height}
-        originX={width / 2}
-        originY={height * 0.3}
-        // Staked wins rain coin golds; friendly wins burst in the winner's color.
-        colors={
-          stake > 0
-            ? ["#F5C542", "#FFE08A", "#C8951B"]
-            : [teamColor[winner.color], palette.porcelain, teamTint[winner.color]]
-        }
-      />
+      {/* The burst is the final whistle — a mid-match peek at the standings
+          doesn't get one. */}
+      {live ? null : (
+        <Confetti
+          width={width}
+          height={height}
+          originX={width / 2}
+          originY={height * 0.3}
+          // Staked wins rain coin golds; friendly wins burst in the winner's color.
+          colors={
+            stake > 0
+              ? ["#F5C542", "#FFE08A", "#C8951B"]
+              : [teamColor[winner.color], palette.porcelain, teamTint[winner.color]]
+          }
+        />
+      )}
 
       {/* Winner block */}
       <Animated.View entering={FadeInDown.delay(enterDelayMs + 150).duration(320).easing(Easing.out(Easing.cubic))} style={{ alignItems: "center", marginTop: height * 0.14, gap: space.md }}>
@@ -146,6 +166,11 @@ export function ResultsOverlay({ state, nameFor, avatarFor, onRematch, rematch, 
         <Text style={{ fontFamily: font.medium, fontSize: 15, color: palette.mutedSteel }}>
           {stake > 0 ? `takes the top share — +${shares[0] ?? 0} coins` : "wins the game"}
         </Text>
+        {live ? (
+          <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel, textAlign: "center" }}>
+            The rest are still racing — your place is already banked.
+          </Text>
+        ) : null}
       </Animated.View>
 
       {/* Ranked rows (2nd onward — the winner is the block above). Players who
@@ -153,6 +178,9 @@ export function ResultsOverlay({ state, nameFor, avatarFor, onRematch, rematch, 
       <View style={{ gap: space.sm, ...col }}>
         {standings.slice(1).map((s) => {
           const gone = !!state.players.find((p) => p.id === s.playerId)?.hasLeft;
+          // Live: this seat hasn't come home yet, so it has no place and no
+          // share — only the progress you can see on the board behind you.
+          const racing = live && !gone && !placed.has(s.playerId);
           return (
             <Surface3D
               key={s.playerId}
@@ -163,11 +191,11 @@ export function ResultsOverlay({ state, nameFor, avatarFor, onRematch, rematch, 
                 gap: space.md,
                 paddingVertical: space.sm,
                 paddingHorizontal: space.md,
-                opacity: gone ? 0.55 : 1,
+                opacity: gone ? 0.55 : racing ? 0.75 : 1,
               }}
             >
               <Text style={{ fontFamily: font.mono, fontSize: 14, color: palette.mutedSteel, width: 36 }}>
-                {gone ? "—" : ordinal(s.rank)}
+                {gone || racing ? "—" : ordinal(s.rank)}
               </Text>
               <View style={{ width: 12, height: 12, borderRadius: radius.pill, backgroundColor: teamColor[s.color] }} />
               <Text style={{ flex: 1, fontFamily: font.semibold, fontSize: 15, color: palette.porcelain }}>
@@ -180,16 +208,18 @@ export function ResultsOverlay({ state, nameFor, avatarFor, onRematch, rematch, 
                   fontSize: 13,
                   // A paid place is the point of playing a losing game out —
                   // give it the winner's colour rather than the loss grey.
-                  color: !gone && stake > 0 && (shares[s.rank - 1] ?? 0) > 0 ? palette.porcelain : palette.mutedSteel,
+                  color: !gone && !racing && stake > 0 && (shares[s.rank - 1] ?? 0) > 0 ? palette.porcelain : palette.mutedSteel,
                 }}
               >
                 {gone
                   ? "Left"
-                  : stake > 0
-                    ? (shares[s.rank - 1] ?? 0) > 0
-                      ? `+${shares[s.rank - 1]}`
-                      : `−${stake}`
-                    : `${s.finished}/4`}
+                  : racing
+                    ? `${s.finished}/4`
+                    : stake > 0
+                      ? (shares[s.rank - 1] ?? 0) > 0
+                        ? `+${shares[s.rank - 1]}`
+                        : `−${stake}`
+                      : `${s.finished}/4`}
               </Text>
             </Surface3D>
           );
@@ -197,9 +227,13 @@ export function ResultsOverlay({ state, nameFor, avatarFor, onRematch, rematch, 
       </View>
 
       {/* Actions — the ballot when this is an online room, where Rematch has to
-          be agreed rather than announced. */}
+          be agreed rather than announced. Live there is nothing to rematch yet;
+          the offer is to go back and watch the finish, or take the place you
+          have already earned and go. */}
       <View style={{ gap: space.sm, marginBottom: space.xxl, ...col }}>
-        {rematch ? (
+        {live ? (
+          onBackToGame ? <Button label="Watch the rest" onPress={onBackToGame} /> : null
+        ) : rematch ? (
           <RematchBallot state={state} rematch={rematch} nameFor={nameFor} avatarFor={avatarFor} />
         ) : onRematch ? (
           <Button label="Rematch" onPress={onRematch} />

@@ -16,6 +16,7 @@ vi.mock("../src/net/api", () => ({
 import * as api from "../src/net/api";
 import {
   useEntitlements,
+  inCatalog,
   isUnlocked,
   priceOf,
   themeSku,
@@ -28,6 +29,43 @@ afterEach(() => {
   useEntitlements.setState({ owned: [], prices: {}, loading: false, buying: null });
   useWallet.setState({ balance: null });
   vi.clearAllMocks();
+});
+
+describe("a sku the catalog does not list", () => {
+  // The bug this pins, found in the shop: every dice skin added client-side
+  // before its catalog row was seeded showed up as OWNED and equippable, free.
+  //
+  // `prices` is built purely from the server catalog, and priceOf falls back to
+  // 0 for anything absent — so "the server has never heard of this" and "the
+  // server sells this for nothing" were the same value. isUnlocked then read
+  // that 0 as free. The empty-catalog case was already guarded for exactly this
+  // reason ("Unverifiable is not the same as free"); a single missing sku inside
+  // a catalog we DID fetch went through the gap.
+  //
+  // This matters beyond one bad release: the client registry ships in an app
+  // build and the catalog ships in a migration, so any skew between them hands
+  // out the newest cosmetics for free until the migration lands.
+  const catalog = { "dice.cherry": 400, "dice.classic": 0 };
+
+  it("does not count as owned", () => {
+    expect(isUnlocked([], catalog, "dice.sovereign")).toBe(false);
+  });
+
+  it("still counts as owned when the player actually owns it", () => {
+    // Ownership is server-confirmed and outranks the catalog — a skin that was
+    // bought and later delisted must stay equippable.
+    expect(isUnlocked(["dice.sovereign"], catalog, "dice.sovereign")).toBe(true);
+  });
+
+  it("leaves genuinely free items free, and priced items locked", () => {
+    expect(isUnlocked([], catalog, "dice.classic")).toBe(true);
+    expect(isUnlocked([], catalog, "dice.cherry")).toBe(false);
+  });
+
+  it("is distinguishable from a free item, so the UI can decline to sell it", () => {
+    expect(inCatalog(catalog, "dice.classic")).toBe(true);
+    expect(inCatalog(catalog, "dice.sovereign")).toBe(false);
+  });
 });
 
 describe("sku naming", () => {
@@ -53,11 +91,28 @@ describe("isUnlocked", () => {
     expect(isUnlocked(["theme.night"], prices, "theme.night")).toBe(true);
   });
 
-  it("treats an unknown sku in a KNOWN catalog as free", () => {
-    // Mirrors the server: profiles_enforce_dice_skin lets an unpriced sku
-    // through, so a client ahead of the seed still works.
-    expect(isUnlocked([], prices, "theme.walnut")).toBe(true);
+  it("locks an unknown sku even in a KNOWN catalog", () => {
+    // This used to assert the opposite, on the grounds that it mirrored
+    // profiles_enforce_dice_skin, which lets an unpriced sku through "so a
+    // client ahead of the seed still works".
+    //
+    // The mirror was the mistake. That trigger's stated worry is that an older
+    // client must not have its whole profile write REJECTED — but its own
+    // else-branch already handles that gracefully by nulling the skin, not by
+    // failing the write. Forward-compat and free-access are separable, and
+    // conflating them meant every cosmetic the client knew about before its
+    // catalog row was seeded was free to equip. That is not a hypothetical:
+    // the registry ships in an app build and the catalog ships in a migration,
+    // so the two drift by construction on every release.
+    //
+    // The client is now stricter than the server, which is the safe direction:
+    // it refuses to hand out something unverifiable, and nothing breaks if the
+    // server later agrees.
+    expect(isUnlocked([], prices, "theme.walnut")).toBe(false);
+    // priceOf still answers 0 for an absent sku — that is why callers deciding
+    // whether to SELL something must ask inCatalog, not priceOf.
     expect(priceOf({}, "theme.walnut")).toBe(0);
+    expect(inCatalog(prices, "theme.walnut")).toBe(false);
   });
 
   it("offers nothing unowned before the catalog has loaded", () => {

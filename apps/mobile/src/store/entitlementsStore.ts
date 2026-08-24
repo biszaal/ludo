@@ -29,7 +29,8 @@ export const NO_ADS_SKU = "noads";
 interface EntitlementsStore {
   /** SKUs the player owns. */
   owned: string[];
-  /** sku -> price. Absent means "not in the catalog" (treat as free). */
+  /** sku -> price. Absent means the server has never heard of this sku — NOT
+   *  that it is free. See isUnlocked. */
   prices: Record<string, number>;
   /** sku -> currency. Absent means coins (old server / cached view). */
   currencies: Record<string, "coins" | "gems">;
@@ -108,6 +109,17 @@ export function priceOf(prices: Record<string, number>, sku: string): number {
   return prices[sku] ?? 0;
 }
 
+/**
+ * Does the catalog we fetched actually list this sku?
+ *
+ * Callers need this because priceOf cannot answer it: an unlisted sku and a
+ * free one both come back 0. Anything selling a cosmetic must check here
+ * first, or it offers a Buy button for something the server will refuse.
+ */
+export function inCatalog(prices: Record<string, number>, sku: string): boolean {
+  return Object.prototype.hasOwnProperty.call(prices, sku);
+}
+
 /** Has a catalog ever been fetched (or restored from disk)? */
 export function catalogKnown(prices: Record<string, number>): boolean {
   return Object.keys(prices).length > 0;
@@ -130,7 +142,14 @@ export function catalogKnown(prices: Record<string, number>): boolean {
 export function isUnlocked(owned: string[], prices: Record<string, number>, sku: string): boolean {
   if (owned.includes(sku)) return true;
   if (!catalogKnown(prices)) return false;
-  return priceOf(prices, sku) === 0;
+  // Absent from a catalog we DID fetch is the same verdict as no catalog at
+  // all, and for the same reason. priceOf answers 0 for an unlisted sku, which
+  // read as free and handed out every cosmetic the client knew about before its
+  // catalog row was seeded — the whole gem dice tier, equippable for nothing,
+  // until the migration landed. The client registry ships in an app build and
+  // the catalog ships in a migration; they will drift, so this has to fail
+  // closed rather than trust that they never do.
+  return inCatalog(prices, sku) && prices[sku] === 0;
 }
 
 /** Which wallet a SKU charges. Unknown means coins (old server / no catalog). */

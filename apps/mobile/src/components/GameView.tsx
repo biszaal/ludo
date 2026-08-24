@@ -44,6 +44,7 @@ import { setBackInterceptor } from "../store/navStore";
 import { useSettings } from "../store/settingsStore";
 import { shareInvite } from "../lib/invite";
 import { payoutSplit, potFor } from "../lib/economy";
+import { seatFinish } from "../lib/seatFinish";
 import { useAds, canShowInterstitial } from "../store/adsStore";
 import { useConfig } from "../store/configStore";
 import { preloadInterstitial, showInterstitial } from "../lib/ads/provider";
@@ -52,6 +53,10 @@ import { preloadInterstitial, showInterstitial } from "../lib/ads/provider";
  *  needs it: that one budgets the board's height by hand, where the stacked one
  *  lets flex do the measuring. */
 const TOP_BAR_HEIGHT = 40;
+
+/** Module-level so Board's `onSelectToken` prop keeps a stable identity when
+ *  taps are off — a fresh `() => {}` per render defeats Board's memo. */
+const NOOP = () => {};
 
 interface GameViewProps {
   state: GameState;
@@ -205,10 +210,20 @@ export function GameView({
     return () => setBackInterceptor(null);
   }, []);
 
+  const championId = state.finishedOrder[0] ?? null;
+  const champion = championId ? state.players.find((p) => p.id === championId) : undefined;
+  // Is the local seat still racing, and has it banked a place? Every end-of-race
+  // screen below gates on this — see lib/seatFinish for why each is what it is.
+  const { seat: mySeat, place: myPlaceIndex, stillPlaying, placed: iFinished } = seatFinish(state, viewColor);
+
   // Winner celebration: fires once when the game's champion is decided (the
-  // first seat to finish all four tokens) — including the 2-player case where
-  // that same move ends the game. Dismissing it either resumes the room (minor
-  // places still racing) or, on game over, reveals the results leaderboard.
+  // first seat to finish all four tokens) — but only for a seat that is itself
+  // done racing. Someone else's win used to throw this full-screen sheet over
+  // every player mid-race, asking whether they wanted to keep playing or leave;
+  // a player still walking tokens home now plays on undisturbed, and gets the
+  // same question from FinishedPrompt once they bring their last token in.
+  // With 2 players the winning move ends the game, so both seats are placed and
+  // both see it — and there the sheet only leads on to the results leaderboard.
   const [celebrating, setCelebrating] = useState(false);
   // "See results" was tapped — the results screen must answer immediately
   // instead of waiting out its usual let-the-move-land entry delay.
@@ -218,19 +233,18 @@ export function GameView({
     const was = prevFinishedCount.current;
     const now = state.finishedOrder.length;
     prevFinishedCount.current = now;
-    if (was === 0 && now >= 1) setCelebrating(true);
-    else if (now === 0) {
+    if (now === 0) {
       // Rematch reset — a fresh game gets a fresh celebration.
       setCelebrating(false);
       fromCelebration.current = false;
+      return;
     }
-  }, [state.finishedOrder.length]);
-  const championId = state.finishedOrder[0] ?? null;
-  const champion = championId ? state.players.find((p) => p.id === championId) : undefined;
-  // Is the local seat still racing for a place? (Labels the stay button.)
-  const mySeat = viewColor ? state.players.find((p) => p.color === viewColor) : undefined;
-  const myPlaceIndex = mySeat ? state.finishedOrder.indexOf(mySeat.id) : -1;
-  const stillPlaying = !!mySeat && myPlaceIndex === -1 && !mySeat.hasLeft;
+    if (was === 0 && !stillPlaying) setCelebrating(true);
+  }, [state.finishedOrder.length, stillPlaying]);
+
+  // Is the standings overlay open ahead of the final whistle? (See below — the
+  // reset effect clears it, so it has to be declared first.)
+  const [standingsOpen, setStandingsOpen] = useState(false);
 
   // Ask a player who has just come home whether they want to stay for the rest.
   // Only the champion used to be offered anything; a 2nd or 3rd place finisher
@@ -243,14 +257,30 @@ export function GameView({
       // Fresh game or rematch — arm the prompt again.
       dismissedFinish.current = false;
       setFinishPrompt(false);
+      setStandingsOpen(false);
       return;
     }
     if (dismissedFinish.current) return;
     dismissedFinish.current = true;
-    // The champion is asked the very same question by WinnerCelebration ("Watch
-    // the rest" / "Leave"), so only the minor places need this.
+    // The champion is asked the very same question by WinnerCelebration ("See
+    // standings" / "Watch the rest" / "Leave"), so only the minor places need
+    // this.
     if (myPlaceIndex > 0) setFinishPrompt(true);
   }, [myPlaceIndex]);
+
+  // A finished seat waits on nobody. Their placement is banked the moment their
+  // last token lands (the engine keeps them in `finishedOrder` whether they
+  // stay or go), so they can read the standings right now instead of sitting
+  // through the minor places to find out where they came — and still go back to
+  // watching, which is the whole reason the match plays on. Only meaningful
+  // while the match runs: once it ends the real results screen takes over.
+  const liveStandings = standingsOpen && iFinished && !finished;
+  const openStandings = useCallback(() => {
+    setCelebrating(false);
+    setFinishPrompt(false);
+    setPaused(false);
+    setStandingsOpen(true);
+  }, []);
 
   // Ad bookkeeping. Recorded once per match, on the transition into finished —
   // whether the local seat WON matters, because losing a staked match is the
@@ -308,7 +338,24 @@ export function GameView({
     [canAct, validMoves],
   );
   const movable = useCallback((id: string) => movableIds?.has(id) ?? false, [movableIds]);
-  const noop = () => {};
+
+  // Board is memoized, so its callback props must not churn. The screens pass
+  // fresh arrow functions (`onSelectToken={(id) => void selectToken(id)}`), so
+  // the latest one is kept in a ref and called through a stable wrapper.
+  const selectTokenRef = useRef(onSelectToken);
+  selectTokenRef.current = onSelectToken;
+  const selectTokenStable = useCallback((id: string) => selectTokenRef.current(id), []);
+  const boardTappable = canAct && !paused;
+
+  // Tokens each seat has brought home — the only thing PlayerChip read out of
+  // the full GameState, counted once here instead of per chip.
+  const finishedByPlayer = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const t of state.tokens) {
+      if (t.position === "finished") counts.set(t.playerId, (counts.get(t.playerId) ?? 0) + 1);
+    }
+    return counts;
+  }, [state.tokens]);
 
   const nameForUser = (userId: string): string => {
     if (chat && userId === chat.myUserId) return "You";
@@ -339,21 +386,23 @@ export function GameView({
     // A host-filled bot wears the same badge (it says the same thing) but is
     // not tappable — there is no human behind it to hand control back to.
     const filledBot = !pilot && (botFor?.(p.id) ?? false);
+    const showTimer = isActive && !pilot && !filledBot && !!turnTimer;
     return (
       <View style={{ flexDirection: align === "left" ? "row" : "row-reverse", alignItems: "center", gap: space.md }}>
         <View>
           <PlayerChip
-            player={p}
-            state={state}
+            seatColor={p.color}
+            finished={finishedByPlayer.get(p.id) ?? 0}
             active={isActive}
             label={nameFor?.(p.id) ?? undefined}
             avatarId={avatarFor?.(p.id) ?? null}
             offline={offlineFor?.(p.id) ?? false}
             left={gone}
-            timer={isActive && !pilot && !filledBot ? turnTimer : null}
+            timerSeq={showTimer ? turnTimer!.seq : null}
+            timerSeconds={showTimer ? turnTimer!.seconds : 0}
             align={align}
             botMode={pilot || filledBot}
-            onPress={pilot ? autoPilot?.onTakeControl : null}
+            onPress={pilot ? autoPilot?.onTakeControl ?? null : null}
           />
           {bubble ? <ChatBubble value={bubble.value} kind={bubble.kind} seq={bubble.seq} align={align} vAlign={vAlign} /> : null}
         </View>
@@ -428,7 +477,14 @@ export function GameView({
 
   const boardWithToast = (
       <View style={{ alignItems: "center" }}>
-        <Board size={boardSize} state={state} theme={theme} isMovable={movable} onSelectToken={canAct && !paused ? onSelectToken : noop} viewColor={viewColor} />
+        <Board
+          size={boardSize}
+          state={state}
+          theme={theme}
+          isMovable={movable}
+          onSelectToken={boardTappable ? selectTokenStable : NOOP}
+          viewColor={viewColor}
+        />
         {toast ? (
           <Animated.View
             key={toast.seq}
@@ -581,7 +637,7 @@ export function GameView({
           winnerColor={champion.color}
           winnerAvatar={avatarFor?.(champion.id) ?? null}
           gameOver={finished}
-          stillPlaying={stillPlaying}
+          onSeeResults={finished ? undefined : openStandings}
           pot={pot}
           onStay={() => {
             fromCelebration.current = finished;
@@ -607,6 +663,7 @@ export function GameView({
           color={mySeat.color}
           avatarId={avatarFor?.(mySeat.id) ?? null}
           reward={payoutSplit(stake, state.players.length)[myPlaceIndex] ?? 0}
+          onSeeResults={openStandings}
           onWatch={() => setFinishPrompt(false)}
           onLeave={() => {
             setFinishPrompt(false);
@@ -615,17 +672,23 @@ export function GameView({
         />
       )}
 
-      {finished && !celebrating && (
+      {/* The end-of-match results, or the early read a finished seat asked for.
+          Live it drops the rematch controls (there is still a match on) and the
+          entry delay (a tapped button has to answer at once); when the match
+          does end this same overlay settles into its final form in place. */}
+      {((finished && !celebrating) || liveStandings) && (
         <ResultsOverlay
           state={state}
           nameFor={nameFor}
           avatarFor={avatarFor}
-          onRematch={onRematch}
-          rematch={rematch}
-          footnote={resultsFootnote}
+          onRematch={finished ? onRematch : undefined}
+          rematch={finished ? rematch : undefined}
+          footnote={finished ? resultsFootnote : null}
           canAddFriends={!!chat && !chat.reactionsOnly}
           stake={stake}
-          enterDelayMs={fromCelebration.current ? 100 : 900}
+          live={!finished}
+          onBackToGame={() => setStandingsOpen(false)}
+          enterDelayMs={fromCelebration.current || liveStandings ? 100 : 900}
           onHome={onLeave}
         />
       )}
@@ -642,6 +705,9 @@ export function GameView({
           // finished keeps their place in finishedOrder, and the server pays it
           // out when the match ends whether or not they stayed to watch.
           forfeitCoins={stillPlaying ? stake : 0}
+          // Already home: the standings are the one thing left to look at, and
+          // "Watch the rest" shouldn't have been a one-way door.
+          onSeeStandings={iFinished ? openStandings : undefined}
         />
       )}
 

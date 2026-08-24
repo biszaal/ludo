@@ -23,8 +23,11 @@ import { CoinGlyph } from "./CoinsPill";
 import { formatCompact, formatExact } from "../lib/format";
 import { playSound } from "../lib/sound";
 import { getGemProducts, isPurchasesConfigured } from "../lib/purchases";
+import { gemPriceView } from "../lib/gemPricing";
 import { watchForReward } from "../lib/ads/rewarded";
 import { useAdsReady } from "../lib/ads/useAdsReady";
+import { confirm, type ConfirmRequest } from "../store/confirmStore";
+import { buyGemsPrompt, exchangeGemsPrompt } from "../lib/gemPrompts";
 import { useWallet } from "../store/walletStore";
 import { useConfig } from "../store/configStore";
 import { font, palette, space } from "../theme";
@@ -41,10 +44,12 @@ export function GetGemsSheet({ onClose }: { onClose: () => void }) {
 
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
-  // Localized store prices (RevenueCat) keyed by product id. App Store requires
-  // showing the real charged price, not a hardcoded USD figure; the config
-  // priceUsd is only the fallback before the SDK answers / when billing is off.
+  // Localized store prices (RevenueCat) keyed by product id — the store picks
+  // the figure for the customer's storefront, so this is the ONLY price we may
+  // show. `pricesLoaded` separates "still asking" from "asked, got nothing":
+  // one waits, the other admits the pack can't be bought right now.
   const [storePrices, setStorePrices] = useState<Record<string, string>>({});
+  const [pricesLoaded, setPricesLoaded] = useState(false);
   const have = gems ?? 0;
 
   useEffect(() => {
@@ -55,6 +60,7 @@ export function GetGemsSheet({ onClose }: { onClose: () => void }) {
       const prices: Record<string, string> = {};
       for (const [id, product] of Object.entries(products)) prices[id] = product.priceString;
       setStorePrices(prices);
+      setPricesLoaded(true);
     });
     return () => {
       alive = false;
@@ -81,6 +87,20 @@ export function GetGemsSheet({ onClose }: { onClose: () => void }) {
     }
   };
 
+  /**
+   * Confirm, then run. The busy check happens BEFORE the prompt: `run` only
+   * raises the flag once it starts, so without this a second row could open a
+   * second dialog while the first is still being decided.
+   *
+   * Declining is not a failure — it leaves the note untouched and spends
+   * nothing.
+   */
+  const ask = async (request: ConfirmRequest, op: () => Promise<number>, gained: (n: number) => string, none?: string) => {
+    if (busy) return;
+    if (!(await confirm(request))) return;
+    await run(op, gained, none);
+  };
+
   return (
     <Sheet onClose={onClose} title="Gems">
       <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
@@ -94,15 +114,27 @@ export function GetGemsSheet({ onClose }: { onClose: () => void }) {
       </View>
 
       <SectionLabel>Get gems</SectionLabel>
-      {cfg.products.map((p) => (
-        <GemRow
-          key={p.id}
-          title={`${p.gems} gems`}
-          subtitle={cfg.purchasesEnabled ? storePrices[p.id] ?? `$${p.priceUsd.toFixed(2)}` : "Coming soon"}
-          disabled={!cfg.purchasesEnabled || busy}
-          onPress={() => void run(() => buyGems(p.id), (n) => `+${n} gems`, "Purchase didn't go through")}
-        />
-      ))}
+      {cfg.products.map((p) => {
+        // The store's own localized string or nothing — never the config's USD
+        // figure, which is right for one storefront and wrong for every other.
+        const price = storePrices[p.id];
+        const view = gemPriceView({
+          purchasesEnabled: cfg.purchasesEnabled,
+          storeConfigured: isPurchasesConfigured(),
+          storePrice: price,
+          pricesLoaded,
+          dev: typeof __DEV__ !== "undefined" && __DEV__,
+        });
+        return (
+          <GemRow
+            key={p.id}
+            title={`${p.gems} gems`}
+            subtitle={view.label}
+            disabled={!view.buyable || busy}
+            onPress={() => void ask(buyGemsPrompt(p.gems, price), () => buyGems(p.id), (n) => `+${n} gems`, "Purchase didn't go through")}
+          />
+        );
+      })}
 
       {rewarded.gemGrant && cfg.enabled && adsAvailable ? (
         <GemRow
@@ -143,7 +175,14 @@ export function GetGemsSheet({ onClose }: { onClose: () => void }) {
           subtitle={`→ ${formatCompact(n * cfg.exchangeRate)} coins`}
           coinYield
           disabled={busy || have < n || n < cfg.exchangeMin}
-          onPress={() => void run(() => exchangeGems(n), (c) => `+${formatCompact(c)} coins`, "Exchange failed")}
+          onPress={() =>
+            void ask(
+              exchangeGemsPrompt(n, n * cfg.exchangeRate),
+              () => exchangeGems(n),
+              (c) => `+${formatCompact(c)} coins`,
+              "Exchange failed",
+            )
+          }
         />
       ))}
 

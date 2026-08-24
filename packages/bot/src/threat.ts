@@ -84,15 +84,22 @@ export function cellsAt(index: TrackIndex, slot: number): readonly number[] {
 }
 
 /**
- * Does the owner of `cells` have a protected stack on `abs`? Two of their
- * tokens sharing a cell guard each other, so the square is as good as a star
- * for them — neither a threat to model nor prey worth chasing.
+ * Is `abs` immune? Two or more tokens sharing a cell guard each other, so the
+ * square is as good as a star — neither a threat to model nor prey worth
+ * chasing.
+ *
+ * Occupancy is counted across ALL players, matching the engine: the pile may
+ * be one player's pair, that pair with an opponent stacked on top, or what is
+ * left after such a pile decays to one token each from two players. Every one
+ * of those is two deep, and none of them can be captured.
  */
-function stackedIn(state: GameState, cells: readonly number[], abs: number): boolean {
+function crowded(state: GameState, index: TrackIndex, abs: number): boolean {
   if (!state.rules.protectStacks) return false;
   let n = 0;
-  for (const c of cells) {
-    if (c === abs && ++n >= 2) return true;
+  for (const cells of index.cells) {
+    for (const c of cells) {
+      if (c === abs && ++n >= 2) return true;
+    }
   }
   return false;
 }
@@ -154,8 +161,8 @@ export function threatProbAt(
   abs: number,
 ): number {
   if (safeCell(state, abs)) return 0;
-  // Standing on our own stack is as good as a star — nobody can land here.
-  if (stackedIn(state, cellsAt(index, ownerSlot), abs)) return 0;
+  // Standing on a pile is as good as a star — nothing here can be captured.
+  if (crowded(state, index, abs)) return 0;
 
   let stalkers = 0;
   for (let i = 0; i < index.cells.length; i++) {
@@ -178,7 +185,7 @@ export function chaseCount(state: GameState, playerId: string, pos: TokenPositio
   for (const opp of opponentTrackTokens(state, playerId)) {
     const dist = (opp.abs - abs + MAIN_TRACK_SIZE) % MAIN_TRACK_SIZE;
     if (dist < 1 || dist > 6) continue;
-    if (safeCell(state, opp.abs) || stackedIn(state, cellsAt(index, slotOf(index, opp.owner)), opp.abs)) continue;
+    if (safeCell(state, opp.abs) || crowded(state, index, opp.abs)) continue;
     n++;
   }
   return n;
@@ -206,10 +213,11 @@ export function opponentsBehind(
 }
 
 /**
- * Probability that `hunter`'s next roll captures the token `victim` has at
- * `pos`. The exact mirror of {@link threatProb} — same single-die model, same
- * exemptions for safe cells and protected stacks — read from the other side of
- * the board.
+ * Probability that `hunter`'s next roll captures whatever is standing at `pos`.
+ * The exact mirror of {@link threatProb} — same single-die model, same
+ * exemptions for safe cells and immune piles — read from the other side of the
+ * board. Whose token it is does not enter into it: immunity is a property of
+ * the cell, so only the hunter's shooters and the cell itself matter.
  *
  * threatProb answers "what am I about to lose"; this answers "what can I take".
  * A position evaluator needs both, and having only the first is what makes a
@@ -220,11 +228,10 @@ export function opponentsBehind(
 export function captureProb(
   state: GameState,
   hunter: string,
-  victim: string,
   pos: TokenPosition,
 ): number {
   const index = buildTrackIndex(state);
-  return captureProbFrom(state, index, slotOf(index, hunter), victim, pos);
+  return captureProbFrom(state, index, slotOf(index, hunter), pos);
 }
 
 /**
@@ -233,40 +240,38 @@ export function captureProb(
  * Checks run cheapest-first, and the range test comes before the exemptions on
  * purpose: most opponent tokens are nowhere near a shooter, so the common path
  * is a handful of subtractions and an early return. Only a token actually under
- * the gun pays for the safe-square and stack lookups.
+ * the gun pays for the safe-square and immunity lookups.
  */
 export function captureProbFrom(
   state: GameState,
   index: TrackIndex,
   hunterSlot: number,
-  victim: string,
   pos: TokenPosition,
 ): number {
   const abs = absoluteTrackIndex(pos);
   if (abs === null) return 0;
-  return captureProbAt(state, index, hunterSlot, slotOf(index, victim), abs);
+  return captureProbAt(state, index, hunterSlot, abs);
 }
 
 /**
- * {@link captureProb} with everything already resolved: both slots, and the
- * victim's absolute cell.
+ * {@link captureProb} with everything already resolved: the hunter's slot and
+ * the target cell.
  *
  * This is the innermost form, and the evaluator calls it once per token per
  * rival at every leaf — so it deliberately takes what the caller already has
  * rather than re-deriving it. The range test comes first for the same reason:
  * most tokens are nowhere near a shooter, so the common path is a handful of
  * subtractions and an early return, and only a token actually under the gun
- * pays for the safe-square and stack checks.
+ * pays for the safe-square and immunity checks.
  */
 export function captureProbAt(
   state: GameState,
   index: TrackIndex,
   hunterSlot: number,
-  victimSlot: number,
   abs: number,
 ): number {
   const stalkers = stalkersIn(cellsAt(index, hunterSlot), abs);
   if (stalkers === 0) return 0; // nothing in range — no need to ask why not
-  if (safeCell(state, abs) || stackedIn(state, cellsAt(index, victimSlot), abs)) return 0;
+  if (safeCell(state, abs) || crowded(state, index, abs)) return 0;
   return hitChance(stalkers);
 }

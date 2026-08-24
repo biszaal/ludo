@@ -1,12 +1,15 @@
 /**
  * Skia-rendered Ludo board on the dark felt table, skinned by a BoardTheme
  * (classic = the bright Ludo Club look). Pure projection of the engine
- * GameState. The static surface is memoized (size + theme); tokens are glossy
- * 3D pawns that hop cell-by-cell along their path and fan out when several
- * share a cell. Taps are captured by transparent RN overlays.
+ * GameState. The board is drawn as two stacked canvases — the static surface
+ * below (memoized on size + theme, and repainted only when one of those
+ * changes) and the pawns above — so an animating pawn never drags the plate's
+ * ~500 draw ops through the frame with it. Tokens are glossy 3D pawns that hop
+ * cell-by-cell along their path and fan out when several share a cell. Taps are
+ * captured by transparent RN overlays.
  */
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef } from "react";
 import { Pressable, View } from "react-native";
 import { Canvas, Circle, Group, Line, LinearGradient, Path, RadialGradient, RoundedRect, Skia, vec } from "@shopify/react-native-skia";
 import {
@@ -29,7 +32,7 @@ import {
 } from "@ludo/engine";
 import { playHop } from "../lib/sound";
 import { hopTick } from "../lib/haptics";
-import { FLY_MS, computeWaypoints, originsFromLastAction, walkDurationMs } from "../render/waypoints";
+import { FLY_MS, computeWaypoints, originsFromLastAction, positionKey, walkDurationMs } from "../render/waypoints";
 import { shade } from "../theme";
 import type { BoardTheme } from "../render/boardThemes";
 import {
@@ -96,7 +99,14 @@ interface Spot {
   r: number;
 }
 
-export function Board({ size, state, theme, isMovable, onSelectToken, viewColor }: BoardProps) {
+/**
+ * Memoized: in online play the store is written for chat, presence, lobby and
+ * timer traffic far more often than the game state actually moves, and each of
+ * those used to re-run all of the geometry below and re-record the board's
+ * Skia picture. Callers must keep `isMovable`/`onSelectToken` stable for this
+ * to bite (GameView does).
+ */
+export const Board = memo(function Board({ size, state, theme, isMovable, onSelectToken, viewColor }: BoardProps) {
   const cell = cellSize(size);
   const q = viewColor ? VIEW_QUARTER[viewColor] : 0;
   const center = size / 2;
@@ -141,36 +151,51 @@ export function Board({ size, state, theme, isMovable, onSelectToken, viewColor 
   // render order, effect timing and remounts stop being able to break it.
   const origins = useMemo(() => originsFromLastAction(state), [state]);
 
-  const renderData = state.tokens.map((token) => {
-    const spot = layout.get(token.id)!;
-    const prev = origins.get(token.id);
-    const walked = computeWaypoints(token.color, prev, token.position, spot, cell);
-    const waypoints = walked.points.map((p) => {
-      const r = rotatePt(p.x, p.y);
-      return insetPt(r.x, r.y);
-    });
-    const rotated = rotatePt(spot.x, spot.y);
-    const seat = insetPt(rotated.x, rotated.y);
-    return {
-      token,
-      spot: { x: seat.x, y: seat.y, r: spot.r * BOARD_INTERIOR_SCALE },
-      prev,
-      waypoints,
-      walk: walked.walk,
-      stepMs: walked.stepMs,
-      retrace: walked.retrace,
-    };
-  });
+  // Pure projection of (tokens, layout, origins, view angle) — memoizing it
+  // changes no result, it only stops the walk being re-derived for all sixteen
+  // pawns on re-renders that touch nothing the board draws (a movable-set
+  // change, a toast, an overlay opening).
+  const renderData = useMemo(
+    () =>
+      state.tokens.map((token) => {
+        const spot = layout.get(token.id)!;
+        const prev = origins.get(token.id);
+        const walked = computeWaypoints(token.color, prev, token.position, spot, cell);
+        const waypoints = walked.points.map((p) => {
+          const r = rotatePt(p.x, p.y);
+          return insetPt(r.x, r.y);
+        });
+        const rotated = rotatePt(spot.x, spot.y);
+        const seat = insetPt(rotated.x, rotated.y);
+        return {
+          token,
+          spot: { x: seat.x, y: seat.y, r: spot.r * BOARD_INTERIOR_SCALE },
+          prev,
+          waypoints,
+          walk: walked.walk,
+          stepMs: walked.stepMs,
+          retrace: walked.retrace,
+        };
+      }),
+    [state.tokens, layout, origins, cell, rotatePt, insetPt],
+  );
 
   // How long each capturing mover takes to reach a track cell, so a captured
   // token can wait until the mover arrives before starting its walk home.
-  const moverHopMs = new Map<number, number>();
-  for (const { token, prev } of renderData) {
-    if (prev && positionKey(prev) !== positionKey(token.position) && typeof token.position === "object" && token.position.type === "track") {
-      const ms = walkDurationMs(token.color, prev, token.position);
-      moverHopMs.set(token.position.index, Math.max(moverHopMs.get(token.position.index) ?? 0, ms));
+  const moverHopMs = useMemo(() => {
+    const out = new Map<number, number>();
+    for (const { token, prev } of renderData) {
+      if (prev && positionKey(prev) !== positionKey(token.position) && typeof token.position === "object" && token.position.type === "track") {
+        const ms = walkDurationMs(token.color, prev, token.position);
+        out.set(token.position.index, Math.max(out.get(token.position.index) ?? 0, ms));
+      }
     }
-  }
+    return out;
+  }, [renderData]);
+
+  // Painter's order: pawns lower on screen draw over the ones above, so a tall
+  // piece overlapping the cell behind it reads as standing depth.
+  const painted = useMemo(() => [...renderData].sort((a, b) => a.spot.y - b.spot.y), [renderData]);
 
   return (
     <View
@@ -190,23 +215,40 @@ export function Board({ size, state, theme, isMovable, onSelectToken, viewColor 
         overflow: "visible",
       }}
     >
-      {/* Canvas bleeds `pad` past every edge (offset back by -pad) so the board
-          plate still sits exactly on this View's footprint, while tall pawns get
-          clear room above the top row. Everything is drawn shifted by +pad to
-          compensate for the -pad offset. */}
-      <Canvas style={{ position: "absolute", left: -pad, top: -pad, width: size + pad * 2, height: size + pad * 2 }}>
+      {/* Two canvases, and the split is the whole point.
+
+          A Skia canvas repaints in FULL whenever any shared value inside it
+          moves. With the plate and the pawns sharing one canvas, every hop —
+          and every frame of the idle "tap me" bob, which runs for most of a
+          turn — re-rasterized the ~500 nodes of static board underneath as
+          well: 52 track cells, four yards, the home runs, the centre wedges,
+          all of it, sixty times a second, to move sixteen pawns.
+
+          Split apart, the plate reads no shared values at all. Skia draws it
+          once per (size, theme, view angle) and the compositor reuses that
+          surface; only the pawn layer above it repaints per frame. */}
+      <Canvas style={{ position: "absolute", left: 0, top: 0, width: size, height: size }}>
+        {q === 0 ? (
+          staticBoard
+        ) : (
+          <Group origin={{ x: center, y: center }} transform={[{ rotate: (q * Math.PI) / 2 }]}>
+            {staticBoard}
+          </Group>
+        )}
+      </Canvas>
+
+      {/* The animated layer. It bleeds `pad` past every edge (offset back by
+          -pad) so a tall pawn on the top row — or one at the apex of its bob —
+          rises past the plate instead of being clipped to it; everything is
+          drawn shifted by +pad to compensate. Pawn seats are already rotated
+          into screen space in JS (rotatePt/insetPt), so unlike the plate this
+          layer needs no rotation of its own. */}
+      <Canvas
+        pointerEvents="none"
+        style={{ position: "absolute", left: -pad, top: -pad, width: size + pad * 2, height: size + pad * 2 }}
+      >
         <Group transform={[{ translateX: pad }, { translateY: pad }]}>
-          {q === 0 ? (
-            staticBoard
-          ) : (
-            <Group origin={{ x: center, y: center }} transform={[{ rotate: (q * Math.PI) / 2 }]}>
-              {staticBoard}
-            </Group>
-          )}
-          {/* Painter's order: pawns lower on screen draw over the ones above, so
-              a tall piece overlapping the cell behind it reads as standing depth. */}
-          {[...renderData]
-            .sort((a, b) => a.spot.y - b.spot.y)
+          {painted
             .map(({ token, spot, prev, waypoints, walk, stepMs, retrace }) => (
               <AnimatedPawn
                 key={token.id}
@@ -258,7 +300,7 @@ export function Board({ size, state, theme, isMovable, onSelectToken, viewColor 
       )}
     </View>
   );
-}
+});
 
 // --- Static board surface -----------------------------------------------------
 // Exported so previews (theme swatches, how-to-play art) can draw a board with
@@ -447,7 +489,14 @@ interface Spot2 {
   y: number;
 }
 
-function AnimatedPawn({ waypoints, walk, stepMs, retrace, posKey, r, color, stroke, delay, movable, phase }: AnimatedPawnProps) {
+/**
+ * Memoized. `waypoints` now comes from Board's memoized `renderData`, so on a
+ * re-render that only flips the movable set (roll → awaiting-move) the pawns
+ * that did not change skip entirely. Skipping a render whose props are all
+ * referentially equal is a no-op for the intent/prev refs below — equal props
+ * mean an unchanged `posKey`, which is the only thing they latch on.
+ */
+const AnimatedPawn = memo(function AnimatedPawn({ waypoints, walk, stepMs, retrace, posKey, r, color, stroke, delay, movable, phase }: AnimatedPawnProps) {
   const last = waypoints[waypoints.length - 1]!;
   const tx = useSharedValue(last.x);
   const ty = useSharedValue(last.y);
@@ -595,7 +644,7 @@ function AnimatedPawn({ waypoints, walk, stepMs, retrace, posKey, r, color, stro
       </Group>
     </Group>
   );
-}
+});
 
 /**
  * The glossy 3D pawn drawn at the origin (exported for static uses like
@@ -708,10 +757,6 @@ function cellKey(t: Token): string {
   if (t.position === "finished") return `fin-${t.id}`;
   if (t.position.type === "track") return `t${t.position.index}`;
   return `h${t.color}-${t.position.index}`;
-}
-
-function positionKey(p: TokenPosition): string {
-  return typeof p === "string" ? p : `${p.type}${p.index}`;
 }
 
 function tokenIndex(tokenId: string): number {

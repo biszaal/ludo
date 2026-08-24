@@ -13,6 +13,7 @@
 
 import { SAFE_SQUARES, type Color, type GameState } from "@ludo/engine";
 import { START_CELL_INDEX } from "../render/boardLayout";
+import { positionKey } from "../render/waypoints";
 import { useGameStore } from "../store/gameStore";
 import { useOnlineStore } from "../store/onlineStore";
 import { useProfile } from "../store/profileStore";
@@ -45,7 +46,7 @@ function diffAndFire(prev: GameState | null, next: GameState | null, myPlayerId:
   for (const t of next.tokens) {
     const was = prevPos.get(t.id);
     if (was === undefined) continue;
-    const moved = JSON.stringify(was) !== JSON.stringify(t.position);
+    const moved = positionKey(was) !== positionKey(t.position);
     if (!moved) continue;
     if (t.position === "home" && was !== "home") captured = true;
     if (t.position === "finished" && was !== "finished") finished = true;

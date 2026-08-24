@@ -160,7 +160,7 @@ function allStrengths(state, risk, index) {
             // opening is most of them.
             if (cellsAt(index, slots[h]).length === 0)
                 continue;
-            pressure[h] += captureProbAt(state, index, slots[h], slots[owner], abs) * value;
+            pressure[h] += captureProbAt(state, index, slots[h], abs) * value;
         }
     }
     const out = new Array(n);

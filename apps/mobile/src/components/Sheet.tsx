@@ -8,12 +8,24 @@
  * tall sheet — the gem store, or Play-setup with house rules expanded — can
  * never clip off the top of a short screen. On tablets it becomes a centered,
  * all-corners-rounded modal card instead of a full-width bottom band.
+ *
+ * It does NOT draw where it is written. React Native has no `position: fixed`,
+ * so an absolutely positioned overlay is laid out against its parent's box —
+ * and sheets are written next to the state that opens them, which for the
+ * Shop's buy sheet is halfway down a scroll view. Anchored there, the card
+ * pinned itself to the bottom of the scrolling column instead of the screen, so
+ * confirming a purchase meant scrolling down to find the button (with the tab
+ * dock painting over the rest of it). Instead the card is published to
+ * store/sheetHost and drawn by the one SheetHost at the app root, above the
+ * screens and the dock. Call sites are unchanged: mount a Sheet and it lands on
+ * the screen, wherever it was declared.
  */
 
-import type { ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, type ReactNode } from "react";
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, View } from "react-native";
 import Animated, { Easing, FadeIn, FadeOut, SlideInDown, SlideOutDown } from "react-native-reanimated";
 import { useLayout } from "../lib/useLayout";
+import { useSheetHost } from "../store/sheetHost";
 import { depth, font, palette, radius, space } from "../theme";
 
 interface SheetProps {
@@ -26,6 +38,9 @@ interface SheetProps {
 
 export function Sheet({ onClose, title, keyboardAvoiding = false, children }: SheetProps) {
   const { isTablet, maxWidth, height, insets } = useLayout();
+  const id = useId();
+  const present = useSheetHost((s) => s.present);
+  const dismiss = useSheetHost((s) => s.dismiss);
   // Never let the card grow past the top inset; beyond that it scrolls.
   const maxHeight = height - insets.top - space.xl;
 
@@ -81,7 +96,7 @@ export function Sheet({ onClose, title, keyboardAvoiding = false, children }: Sh
 
   const anchor = { position: "absolute" as const, left: 0, right: 0, bottom: 0, alignItems: "center" as const };
 
-  return (
+  const overlay = (
     <View style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0 }}>
       <Animated.View
         entering={FadeIn.duration(160)}
@@ -102,6 +117,21 @@ export function Sheet({ onClose, title, keyboardAvoiding = false, children }: Sh
       )}
     </View>
   );
+
+  // Republished on every render — the card is a snapshot of this render's
+  // props, so a live sheet (buying…, an error, a changed balance) only stays
+  // current if the host gets the new one. Before paint, so the sheet never
+  // shows a frame of stale content.
+  useLayoutEffect(() => {
+    present(id, overlay);
+  });
+
+  // Unmounting the Sheet takes the card down — and because the HOST stays
+  // mounted, removing it from that list is a real unmount, so the slide-out
+  // still plays.
+  useEffect(() => () => dismiss(id), [id, dismiss]);
+
+  return null;
 }
 
 /** Drawn × — sheet closes must not use text glyphs. */

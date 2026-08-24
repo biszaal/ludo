@@ -7,14 +7,14 @@
  * catalog migration's own comment to that effect).
  */
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { BOARD_THEMES } from "../src/render/boardThemes";
 import { DEFAULT_DICE_SKIN, DEFAULT_DIE, DICE_SKINS, diceRenderParams, resolveDiceSkin } from "../src/render/diceSkins";
 
 const HEX = /^#[0-9A-Fa-f]{6}$/;
-const ALLOWED_KEYS = ["id", "label", "price", "currency", "face", "pip", "edge", "frame", "overlay"];
+const ALLOWED_KEYS = ["id", "label", "price", "currency", "face", "pip", "edge", "frame", "overlay", "sheen", "motif"];
 
 /** Independent of the implementation's own hexRGB — just parses a literal. */
 function rgbOf(hex: string): [number, number, number] {
@@ -22,10 +22,10 @@ function rgbOf(hex: string): [number, number, number] {
 }
 
 describe("dice skin registry", () => {
-  it("has 14 unique ids matching the sku id format", () => {
+  it("has 21 unique ids matching the sku id format", () => {
     const ids = Object.values(DICE_SKINS).map((s) => s.id);
-    expect(ids.length).toBe(14);
-    expect(new Set(ids).size).toBe(14);
+    expect(ids.length).toBe(21);
+    expect(new Set(ids).size).toBe(21);
     for (const id of ids) expect(id).toMatch(/^[a-z0-9-]{1,24}$/);
   });
 
@@ -78,6 +78,49 @@ describe("dice skin registry", () => {
       if (skin.edge) expect(skin.edge).toMatch(HEX);
       if (skin.frame) expect(skin.frame).toMatch(HEX);
       expect(skin.label.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("sells every numeral skin for gems, in ascending price order", () => {
+    // The Numerals line is a gem tier by construction: a numeral face is the
+    // marking that identifies the tier from across the board, so one turning
+    // up on the coin ladder would be the tier leaking into the free economy.
+    const numerals = Object.values(DICE_SKINS).filter((s) => s.pip?.shape === "numeral");
+    expect(numerals.length).toBeGreaterThan(0);
+    for (const skin of numerals) expect(skin.currency, skin.id).toBe("gems");
+    const prices = numerals.map((s) => s.price);
+    expect(prices).toEqual([...prices].sort((a, b) => a - b));
+  });
+
+  it("polishes gem skins and only gem skins", () => {
+    // The rule the `sheen` field exists to encode: a die you bought with money
+    // looks like a die you bought with money. Coin skins are earned, so they
+    // stay matte however expensive they are — a sheen on the coin ladder would
+    // spend the tier's only visual tell on something a player can grind for.
+    for (const skin of Object.values(DICE_SKINS)) {
+      if (skin.sheen === undefined) continue;
+      expect(skin.currency, skin.id).toBe("gems");
+      expect(skin.sheen, skin.id).toBeGreaterThan(0);
+      expect(skin.sheen, skin.id).toBeLessThanOrEqual(1);
+    }
+    for (const skin of Object.values(DICE_SKINS)) {
+      if (skin.currency === "gems") expect(skin.sheen, skin.id).toBeGreaterThan(0);
+    }
+  });
+
+  it("keeps every face motif inside the face, in a usable color", () => {
+    for (const skin of Object.values(DICE_SKINS)) {
+      if (!skin.motif) continue;
+      expect(skin.motif.color, skin.id).toMatch(HEX);
+      expect(skin.motif.alpha, skin.id).toBeGreaterThan(0);
+      expect(skin.motif.alpha, skin.id).toBeLessThanOrEqual(1);
+      // appendMotif reaches 1.0 of the radius it is given, and the radius is a
+      // fraction of the die's WIDTH — so anything past 0.5 would be drawing
+      // outside the face and relying on the clip to hide it.
+      expect(skin.motif.scale, skin.id).toBeGreaterThan(0);
+      expect(skin.motif.scale, skin.id).toBeLessThanOrEqual(0.5);
+      // Ornament is the top of the tier, never a coin skin.
+      expect(skin.currency, skin.id).toBe("gems");
     }
   });
 
@@ -136,8 +179,10 @@ describe("diceRenderParams", () => {
     expect(p.pipShape).toBe("dot");
     expect(p.glow).toBeNull();
     expect(p.overlay).toBeNull();
+    expect(p.motif).toBeNull();
     expect(p.frame).toBeNull();
     expect(p.edgeRGB).toBeNull();
+    expect(p.sheen).toBe(0); // the free die is matte, and stays matte
   });
 
   it("takes its primary color from the first gradient stop", () => {
@@ -169,31 +214,27 @@ describe("diceRenderParams", () => {
 });
 
 describe("seed parity with the server catalog", () => {
-  it("matches the 0014 + 0018 migration seeds exactly (same ids, same prices)", () => {
+  it("matches the migration seeds exactly (same ids, same prices)", () => {
+    // Every migration is scanned, not a hard-coded list of two or three: the
+    // point of this test is that a skin cannot ship without a catalog row (an
+    // unbuyable shop tile) or a row without a skin (an unpurchasable phantom),
+    // and pinning filenames here would mean the NEXT tier's migration silently
+    // opts itself out of the check.
+    const dir = fileURLToPath(new URL("../../../supabase/migrations/", import.meta.url));
     const seeded = new Map<string, number>();
-
-    // 0014: coin-priced rows — (sku, 'dice', price, true).
-    const coinSql = readFileSync(
-      fileURLToPath(new URL("../../../supabase/migrations/0014_dice_skins.sql", import.meta.url)),
-      "utf8",
-    );
-    const coinRe = /\(\s*'dice\.([a-z0-9-]+)'\s*,\s*'dice'\s*,\s*(\d+)\s*,\s*true\s*\)/g;
-    let m: RegExpExecArray | null;
-    while ((m = coinRe.exec(coinSql))) seeded.set(m[1]!, Number(m[2]));
-
-    // 0018: gem-priced rows — (sku, 'dice', price, 'gems', true).
-    const gemSql = readFileSync(
-      fileURLToPath(new URL("../../../supabase/migrations/0018_gems.sql", import.meta.url)),
-      "utf8",
-    );
-    const gemRe = /\(\s*'dice\.([a-z0-9-]+)'\s*,\s*'dice'\s*,\s*(\d+)\s*,\s*'gems'\s*,\s*true\s*\)/g;
-    while ((m = gemRe.exec(gemSql))) seeded.set(m[1]!, Number(m[2]));
+    for (const file of readdirSync(dir).filter((f) => f.endsWith(".sql")).sort()) {
+      const sql = readFileSync(dir + file, "utf8");
+      // Coin rows: (sku, 'dice', price, true). Gem rows: (sku, 'dice', price, 'gems', true).
+      const re = /\(\s*'dice\.([a-z0-9-]+)'\s*,\s*'dice'\s*,\s*(\d+)\s*,\s*(?:'(?:coins|gems)'\s*,\s*)?true\s*\)/g;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(sql))) seeded.set(m[1]!, Number(m[2]));
+    }
 
     const registryIds = new Set(Object.values(DICE_SKINS).map((s) => s.id));
     expect(seeded.size).toBeGreaterThan(0);
     expect(new Set(seeded.keys())).toEqual(registryIds);
     for (const skin of Object.values(DICE_SKINS)) {
-      expect(seeded.get(skin.id)).toBe(skin.price);
+      expect(seeded.get(skin.id), skin.id).toBe(skin.price);
     }
   });
 });

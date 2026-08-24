@@ -174,7 +174,7 @@ function allStrengths(state: GameState, risk: number, index: TrackIndex): number
       // A seat with nothing on the track cannot threaten anything, which in the
       // opening is most of them.
       if (cellsAt(index, slots[h]!).length === 0) continue;
-      pressure[h]! += captureProbAt(state, index, slots[h]!, slots[owner]!, abs) * value;
+      pressure[h]! += captureProbAt(state, index, slots[h]!, abs) * value;
     }
   }
 

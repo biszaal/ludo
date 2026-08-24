@@ -49,6 +49,18 @@ export interface Walk {
   retrace: boolean;
 }
 
+/**
+ * A token position as a comparable string.
+ *
+ * Exists so the timing path can ask "did this token move?" without
+ * `JSON.stringify` on both sides — that was 32 stringifies per state
+ * transition, run at the exact moment a new state lands on top of a running
+ * animation.
+ */
+export function positionKey(p: TokenPosition): string {
+  return typeof p === "string" ? p : `${p.type}${p.index}`;
+}
+
 const fly = (dest: Point): Walk => ({ points: [dest], walk: false, stepMs: FLY_MS, retrace: false });
 
 /**

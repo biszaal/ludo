@@ -51,6 +51,32 @@ describe("chooseMove", () => {
     expect(chooseMove(state, "p1", movesFor(state)).tokenId).toBe("red-0");
   });
 
+  it("treats joining an immune pile as reaching cover", () => {
+    // Cell 5 (not a star) already carries a yellow pair, so it cannot be
+    // captured on — landing there is cover, worth more than the extra
+    // progress of pushing the further-on token.
+    let state = game2();
+    state = withToken(state, "red-0", { type: "track", index: 3 });
+    state = withToken(state, "red-1", { type: "track", index: 30 });
+    state = withToken(state, "yellow-0", { type: "track", index: 5 });
+    state = withToken(state, "yellow-1", { type: "track", index: 5 });
+    state = withDice(state, 2);
+
+    expect(chooseMove(state, "p1", movesFor(state), { difficulty: "normal" }).tokenId).toBe("red-0");
+  });
+
+  it("counts pairing up with its own token as reaching cover", () => {
+    // Landing on its own lone token makes the cell two deep, which is immune
+    // just the same — the bot should see that as cover it is creating.
+    let state = game2();
+    state = withToken(state, "red-0", { type: "track", index: 3 });
+    state = withToken(state, "red-1", { type: "track", index: 5 });
+    state = withToken(state, "red-2", { type: "track", index: 30 });
+    state = withDice(state, 2);
+
+    expect(chooseMove(state, "p1", movesFor(state), { difficulty: "normal" }).tokenId).toBe("red-0");
+  });
+
   it("prefers finishing a token over advancing another", () => {
     let state = game2();
     state = withToken(state, "red-0", { type: "homePath", index: 2 }); // 3 finishes it

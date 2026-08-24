@@ -10,6 +10,10 @@
  * keeps a finished player in `finishedOrder` whether they stay or go, and the
  * server settles the pot when the match ends — so the copy says so plainly.
  *
+ * Nor does a finished player have to wait the match out to see where everyone
+ * stands: "See standings" opens the results now, with the places that are
+ * banked ranked and the seats still racing shown as such.
+ *
  * Purely presentational; GameView decides when to mount it.
  */
 
@@ -30,11 +34,13 @@ interface FinishedPromptProps {
   avatarId: string | null;
   /** Coins this place pays, 0 for a friendly game. */
   reward: number;
+  /** Open the standings now, without waiting for the match to end. */
+  onSeeResults: () => void;
   onWatch: () => void;
   onLeave: () => void;
 }
 
-export function FinishedPrompt({ place, color, avatarId, reward, onWatch, onLeave }: FinishedPromptProps) {
+export function FinishedPrompt({ place, color, avatarId, reward, onSeeResults, onWatch, onLeave }: FinishedPromptProps) {
   const { maxWidth } = useLayout();
 
   return (
@@ -104,7 +110,8 @@ export function FinishedPrompt({ place, color, avatarId, reward, onWatch, onLeav
         entering={FadeIn.delay(900).duration(280)}
         style={{ gap: space.sm, width: "100%", maxWidth, alignSelf: "center" }}
       >
-        <Button label="Watch the rest" onPress={onWatch} />
+        <Button label="See standings" onPress={onSeeResults} />
+        <Button label="Watch the rest" onPress={onWatch} variant="ghost" />
         <Button label="Leave" onPress={onLeave} variant="ghost" />
       </Animated.View>
     </Animated.View>

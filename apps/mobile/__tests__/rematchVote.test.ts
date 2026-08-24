@@ -27,7 +27,10 @@ vi.mock("../src/net/api", () => ({
   rematchVote: vi.fn(),
   rematchClose: vi.fn(),
   leaveAction: vi.fn().mockResolvedValue(undefined),
+  warmUp: vi.fn(),
   getLobby: vi.fn().mockResolvedValue([]),
+  lobbyEqual: (a: unknown[], b: unknown[]) =>
+    a.length === b.length && a.every((x, i) => JSON.stringify(x) === JSON.stringify(b[i])),
   fetchGame: vi.fn(),
   getProfiles: vi.fn().mockResolvedValue([]),
   upsertMyProfile: vi.fn().mockResolvedValue(null),
@@ -180,7 +183,9 @@ async function joinFinished(state = finished(), v = 5): Promise<void> {
 /** Push a lobby snapshot through the realtime path and let it settle. */
 async function pushLobby(rows: api.LobbyPlayer[]): Promise<void> {
   vi.mocked(api.getLobby).mockResolvedValue(rows);
-  subs.onLobby();
+  // An event we can't read falls back to the debounced refetch — which is the
+  // path this helper wants: it hands over a whole snapshot, not one seat.
+  subs.onLobby({ type: "unknown" });
   await vi.advanceTimersByTimeAsync(200); // past LOBBY_DEBOUNCE_MS
 }
 

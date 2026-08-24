@@ -2,8 +2,10 @@
  * Full-screen celebration the moment the game's champion is decided (the first
  * player to bring all four tokens home). Confetti in the winner's color, the
  * winner front and center, then the choice the moment calls for:
- * - game still running (3–4 players): keep watching / playing for the minor
- *   places, or leave for home;
+ * - game still running (3–4 players): go straight to the standings, stay to
+ *   watch the minor places play out, or leave for home. Only a seat that has
+ *   finished sees this — GameView keeps it away from anyone still racing, who
+ *   must not be interrupted mid-turn;
  * - game over (2 players, or the last finish): on to the results leaderboard.
  * Purely presentational — GameView decides when to mount it.
  */
@@ -24,8 +26,9 @@ interface WinnerCelebrationProps {
   winnerAvatar: string | null;
   /** The game already ended — the only way forward is the results leaderboard. */
   gameOver: boolean;
-  /** The local seat is still racing for a place (labels the stay button). */
-  stillPlaying: boolean;
+  /** Match still running: open the standings now rather than waiting the rest
+   *  of it out. Unused on game over, where `onStay` already goes there. */
+  onSeeResults?: () => void;
   /** Staked pot the winner just took (0 = friendly game). */
   pot: number;
   /** Stay in the room (dismiss; on game over this reveals the results). */
@@ -33,7 +36,7 @@ interface WinnerCelebrationProps {
   onLeave: () => void;
 }
 
-export function WinnerCelebration({ winnerName, winnerColor, winnerAvatar, gameOver, stillPlaying, pot, onStay, onLeave }: WinnerCelebrationProps) {
+export function WinnerCelebration({ winnerName, winnerColor, winnerAvatar, gameOver, onSeeResults, pot, onStay, onLeave }: WinnerCelebrationProps) {
   const { width, height } = useWindowDimensions();
   const { maxWidth } = useLayout();
 
@@ -91,7 +94,8 @@ export function WinnerCelebration({ winnerName, winnerColor, winnerAvatar, gameO
           <Button label="See results" onPress={onStay} />
         ) : (
           <>
-            <Button label={stillPlaying ? "Keep playing" : "Watch the rest"} onPress={onStay} />
+            {onSeeResults ? <Button label="See standings" onPress={onSeeResults} /> : null}
+            <Button label="Watch the rest" onPress={onStay} variant={onSeeResults ? "ghost" : "fill"} />
             <Button label="Leave" onPress={onLeave} variant="ghost" />
           </>
         )}

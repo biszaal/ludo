@@ -21,6 +21,15 @@
  */
 
 export type PipShape = "dot" | "heart" | "star" | "diamond" | "crown" | "flame";
+
+/**
+ * What a skin inks onto its faces. Every value but "numeral" is a pip cluster
+ * laid out on the usual die grid; "numeral" replaces the whole cluster with a
+ * single figure, drawn from render/dieNumerals.ts (stroked centerlines, not
+ * one of the filled glyphs below). Kept as a separate union from PipShape so
+ * appendPip's signature still can't be handed something it cannot draw.
+ */
+export type FaceMark = PipShape | "numeral";
 export type OverlayKind = "stars" | "veins" | "grain" | "facets";
 
 /** The subset of SkPath's surface these glyphs need. A real SkPath (built

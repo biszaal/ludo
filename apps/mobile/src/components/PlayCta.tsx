@@ -18,12 +18,21 @@ interface PlayCtaProps {
   stake: number;
   /** A match is being found — label swaps and presses are ignored. */
   busy?: boolean;
+  /** Total height (face + under-edge) from the hub's budget. Unset — as in the
+   *  quick-setup sheet — keeps the natural size the piece has always had. */
+  height?: number;
 }
 
-export function PlayCta({ onPress, stake, busy = false }: PlayCtaProps) {
+export function PlayCta({ onPress, stake, busy = false, height }: PlayCtaProps) {
   const { scale } = useLayout();
   const face = palette.porcelain;
   const edge = shade(face, -0.45);
+  // The type rides the piece: a budget that squeezes PLAY shrinks its label in
+  // step, so the word never crowds the two edges it sits between.
+  const natural = Math.round(60 * scale) + depth.edge;
+  const k = (height ?? natural) / natural;
+  const title = Math.round(Math.max(16, Math.min(30, 22 * scale * k)));
+  const sub = Math.round(Math.max(10, Math.min(15, 12 * scale * k)));
   return (
     <Pressable
       accessibilityRole="button"
@@ -50,7 +59,10 @@ export function PlayCta({ onPress, stake, busy = false }: PlayCtaProps) {
           >
             <View
               style={{
-                minHeight: Math.round(60 * scale),
+                // Height, not minHeight, once budgeted: a minimum would win over
+                // the budget on a short screen and put the tower back over the fold.
+                height: height === undefined ? undefined : height - depth.edge,
+                minHeight: height === undefined ? Math.round(60 * scale) : undefined,
                 borderRadius: radius.lg,
                 alignItems: "center",
                 justifyContent: "center",
@@ -62,17 +74,17 @@ export function PlayCta({ onPress, stake, busy = false }: PlayCtaProps) {
                 gap: 2,
               }}
             >
-              <Text style={{ fontFamily: font.display, fontSize: Math.round(22 * scale), color: palette.feltCharcoal, letterSpacing: 1 }}>
+              <Text style={{ fontFamily: font.display, fontSize: title, color: palette.feltCharcoal, letterSpacing: 1 }}>
                 {busy ? "FINDING…" : "PLAY"}
               </Text>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                <Text style={{ fontFamily: font.medium, fontSize: Math.round(12 * scale), color: shade(palette.feltCharcoal, 0.35) }}>
+                <Text style={{ fontFamily: font.medium, fontSize: sub, color: shade(palette.feltCharcoal, 0.35) }}>
                   {busy ? "Looking for opponents" : "Quick match ·"}
                 </Text>
                 {!busy && (
                   <>
-                    <CoinGlyph size={Math.round(12 * scale)} />
-                    <Text style={{ fontFamily: font.mono, fontSize: Math.round(12 * scale), color: shade(palette.feltCharcoal, 0.35) }}>
+                    <CoinGlyph size={sub} />
+                    <Text style={{ fontFamily: font.mono, fontSize: sub, color: shade(palette.feltCharcoal, 0.35) }}>
                       {formatCompact(stake)}
                     </Text>
                   </>

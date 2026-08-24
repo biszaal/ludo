@@ -22,7 +22,7 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { Canvas, Path, Skia } from "@shopify/react-native-skia";
-import { TOKENS_PER_PLAYER, type GameState, type PlayerState } from "@ludo/engine";
+import { TOKENS_PER_PLAYER, type PlayerState } from "@ludo/engine";
 import { AvatarGlyph } from "./Avatar";
 import { depth, font, palette, radius, teamColor } from "../theme";
 import { CHIP_COLUMN } from "../lib/layout";
@@ -38,16 +38,29 @@ const AVATAR = 48;
 const RING_BOX = AVATAR + 14; // outer container; the ring hugs the frame inside it
 const RING_STROKE = 3.5;
 
+/**
+ * Deliberately NOT memoized — see AvatarGlyph. The `popScale` animation below
+ * drops the avatar canvas's native picture on every turn hand-off, and only a
+ * re-render re-pushes it, so freezing this component blanks the avatars.
+ *
+ * The props are primitives anyway (rather than `player` + the whole GameState,
+ * which the engine clones on every transition): the chip reads two values out
+ * of that state, and counting them once in the caller beats a filter over all
+ * sixteen tokens per chip per render.
+ */
 interface PlayerChipProps {
-  player: PlayerState;
-  state: GameState;
+  seatColor: PlayerState["color"];
+  /** Tokens this seat has brought home (of TOKENS_PER_PLAYER). */
+  finished: number;
   active: boolean;
   label?: string;
   avatarId?: string | null;
   offline?: boolean;
   /** The player quit for good — dims the chip and shows "Left" (beats Away). */
   left?: boolean;
-  timer?: { seq: number; seconds: number } | null;
+  /** Countdown ring: restarts whenever `timerSeq` changes. Null = no ring. */
+  timerSeq?: number | null;
+  timerSeconds?: number;
   /** Text alignment within the corner (left for left column, right otherwise). */
   align?: "left" | "right";
   /** This seat is on autopilot (local-only) — shows the BOT badge. */
@@ -57,20 +70,20 @@ interface PlayerChipProps {
 }
 
 export function PlayerChip({
-  player,
-  state,
+  seatColor,
+  finished,
   active,
   label,
   avatarId,
   offline = false,
   left = false,
-  timer = null,
+  timerSeq = null,
+  timerSeconds = 0,
   align = "left",
   botMode = false,
   onPress = null,
 }: PlayerChipProps) {
-  const color = teamColor[player.color];
-  const finished = state.tokens.filter((t) => t.playerId === player.id && t.position === "finished").length;
+  const color = teamColor[seatColor];
 
   // Turn hand-off pop: the chip that just became active scales up and settles,
   // pulling the eye to whose turn it is (the "feels alive" cue).
@@ -99,7 +112,7 @@ export function PlayerChip({
       })}
     >
       <Animated.View style={[{ width: RING_BOX, height: RING_BOX, alignItems: "center", justifyContent: "center" }, popStyle]}>
-        {active && !timer && <Breathe color={color} />}
+        {active && timerSeq === null && <Breathe color={color} />}
         <View
           style={{
             width: AVATAR + 8,
@@ -122,7 +135,7 @@ export function PlayerChip({
             <View style={{ width: AVATAR, height: AVATAR, borderRadius: radius.sm, backgroundColor: color }} />
           )}
         </View>
-        {active && timer ? <TurnRing seq={timer.seq} seconds={timer.seconds} color={color} /> : null}
+        {active && timerSeq !== null ? <TurnRing seq={timerSeq} seconds={timerSeconds} color={color} /> : null}
         {botMode ? <BotBadge /> : null}
       </Animated.View>
 
@@ -139,10 +152,10 @@ export function PlayerChip({
         }}
       >
         {left
-          ? `${label ?? COLOR_LABEL[player.color]} · Left`
+          ? `${label ?? COLOR_LABEL[seatColor]} · Left`
           : offline
-            ? `${label ?? COLOR_LABEL[player.color]} · Away`
-            : label ?? COLOR_LABEL[player.color]}
+            ? `${label ?? COLOR_LABEL[seatColor]} · Away`
+            : label ?? COLOR_LABEL[seatColor]}
       </Text>
       <Text
         style={{
