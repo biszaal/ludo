@@ -23,9 +23,7 @@ import { useSettings } from "../store/settingsStore";
 import { useWallet } from "../store/walletStore";
 import { font, palette, radius, space } from "../theme";
 
-// Version straight from app config — no expo-constants dependency needed.
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const APP_VERSION: string = require("../../app.json").expo.version ?? "1.0.0";
+import { APP_VERSION } from "../lib/appVersion";
 
 export function SettingsScreen() {
   const settings = useSettings();

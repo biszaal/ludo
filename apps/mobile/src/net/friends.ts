@@ -152,12 +152,26 @@ export async function markOffline(): Promise<void> {
     .upsert({ user_id: me, last_seen_at: new Date().toISOString(), status: "offline" }, { onConflict: "user_id" });
 }
 
-/** Last-seen epoch ms per friend. RLS returns only accepted friends' rows, so
- *  this needs no filtering here. An explicit 'offline' status collapses to 0 so
- *  isOnline() reads it as away regardless of how fresh the timestamp is. */
-export async function getPresence(): Promise<Record<string, number>> {
+/**
+ * Last-seen epoch ms for the given friends.
+ *
+ * RLS already scopes this table to accepted friends (0017), so asking for the
+ * ids is redundant for CORRECTNESS — but not for cost. The policy runs an
+ * EXISTS against `friendships` once per row it considers, so an unfiltered
+ * select is O(every user who has ever been online) on a timer, per client. The
+ * ids turn that into an index lookup, and having none at all means there is
+ * nothing to ask.
+ *
+ * An explicit 'offline' status collapses to 0 so isOnline() reads it as away
+ * regardless of how fresh the timestamp is.
+ */
+export async function getPresence(friendIds: string[]): Promise<Record<string, number>> {
+  if (friendIds.length === 0) return {};
   const supabase = getSupabase();
-  const { data, error } = await supabase.from("user_presence").select("user_id, last_seen_at, status");
+  const { data, error } = await supabase
+    .from("user_presence")
+    .select("user_id, last_seen_at, status")
+    .in("user_id", friendIds);
   if (error) return {};
   const out: Record<string, number> = {};
   for (const r of data ?? []) {

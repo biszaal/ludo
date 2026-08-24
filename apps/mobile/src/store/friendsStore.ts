@@ -27,7 +27,7 @@ import {
   type Profile,
   type PublicStats,
 } from "../net/api";
-import { incomingRequests, relationshipTo, type Relationship } from "../lib/friendship";
+import { acceptedFriendIds, incomingRequests, relationshipTo, type Relationship } from "../lib/friendship";
 import { useOnlineStore } from "./onlineStore";
 import { useNav } from "./navStore";
 import { playSound } from "../lib/sound";
@@ -130,7 +130,10 @@ export const useFriends = create<FriendsStore>((set, get) => ({
   },
 
   refreshPresence: async () => {
-    const presence = await friends.getPresence();
+    // Ask for the friends we know about rather than selecting the table and
+    // letting RLS trim it — see getPresence. A caller with no accepted friends
+    // makes no request at all, which today is most of them.
+    const presence = await friends.getPresence(acceptedFriendIds(get().friendships, get().userId));
     set({ presence });
   },
 
