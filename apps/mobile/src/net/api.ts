@@ -11,6 +11,7 @@ import type { Color, GameState } from "@ludo/engine";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { getSupabase } from "../lib/supabase";
 import { getIdentity } from "../lib/identityClient";
+import { APP_VERSION } from "../lib/appVersion";
 
 export interface GameRow {
   id: string;
@@ -160,7 +161,10 @@ async function callGame<T>(
     timer = setTimeout(() => reject(new TimeoutError()), timeoutMs);
   });
   const { data, error } = await Promise.race([
-    supabase.functions.invoke("game", { body: { op, ...payload } }),
+    // appVersion goes on LAST so a payload cannot overwrite it: the server
+    // decides what protocol this client can be spoken to in, and a caller must
+    // not be able to misreport the build it is running.
+    supabase.functions.invoke("game", { body: { op, ...payload, appVersion: APP_VERSION } }),
     timeout,
   ]).finally(() => clearTimeout(timer));
   if (error) {
@@ -495,6 +499,29 @@ export async function moveAction(gameId: string, tokenId: string, actionId?: str
  * on behalf of an optimisation.
  */
 const PREPARE_TIMEOUT_MS = 4000;
+
+/**
+ * Wake the `game` function up, so the first op of a match doesn't have to.
+ *
+ * Every op — rolls included — is one Deno function whose module scope imports
+ * supabase-js, jose, and the built engine and bot. A cold isolate pays that
+ * whole import graph before it answers anything, and the FIRST thing a dealt
+ * match asks for is `prepareRoll`: the read whose entire purpose is to have the
+ * die's number in hand before the player taps. Miss it and the roll falls back
+ * to tumbling on a null value until the round trip lands — which is a die
+ * visibly rolling over and over.
+ *
+ * The gap that bites is the wait in a lobby. Creating the room warms the
+ * function, but a friend room can then sit for minutes before anyone starts,
+ * and by the time the board is dealt the isolate is long gone.
+ *
+ * `config` is the cheapest op there is (one app_config read, no writes, no
+ * game state), so it is what we knock with. Fire-and-forget and swallowing
+ * everything: a warm-up that can fail loudly is worse than no warm-up.
+ */
+export function warmUp(): void {
+  void callGame("config", {}, PREPARE_TIMEOUT_MS).catch(() => {});
+}
 
 /**
  * Ask for the die our next roll will produce, so the tumble has something to
@@ -865,10 +892,45 @@ export interface ChatPayload {
   fromUserId: string;
 }
 
+/**
+ * What a players-table event says happened to a seat.
+ *
+ * The row travels WITH the event rather than being fetched after it. `players`
+ * keeps REPLICA IDENTITY FULL (0020), so every event — insert, update, delete —
+ * carries the whole row already; going back to ask for it turned one seat write
+ * into a REST round trip and a store write on every client in the room, which
+ * on a four-handed table is where an opponent's presence blip cost everybody a
+ * dropped frame mid-hop.
+ *
+ * `unknown` means the payload didn't parse (a column set we don't model, a
+ * partial row): the subscriber falls back to a full refetch, which is what it
+ * used to do unconditionally.
+ */
+export type LobbyEvent =
+  | { type: "seat"; row: LobbyPlayer }
+  | { type: "gone"; id: string }
+  | { type: "unknown" };
+
+/**
+ * A die the server rolled, delivered on its own rather than inside a state
+ * write. Folding tables stop writing the roll (the die is re-derivable from
+ * the unchanged version), so this is how everyone else at the table learns
+ * what was rolled, at the moment it was rolled.
+ */
+export interface RollPayload {
+  die: number;
+  /** The seat that rolled — a handle, matching state.currentTurnPlayerId. */
+  playerId: string;
+  /** The state_version the roll was made at, still unwritten. */
+  v: number;
+}
+
 export interface GameSubscription {
   onGame: (row: GameRow) => void;
-  onLobby: () => void;
+  onLobby: (event: LobbyEvent) => void;
   onChat?: (payload: ChatPayload) => void;
+  /** A die rolled on a folding table. Absent on unfolded tables. */
+  onRoll?: (payload: RollPayload) => void;
   /** The socket dropped and rejoined: row updates in the gap were lost, not
    *  queued — the subscriber must refetch to catch up. */
   onReconnect?: () => void;
@@ -895,9 +957,10 @@ export function subscribeGame(gameId: string, handlers: GameSubscription): Realt
     .on(
       "postgres_changes",
       { event: "*", schema: "public", table: "players", filter: `game_id=eq.${gameId}` },
-      () => handlers.onLobby(),
+      (payload) => handlers.onLobby(lobbyEvent(payload)),
     )
     .on("broadcast", { event: "chat" }, (msg) => handlers.onChat?.(msg.payload as ChatPayload))
+    .on("broadcast", { event: "roll" }, (msg) => handlers.onRoll?.(msg.payload as RollPayload))
     .subscribe((status) => {
       // Fires SUBSCRIBED again on every automatic rejoin after a drop.
       if (status !== "SUBSCRIBED") return;
@@ -921,6 +984,64 @@ export function subscribeGame(gameId: string, handlers: GameSubscription): Realt
  */
 export function sendChat(gameId: string, kind: ChatPayload["kind"], value: string): void {
   void callGame("chat", { gameId, kind, value }).catch(() => {});
+}
+
+/** Read a players-table realtime payload as a lobby event. */
+function lobbyEvent(payload: {
+  eventType: string;
+  new?: Record<string, unknown>;
+  old?: Record<string, unknown>;
+}): LobbyEvent {
+  if (payload.eventType === "DELETE") {
+    const id = payload.old?.id;
+    return typeof id === "string" ? { type: "gone", id } : { type: "unknown" };
+  }
+  const row = toLobbyPlayer(payload.new);
+  return row ? { type: "seat", row } : { type: "unknown" };
+}
+
+/** Pick a LobbyPlayer out of a raw row, or null if it isn't one. Deliberately
+ *  field-by-field: a realtime payload carries every column of the table, and
+ *  the extras must not leak into a value that gets compared for equality. */
+function toLobbyPlayer(raw: unknown): LobbyPlayer | null {
+  const r = raw as Record<string, unknown> | undefined;
+  if (!r || typeof r.id !== "string" || typeof r.user_id !== "string" || typeof r.seat !== "number") {
+    return null;
+  }
+  if (typeof r.color !== "string") return null;
+  return {
+    id: r.id,
+    user_id: r.user_id,
+    color: r.color as Color,
+    seat: r.seat,
+    is_host: !!r.is_host,
+    is_connected: !!r.is_connected,
+    is_bot: !!r.is_bot,
+    rematch_vote: (r.rematch_vote as LobbyPlayer["rematch_vote"]) ?? null,
+    rematch_voted_at: (r.rematch_voted_at as string | null) ?? null,
+  };
+}
+
+/** Do these two seat lists say the same thing? Used to drop a lobby write that
+ *  changes nothing — a presence heartbeat re-upserting the same row used to
+ *  hand React a fresh array and re-render the whole game screen for it. */
+export function lobbyEqual(a: LobbyPlayer[], b: LobbyPlayer[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  return a.every((x, i) => {
+    const y = b[i]!;
+    return (
+      x.id === y.id &&
+      x.user_id === y.user_id &&
+      x.color === y.color &&
+      x.seat === y.seat &&
+      x.is_host === y.is_host &&
+      x.is_connected === y.is_connected &&
+      x.is_bot === y.is_bot &&
+      (x.rematch_vote ?? null) === (y.rematch_vote ?? null) &&
+      (x.rematch_voted_at ?? null) === (y.rematch_voted_at ?? null)
+    );
+  });
 }
 
 export function unsubscribe(channel: RealtimeChannel): void {

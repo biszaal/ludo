@@ -793,6 +793,7 @@ function onActionFailed(e: unknown, gameId: string): void {
 
 /** Forget all per-game optimistic/sync bookkeeping (leave, new subscribe). */
 function resetSyncState(): void {
+  stopKeepWarm();
   clearBustHold();
   lastAppliedV = -1;
   pending = null;
@@ -861,18 +862,86 @@ async function requestTimeout(): Promise<void> {
   }
 }
 
+/**
+ * Keep the game function awake for as long as a room is waiting to start.
+ *
+ * The opening roll is the one roll in a match with nothing in front of it: no
+ * previous turn's animation to prefetch under, and — after a lobby wait — very
+ * likely a cold isolate to ask. `prepareRoll` gives up after four seconds, and
+ * a roll that times out there tumbles on a null value until the round trip
+ * answers, which is the die rolling five or six times before it settles.
+ *
+ * So we knock on the door while the player is waiting anyway. Only between
+ * joining a room and being dealt a board — the moment the board arrives the
+ * match's own traffic keeps the isolate hot, and this stops.
+ */
+const WARM_INTERVAL_MS = 45_000;
+let warmTimer: ReturnType<typeof setInterval> | null = null;
+
+function startKeepWarm(): void {
+  if (warmTimer) return;
+  api.warmUp();
+  warmTimer = setInterval(() => {
+    // Dealt, finished, or gone: the room no longer needs propping up.
+    if (useOnlineStore.getState().status !== "lobby") {
+      stopKeepWarm();
+      return;
+    }
+    api.warmUp();
+  }, WARM_INTERVAL_MS);
+}
+
+function stopKeepWarm(): void {
+  if (warmTimer) clearInterval(warmTimer);
+  warmTimer = null;
+}
+
 function subscribe(gameId: string): void {
   if (channel) api.unsubscribe(channel);
   clearRowQueue();
   clearRematchTimer();
   resetSyncState();
+  startKeepWarm();
   channel = api.subscribeGame(gameId, {
     onGame: enqueueGameRow,
     onLobby: refreshLobby,
     onChat: receiveChat,
+    onRoll: receiveRoll,
     // Row updates during a socket drop are lost, not replayed — refetch.
     onReconnect: () => scheduleResync(gameId, true),
   });
+}
+
+/**
+ * A die that arrived on its own, ahead of the state that will explain it.
+ *
+ * On a folding table the server does not write the roll — the die is derivable
+ * from the unchanged version, so the write was only ever carrying a number for
+ * other people to look at. It comes as a broadcast instead, and the state that
+ * follows carries the die AND the move together.
+ *
+ * Two things this must not do:
+ *
+ *   * animate a die the local player already animated. The roller bumps
+ *     rollSeq on its own tap (prepareRoll gives it the value up front), and the
+ *     server broadcasts to everyone including the roller — so our own roll
+ *     arrives back here and must be ignored;
+ *   * let the folded state push animate the same die a second time. That is
+ *     exactly what `rollBumped` already exists for: it is the one-shot flag
+ *     applyStateNow spends to swallow an arriving state's bump.
+ */
+function receiveRoll(payload: api.RollPayload): void {
+  const st = useOnlineStore.getState();
+  // Not our table any more, or a straggler from a version already left behind.
+  if (!st.state || st.state.status !== "active") return;
+  if (payload.v < lastAppliedV) return;
+  // Our own roll, already animated on the tap.
+  if (payload.playerId === st.myPlayerId) return;
+  // Only the seat whose turn it is can be rolling.
+  if (payload.playerId !== st.state.currentTurnPlayerId) return;
+
+  rollBumped = true;
+  useOnlineStore.setState({ lastRoll: payload.die, rollSeq: st.rollSeq + 1 });
 }
 
 // --- Paced application of realtime rows ----------------------------------------
@@ -1046,7 +1115,9 @@ function appendChat(p: Omit<ChatEvent, "id" | "at">): void {
 }
 
 /** players-table events arrive in bursts (join + presence toggles) — coalesce
- *  them into one lobby fetch instead of one HTTP round trip per event. */
+ *  them into one lobby fetch instead of one HTTP round trip per event. Only the
+ *  fallback path debounces now; an event that carries its own row is applied on
+ *  the spot, because there is nothing to coalesce. */
 const LOBBY_DEBOUNCE_MS = 150;
 let lobbyTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -1055,7 +1126,39 @@ function clearLobbyTimer(): void {
   lobbyTimer = null;
 }
 
-function refreshLobby(): void {
+/**
+ * A seat changed.
+ *
+ * The event carries the whole row (players is REPLICA IDENTITY FULL, 0020), so
+ * the common cases — a presence toggle, a rematch vote, a seat leaving — are
+ * folded straight into the lobby we already hold. Only an event we can't read
+ * falls back to the refetch this used to do every time.
+ *
+ * This is the online-only cost that offline play never paid: every seat write
+ * fanned out to every client, each of which answered it with an HTTP round trip
+ * and a store write, and a store write re-renders the game screen — during
+ * whatever hop happened to be on screen.
+ */
+function refreshLobby(event?: api.LobbyEvent): void {
+  const prev = useOnlineStore.getState().lobby;
+  if (event && prev.length > 0) {
+    if (event.type === "seat") {
+      const i = prev.findIndex((p) => p.id === event.row.id);
+      const next = [...prev];
+      if (i === -1) {
+        next.push(event.row);
+        next.sort((a, b) => a.seat - b.seat); // getLobby orders by seat; match it
+      } else {
+        next[i] = event.row;
+      }
+      applyLobby(next);
+      return;
+    }
+    if (event.type === "gone") {
+      applyLobby(prev.filter((p) => p.id !== event.id));
+      return;
+    }
+  }
   if (lobbyTimer) return;
   lobbyTimer = setTimeout(() => {
     lobbyTimer = null;
@@ -1064,23 +1167,30 @@ function refreshLobby(): void {
 }
 
 async function doRefreshLobby(): Promise<void> {
-  const { gameId, isHost, status } = useOnlineStore.getState();
-  if (!gameId) return;
+  if (!useOnlineStore.getState().gameId) return;
   try {
-    const lobby = await api.getLobby(gameId);
-    useOnlineStore.setState({ lobby });
-    void fetchProfiles(lobby);
-    readRematchVotes(gameId, lobby);
-    if (
-      isHost &&
-      status === "lobby" &&
-      lobby.length === 4 &&
-      !useOnlineStore.getState().starting
-    ) {
-      void useOnlineStore.getState().start();
-    }
+    applyLobby(await api.getLobby(useOnlineStore.getState().gameId!));
   } catch {
     // ignore transient lobby refresh failures
+  }
+}
+
+/**
+ * Adopt a seat list, however it arrived.
+ *
+ * The equality gate is the point: a presence heartbeat re-upserting an
+ * unchanged row is the commonest players write there is, and handing React a
+ * fresh array for it re-rendered GameView, four PlayerChips and four Skia
+ * avatars for a change of nothing.
+ */
+function applyLobby(lobby: api.LobbyPlayer[]): void {
+  const { gameId, isHost, status, lobby: prev } = useOnlineStore.getState();
+  if (!gameId) return;
+  if (!api.lobbyEqual(prev, lobby)) useOnlineStore.setState({ lobby });
+  void fetchProfiles(lobby);
+  readRematchVotes(gameId, lobby);
+  if (isHost && status === "lobby" && lobby.length === 4 && !useOnlineStore.getState().starting) {
+    void useOnlineStore.getState().start();
   }
 }
 
@@ -1353,6 +1463,8 @@ function applyStateNow(state: GameState, rolled: boolean, deadlineAt: number | n
   if (top === "lobby") nav.replace("onlineGame");
   else if (top !== "onlineGame") nav.push("onlineGame");
 
+  // Dealt: the match's own traffic keeps the function hot from here.
+  stopKeepWarm();
   // The turn may have just reached us. Fetch the die now, while the board is
   // still animating this state, so the tap that follows has nothing to wait for.
   primeRoll();
