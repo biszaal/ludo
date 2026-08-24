@@ -69,6 +69,25 @@ describe("rewarded placements grant access or payout, never advantage", () => {
     expect(adGrant.amount).toBeGreaterThan(0);
   });
 
+  it("a month of watching cannot out-earn the largest pack", () => {
+    // The fuse. Ads are the revenue engine for a young game, so the drip has to
+    // stay generous enough to be worth watching — but a free month must not
+    // deliver more than the biggest thing on sale, or the pack is a joke and
+    // the currency is worth nothing.
+    //
+    // The failure this pins is not hypothetical: 0048 set 5 x 5/day = 750/month
+    // against a 750-gem top pack, which is exactly the boundary this forbids.
+    //
+    // Note the two dials are independent. dailyCap sets how many ads get
+    // WATCHED (the revenue); amount sets how fast the catalog drains (the
+    // fuse). This constrains the second without touching the first.
+    const { adGrant, products } = DEFAULT_CONFIG.gems;
+    const largestPack = Math.max(...products.map((p) => p.gems));
+    const monthlyFree = adGrant.amount * adGrant.dailyCap * 30;
+
+    expect(monthlyFree).toBeLessThan(largestPack);
+  });
+
   it("has no advantage-shaped placement flags", () => {
     const banned = ["reroll", "undo", "extraTime", "extraTurn", "skipTurn", "boost", "shield", "revive"];
     const keys = Object.keys(DEFAULT_CONFIG.ads.rewarded).map((k) => k.toLowerCase());
