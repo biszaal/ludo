@@ -32,6 +32,14 @@ export interface ConfirmRequest {
   /** Paints the confirm button in the danger color. For anything that destroys
    *  data or cannot be undone. */
   destructive?: boolean;
+  /** Telling, not asking: one full-width button and no Cancel.
+   *
+   *  A notice still resolves through the same promise (always true — there is
+   *  no "no" to give), so call sites that only want to be read can `await
+   *  notice(...)` and ignore it. Kept on this store rather than growing a
+   *  second dialog: the shell, the animation and the back-button handling are
+   *  identical, and only the button row differs. */
+  notice?: boolean;
 }
 
 interface ConfirmState {
@@ -70,4 +78,13 @@ export const useConfirm = create<ConfirmState>((set, get) => ({
  */
 export function confirm(request: ConfirmRequest): Promise<boolean> {
   return useConfirm.getState().ask(request);
+}
+
+/**
+ * Say something that needs acknowledging but has no alternative — "that's all
+ * for today". One button, and every way out (button, backdrop, Android back)
+ * settles the same, because a notice cannot be declined.
+ */
+export function notice(request: Omit<ConfirmRequest, "notice" | "destructive">): Promise<boolean> {
+  return useConfirm.getState().ask({ confirmLabel: "Got it", ...request, notice: true });
 }

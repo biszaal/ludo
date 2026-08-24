@@ -2,7 +2,7 @@
 
 **Status:** design, approved for planning
 **Date:** 2026-08-23
-**Phase:** 2 (Phase 1 shipped in `0046_tick_gate_and_seat_version.sql` + app 1.0.2)
+**Phase:** 2 (Phase 1 shipped in `0049_tick_gate_and_seat_version.sql` + app 1.0.2)
 
 ## Problem
 
@@ -139,7 +139,7 @@ Three things this must get right:
   as an un-upgraded human and disable folding in quick match — which is where
   most games are played.
 - **NULL means no.** Every seat taken before 1.0.2 records `app_version = null`
-  (0046). Unknown must read as "cannot fold"; the safe direction to fail is
+  (0049). Unknown must read as "cannot fold"; the safe direction to fail is
   toward the behavior that works everywhere.
 - **Compare versions numerically, never as strings.** `app_version` is free text
   written by a client. `"1.10.0" < "1.9.0"` lexically, which would silently

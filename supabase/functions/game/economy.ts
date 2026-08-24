@@ -277,6 +277,88 @@ export async function opWalletTopup(admin: SupabaseClient, userId: string): Prom
 // credits coins — see functions/ads-ssv. A client that lies, replays, or skips
 // the ad entirely gets nothing, which matters because these coins are staked
 // against other players and will later be purchasable with real money.
+/** The exact words a player sees when the day's allowance is gone. One const so
+ *  the refusal and the sheet's popup cannot say two different things. */
+export const CAP_REACHED = "No more ads left for today \u2014 come back tomorrow.";
+
+/**
+ * Amount and daily cap for a placement, with the gem placement's operator
+ * overrides applied.
+ *
+ * `disabled` is the gems-tier-off case, which is NOT the same as a zero cap:
+ * one means this door does not exist, the other means you have used it up
+ * today. The sheet renders those differently — hidden vs greyed.
+ *
+ * Shared with opAdRewardQuota on purpose. The number the button greys itself
+ * out on has to be the same number the grant is refused by; if those two are
+ * computed separately they drift, and a lit button over an endpoint that only
+ * says no is worse than no button.
+ */
+async function rewardTerms(
+  admin: SupabaseClient,
+  placement: string,
+): Promise<{ amount: number; cap: number; currency: "coins" | "gems"; disabled: boolean }> {
+  const currency = REWARD_CURRENCY[placement] ?? "coins";
+  let amount = REWARD_COINS[placement] ?? 0;
+  let cap = REWARD_DAILY_CAP[placement] ?? 0;
+  if (currency === "gems") {
+    const cfg = await serverConfig(admin);
+    const gemsCfg = (cfg.gems ?? {}) as Json;
+    if (gemsCfg.enabled !== true) return { amount, cap, currency, disabled: true };
+    const adGrant = (gemsCfg.adGrant ?? {}) as Json;
+    amount = positiveNumber(adGrant.amount, REWARD_COINS[placement]!);
+    cap = positiveNumber(adGrant.dailyCap, REWARD_DAILY_CAP[placement]!);
+  }
+  return { amount, cap, currency, disabled: false };
+}
+
+/**
+ * Grants BANKED in the trailing 24h.
+ *
+ * Only `granted` rows count. An intent that was minted and never settled — ad
+ * closed early, SSV never landed — must not burn a slot, or backing out of one
+ * video silently costs a player the rest of the day's allowance.
+ */
+async function grantsUsed(admin: SupabaseClient, userId: string, placement: string): Promise<number> {
+  const since = new Date(Date.now() - 86_400_000).toISOString();
+  const { count } = await admin
+    .from("ad_rewards")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .eq("placement", placement)
+    .eq("status", "granted")
+    .gte("created_at", since);
+  return count ?? 0;
+}
+
+/**
+ * How much of a placement's daily allowance is left. Read-only — mints nothing,
+ * and is safe to call on every sheet open.
+ *
+ * Returns `cap` even when exhausted so the sheet can say "0 of 5 left" instead
+ * of just refusing, and so the row's subtitle never has to guess.
+ */
+export async function opAdRewardQuota(
+  admin: SupabaseClient,
+  userId: string,
+  placement: string,
+): Promise<Response> {
+  if (!(placement in REWARD_COINS)) return json({ error: "Unknown placement." });
+  const terms = await rewardTerms(admin, placement);
+  if (terms.disabled) {
+    return json({ amount: 0, cap: 0, used: 0, remaining: 0, currency: terms.currency, enabled: false });
+  }
+  const used = await grantsUsed(admin, userId, placement);
+  return json({
+    amount: terms.amount,
+    cap: terms.cap,
+    used,
+    remaining: Math.max(0, terms.cap - used),
+    currency: terms.currency,
+    enabled: true,
+  });
+}
+
 export async function opAdRewardIntent(
   admin: SupabaseClient,
   userId: string,
@@ -286,31 +368,13 @@ export async function opAdRewardIntent(
   if (!(await rateOk(admin, userId, "adReward", LIMITS.adReward))) return rateLimited();
   if (!(placement in REWARD_COINS)) return json({ error: "Unknown placement." });
 
-  const currency = REWARD_CURRENCY[placement] ?? "coins";
+  const terms = await rewardTerms(admin, placement);
+  if (terms.disabled) return json({ error: "Nothing to award here." });
+  const { currency, cap } = terms;
+  let coins = terms.amount;
 
-  // Gem grants are the one placement whose amount and cap are operator-tunable
-  // per region, since they are the closest an ad gets to the paid tier.
-  let cap = REWARD_DAILY_CAP[placement] ?? 0;
-  let coins = REWARD_COINS[placement];
-  if (currency === "gems") {
-    const cfg = await serverConfig(admin);
-    const gemsCfg = (cfg.gems ?? {}) as Json;
-    if (gemsCfg.enabled !== true) return json({ error: "Nothing to award here." });
-    const adGrant = (gemsCfg.adGrant ?? {}) as Json;
-    coins = positiveNumber(adGrant.amount, REWARD_COINS[placement]!);
-    cap = positiveNumber(adGrant.dailyCap, REWARD_DAILY_CAP[placement]!);
-  }
-
-  const since = new Date(Date.now() - 86_400_000).toISOString();
-  const { count } = await admin
-    .from("ad_rewards")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", userId)
-    .eq("placement", placement)
-    .eq("status", "granted")
-    .gte("created_at", since);
-  if ((count ?? 0) >= cap) {
-    return json({ error: "That's all the ad rewards for today — try again tomorrow." });
+  if ((await grantsUsed(admin, userId, placement)) >= cap) {
+    return json({ error: CAP_REACHED });
   }
 
   if (placement === "double-pot") {

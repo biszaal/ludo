@@ -5,15 +5,19 @@
  * the EXACT number — the compact pill's tap-to-reveal lands here.
  *
  * The ad row is deliberately the smallest thing on this sheet. Gems are the
- * premium tier; if watching a video were a serious way to accumulate them,
- * buying them would be for fools and the tier would stop meaning anything. The
- * server caps it at one grant a day and owns the amount.
+ * premium tier, and the amount and the daily cap are BOTH server-owned — the
+ * sheet only renders what it is told, so the drip can be retuned without a
+ * store release (0027 set it to 1/day, 0048 to 5 gems x 5/day).
+ *
+ * When the day's allowance is gone the row greys but stays tappable, and says
+ * so. It does not disappear: a reward that vanishes looks like a bug, where a
+ * grey row that answers when poked reads as a limit.
  *
  * Everything gems buy is access or appearance. Nothing here, now or later,
  * may improve anyone's chance of winning a match.
  */
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { Sheet } from "./Sheet";
 import { SectionLabel } from "./SectionLabel";
@@ -24,15 +28,22 @@ import { formatCompact, formatExact } from "../lib/format";
 import { playSound } from "../lib/sound";
 import { getGemProducts, isPurchasesConfigured } from "../lib/purchases";
 import { gemPriceView } from "../lib/gemPricing";
+import { gemAdRowView } from "../lib/gemAdRow";
 import { watchForReward } from "../lib/ads/rewarded";
+import { adRewardQuota, type AdRewardQuota } from "../net/api";
 import { useAdsReady } from "../lib/ads/useAdsReady";
-import { confirm, type ConfirmRequest } from "../store/confirmStore";
+import { confirm, notice, type ConfirmRequest } from "../store/confirmStore";
 import { buyGemsPrompt, exchangeGemsPrompt } from "../lib/gemPrompts";
 import { useWallet } from "../store/walletStore";
 import { useConfig } from "../store/configStore";
 import { font, palette, space } from "../theme";
 
 const EXCHANGE_PRESETS = [10, 50, 100];
+
+/** Mirrors economy.ts CAP_REACHED. The server refuses in these words and the
+ *  sheet pre-empts it in the same ones, so a player who taps anyway is never
+ *  told two different stories about the same limit. */
+const CAP_MESSAGE = "No more ads left for today — come back tomorrow.";
 
 export function GetGemsSheet({ onClose }: { onClose: () => void }) {
   const gems = useWallet((s) => s.gems);
@@ -50,7 +61,27 @@ export function GetGemsSheet({ onClose }: { onClose: () => void }) {
   // one waits, the other admits the pack can't be bought right now.
   const [storePrices, setStorePrices] = useState<Record<string, string>>({});
   const [pricesLoaded, setPricesLoaded] = useState(false);
+  // Server-owned: how many gem ads are left today, and what one pays. Null
+  // means "not asked yet / ask failed", which is deliberately NOT the same as
+  // zero — see loadQuota.
+  const [quota, setQuota] = useState<AdRewardQuota | null>(null);
   const have = gems ?? 0;
+
+  /** Re-read the allowance. Every failure path leaves the previous answer in
+   *  place: greying the row out because one request timed out would hide a
+   *  reward the player can actually collect, and the server refuses on its own
+   *  count anyway, so an optimistic tap costs nothing but a message. */
+  const loadQuota = useCallback(async () => {
+    try {
+      setQuota(await adRewardQuota("gems"));
+    } catch {
+      // Offline, or a server too old to know the op.
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadQuota();
+  }, [loadQuota]);
 
   useEffect(() => {
     if (!isPurchasesConfigured()) return;
@@ -101,6 +132,20 @@ export function GetGemsSheet({ onClose }: { onClose: () => void }) {
     await run(op, gained, none);
   };
 
+  const gemWord = (n: number) => `${n} gem${n === 1 ? "" : "s"}`;
+  // Config drives the row before the quota lands so it never renders blank;
+  // the server's figures win the moment they arrive.
+  const adRow = gemAdRowView({
+    flagOn: rewarded.gemGrant,
+    tierOn: cfg.enabled,
+    adsAvailable,
+    busy,
+    amount: quota?.amount ?? cfg.adGrant.amount,
+    cap: quota?.cap ?? cfg.adGrant.dailyCap,
+    remaining: quota?.remaining,
+    serverEnabled: quota?.enabled,
+  });
+
   return (
     <Sheet onClose={onClose} title="Gems">
       <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
@@ -136,19 +181,27 @@ export function GetGemsSheet({ onClose }: { onClose: () => void }) {
         );
       })}
 
-      {rewarded.gemGrant && cfg.enabled && adsAvailable ? (
+      {adRow.visible ? (
         <GemRow
           title="Watch an ad"
-          subtitle={
-            busy
-              ? "Loading…"
-              : `${cfg.adGrant.amount} gem${cfg.adGrant.amount === 1 ? "" : "s"} · once a day`
-          }
+          subtitle={adRow.label}
+          // Spent is DIMMED, not disabled. The tap still has to land so the row
+          // can say why it's grey — a dead button explains nothing, and this is
+          // the one state a player is most likely to poke at twice.
+          dimmed={adRow.spent}
           disabled={busy}
-          onPress={() =>
+          onPress={() => {
+            if (adRow.spent) {
+              void notice({ title: "That's all for today", message: CAP_MESSAGE });
+              return;
+            }
             void run(
               async () => {
                 const res = await watchForReward("gems");
+                // Re-read rather than decrementing locally, on every outcome:
+                // only a settled SSV callback actually spends a slot, and the
+                // client is in no position to know whether one landed.
+                void loadQuota();
                 if (res.status === "granted") return res.coins; // amount, in gems
                 if (res.status === "pending") {
                   setNote("Reward on its way — it'll appear shortly");
@@ -157,10 +210,10 @@ export function GetGemsSheet({ onClose }: { onClose: () => void }) {
                 if (res.status === "unavailable") setNote(res.message ?? "No ad available right now");
                 return 0;
               },
-              (n) => `+${n} gem${n === 1 ? "" : "s"}`,
+              (n) => `+${gemWord(n)}`,
               "",
-            )
-          }
+            );
+          }}
         />
       ) : null}
 
@@ -193,25 +246,40 @@ export function GetGemsSheet({ onClose }: { onClose: () => void }) {
   );
 }
 
+/**
+ * `disabled` and `dimmed` are both greyed, and the difference is whether the
+ * tap does anything: disabled is "busy, wait", dimmed is "spent, and here's
+ * why". Separating them is what lets the exhausted ad row look inert and still
+ * answer for itself.
+ */
 function GemRow({
   title,
   subtitle,
   coinYield = false,
   disabled,
+  dimmed = false,
   onPress,
 }: {
   title: string;
   subtitle: string;
   coinYield?: boolean;
   disabled: boolean;
+  dimmed?: boolean;
   onPress: () => void;
 }) {
+  const grey = disabled || dimmed;
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={`${title}, ${subtitle}`} disabled={disabled} onPress={onPress}>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${title}, ${subtitle}`}
+      accessibilityState={{ disabled: grey }}
+      disabled={disabled}
+      onPress={onPress}
+    >
       {({ pressed }) => (
         <Surface3D
-          pressed={pressed && !disabled}
-          style={{ opacity: disabled ? 0.45 : 1 }}
+          pressed={pressed && !grey}
+          style={{ opacity: grey ? 0.45 : 1 }}
           faceStyle={{
             flexDirection: "row",
             alignItems: "center",

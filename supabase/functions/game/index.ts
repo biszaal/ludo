@@ -37,6 +37,7 @@ import { opQuickBotFill, opQuickMatch } from "./quick.ts";
 import { opTick } from "./tick.ts";
 import {
   opAdRewardIntent,
+  opAdRewardQuota,
   opAdRewardStatus,
   opConfig,
   opDailyBonus,
@@ -153,6 +154,8 @@ Deno.serve(async (req: Request) => {
         );
       case "adRewardStatus":
         return await opAdRewardStatus(admin, userId, String(body.nonce ?? ""));
+      case "adRewardQuota":
+        return await opAdRewardQuota(admin, userId, String(body.placement ?? ""));
       case "entitlementsGet":
         return await opEntitlementsGet(admin, userId);
       case "shopBuy":

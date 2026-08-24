@@ -1,6 +1,6 @@
 -- Whether this table can be spoken to in the folded write protocol.
 --
--- 0046 recorded, per seat, which client build sat in it. This is the decision
+-- 0049 recorded, per seat, which client build sat in it. This is the decision
 -- that column exists to support: when every human seat is on a build that
 -- understands a die delivered over broadcast, a turn can cost one write
 -- instead of two.

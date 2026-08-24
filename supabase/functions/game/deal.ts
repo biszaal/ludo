@@ -125,7 +125,7 @@ export async function startGameNow(admin: SupabaseClient, gameId: string): Promi
       current_turn_player_id: state.currentTurnPlayerId,
       turn_deadline: turnDeadline(state),
       state_version: v + 1,
-      // Decided here and only here — see 0047. Every seat's build is known by
+      // Decided here and only here — see 0050. Every seat's build is known by
       // now, and it must not be re-asked once the table is being rendered.
       fold_writes: foldAllowed(
         lobby.map((p) => ({ user_id: String(p.user_id), app_version: (p.app_version as string | null) ?? null })),

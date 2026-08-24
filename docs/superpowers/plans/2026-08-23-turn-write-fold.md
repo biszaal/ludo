@@ -19,7 +19,7 @@
 - The gate defaults to `false`. Unknown always means "do not fold".
 - Dice derivation (`deriveDie`) must not change. Only the delivery of the die changes.
 - Every task ends green on `npm test` (engine 95 + bot 39 + mobile 509 + edge 107 = 750 baseline, plus what the task adds).
-- Migration numbering continues from `0046_tick_gate_and_seat_version.sql`.
+- Migration numbering continues from `0049_tick_gate_and_seat_version.sql`.
 - Commit messages: no Claude attribution, no co-author trailers.
 
 ---
@@ -152,7 +152,7 @@ git commit -m "feat(turn): numeric version comparison for the fold gate"
 ### Task 2: The gate column and its computation
 
 **Files:**
-- Create: `supabase/migrations/0047_fold_writes.sql`
+- Create: `supabase/migrations/0050_fold_writes.sql`
 - Modify: `supabase/functions/game/deal.ts` (in `startGameNow`, around lines 94-124)
 - Test: `supabase/functions/game/foldGate.test.ts` (append)
 
@@ -271,12 +271,12 @@ Expected: PASS.
 
 - [ ] **Step 5: Write the migration**
 
-Create `supabase/migrations/0047_fold_writes.sql`:
+Create `supabase/migrations/0050_fold_writes.sql`:
 
 ```sql
 -- Whether this table can be spoken to in the folded write protocol.
 --
--- 0046 recorded, per seat, which client build sat in it. This is the decision
+-- 0049 recorded, per seat, which client build sat in it. This is the decision
 -- that column exists to support: when every human seat is on a build that
 -- understands a die delivered over broadcast, a turn can cost one write
 -- instead of two.
@@ -344,7 +344,7 @@ Expected: PASS, 750 baseline + 14 new.
 - [ ] **Step 8: Commit**
 
 ```bash
-git add supabase/migrations/0047_fold_writes.sql supabase/functions/game/lib.ts supabase/functions/game/deal.ts supabase/functions/game/foldGate.test.ts
+git add supabase/migrations/0050_fold_writes.sql supabase/functions/game/lib.ts supabase/functions/game/deal.ts supabase/functions/game/foldGate.test.ts
 git commit -m "feat(turn): decide the fold protocol once, at deal time"
 ```
 
@@ -945,7 +945,7 @@ git commit -m "chore: 1.1.0 — the release the fold gate opens on"
 
 Order matters; getting it wrong breaks live play:
 
-1. Apply `0047_fold_writes.sql` (manual paste, per project convention).
+1. Apply `0050_fold_writes.sql` (manual paste, per project convention).
 2. Deploy the `game` edge function.
 3. Ship 1.1.0 to both stores.
 

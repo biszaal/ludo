@@ -39,7 +39,7 @@ export function ConfirmDialog() {
   const { maxWidth } = useLayout();
   if (!request) return null;
 
-  const { title, message, confirmLabel = "Confirm", cancelLabel = "Cancel", destructive = false } = request;
+  const { title, message, confirmLabel = "Confirm", cancelLabel = "Cancel", destructive = false, notice = false } = request;
 
   return (
     <View style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0, alignItems: "center", justifyContent: "center" }}>
@@ -48,7 +48,13 @@ export function ConfirmDialog() {
         exiting={FadeOut.duration(140)}
         style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0, backgroundColor: "rgba(20,23,28,0.66)" }}
       >
-        <Pressable accessibilityLabel={cancelLabel} style={{ flex: 1 }} onPress={() => answer(false)} />
+        {/* A notice has no "no", so the backdrop acknowledges rather than
+            cancelling — dismissing it must not read as a refusal. */}
+        <Pressable
+          accessibilityLabel={notice ? confirmLabel : cancelLabel}
+          style={{ flex: 1 }}
+          onPress={() => answer(notice)}
+        />
       </Animated.View>
 
       <Animated.View
@@ -82,11 +88,15 @@ export function ConfirmDialog() {
         ) : null}
 
         {/* Cancel first in reading order and in the layout: the way out should
-            be the one the eye and the thumb reach first. */}
+            be the one the eye and the thumb reach first. A notice drops it
+            entirely and lets the single button span the card — offering
+            "Cancel" against a statement invites a choice that isn't there. */}
         <View style={{ flexDirection: "row", gap: space.sm, marginTop: space.xs }}>
-          <View style={{ flex: 1 }}>
-            <Button label={cancelLabel} variant="ghost" onPress={() => answer(false)} />
-          </View>
+          {notice ? null : (
+            <View style={{ flex: 1 }}>
+              <Button label={cancelLabel} variant="ghost" onPress={() => answer(false)} />
+            </View>
+          )}
           <View style={{ flex: 1 }}>
             <Button
               label={confirmLabel}

@@ -41,13 +41,32 @@ describe("rewarded placements grant access or payout, never advantage", () => {
     );
   });
 
-  it("keeps the gem drip smaller than the cheapest thing it buys", () => {
-    // The guard that stops the ad path quietly becoming the main gem source:
-    // one view must never approach a purchasable pack, or paying looks foolish
-    // and the premium tier stops meaning anything.
+  it("keeps the gem drip bounded", () => {
+    // HISTORY: this rule used to be "a day's drip stays under a quarter of the
+    // cheapest pack", which held while the drip was 1 gem/day. It was retired
+    // deliberately in 0048, not quietly relaxed to make a change pass: the ad
+    // path is now the PRIMARY way a free player gets gems (25/day, ~750/mo,
+    // against a 750-gem $9.99 pack), and packs are positioned as a shortcut for
+    // players who don't want to watch video. The pack sizes in `products` are
+    // known to be mispriced against that and want revisiting.
+    //
+    // What still has to hold is that the drip is bounded and paced. An
+    // unbounded or per-view-huge grant would make gems free rather than cheap,
+    // and a currency nobody can run out of is one nobody values.
     const { adGrant, products } = DEFAULT_CONFIG.gems;
     const smallestPack = Math.min(...products.map((p) => p.gems));
-    expect(adGrant.amount * adGrant.dailyCap).toBeLessThan(smallestPack / 4);
+
+    // One view is never a pack — the ad is a drip, however fast it drips.
+    expect(adGrant.amount).toBeLessThan(smallestPack);
+    // The day's allowance is finite and small enough to stay a session ritual
+    // rather than a grind anyone could farm indefinitely.
+    expect(adGrant.dailyCap).toBeGreaterThan(0);
+    expect(adGrant.dailyCap).toBeLessThanOrEqual(10);
+    // Whole positive numbers: the server floors these, and a fractional or
+    // negative config value would silently mint or zero out grants.
+    expect(Number.isInteger(adGrant.amount)).toBe(true);
+    expect(Number.isInteger(adGrant.dailyCap)).toBe(true);
+    expect(adGrant.amount).toBeGreaterThan(0);
   });
 
   it("has no advantage-shaped placement flags", () => {

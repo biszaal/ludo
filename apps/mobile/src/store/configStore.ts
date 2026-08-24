@@ -112,7 +112,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     purchasesEnabled: true,
     exchangeRate: 10,
     exchangeMin: 10,
-    adGrant: { amount: 1, dailyCap: 1 },
+    adGrant: { amount: 5, dailyCap: 5 },
     products: [
       { id: "gems.small", gems: 60, priceUsd: 0.99 },
       { id: "gems.medium", gems: 340, priceUsd: 4.99 },

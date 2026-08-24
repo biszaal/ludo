@@ -422,6 +422,32 @@ export async function adRewardStatus(
   return await callGame<AdRewardStatus>("adRewardStatus", { nonce });
 }
 
+/** How much of a placement's daily allowance is left.
+ *
+ *  The sheet greys its ad row out on this, so it comes from the SERVER rather
+ *  than being counted locally: a local tally would reset with the app and
+ *  disagree with the endpoint that actually refuses the grant. Old servers
+ *  don't have the op — callers treat a throw as "unknown", not as "empty",
+ *  since greying the row out on a network hiccup would hide a working reward.
+ */
+export async function adRewardQuota(placement: RewardPlacement): Promise<AdRewardQuota> {
+  await ensureSignedIn();
+  return await callGame<AdRewardQuota>("adRewardQuota", { placement });
+}
+
+export interface AdRewardQuota {
+  /** Amount one view pays, denominated in `currency`. */
+  amount: number;
+  /** Views a single account can bank per day. */
+  cap: number;
+  used: number;
+  remaining: number;
+  currency?: RewardCurrency;
+  /** False when the tier itself is switched off, which is not the same as a
+   *  spent allowance — the row hides rather than greying. */
+  enabled?: boolean;
+}
+
 export interface AdRewardStatus {
   status: "pending" | "granted" | "expired";
   /** Amount granted, denominated in `currency`. */
