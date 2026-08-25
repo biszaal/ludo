@@ -7,6 +7,7 @@
  * per theme promised a board-colored die that the game never draws.
  */
 
+import { memo } from "react";
 import { Pressable, Text, View } from "react-native";
 import { Canvas } from "@shopify/react-native-skia";
 import { BoardSurface } from "./Board";
@@ -31,7 +32,12 @@ interface ThemeSwatchProps {
   onSelect: () => void;
 }
 
-export function ThemeSwatch({ theme, selected, price = 0, currency = "coins", locked = false, onSelect }: ThemeSwatchProps) {
+/**
+ * Memoized: the shop renders these in an unvirtualized ScrollView, so all of
+ * them stay mounted, and every one carries its own Skia canvas. A store write
+ * anywhere (a wallet refresh, an entitlement landing) re-rendered the lot.
+ */
+export const ThemeSwatch = memo(function ThemeSwatch({ theme, selected, price = 0, currency = "coins", locked = false, onSelect }: ThemeSwatchProps) {
   return (
     <Pressable
       accessibilityRole="radio"
@@ -94,4 +100,4 @@ export function ThemeSwatch({ theme, selected, price = 0, currency = "coins", lo
       </View>
     </Pressable>
   );
-}
+});

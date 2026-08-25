@@ -24,6 +24,7 @@ import Animated, {
   withTiming,
   type SharedValue,
 } from "react-native-reanimated";
+import { useFullMotion } from "../lib/useMotion";
 import { AvatarGlyph } from "./Avatar";
 import { arc } from "../lib/motion";
 import { seatColors } from "../lib/seating";
@@ -73,13 +74,15 @@ const PULSE_SPAN = 0.5;
 const PULSE_STAGGER = 0.12;
 
 export function TableSeats({ size, occupants = {}, searching = false, boardSize = 220 }: TableSeatsProps) {
+  const fullMotion = useFullMotion();
   const wave = useSharedValue(0);
 
   useEffect(() => {
-    if (!searching) return;
+    // Already conditional on `searching`; the tier is the same kind of gate.
+    if (!searching || !fullMotion) return;
     wave.value = withRepeat(withTiming(1, { duration: CYCLE_MS, easing: Easing.linear }), -1, false);
     return () => cancelAnimation(wave);
-  }, [searching, wave]);
+  }, [searching, wave, fullMotion]);
 
   const colors = seatColors(size);
   const pad = boardSize * 0.3;

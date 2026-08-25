@@ -52,6 +52,9 @@ export type { ChatEvent } from "../lib/chat";
 interface OnlineStore {
   status: Status;
   error: string | null;
+  /** This seat has an action out with the server and no answer yet. Mirrors the
+   *  private reconciliation locals; see syncInFlight. */
+  actionInFlight: boolean;
   gameId: string | null;
   roomCode: string | null;
   userId: string | null;
@@ -127,6 +130,7 @@ interface OnlineStore {
    *  still play without you. */
   answerRematch: (accept: boolean) => Promise<void>;
   leave: () => void;
+  clearError: () => void;
   resync: () => Promise<void>;
   /** Flag own presence when the app backgrounds/foregrounds (best-effort). */
   setAway: (away: boolean) => void;
@@ -137,6 +141,7 @@ interface OnlineStore {
 const INITIAL = {
   status: "idle" as Status,
   error: null,
+  actionInFlight: false,
   gameId: null,
   roomCode: null,
   userId: null,
@@ -288,6 +293,7 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
     )
       return;
     rollInFlight = true;
+    syncInFlight();
 
     // FAST PATH: the server already told us this roll's number (prefetched as
     // the turn arrived, or sent back with the action that earned this roll), so
@@ -336,6 +342,7 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
       // state that must not re-tumble, instead of leaving it for whichever
       // authoritative state actually lands.
       pending = { baseV: lastAppliedV, predicted };
+      syncInFlight();
       applyState(predicted, false);
     } else {
       // SLOW PATH (no prepared die — old server, no DICE_SECRET, or the
@@ -389,6 +396,7 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
       onActionFailed(e, gameId);
     } finally {
       rollInFlight = false;
+      syncInFlight();
     }
   },
 
@@ -409,6 +417,7 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
     // let the server's write confirm (or, on a race, correct) it.
     const predicted = applyMove(state, { tokenId });
     pending = { baseV: lastAppliedV, predicted };
+    syncInFlight();
     applyState(predicted, false);
     const actionId = api.newActionId();
     try {
@@ -436,6 +445,7 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
       return;
     const predicted = endTurn(state);
     pending = { baseV: lastAppliedV, predicted };
+    syncInFlight();
     applyState(predicted, false);
     const actionId = api.newActionId();
     try {
@@ -487,6 +497,13 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
     if (gameId) void api.leaveAction(gameId).catch(() => {});
     set({ ...INITIAL });
     useNav.getState().popTo("home");
+  },
+
+  /** Dismiss the current error. The game screen shows it transiently and then
+   *  calls this; without it a rejection that is never followed by another
+   *  authoritative write would sit on screen indefinitely. */
+  clearError: () => {
+    if (useOnlineStore.getState().error !== null) useOnlineStore.setState({ error: null });
   },
 
   resync: async () => {
@@ -597,6 +614,27 @@ let rollCache: { gameId: string; v: number; dice: number } | null = null;
  *  (or after the turn moved on) must not install itself over the current cache. */
 let prepareSeq = 0;
 
+/**
+ * Mirror the two in-flight locals above into store state, for the UI.
+ *
+ * They stay module-private because nothing outside reconciliation has any
+ * business reading a prediction — but "is this seat waiting on the server?" is
+ * something the screen genuinely needs, and without it a player on a weak link
+ * got no acknowledgement at all: the board just sat there while the retry
+ * ladder worked, and the first thing they saw was the stall bot taking a turn
+ * they thought they had played.
+ *
+ * Called after every assignment to either local. Guarded so an unchanged value
+ * never publishes a store write — this runs on paths that fire per realtime
+ * row, and the Board memo is what keeps those cheap.
+ */
+function syncInFlight(): void {
+  const now = pending !== null || rollInFlight;
+  if (useOnlineStore.getState().actionInFlight !== now) {
+    useOnlineStore.setState({ actionInFlight: now });
+  }
+}
+
 function recordApplied(v: number | null | undefined): void {
   if (v != null && v > lastAppliedV) lastAppliedV = v;
 }
@@ -700,6 +738,7 @@ function adoptPreparedRoll(): void {
   // so there is no bump left to swallow, and a contradicting one must tumble.
   rollBumped = false;
   pending = { baseV: lastAppliedV, predicted };
+  syncInFlight();
   useOnlineStore.setState({ lastRoll: dice });
   applyState(predicted, false);
 }
@@ -716,6 +755,7 @@ function adoptPreparedRoll(): void {
  */
 function unwindPrediction(): void {
   pending = null;
+  syncInFlight();
   rollBumped = false;
 }
 
@@ -732,6 +772,7 @@ function applyTurnResult(res: api.TurnResult, rolled: boolean): void {
       (v == null || v === pending.baseV + 1) && statesEqual(state, pending.predicted);
     if (confirmed) {
       pending = null;
+      syncInFlight();
       recordApplied(v);
       cacheNextRoll(res);
       primeRoll();
@@ -787,6 +828,7 @@ function onActionFailed(e: unknown, gameId: string): void {
     return;
   }
   pending = null;
+  syncInFlight();
   useOnlineStore.setState({ error: errorText(e) });
   scheduleResync(gameId);
 }
@@ -797,7 +839,9 @@ function resetSyncState(): void {
   clearBustHold();
   lastAppliedV = -1;
   pending = null;
+  syncInFlight();
   rollInFlight = false;
+  syncInFlight();
   rollBumped = false;
   rollCache = null;
   prepareSeq++;
@@ -995,6 +1039,7 @@ function drainRowQueue(): void {
     if (v === pending.baseV + 1 && statesEqual(row.state, pending.predicted)) {
       // The realtime echo of our optimistic action — already on screen.
       pending = null;
+      syncInFlight();
       recordApplied(v);
       drainRowQueue();
       return;
@@ -1443,6 +1488,12 @@ function applyStateNow(state: GameState, rolled: boolean, deadlineAt: number | n
 
   useOnlineStore.setState({
     state,
+    // An authoritative state is the answer to whatever the last error was
+    // about, so the message stops being true the moment this lands. It used to
+    // persist — cleared only on create/join/quickMatch/leave — so a rejection
+    // mid-game followed you all the way into the NEXT room's lobby, which is
+    // the one screen that actually renders it.
+    error: null,
     bustHold: false,
     validMoves: proj.validMoves,
     lastRoll: proj.lastRoll,
@@ -1582,6 +1633,7 @@ async function runResync(gameId: string): Promise<void> {
     // is older. A prepared die especially: it was derived for a version this
     // fetch may well have moved past.
     pending = null;
+    syncInFlight();
     rollCache = null;
     prepareSeq++;
     clearRowQueue();

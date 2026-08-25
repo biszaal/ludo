@@ -23,6 +23,7 @@ import {
   withSequence,
   withTiming,
 } from "react-native-reanimated";
+import { useFullMotion } from "../lib/useMotion";
 import {
   SAFE_SQUARES,
   type Color as PlayerColor,
@@ -107,6 +108,12 @@ interface Spot {
  * to bite (GameView does).
  */
 export const Board = memo(function Board({ size, state, theme, isMovable, onSelectToken, viewColor }: BoardProps) {
+  // Read once here, not per pawn. The movable-pawn bob is the single largest
+  // sustained cost in normal play: a Skia canvas rasterizes in FULL whenever any
+  // shared value inside it moves, so one repeating loop keeps all sixteen pawns
+  // repainting at display rate for as long as the player is deciding — which is
+  // most of every turn. On a device that cannot afford it, the lift holds still.
+  const fullMotion = useFullMotion();
   const cell = cellSize(size);
   const q = viewColor ? VIEW_QUARTER[viewColor] : 0;
   const center = size / 2;
@@ -263,6 +270,7 @@ export const Board = memo(function Board({ size, state, theme, isMovable, onSele
                 delay={capturedDelay(token, prev, moverHopMs)}
                 movable={isMovable(token.id)}
                 phase={tokenIndex(token.id) % 4}
+                fullMotion={fullMotion}
               />
             ))}
         </Group>
@@ -482,6 +490,9 @@ interface AnimatedPawnProps {
   movable: boolean;
   /** 0–3 stagger bucket so co-located movable pawns don't bob in lockstep. */
   phase: number;
+  /** False on a device that cannot afford the repeating bob — the lift is then
+   *  held still, which leaves this canvas with nothing animating at all. */
+  fullMotion: boolean;
 }
 
 interface Spot2 {
@@ -496,7 +507,7 @@ interface Spot2 {
  * referentially equal is a no-op for the intent/prev refs below — equal props
  * mean an unchanged `posKey`, which is the only thing they latch on.
  */
-const AnimatedPawn = memo(function AnimatedPawn({ waypoints, walk, stepMs, retrace, posKey, r, color, stroke, delay, movable, phase }: AnimatedPawnProps) {
+const AnimatedPawn = memo(function AnimatedPawn({ waypoints, walk, stepMs, retrace, posKey, r, color, stroke, delay, movable, phase, fullMotion }: AnimatedPawnProps) {
   const last = waypoints[waypoints.length - 1]!;
   const tx = useSharedValue(last.x);
   const ty = useSharedValue(last.y);
@@ -608,7 +619,15 @@ const AnimatedPawn = memo(function AnimatedPawn({ waypoints, walk, stepMs, retra
       cancelAnimation(bob);
       bob.value = 0;
       cue.value = withTiming(1, { duration: 200 });
-      bob.value = withDelay(phase * 80, withRepeat(withTiming(1, { duration: 650, easing: Easing.inOut(Easing.sin) }), -1, true));
+      if (fullMotion) {
+        bob.value = withDelay(phase * 80, withRepeat(withTiming(1, { duration: 650, easing: Easing.inOut(Easing.sin) }), -1, true));
+      } else {
+        // Hold the lift still instead of yo-yoing it. The pawn reads as movable
+        // exactly the same way — it is raised, with the shadow tucked under it
+        // — but once `cue` finishes its 200ms fade nothing on this canvas is
+        // moving, so the compositor stops asking for frames entirely.
+        bob.value = withTiming(0.6, { duration: 200 });
+      }
     } else {
       // Freeze bob where it is (don't reset here) and let `cue` fade to 0 so the
       // lift eases down smoothly. The next activation resets bob to 0 itself.
@@ -619,7 +638,7 @@ const AnimatedPawn = memo(function AnimatedPawn({ waypoints, walk, stepMs, retra
       cancelAnimation(bob);
       cancelAnimation(cue);
     };
-  }, [movable, phase, bob, cue]);
+  }, [movable, phase, bob, cue, fullMotion]);
 
   // Pawn: hop/fly position (tx/ty) plus the cued vertical lift.
   const transform = useDerivedValue(() => [{ translateX: tx.value }, { translateY: ty.value - bob.value * cue.value * (r * 0.4) }]);

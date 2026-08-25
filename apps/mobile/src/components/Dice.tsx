@@ -45,6 +45,7 @@ import Animated, {
   withSequence,
   withTiming,
 } from "react-native-reanimated";
+import { useFullMotion } from "../lib/useMotion";
 import { playDiceRoll } from "../lib/sound";
 import { diceSettle } from "../lib/haptics";
 import { DICE_CUBE_END, DICE_ROLL_MS, DICE_TUMBLE_MS, diceLandsThisLap } from "../lib/moveTiming";
@@ -285,7 +286,17 @@ export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = f
   // object here would change identity every render and force a full picture
   // re-record each time (see the file header: that's exactly the flicker this
   // component exists to avoid).
-  const sp = useMemo(() => diceRenderParams(skin, theme), [skin, theme]);
+  const fullMotion = useFullMotion();
+  const sp = useMemo(() => {
+    const base = diceRenderParams(skin, theme);
+    if (fullMotion) return base;
+    // The skin keeps its colours, gradient and pip shape — a player who paid
+    // for obsidian still gets obsidian. What goes is the per-frame texture
+    // work: the overlay regenerates a seeded scatter of dots and strokes on
+    // every re-record, and each glow costs a blur mask filter. Both are detail
+    // nobody reads on a 40px die, and both land during the settle squash.
+    return { ...base, overlay: null, glow: null };
+  }, [skin, theme, fullMotion]);
 
   /**
    * Everything the tumble draws with that does not change between frames.
@@ -406,6 +417,72 @@ export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = f
     };
   }, [sp]);
 
+
+  /**
+   * The landed face's frame-independent tools — the `kit` above, for the branch
+   * `kit` never covered.
+   *
+   * The settle squash re-records this picture every frame for the last ~140ms
+   * of a roll, and each of those frames was rebuilding the same paints, the
+   * same gradient shader, and re-running `overlayArt`'s seeded PRNG scatter
+   * from scratch. That is precisely the GC-pressure-on-the-UI-thread problem
+   * documented on `kit`, arriving at the one moment the die is being watched.
+   *
+   * Only the unconditional, frame-independent pieces are hoisted. `ink` and the
+   * numeral/motif/sheen paints deliberately stay inline: those are MUTATED down
+   * conditional branches (the idle swirl restyles `ink` to a stroke), and a
+   * shared paint carrying last frame's style into a branch that does not reset
+   * it is a far worse bug than the allocation it would save.
+   *
+   * Geometry is included in the key because the gradient's endpoints are in
+   * pixels; `size` is a prop and stable for the life of a render.
+   */
+  const landedKit = useMemo(() => {
+    const mix = mixColor;
+    const pad = Math.round(size * 0.65);
+    const c = (size + pad * 2) / 2;
+    const x = c - size / 2;
+    const y = c - size / 2;
+    const faceH = size - 3;
+
+    const edge = Skia.Paint();
+    edge.setAntiAlias(true);
+    edge.setColor(sp.edgeRGB ? mix(sp.edgeRGB, 0) : mix(sp.faceRGB, -0.25));
+
+    const facePaint = Skia.Paint();
+    facePaint.setAntiAlias(true);
+    if (sp.gradient) {
+      facePaint.setShader(
+        Skia.Shader.MakeLinearGradient(
+          { x, y },
+          { x: x + size, y: y + faceH },
+          sp.gradient.colors.map((cc) => Skia.Color(cc)),
+          sp.gradient.stops,
+          TileMode.Clamp,
+        ),
+      );
+    } else {
+      facePaint.setColor(mix(sp.faceRGB, 0));
+    }
+
+    // Null when the skin has no overlay, which is also every skin on the
+    // reduced motion tier — see `sp` above.
+    const overlay = sp.overlay
+      ? (() => {
+          const dotPaint = Skia.Paint();
+          dotPaint.setAntiAlias(true);
+          dotPaint.setColor(mix(sp.pipRGB, 0));
+          const strokePaint = Skia.Paint();
+          strokePaint.setAntiAlias(true);
+          strokePaint.setStyle(PaintStyle.Stroke);
+          strokePaint.setStrokeCap(StrokeCap.Round);
+          strokePaint.setColor(mix(sp.pipRGB, 0));
+          return { art: overlayArt(sp.overlay, sp.overlaySeed), dotPaint, strokePaint };
+        })()
+      : null;
+
+    return { edge, facePaint, overlay };
+  }, [sp, size]);
 
   // Canvas is padded beyond the die so the mid-flight scale-up and the ground
   // shadow have room (corner-on at apex the cube's half-diagonal reaches
@@ -570,48 +647,22 @@ export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = f
       const rounded = size * 0.24;
       const faceH = size - 3;
 
-      const edge = Skia.Paint();
-      edge.setAntiAlias(true);
-      edge.setColor(sp.edgeRGB ? mix(sp.edgeRGB, 0) : mix(sp.faceRGB, -0.25));
-      canvas.drawRRect(Skia.RRectXY(Skia.XYWHRect(x, y, size, size), rounded, rounded), edge);
+      canvas.drawRRect(Skia.RRectXY(Skia.XYWHRect(x, y, size, size), rounded, rounded), landedKit.edge);
 
       const faceRRect = Skia.RRectXY(Skia.XYWHRect(x, y, size, faceH), rounded, rounded);
-      const facePaint = Skia.Paint();
-      facePaint.setAntiAlias(true);
-      if (sp.gradient) {
-        facePaint.setShader(
-          Skia.Shader.MakeLinearGradient(
-            { x, y },
-            { x: x + size, y: y + faceH },
-            sp.gradient.colors.map((cc) => Skia.Color(cc)),
-            sp.gradient.stops,
-            TileMode.Clamp,
-          ),
-        );
-      } else {
-        facePaint.setColor(mix(sp.faceRGB, 0));
-      }
-      canvas.drawRRect(faceRRect, facePaint);
+      canvas.drawRRect(faceRRect, landedKit.facePaint);
 
       // Overlay: a cheap deterministic texture pass (grain/veins/stars/facets),
       // clipped to the face. Recorded once per landing along with everything
       // else in this branch — the tumble never touches it.
-      if (sp.overlay) {
-        const art = overlayArt(sp.overlay, sp.overlaySeed);
+      if (landedKit.overlay) {
+        const { art, dotPaint, strokePaint } = landedKit.overlay;
         canvas.save();
         canvas.clipRRect(faceRRect, ClipOp.Intersect, true);
-        const dotPaint = Skia.Paint();
-        dotPaint.setAntiAlias(true);
-        dotPaint.setColor(mix(sp.pipRGB, 0));
         for (const d of art.dots) {
           dotPaint.setAlphaf(d.a);
           canvas.drawCircle(x + d.x * size, y + d.y * faceH, d.r * size, dotPaint);
         }
-        const strokePaint = Skia.Paint();
-        strokePaint.setAntiAlias(true);
-        strokePaint.setStyle(PaintStyle.Stroke);
-        strokePaint.setStrokeCap(StrokeCap.Round);
-        strokePaint.setColor(mix(sp.pipRGB, 0));
         for (const st of art.strokes) {
           strokePaint.setAlphaf(st.a);
           strokePaint.setStrokeWidth(st.w * size);

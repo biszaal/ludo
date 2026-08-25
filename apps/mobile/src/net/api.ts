@@ -130,6 +130,27 @@ export class TimeoutError extends Error {
 export const isTimeout = (e: unknown): boolean => e instanceof TimeoutError;
 
 /**
+ * What this module is allowed to know about the link.
+ *
+ * Kept as an injected interface rather than an import of connectionStore so
+ * this file stays free of app state and testable on its own — and so that with
+ * nothing installed, every call behaves exactly as it did before any of this
+ * existed. `lib/connection.ts` installs the real one at launch.
+ */
+export interface LinkMonitor {
+  /** A finished call: its round trip, or null if it was never answered. */
+  observe(rttMs: number | null): void;
+  isOffline(): boolean;
+  /** Resolve true when the link is usable again, false when `budgetMs` runs out. */
+  waitForOnline(budgetMs: number): Promise<boolean>;
+}
+
+let linkMonitor: LinkMonitor | null = null;
+export function setLinkMonitor(m: LinkMonitor | null): void {
+  linkMonitor = m;
+}
+
+/**
  * Did the request fail before the server answered?
  *
  * functions-js reports three kinds of failure and only one of them is a verdict:
@@ -157,8 +178,16 @@ async function callGame<T>(
 ): Promise<T> {
   const supabase = getSupabase();
   let timer: ReturnType<typeof setTimeout> | undefined;
+  const startedAt = Date.now();
+  // An unanswered call is not a round trip, so it is reported as `null` rather
+  // than as a very slow one — see LinkMonitor.observe. Feeding the timeout in
+  // as a measurement would leave the app reading "slow" long after recovery.
+  const observe = (rttMs: number | null) => linkMonitor?.observe(rttMs);
   const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new TimeoutError()), timeoutMs);
+    timer = setTimeout(() => {
+      observe(null);
+      reject(new TimeoutError());
+    }, timeoutMs);
   });
   const { data, error } = await Promise.race([
     // appVersion goes on LAST so a payload cannot overwrite it: the server
@@ -169,7 +198,11 @@ async function callGame<T>(
   ]).finally(() => clearTimeout(timer));
   if (error) {
     // No answer ever arrived — same contract as the timeout above.
-    if (unanswered(error)) throw new TimeoutError();
+    if (unanswered(error)) {
+      observe(null);
+      throw new TimeoutError();
+    }
+    observe(Date.now() - startedAt);
     let message = error.message;
     const ctx = (error as { context?: { json?: () => Promise<{ error?: string }> } }).context;
     if (ctx?.json) {
@@ -182,6 +215,7 @@ async function callGame<T>(
     }
     throw new Error(message);
   }
+  observe(Date.now() - startedAt);
   if (data && (data as { error?: string }).error) throw new Error((data as { error: string }).error);
   return data as T;
 }
@@ -234,6 +268,19 @@ const TURN_TIMEOUT_MS = 6000;
 const TURN_TRIES = 4;
 const TURN_RETRY_PAUSE_MS = 300;
 
+/**
+ * Wall clock for the whole ladder, retries and pauses included.
+ *
+ * The four attempts above already fit inside TURN_SECONDS by construction. This
+ * is the belt for the case they cannot cover: an attempt parked on
+ * `waitForOnline` is waiting on a radio, not on a budget of its own, and
+ * without an outer limit a long outage would hold the call open well past the
+ * point where the turn is gone and the stall bot has played the seat. Once the
+ * turn is lost, further attempts only delay the resync that would show the
+ * player the truth.
+ */
+const TURN_LADDER_BUDGET_MS = 25_000;
+
 /** Distinct enough to be unique inside one game, short enough for the server's
  *  64-char cap and the unique index behind it. */
 let actionCounter = 0;
@@ -252,6 +299,13 @@ export function newActionId(): string {
  * Every attempt carries the same `actionId`, which is what makes this safe:
  * an attempt that was travelling all along still lands, and the server applies
  * whichever arrives first and answers the rest with `duplicate`.
+ *
+ * With no signal, the pause between attempts is replaced by a wait on the link
+ * itself. Re-firing every 300ms into an outage cannot succeed and floods the
+ * connection the moment it returns; parking on the radio instead means the
+ * retry goes out the instant there is something to send it down — which on the
+ * flaky links this exists for (a tunnel, a lift, a crowded room) is the whole
+ * difference between losing the turn and keeping it.
  */
 async function turnCall(
   op: string,
@@ -261,6 +315,7 @@ async function turnCall(
   const body = actionId ? { ...payload, actionId } : payload;
   const timeoutMs = actionId ? TURN_TIMEOUT_MS : CALL_TIMEOUT_MS;
   const tries = actionId ? TURN_TRIES : 1;
+  const ladderEndsAt = Date.now() + TURN_LADDER_BUDGET_MS;
   for (let attempt = 1; ; attempt++) {
     try {
       const res = await callGame<{
@@ -277,7 +332,15 @@ async function turnCall(
       };
     } catch (e) {
       if (attempt >= tries || !isTimeout(e)) throw e;
-      await new Promise((resolve) => setTimeout(resolve, TURN_RETRY_PAUSE_MS));
+      const budgetLeft = ladderEndsAt - Date.now();
+      if (budgetLeft <= 0) throw e;
+      if (linkMonitor?.isOffline()) {
+        // Park on the radio, not on a cadence. False means the outage outlived
+        // the ladder, so stop here rather than firing one more doomed attempt.
+        if (!(await linkMonitor.waitForOnline(budgetLeft))) throw e;
+      } else {
+        await new Promise((resolve) => setTimeout(resolve, TURN_RETRY_PAUSE_MS));
+      }
     }
   }
 }

@@ -43,6 +43,26 @@ const pools = {} as Record<SoundName, AudioPlayer[]>;
 const cursors = {} as Record<SoundName, number>;
 let ready = false;
 
+/**
+ * Reaction voices, held back from launch.
+ *
+ * These eight are ~255KB each — about 2MB of the app's 2.6MB audio budget — and
+ * they are only ever needed if someone opens the reaction bar in an online
+ * match. Creating them up front meant every cold start paid for eight native
+ * players most sessions never use. They are built when the reaction bar first
+ * appears (warmReactionSounds), which is comfortably before anyone can tap one.
+ */
+const DEFERRED: ReadonlySet<SoundName> = new Set<SoundName>([
+  "laugh",
+  "crying",
+  "angry",
+  "tease",
+  "cheer",
+  "shock",
+  "thumbs",
+  "gg",
+]);
+
 let music: AudioPlayer | null = null;
 let appActive = true;
 
@@ -74,6 +94,42 @@ function releaseAll(): void {
   music = null;
 }
 
+/** Create one sound's player pool. Idempotent — a pool that already exists is
+ *  left exactly as it is, so warming twice costs nothing. */
+function buildPool(name: SoundName): void {
+  if (pools[name]) return;
+  const spec = SPECS[name];
+  pools[name] = Array.from({ length: spec.pool }, () => {
+    const player = createAudioPlayer(spec.source);
+    player.volume = spec.volume;
+    // Park finished players back at 0. A player left at the end of its clip
+    // makes the next play() silently no-op (seekTo is async and loses the
+    // race) — this priming is what keeps rapid one-shots reliable.
+    player.addListener("playbackStatusUpdate", (status) => {
+      if (status.didJustFinish) {
+        player.pause();
+        void player.seekTo(0).catch(() => {});
+      }
+    });
+    return player;
+  });
+  cursors[name] = 0;
+}
+
+/**
+ * Build the reaction voices. Called when the reaction bar mounts, which is the
+ * last moment that is still comfortably ahead of anyone tapping one — creating
+ * a player at tap time would swallow the first reaction while it loads.
+ */
+export function warmReactionSounds(): void {
+  if (!ready) return;
+  try {
+    for (const name of DEFERRED) buildPool(name);
+  } catch {
+    // A reaction that cannot load is silent, not fatal.
+  }
+}
+
 /** True once THIS module generation has begun init — set synchronously so a
  *  second call can never slip past while the first is still awaiting. */
 let initStarted = false;
@@ -95,22 +151,8 @@ export async function initSound(): Promise<void> {
   }
   try {
     for (const name of Object.keys(SPECS) as SoundName[]) {
-      const spec = SPECS[name];
-      pools[name] = Array.from({ length: spec.pool }, () => {
-        const player = createAudioPlayer(spec.source);
-        player.volume = spec.volume;
-        // Park finished players back at 0. A player left at the end of its clip
-        // makes the next play() silently no-op (seekTo is async and loses the
-        // race) — this priming is what keeps rapid one-shots reliable.
-        player.addListener("playbackStatusUpdate", (status) => {
-          if (status.didJustFinish) {
-            player.pause();
-            void player.seekTo(0).catch(() => {});
-          }
-        });
-        return player;
-      });
-      cursors[name] = 0;
+      if (DEFERRED.has(name)) continue;
+      buildPool(name);
     }
     music = createAudioPlayer(require("../../assets/audio/music/music.wav"));
     music.loop = true;
@@ -120,13 +162,24 @@ export async function initSound(): Promise<void> {
     ready = false;
   }
   // React to the music toggle; effects check soundOn per play.
-  useSettings.subscribe(() => syncMusic());
+  //
+  // syncMusic reads musicOn and nothing else, so the guard below is the whole
+  // selector: an unguarded subscribe ran it on EVERY settings write, including
+  // setBoardTheme. (A real selector would need the subscribeWithSelector
+  // middleware on the store — not worth adding for one field.)
+  let lastMusicOn = useSettings.getState().musicOn;
+  useSettings.subscribe((st) => {
+    if (st.musicOn === lastMusicOn) return;
+    lastMusicOn = st.musicOn;
+    syncMusic();
+  });
   syncMusic();
 }
 
 /** Play a one-shot effect (no-op when sound is off or audio failed to load). */
 export function playSound(name: SoundName): void {
   if (!ready || !useSettings.getState().soundOn) return;
+  if (!pools[name] && DEFERRED.has(name)) buildPool(name);
   const pool = pools[name];
   if (!pool || pool.length === 0) return;
   const player = pool[cursors[name] % pool.length]!;

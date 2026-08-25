@@ -16,9 +16,10 @@ import { SettingRow } from "../components/SettingRow";
 import { registerForPush, unregisterPush } from "../lib/push";
 import { cancelBonusReminder, scheduleBonusReminder } from "../lib/bonusReminder";
 import { Surface3D } from "../components/Surface3D";
-import { BookGlyph, ChevronGlyph, NoteGlyph, PeopleGlyph, PulseGlyph, SpeakerGlyph } from "../components/HomeGlyphs";
+import { BookGlyph, ChevronGlyph, CycleGlyph, NoteGlyph, PeopleGlyph, PulseGlyph, SpeakerGlyph } from "../components/HomeGlyphs";
 import { CoinGlyph } from "../components/CoinsPill";
 import { useNav } from "../store/navStore";
+import { useFullMotion } from "../lib/useMotion";
 import { useSettings } from "../store/settingsStore";
 import { useWallet } from "../store/walletStore";
 import { font, palette, radius, space } from "../theme";
@@ -27,6 +28,7 @@ import { APP_VERSION } from "../lib/appVersion";
 
 export function SettingsScreen() {
   const settings = useSettings();
+  const fullMotion = useFullMotion();
   const push = useNav((s) => s.push);
 
   return (
@@ -47,6 +49,25 @@ export function SettingsScreen() {
           <Hairline />
           <Row glyph={<PulseGlyph size={20} />}>
             <SettingRow label="Haptics" hint="Gentle taps on rolls and moves" value={settings.hapticsOn} onChange={settings.setHaptics} />
+          </Row>
+          <Hairline />
+          <Row glyph={<CycleGlyph size={20} />}>
+            {/* A boolean switch over a three-state preference. The switch shows
+                what the app is ACTUALLY doing, so on a phone we judged slow it
+                already reads off — and touching it pins the choice, which is
+                what stops a wrong guess being a trap. There is no way back to
+                "auto" from here, and that is fine: once someone has an opinion,
+                it should be the one that counts. */}
+            <SettingRow
+              label="Animations"
+              hint={
+                fullMotion
+                  ? "Bouncing pawns, confetti and dice detail"
+                  : "Reduced — smoother on slower phones and easier on battery"
+              }
+              value={fullMotion}
+              onChange={(v) => settings.setMotionPref(v ? "full" : "reduced")}
+            />
           </Row>
         </Tray>
 

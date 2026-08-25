@@ -10,6 +10,7 @@
  * used to draw.
  */
 
+import { memo } from "react";
 import { Pressable, Text, View } from "react-native";
 import { DieCube } from "./DieCube";
 import { PriceTag, type PriceCurrency } from "./PriceTag";
@@ -33,7 +34,12 @@ interface DiceSwatchProps {
   onSelect: () => void;
 }
 
-export function DiceSwatch({ skin, selected, price = 0, currency = "coins", locked = false, onSelect }: DiceSwatchProps) {
+/**
+ * Memoized: the shop renders these in an unvirtualized ScrollView, so all of
+ * them stay mounted, and every one carries its own Skia canvas. A store write
+ * anywhere (a wallet refresh, an entitlement landing) re-rendered the lot.
+ */
+export const DiceSwatch = memo(function DiceSwatch({ skin, selected, price = 0, currency = "coins", locked = false, onSelect }: DiceSwatchProps) {
   return (
     <Pressable
       accessibilityRole="radio"
@@ -74,4 +80,4 @@ export function DiceSwatch({ skin, selected, price = 0, currency = "coins", lock
       </Text>
     </Pressable>
   );
-}
+});

@@ -10,6 +10,7 @@
  * whoever is short and costs nothing until someone actually presses start.
  */
 
+import { ConnectionStrip } from "../components/ConnectionStrip";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -238,6 +239,7 @@ export function LobbyScreen() {
 
         {/* Start / wait */}
         <View style={{ gap: space.sm, marginBottom: space.lg }}>
+          <ConnectionStrip showErrors={false} />
           {error ? <Text style={{ fontFamily: font.regular, fontSize: 13, color: teamColor.red, textAlign: "center" }}>{error}</Text> : null}
           {isHost ? (
             <>

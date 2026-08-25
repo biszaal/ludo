@@ -9,7 +9,7 @@
  * Avatar falls back to a team-color disc.
  */
 
-import { useEffect, useMemo } from "react";
+import { memo, useEffect, useMemo } from "react";
 import { Pressable, Text, View } from "react-native";
 import Animated, {
   cancelAnimation,
@@ -21,6 +21,7 @@ import Animated, {
   withSequence,
   withTiming,
 } from "react-native-reanimated";
+import { useFullMotion } from "../lib/useMotion";
 import { Canvas, Path, Skia } from "@shopify/react-native-skia";
 import { TOKENS_PER_PLAYER, type PlayerState } from "@ludo/engine";
 import { AvatarGlyph } from "./Avatar";
@@ -39,14 +40,23 @@ const RING_BOX = AVATAR + 14; // outer container; the ring hugs the frame inside
 const RING_STROKE = 3.5;
 
 /**
- * Deliberately NOT memoized — see AvatarGlyph. The `popScale` animation below
- * drops the avatar canvas's native picture on every turn hand-off, and only a
- * re-render re-pushes it, so freezing this component blanks the avatars.
+ * Memoized, which it could not always be.
  *
- * The props are primitives anyway (rather than `player` + the whole GameState,
- * which the engine clones on every transition): the chip reads two values out
- * of that state, and counting them once in the caller beats a filter over all
- * sixteen tokens per chip per render.
+ * The avatar used to be drawn with Skia, and the `popScale` animation below
+ * dropped that canvas's native picture on every turn hand-off — only an
+ * incidental re-render re-pushed it, so freezing this component blanked the
+ * avatars one per turn. The art is a PNG now (see AvatarGlyph), and an Image
+ * has no such coupling, so the block is gone.
+ *
+ * Worth taking: in an online game the store is written far more often than the
+ * board actually moves — every chat message, presence heartbeat and timer tick
+ * — and each of those was re-rendering all four chips.
+ *
+ * The props are primitives (rather than `player` + the whole GameState, which
+ * the engine clones on every transition), which is also what makes the memo
+ * effective: the chip reads two values out of that state, and counting them
+ * once in the caller beats a filter over all sixteen tokens per chip per
+ * render.
  */
 interface PlayerChipProps {
   seatColor: PlayerState["color"];
@@ -69,7 +79,7 @@ interface PlayerChipProps {
   onPress?: (() => void) | null;
 }
 
-export function PlayerChip({
+export const PlayerChip = memo(function PlayerChip({
   seatColor,
   finished,
   active,
@@ -169,7 +179,7 @@ export function PlayerChip({
       </Text>
     </Pressable>
   );
-}
+});
 
 /** "BOT" pill on the avatar while autopilot plays this seat (local-only). */
 function BotBadge() {
@@ -230,11 +240,14 @@ function TurnRing({ seq, seconds, color }: { seq: number; seconds: number; color
 
 /** The active frame's breathing color glow (shown when no timer ring runs). */
 function Breathe({ color }: { color: string }) {
+  const fullMotion = useFullMotion();
   const pulse = useSharedValue(0);
   useEffect(() => {
-    pulse.value = withRepeat(withTiming(1, { duration: 1600 }), -1, true);
+    // Held at the bright end rather than looping: the ring still marks the
+    // active seat, it just stops asking the compositor for frames forever.
+    pulse.value = fullMotion ? withRepeat(withTiming(1, { duration: 1600 }), -1, true) : 1;
     return () => cancelAnimation(pulse);
-  }, [pulse]);
+  }, [pulse, fullMotion]);
   const style = useAnimatedStyle(() => ({ opacity: 0.35 + pulse.value * 0.4 }));
   return (
     <Animated.View

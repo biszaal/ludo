@@ -14,6 +14,7 @@ import Animated, {
   withRepeat,
   withTiming,
 } from "react-native-reanimated";
+import { useFullMotion } from "../lib/useMotion";
 import { TOKENS_PER_PLAYER, type GameState, type PlayerState } from "@ludo/engine";
 import { depth, font, palette, radius, space, teamColor } from "../theme";
 
@@ -140,12 +141,15 @@ function OfflineBadge() {
 
 /** The active player's color ring, breathing on a slow perpetual loop. */
 function PulseRing({ color }: { color: string }) {
+  const fullMotion = useFullMotion();
   const pulse = useSharedValue(0);
 
   useEffect(() => {
-    pulse.value = withRepeat(withTiming(1, { duration: 1600 }), -1, true);
+    // Held at the bright end rather than looping: the ring still marks the
+    // active seat, it just stops asking the compositor for frames forever.
+    pulse.value = fullMotion ? withRepeat(withTiming(1, { duration: 1600 }), -1, true) : 1;
     return () => cancelAnimation(pulse);
-  }, [pulse]);
+  }, [pulse, fullMotion]);
 
   const style = useAnimatedStyle(() => ({
     opacity: 0.7 + pulse.value * 0.3,

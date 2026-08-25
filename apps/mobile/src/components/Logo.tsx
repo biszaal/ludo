@@ -16,6 +16,7 @@ import Animated, {
   withTiming,
   type SharedValue,
 } from "react-native-reanimated";
+import { useFullMotion } from "../lib/useMotion";
 import { teamColor, font } from "../theme";
 import type { Color as PlayerColor } from "@ludo/engine";
 
@@ -33,11 +34,15 @@ interface LogoProps {
 }
 
 export function Logo({ tile = 56 }: LogoProps) {
+  const fullMotion = useFullMotion();
   const wave = useSharedValue(0);
   useEffect(() => {
+    // The wave is decoration on a screen the player sits on between games, so
+    // it is the easiest thing in the app to give up. At 0 every tile rests.
+    if (!fullMotion) return;
     wave.value = withRepeat(withTiming(1, { duration: 4000, easing: Easing.linear }), -1, false);
     return () => cancelAnimation(wave);
-  }, [wave]);
+  }, [wave, fullMotion]);
 
   return (
     <View style={styles.row} accessibilityLabel="Ludo" accessibilityRole="header">

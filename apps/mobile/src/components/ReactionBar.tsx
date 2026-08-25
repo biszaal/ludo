@@ -5,6 +5,8 @@
  * generated set — no unicode emoji.
  */
 
+import { useEffect } from "react";
+import { warmReactionSounds } from "../lib/sound";
 import { Image, Pressable, View } from "react-native";
 import Animated, { Easing, FadeIn, FadeOut } from "react-native-reanimated";
 import { Surface3D } from "./Surface3D";
@@ -19,6 +21,13 @@ interface ReactionBarProps {
 }
 
 export function ReactionBar({ onSend, onClose }: ReactionBarProps) {
+  // Build the reaction voices now rather than at launch — they are ~2MB of
+  // native players that most sessions never touch. Mount is early enough that
+  // they are loaded well before anyone can tap one. See warmReactionSounds.
+  useEffect(() => {
+    warmReactionSounds();
+  }, []);
+
   return (
     <View style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0, zIndex: 20 }}>
       <Pressable accessibilityLabel="Close reactions" style={{ flex: 1 }} onPress={onClose} />

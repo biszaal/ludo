@@ -21,6 +21,7 @@ import { useNav } from "./src/store/navStore";
 import { initSound, setMusicActive } from "./src/lib/sound";
 import { initFeedback } from "./src/lib/feedback";
 import { initDeepLinks } from "./src/lib/invite";
+import { initConnection } from "./src/lib/connection";
 import { initPush } from "./src/lib/push";
 import { initBonusReminder } from "./src/lib/bonusReminder";
 import { initFriends, initPresence } from "./src/store/friendsStore";
@@ -84,6 +85,10 @@ export default function App() {
         .then(syncPurchasesUser)
         .catch(() => {});
     }
+    // Before anything that makes a request: the network layer consults this to
+    // decide whether a retry is worth sending, and a call made before it is
+    // installed simply falls back to the old fixed cadence.
+    const stopConnection = initConnection();
     const stopFeedback = initFeedback();
     const stopProfileSync = initProfileSync();
     const stopDeepLinks = initDeepLinks();
@@ -96,6 +101,7 @@ export default function App() {
     // pointed at the next unclaimed one.
     const stopBonusReminder = initBonusReminder();
     return () => {
+      stopConnection();
       stopFeedback();
       stopProfileSync();
       stopDeepLinks();

@@ -7,8 +7,17 @@
 import { useEffect, useMemo } from "react";
 import { Canvas, Group, RoundedRect } from "@shopify/react-native-skia";
 import { Easing, useDerivedValue, useSharedValue, withTiming, type SharedValue } from "react-native-reanimated";
+import { useFullMotion } from "../lib/useMotion";
 
 const COUNT = 70;
+/**
+ * Every piece costs two `useDerivedValue`s evaluated on the UI thread per
+ * frame, so the full burst is 140 worklets a frame for the whole 1.8s. That is
+ * affordable on a capable phone and is the most expensive moment in the app on
+ * a weak one — and it lands at the exact moment the player is meant to be
+ * enjoying a win. A quarter of the pieces still reads as a burst.
+ */
+const COUNT_REDUCED = 24;
 const DURATION_MS = 1800;
 
 interface Particle {
@@ -33,6 +42,7 @@ interface ConfettiProps {
 }
 
 export function Confetti({ width, height, originX, originY, colors }: ConfettiProps) {
+  const count = useFullMotion() ? COUNT : COUNT_REDUCED;
   const progress = useSharedValue(0);
 
   useEffect(() => {
@@ -41,7 +51,7 @@ export function Confetti({ width, height, originX, originY, colors }: ConfettiPr
 
   const particles = useMemo<Particle[]>(
     () =>
-      Array.from({ length: COUNT }, (_unused, i) => {
+      Array.from({ length: count }, (_unused, i) => {
         const angle = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 0.9; // upward cone
         const speed = height * (0.35 + Math.random() * 0.55);
         return {
@@ -55,7 +65,7 @@ export function Confetti({ width, height, originX, originY, colors }: ConfettiPr
           color: colors[i % colors.length]!,
         };
       }),
-    [originX, originY, height, colors],
+    [originX, originY, height, colors, count],
   );
 
   return (

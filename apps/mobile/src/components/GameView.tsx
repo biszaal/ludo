@@ -9,7 +9,7 @@
  * Android back pauses/resumes instead of leaving.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Pressable, Text, View, useWindowDimensions } from "react-native";
 import Animated, { Easing, FadeOut, ZoomIn } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -107,6 +107,10 @@ interface GameViewProps {
   resultsFootnote?: string | null;
   /** Online room code, shown in the top bar. */
   roomCode?: string | null;
+  /** Slot under the top bar for a transient status line. Online play passes the
+   *  connection strip here; local play has no link to report on and passes
+   *  nothing, so the row costs an empty fragment and no layout. */
+  notice?: ReactNode;
   /** Coins each seat staked (0 = friendly). Shows the pot in the top bar. */
   stake?: number;
   /** Local player's color — the board rotates so this seat is bottom-left. */
@@ -165,6 +169,7 @@ export function GameView({
   autoPilot,
   resultsFootnote,
   roomCode,
+  notice,
   stake = 0,
   viewColor,
   chat,
@@ -578,6 +583,7 @@ export function GameView({
           readable width instead of spanning the whole iPad; full-width on phone. */}
       <ContentColumn style={{ flex: 1, paddingHorizontal: space.xl, paddingTop: space.sm, maxWidth: colWidth }}>
         {topBar}
+        {notice}
 
         {railed ? (
           // Board flanked by the two chip columns — each chip stays level with

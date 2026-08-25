@@ -6,6 +6,7 @@
  * accepters are dealt the new board.
  */
 
+import { ConnectionStrip } from "../components/ConnectionStrip";
 import { GameView } from "../components/GameView";
 import { useOnlineStore } from "../store/onlineStore";
 import { useProfile } from "../store/profileStore";
@@ -137,6 +138,7 @@ export function OnlineGameScreen() {
       botFor={botOf}
       turnTimer={state.status === "active" ? { seq: turnSeq, seconds: turnSeconds } : null}
       autoPilot={autoPilot && myPlayerId ? { playerId: myPlayerId, onTakeControl: takeControl } : null}
+      notice={<ConnectionStrip />}
       roomCode={roomCode}
       stake={stake}
       viewColor={myColor}

@@ -48,11 +48,12 @@ vi.mock("../src/lib/identityClient", () => ({
   getIdentity: () => ({ ensureSignedIn: () => Promise.resolve("u1") }),
 }));
 
-import { moveAction, newActionId, rollAction, isTimeout } from "../src/net/api";
+import { moveAction, newActionId, rollAction, isTimeout, setLinkMonitor } from "../src/net/api";
 
 beforeEach(() => {
   invocations.length = 0;
   script = [];
+  setLinkMonitor(null);
 });
 
 afterEach(() => {
@@ -159,5 +160,98 @@ describe("a call with no action id", () => {
     await expect(rollAction("g1")).rejects.toThrow();
     expect(invocations.length).toBe(1);
     expect(invocations[0]!.actionId).toBeUndefined();
+  });
+});
+
+/**
+ * A retry ladder that cannot tell "the server is thinking" from "this phone has
+ * no signal" spends its whole budget either way. These pin the difference.
+ */
+function fakeMonitor(startOffline: boolean) {
+  const observed: Array<number | null> = [];
+  let offline = startOffline;
+  let release: Array<(ok: boolean) => void> = [];
+  return {
+    observed,
+    goOnline() {
+      offline = false;
+      const pending = release;
+      release = [];
+      for (const r of pending) r(true);
+    },
+    monitor: {
+      observe: (ms: number | null) => void observed.push(ms),
+      isOffline: () => offline,
+      waitForOnline: (budgetMs: number) =>
+        new Promise<boolean>((resolve) => {
+          if (!offline) return resolve(true);
+          const t = setTimeout(() => resolve(false), budgetMs);
+          release.push((ok) => {
+            clearTimeout(t);
+            resolve(ok);
+          });
+        }),
+    },
+  };
+}
+
+describe("what the network layer reports about the link", () => {
+  it("reports the round trip of a call that was answered", async () => {
+    const f = fakeMonitor(false);
+    setLinkMonitor(f.monitor);
+    script = [{ kind: "ok", body: { state: { id: "s" }, v: 1 } }];
+
+    await rollAction("g1", newActionId());
+
+    expect(f.observed).toHaveLength(1);
+    expect(typeof f.observed[0]).toBe("number");
+  });
+
+  it("reports an unanswered call as no measurement rather than a slow one", async () => {
+    const f = fakeMonitor(false);
+    setLinkMonitor(f.monitor);
+    script = [{ kind: "fail", name: "FunctionsFetchError" }, { kind: "ok", body: { state: { id: "s" }, v: 1 } }];
+
+    await rollAction("g1", newActionId());
+
+    // A timeout is not a round trip. Recording it as one would leave the app
+    // reading "slow connection" long after the link recovered.
+    expect(f.observed[0]).toBeNull();
+  });
+});
+
+describe("a turn request made with no signal", () => {
+  it("waits for the radio and re-fires the moment it returns", async () => {
+    vi.useFakeTimers();
+    const f = fakeMonitor(true);
+    setLinkMonitor(f.monitor);
+    script = [{ kind: "hang" }, { kind: "ok", body: { state: { id: "rolled" }, v: 2 } }];
+
+    const call = rollAction("g1", newActionId());
+
+    // First attempt burns its budget, then the ladder parks on the link rather
+    // than firing again into an outage on a 300ms cadence.
+    await vi.advanceTimersByTimeAsync(9_000);
+    expect(invocations.length).toBe(1);
+
+    f.goOnline();
+    await vi.advanceTimersByTimeAsync(10);
+    expect(invocations.length).toBe(2);
+    expect((await call).state).toEqual({ id: "rolled" });
+  });
+
+  it("gives up rather than spending the whole ladder on an outage", async () => {
+    vi.useFakeTimers();
+    setLinkMonitor(fakeMonitor(true).monitor);
+    script = Array.from({ length: 8 }, () => ({ kind: "hang" }) as const);
+
+    const call = moveAction("g1", "t1", newActionId()).catch((e) => e);
+    await vi.advanceTimersByTimeAsync(120_000);
+    const err = await call;
+
+    expect(isTimeout(err)).toBe(true);
+    // The turn is already lost; further attempts only delay the resync that
+    // would show the player the truth.
+    expect(invocations.length).toBeLessThan(4);
   });
 });

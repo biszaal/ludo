@@ -966,3 +966,86 @@ describe("keeping the game function awake", () => {
     }
   });
 });
+
+/**
+ * `pending` and `rollInFlight` are module-locals, so nothing on screen could
+ * ever know an action was outstanding. That is why a player on a weak link got
+ * no acknowledgement at all: the board simply sat there. This mirrors the one
+ * bit the UI needs into store state.
+ */
+describe("actionInFlight", () => {
+  const timeout = () => Object.assign(new Error("too long"), { name: "TimeoutError" });
+
+  it("is false while it is the player's turn and nothing has been sent", async () => {
+    await joinActiveGame(rolledSix());
+    expect(store.getState().actionInFlight).toBe(false);
+  });
+
+  it("rises the moment a move is sent and clears when the server confirms it", async () => {
+    const rolled = rolledSix();
+    await joinActiveGame(rolled);
+    const tokenId = store.getState().validMoves[0]!.tokenId;
+    const predicted = applyMove(rolled, { tokenId });
+
+    const d = deferred<api.TurnResult>();
+    vi.mocked(api.moveAction).mockReturnValue(d.promise);
+
+    const done = store.getState().selectToken(tokenId);
+    expect(store.getState().actionInFlight).toBe(true);
+
+    d.resolve({ state: structuredClone(predicted), v: 2 });
+    await done;
+    expect(store.getState().actionInFlight).toBe(false);
+  });
+
+  it("clears when the server rejects the move", async () => {
+    const rolled = rolledSix();
+    await joinActiveGame(rolled);
+    const tokenId = store.getState().validMoves[0]!.tokenId;
+
+    vi.mocked(api.moveAction).mockRejectedValue(new Error("Not your turn."));
+    await store.getState().selectToken(tokenId);
+
+    // The prediction is gone and so is the waiting state — otherwise the seat
+    // would show "still sending" forever over an action that already failed.
+    expect(store.getState().actionInFlight).toBe(false);
+  });
+
+  it("stays raised through a timeout, because the action may still land", async () => {
+    const rolled = rolledSix();
+    await joinActiveGame(rolled);
+    const tokenId = store.getState().validMoves[0]!.tokenId;
+
+    vi.mocked(api.moveAction).mockRejectedValue(timeout());
+    await store.getState().selectToken(tokenId);
+    await flush();
+
+    // A timeout means "outcome unknown" — the write may be travelling still.
+    // The prediction stays on screen, so the waiting state must stay with it.
+    expect(store.getState().actionInFlight).toBe(true);
+  });
+
+  it("clears once a resync settles what actually happened", async () => {
+    vi.useFakeTimers();
+    const rolled = rolledSix();
+    await joinActiveGame(rolled);
+    const tokenId = store.getState().validMoves[0]!.tokenId;
+
+    vi.mocked(api.fetchGame).mockResolvedValue({
+      state: structuredClone(rolled),
+      status: rolled.status,
+      state_version: 1,
+    } as unknown as Awaited<ReturnType<typeof api.fetchGame>>);
+    vi.mocked(api.moveAction).mockRejectedValue(timeout());
+
+    await store.getState().selectToken(tokenId);
+    expect(store.getState().actionInFlight).toBe(true);
+
+    // A timeout arms the SLOW resync (RESYNC_AFTER_TIMEOUT_MS) rather than the
+    // usual coalesced one — deliberately, so a refetch cannot snap the board
+    // back to a pre-move state while the write is still travelling.
+    await vi.advanceTimersByTimeAsync(7000);
+
+    expect(store.getState().actionInFlight).toBe(false);
+  });
+});
