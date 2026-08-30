@@ -42,9 +42,9 @@ import { BOARD_THEMES } from "../render/boardThemes";
 import { resolveDiceSkin } from "../render/diceSkins";
 import { setBackInterceptor } from "../store/navStore";
 import { useSettings } from "../store/settingsStore";
-import { shareInvite } from "../lib/invite";
 import { payoutSplit, potFor } from "../lib/economy";
-import { seatFinish } from "../lib/seatFinish";
+import { clockStartFor, elapsedSeconds, formatElapsed } from "../lib/gameClock";
+import { matchOverForSeat, seatFinish } from "../lib/seatFinish";
 import { useAds, canShowInterstitial } from "../store/adsStore";
 import { useConfig } from "../store/configStore";
 import { preloadInterstitial, showInterstitial } from "../lib/ads/provider";
@@ -105,8 +105,6 @@ interface GameViewProps {
   autoPilot?: { playerId: string; onTakeControl: () => void } | null;
   /** Small line under the results buttons (e.g. "Waiting for the host…"). */
   resultsFootnote?: string | null;
-  /** Online room code, shown in the top bar. */
-  roomCode?: string | null;
   /** Slot under the top bar for a transient status line. Online play passes the
    *  connection strip here; local play has no link to report on and passes
    *  nothing, so the row costs an empty fragment and no layout. */
@@ -126,6 +124,9 @@ export interface GameChat {
   myUserId: string | null;
   onSendReaction: (value: string) => void;
   onSendMessage: (text: string) => void;
+  /** Block a player and report the message that prompted it. Online only —
+   *  local play has nobody to report, so the sheet's gesture is inert there. */
+  onReport?: (userId: string, message: string) => void;
   /** Called when the sheet opens — clears the unread badge. */
   onOpened: () => void;
   /** Local play: reactions work but there is nobody to text — hide the chat sheet. */
@@ -168,7 +169,6 @@ export function GameView({
   turnTimer,
   autoPilot,
   resultsFootnote,
-  roomCode,
   notice,
   stake = 0,
   viewColor,
@@ -308,13 +308,35 @@ export function GameView({
     if (!finished) preloadInterstitial();
   }, [finished]);
 
-  /** Show the end-of-match interstitial if every gate allows it. */
+  /**
+   * Show the end-of-match interstitial if every gate allows it.
+   *
+   * "End of match" means end of match FOR THIS PLAYER, and the caller owns that
+   * judgement — see the two seams below. Everything else (session cap, spacing,
+   * never right after losing a staked match) lives in canShowInterstitial.
+   */
   const maybeShowEndOfMatchAd = useCallback(async () => {
     // TODO(phase-8): real `noads` entitlement once coin packs ship.
     if (!canShowInterstitial(useAds.getState(), useConfig.getState().config, false)) return;
     const shown = await showInterstitial();
     if (shown) useAds.getState().noteInterstitialShown();
   }, []);
+
+  /**
+   * Leave the table, with the ad this player has now earned the right to see.
+   *
+   * Leaving after finishing is the other moment the match is genuinely over for
+   * someone: their placement is banked, they have chosen not to watch the rest,
+   * and the next thing they see is the home screen either way. Awaited rather
+   * than fired off, because onLeave unmounts this tree and a detached
+   * interstitial would be cancelled on its way up.
+   */
+  const leaveAfterAd = useCallback(async () => {
+    if (matchOverForSeat({ placed: iFinished }, { finished, intent: "leave" })) {
+      await maybeShowEndOfMatchAd();
+    }
+    onLeave();
+  }, [maybeShowEndOfMatchAd, onLeave, iFinished, finished]);
 
   // Capture toast: a token was just sent home — flash a one-liner over the
   // board (timed near the capture sound's arrival delay).
@@ -453,29 +475,7 @@ export function GameView({
             <Text style={{ fontFamily: font.mono, fontSize: 13, color: palette.porcelain }}>{pot}</Text>
           </View>
         ) : null}
-        {roomCode ? (
-          // Tapping the code opens the share sheet — invite a friend mid-room.
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`Share room code ${roomCode}`}
-            onPress={() => void shareInvite(roomCode, stake)}
-            style={({ pressed }) => ({
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 6,
-              paddingHorizontal: space.sm,
-              paddingVertical: 4,
-              borderRadius: radius.sm,
-              backgroundColor: palette.liftedSlate,
-              borderTopWidth: 1,
-              borderTopColor: "rgba(255,255,255,0.10)",
-              opacity: pressed ? 0.8 : 1,
-            })}
-          >
-            <Text style={{ fontFamily: font.mono, fontSize: 14, color: palette.porcelain, letterSpacing: 2 }}>{roomCode}</Text>
-            <Text style={{ fontFamily: font.semibold, fontSize: 12, color: palette.mutedSteel }}>SHARE</Text>
-          </Pressable>
-        ) : null}
+        <GameClock gameId={state.gameId} running={state.status === "active"} />
       </View>
     </View>
   );
@@ -647,16 +647,22 @@ export function GameView({
           pot={pot}
           onStay={() => {
             fromCelebration.current = finished;
-            // The one interstitial seam in the app. The player has just asked
-            // to move on, so a full-screen ad here costs no perceived
-            // responsiveness — and every gate lives in canShowInterstitial,
-            // including "never right after losing a staked match".
-            void maybeShowEndOfMatchAd();
+            // ONLY once the whole match is over. This sheet also opens for the
+            // champion of a 3- or 4-handed game the moment they come home, while
+            // everyone else is still walking tokens around the board — and there
+            // the button says "Watch the rest", so firing an ad on it dropped a
+            // full-screen takeover over a match still in progress and then
+            // returned the player to it. An ad may interrupt the end of a game;
+            // it may never interrupt the middle of one.
+            if (matchOverForSeat({ placed: iFinished }, { finished, intent: "stay" })) {
+              void maybeShowEndOfMatchAd();
+            }
             setCelebrating(false);
           }}
           onLeave={() => {
             setCelebrating(false);
-            onLeave();
+            // Leaving IS the end of the match for this seat, finished or not.
+            void leaveAfterAd();
           }}
         />
       )}
@@ -670,10 +676,12 @@ export function GameView({
           avatarId={avatarFor?.(mySeat.id) ?? null}
           reward={payoutSplit(stake, state.players.length)[myPlaceIndex] ?? 0}
           onSeeResults={openStandings}
+          // Staying to watch is mid-match by definition — never an ad here.
           onWatch={() => setFinishPrompt(false)}
           onLeave={() => {
             setFinishPrompt(false);
-            onLeave();
+            // A minor place who has banked their finish and is walking away.
+            void leaveAfterAd();
           }}
         />
       )}
@@ -695,7 +703,7 @@ export function GameView({
           live={!finished}
           onBackToGame={() => setStandingsOpen(false)}
           enterDelayMs={fromCelebration.current || liveStandings ? 100 : 900}
-          onHome={onLeave}
+          onHome={() => void leaveAfterAd()}
         />
       )}
 
@@ -704,7 +712,9 @@ export function GameView({
           onResume={() => setPaused(false)}
           onLeave={() => {
             setPaused(false);
-            onLeave();
+            // Same rule: a finished seat walking away may see one, a seat still
+            // racing is forfeiting and must not.
+            void leaveAfterAd();
           }}
           confirmLeave={confirmLeave}
           // Only a seat still racing has anything to lose: a player who already
@@ -727,10 +737,60 @@ export function GameView({
           nameForUser={nameForUser}
           myUserId={chat.myUserId}
           onSend={chat.onSendMessage}
+          onReport={chat.onReport ?? (() => {})}
           onClose={() => setChatOpen(false)}
         />
       )}
     </SafeAreaView>
+  );
+}
+
+/**
+ * How long this game has been running, in the top bar.
+ *
+ * The clock keeps ticking on an opponent's turn — it's the match's age, not
+ * anybody's shot clock (the turn countdown lives on the active seat's panel) —
+ * and stops on the last word of the game so the results screen isn't sitting
+ * over a number that's still climbing.
+ */
+function GameClock({ gameId, running }: { gameId: string; running: boolean }) {
+  const startedAt = clockStartFor(gameId);
+  const [seconds, setSeconds] = useState(() => elapsedSeconds(startedAt));
+  useEffect(() => {
+    setSeconds(elapsedSeconds(startedAt));
+    if (!running) return;
+    // Twice a second: the displayed value floors the real elapsed time, so a
+    // 1s interval out of phase with it shows each number up to a second late.
+    const id = setInterval(() => setSeconds(elapsedSeconds(startedAt)), 500);
+    return () => clearInterval(id);
+  }, [startedAt, running]);
+
+  return (
+    <View
+      accessibilityLabel={`Game time ${formatElapsed(seconds)}`}
+      style={{
+        paddingHorizontal: space.sm,
+        paddingVertical: 4,
+        borderRadius: radius.pill,
+        backgroundColor: palette.liftedSlate,
+        borderTopWidth: 1,
+        borderTopColor: "rgba(255,255,255,0.10)",
+      }}
+    >
+      <Text
+        style={{
+          fontFamily: font.mono,
+          fontSize: 13,
+          color: palette.mutedSteel,
+          // Digits change every second; a fixed width keeps the pill from
+          // twitching as 9→10 or 59→1:00 changes the string's length.
+          minWidth: 34,
+          textAlign: "center",
+        }}
+      >
+        {formatElapsed(seconds)}
+      </Text>
+    </View>
   );
 }
 

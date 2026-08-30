@@ -85,6 +85,12 @@ export default function App() {
         .then(syncPurchasesUser)
         .catch(() => {});
     }
+    // Who this player has blocked. Loaded before the first game rather than on
+    // entering one: the mute filter sits on the chat receive path, and a list
+    // that arrives after the first message would let exactly the message
+    // somebody blocked for through. Fire-and-forget — it retries next launch,
+    // and Report mutes locally regardless.
+    void useOnlineStore.getState().loadMuted();
     // Before anything that makes a request: the network layer consults this to
     // decide whether a retry is worth sending, and a call made before it is
     // installed simply falls back to the old fixed cadence.

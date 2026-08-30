@@ -20,11 +20,11 @@ export function OnlineGameScreen() {
   const lastRoll = useOnlineStore((s) => s.lastRoll);
   const rollSeq = useOnlineStore((s) => s.rollSeq);
   const message = useOnlineStore((s) => s.message);
-  const roomCode = useOnlineStore((s) => s.roomCode);
   const myPlayerId = useOnlineStore((s) => s.myPlayerId);
   const profiles = useOnlineStore((s) => s.profiles);
   const roll = useOnlineStore((s) => s.roll);
   const selectToken = useOnlineStore((s) => s.selectToken);
+  const reportPlayer = useOnlineStore((s) => s.reportPlayer);
   const rematchProposal = useOnlineStore((s) => s.rematchProposal);
   const rematchNotice = useOnlineStore((s) => s.rematchNotice);
   const proposeRematch = useOnlineStore((s) => s.proposeRematch);
@@ -139,7 +139,6 @@ export function OnlineGameScreen() {
       turnTimer={state.status === "active" ? { seq: turnSeq, seconds: turnSeconds } : null}
       autoPilot={autoPilot && myPlayerId ? { playerId: myPlayerId, onTakeControl: takeControl } : null}
       notice={<ConnectionStrip />}
-      roomCode={roomCode}
       stake={stake}
       viewColor={myColor}
       chat={{
@@ -149,6 +148,7 @@ export function OnlineGameScreen() {
         myUserId: userId,
         onSendReaction: sendReaction,
         onSendMessage: sendMessage,
+        onReport: (userId, message) => void reportPlayer(userId, message),
         onOpened: markChatRead,
       }}
     />

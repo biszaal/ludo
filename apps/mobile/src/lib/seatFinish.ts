@@ -41,3 +41,32 @@ export function seatFinish(state: GameState, viewColor?: Color): SeatFinish {
     placed: place >= 0,
   };
 }
+
+/**
+ * Is the match over for THIS seat — the only moment an interstitial may run?
+ *
+ * Two ways a game ends for somebody, and the difference is the whole bug this
+ * exists to prevent:
+ *
+ *   finished          the last token is home for everybody. The match is over
+ *                     for the table, so it is over for this seat too.
+ *   placed + leaving   this seat banked a place and is walking away. Their race
+ *                     is done and the next screen is home either way.
+ *
+ * Everything else is the MIDDLE of a game. The case that shipped broken: in a
+ * 3- or 4-handed match the champion stops racing the instant they come home,
+ * while everyone else is still walking tokens around the board. The winner
+ * sheet opens for them with a "Watch the rest" button — and that button ran the
+ * end-of-match ad, dropping a full-screen takeover over a live match and then
+ * returning the player to it.
+ *
+ * A seat still racing gets nothing on either intent. Quitting mid-race is a
+ * forfeit, often of a stake, and is the last moment to monetise.
+ */
+export function matchOverForSeat(
+  seat: Pick<SeatFinish, "placed">,
+  opts: { finished: boolean; intent: "stay" | "leave" },
+): boolean {
+  if (opts.finished) return true;
+  return opts.intent === "leave" && seat.placed;
+}

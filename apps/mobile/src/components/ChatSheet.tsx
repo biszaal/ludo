@@ -5,7 +5,7 @@
  */
 
 import { useState } from "react";
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import Animated, { Easing, FadeIn, FadeOut, SlideInDown, SlideOutDown } from "react-native-reanimated";
 import { Button } from "./Button";
 import type { ChatEvent } from "../store/onlineStore";
@@ -38,16 +38,40 @@ interface ChatSheetProps {
   nameForUser: (userId: string) => string;
   myUserId: string | null;
   onSend: (text: string) => void;
+  /** Block the sender and file a report about this message. */
+  onReport: (userId: string, message: string) => void;
   onClose: () => void;
 }
 
-export function ChatSheet({ events, nameForUser, myUserId, onSend, onClose }: ChatSheetProps) {
+export function ChatSheet({ events, nameForUser, myUserId, onSend, onReport, onClose }: ChatSheetProps) {
   const [draft, setDraft] = useState("");
   const messages = events.filter((e) => e.kind === "text");
 
   const send = (text: string) => {
     onSend(text);
     setDraft("");
+  };
+
+  /**
+   * Long-press someone else's message to block and report them.
+   *
+   * One action, not two. Someone who has just been abused wants it to stop —
+   * offering "Block" and "Report" separately makes them do the reporting work
+   * to get the silence, and most people take the silence and skip the report,
+   * which is how a moderation queue ends up empty while players leave.
+   *
+   * The confirm spells out that it takes effect now, because it does: the store
+   * mutes locally before the request goes out.
+   */
+  const confirmReport = (userId: string, name: string, message: string) => {
+    Alert.alert(
+      `Block ${name}?`,
+      "You won't see anything else from them, in this game or the next. We'll pass the message on for review.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Block and report", style: "destructive", onPress: () => onReport(userId, message) },
+      ],
+    );
   };
 
   return (
@@ -93,13 +117,27 @@ export function ChatSheet({ events, nameForUser, myUserId, onSend, onClose }: Ch
             <ScrollView style={{ maxHeight: 220 }} contentContainerStyle={{ gap: space.xs }}>
               {messages.map((m) => {
                 const own = m.fromUserId === myUserId;
+                const name = nameForUser(m.fromUserId);
                 return (
-                  <View key={m.id} style={{ flexDirection: "row", gap: space.sm, alignItems: "baseline" }}>
+                  <Pressable
+                    key={m.id}
+                    // Own messages have nothing to report, so they stay inert.
+                    onLongPress={own ? undefined : () => confirmReport(m.fromUserId, name, m.value)}
+                    delayLongPress={350}
+                    accessibilityRole={own ? undefined : "button"}
+                    accessibilityHint={own ? undefined : `Hold to block and report ${name}`}
+                    style={({ pressed }) => ({
+                      flexDirection: "row",
+                      gap: space.sm,
+                      alignItems: "baseline",
+                      opacity: pressed && !own ? 0.6 : 1,
+                    })}
+                  >
                     <Text style={{ fontFamily: font.semibold, fontSize: 13, color: own ? palette.porcelain : palette.mutedSteel }}>
-                      {nameForUser(m.fromUserId)}
+                      {name}
                     </Text>
                     <Text style={{ flex: 1, fontFamily: font.regular, fontSize: 15, color: palette.porcelain }}>{m.value}</Text>
-                  </View>
+                  </Pressable>
                 );
               })}
             </ScrollView>
@@ -108,6 +146,14 @@ export function ChatSheet({ events, nameForUser, myUserId, onSend, onClose }: Ch
               Say hi — messages stay in this room.
             </Text>
           )}
+
+          {/* A long-press is invisible unless it is named. Only shown once there
+              is somebody else's message to actually hold. */}
+          {messages.some((m) => m.fromUserId !== myUserId) ? (
+            <Text style={{ fontFamily: font.regular, fontSize: 12, color: palette.mutedSteel }}>
+              Hold a message to block and report it.
+            </Text>
+          ) : null}
 
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm }}>
             {QUICK_MESSAGES.map((q) => (

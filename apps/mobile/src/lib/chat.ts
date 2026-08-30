@@ -23,6 +23,8 @@ export interface ChatTrust {
   /** user_ids holding a seat right now — the room's lobby roster. */
   seatedUserIds: readonly string[];
   selfUserId: string | null;
+  /** user_ids this player has blocked. Their messages never render. */
+  mutedUserIds?: readonly string[];
 }
 
 /**
@@ -38,7 +40,7 @@ export interface ChatTrust {
  */
 export function acceptChatPayload(
   payload: unknown,
-  { seatedUserIds, selfUserId }: ChatTrust,
+  { seatedUserIds, selfUserId, mutedUserIds }: ChatTrust,
 ): Omit<ChatEvent, "id" | "at"> | null {
   if (typeof payload !== "object" || payload === null) return null;
   const { kind, value, fromUserId } = payload as Record<string, unknown>;
@@ -53,6 +55,13 @@ export function acceptChatPayload(
   // claiming our identity, in the event a future change lets clients send.
   if (fromUserId === selfUserId) return null;
   if (!seatedUserIds.includes(fromUserId)) return null;
+
+  // Blocking has to bite HERE, at the single door every inbound payload comes
+  // through, rather than in the transcript renderer. The same event also drives
+  // the speech bubble beside the sender's avatar and the unread badge — filter
+  // it later and a blocked player still pops up over the board, which is most of
+  // what people are asking to stop when they press Block.
+  if (mutedUserIds?.includes(fromUserId)) return null;
 
   // Any run of whitespace becomes one space: a peer that ignores the input cap
   // must not be able to stretch a transcript row with newlines.

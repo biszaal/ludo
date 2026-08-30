@@ -85,6 +85,9 @@ interface OnlineStore {
   chatUnread: number;
   /** Latest event per sender user_id (drives the speech bubbles by avatars). */
   latestBubbles: Record<string, { value: string; kind: ChatEvent["kind"]; seq: number }>;
+  /** user_ids this player has blocked. Loaded once per session; added to the
+   *  moment they report someone, so the mute bites before the round trip. */
+  mutedUserIds: string[];
 
   /** Local receipt time of the current turn (drives the countdown; display only). */
   turnStartedAt: number | null;
@@ -104,6 +107,10 @@ interface OnlineStore {
   sendReaction: (value: string) => void;
   sendMessage: (text: string) => void;
   markChatRead: () => void;
+  /** Fetch this player's block list. Safe to call more than once. */
+  loadMuted: () => Promise<void>;
+  /** Block a player and file a report about them. Mutes locally first. */
+  reportPlayer: (targetUserId: string, message?: string) => Promise<void>;
 
   /** Open a room. `stake` is the per-seat pot; 0 (default) is a friendly game. */
   create: (stake?: number) => Promise<void>;
@@ -173,6 +180,11 @@ const INITIAL = {
 
 export const useOnlineStore = create<OnlineStore>((set, get) => ({
   ...INITIAL,
+
+  // Deliberately outside INITIAL, which is also the leave-the-room reset: a
+  // block is about a person, not a room, and must survive into the next game.
+  // Reloaded from the server at sign-in (loadMuted).
+  mutedUserIds: [] as string[],
 
   create: async (stake = 0) => {
     set({ status: "connecting", error: null });
@@ -534,6 +546,48 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
   },
 
   markChatRead: () => set({ chatUnread: 0 }),
+
+  /** Pull the block list once, at sign-in. Silent on failure: an unreachable
+   *  list must not stop the player getting into a game, and Report re-adds
+   *  locally anyway. */
+  loadMuted: async () => {
+    try {
+      set({ mutedUserIds: await api.blockedList() });
+    } catch {
+      // offline, or an older server without the op — leave the list as it is
+    }
+  },
+
+  /**
+   * Report a player and stop hearing from them.
+   *
+   * The mute is applied LOCALLY FIRST, before the request goes out. Someone
+   * pressing this is asking for it to stop now, and making them wait on a round
+   * trip — which may fail, on the exact flaky connection that makes a bad table
+   * worse — would let the next message through. The server call is what makes
+   * it durable and what files the report; it is not what makes it take effect.
+   */
+  reportPlayer: async (targetUserId, message) => {
+    const { gameId, mutedUserIds, latestBubbles } = get();
+    if (!targetUserId || mutedUserIds.includes(targetUserId)) return;
+
+    // Drop anything of theirs already on screen, transcript and bubble alike.
+    const bubbles = { ...latestBubbles };
+    delete bubbles[targetUserId];
+    set({
+      mutedUserIds: [...mutedUserIds, targetUserId],
+      chat: get().chat.filter((e) => e.fromUserId !== targetUserId),
+      latestBubbles: bubbles,
+    });
+
+    try {
+      await api.reportPlayer(targetUserId, gameId, message);
+    } catch {
+      // Filed or not, they are muted on this device. The list reloads at next
+      // sign-in, which is when a failed report would quietly un-mute — so the
+      // local entry stays either way.
+    }
+  },
 }));
 
 // --- Realtime + helpers -----------------------------------------------------
@@ -765,11 +819,34 @@ function unwindPrediction(): void {
  */
 function applyTurnResult(res: api.TurnResult, rolled: boolean): void {
   const { state, v } = res;
-  if (v != null && v <= lastAppliedV) return; // realtime/resync got there first
+  /**
+   * A folding table answers the ROLL at the version it was sent at.
+   *
+   * The die is derived rather than written (see receiveRoll), so there is no
+   * new version to carry — the roll's transition rides along with the move or
+   * pass that follows it. That makes this the one authoritative answer in the
+   * protocol whose version does not advance, and the staleness rule below —
+   * "at or below the applied version is an echo of a write we already have" —
+   * would otherwise throw it away. Which leaves the roller's own prediction
+   * pending forever, and `pending` is what selectToken and pass refuse to act
+   * through: the die lands, and the seat can neither move nor pass again.
+   *
+   * The server flags it rather than the client inferring it, because inference
+   * cannot tell the two apart: an UNFOLDED roll whose realtime echo beat its
+   * own HTTP response home also arrives at the applied version, and that one
+   * must still drop — applied again it re-tumbles a die that already landed.
+   *
+   * Narrow on purpose. Only an EQUAL version qualifies: a folded answer the
+   * board has since moved past (a stall bot wrote while ours was in flight) is
+   * below the applied one and still drops.
+   */
+  const foldedRoll = res.folded === true && v != null && v === lastAppliedV;
+  if (v != null && v <= lastAppliedV && !foldedRoll) return; // realtime/resync got there first
 
   if (pending) {
     const confirmed =
-      (v == null || v === pending.baseV + 1) && statesEqual(state, pending.predicted);
+      (v == null || v === pending.baseV + (foldedRoll ? 0 : 1)) &&
+      statesEqual(state, pending.predicted);
     if (confirmed) {
       pending = null;
       syncInFlight();
@@ -1150,6 +1227,7 @@ function receiveChat(payload: api.ChatPayload): void {
   const ev = acceptChatPayload(payload, {
     seatedUserIds: lobby.map((p) => p.user_id),
     selfUserId: userId,
+    mutedUserIds: useOnlineStore.getState().mutedUserIds,
   });
   if (ev) appendChat(ev);
 }

@@ -54,6 +54,16 @@ export interface TurnResult {
    * from older servers and whenever the turn changed hands.
    */
   nextRoll?: PreparedRoll;
+  /**
+   * This roll was answered in the folded protocol: the die was derived, not
+   * written, so `v` is the version the roll was SENT at rather than a new one.
+   *
+   * The flag is what separates it from a write whose realtime echo got home
+   * first — both arrive at the applied version, and one must be taken while
+   * the other must be dropped. Absent on unfolded tables and on older servers,
+   * which is the safe reading: treat the answer as an ordinary write.
+   */
+  folded?: boolean;
 }
 
 /**
@@ -323,12 +333,14 @@ async function turnCall(
         v?: number | null;
         duplicate?: boolean;
         nextRoll?: PreparedRoll;
+        folded?: boolean;
       }>(op, body, timeoutMs);
       return {
         state: res.state,
         v: res.v ?? null,
         duplicate: res.duplicate === true,
         ...(res.nextRoll ? { nextRoll: res.nextRoll } : {}),
+        ...(res.folded === true ? { folded: true } : {}),
       };
     } catch (e) {
       if (attempt >= tries || !isTimeout(e)) throw e;
@@ -483,6 +495,59 @@ export async function adRewardStatus(
 ): Promise<AdRewardStatus> {
   await ensureSignedIn();
   return await callGame<AdRewardStatus>("adRewardStatus", { nonce });
+}
+
+/**
+ * Claim this device's push token for the signed-in account, or drop it.
+ *
+ * Both used to be direct PostgREST writes. They key on the token — a handset
+ * pushes to one account — but push_tokens' policies keyed on the row's owner,
+ * so neither could touch a registration a PREVIOUS identity on this install had
+ * left behind: turning notifications off silently failed, and signing in as
+ * somebody else left the old account subscribed to this phone. 0055 closed the
+ * table to clients and moved both writes to the server, which can do the
+ * token-keyed write the device actually means.
+ *
+ * Both swallow their errors at the call site (see lib/push.ts): push is an
+ * enhancement over a delivery path that already works.
+ */
+export async function pushRegister(token: string, platform: "ios" | "android"): Promise<void> {
+  await ensureSignedIn();
+  await callGame<{ ok: true }>("pushRegister", { token, platform });
+}
+
+export async function pushDisable(token: string): Promise<void> {
+  await ensureSignedIn();
+  await callGame<{ ok: true }>("pushDisable", { token });
+}
+
+/**
+ * Report a player and block them in one call.
+ *
+ * The server does both (functions/game/chat.ts): the block is what the reporter
+ * feels immediately, the report is what a human reads later. The caller mutes
+ * locally before this resolves — see onlineStore.reportPlayer — so a failure
+ * here costs the record, never the silence.
+ */
+export async function reportPlayer(
+  targetUserId: string,
+  gameId: string | null,
+  message?: string,
+): Promise<void> {
+  await ensureSignedIn();
+  await callGame<{ ok: true; blocked: string }>("reportPlayer", {
+    userId: targetUserId,
+    gameId,
+    message,
+    reason: "chat",
+  });
+}
+
+/** Everyone this player has blocked. Read once at sign-in to seed the mute list. */
+export async function blockedList(): Promise<string[]> {
+  await ensureSignedIn();
+  const res = await callGame<{ userIds: string[] }>("blockedList", {});
+  return res.userIds ?? [];
 }
 
 /** How much of a placement's daily allowance is left.

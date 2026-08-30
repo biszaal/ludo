@@ -22,24 +22,35 @@
 
 import { Platform } from "react-native";
 import * as Device from "expo-device";
-import * as Notifications from "expo-notifications";
 import Constants from "expo-constants";
-import { getSupabase } from "./supabase";
-import { ensureSignedIn } from "../net/api";
+import { notifications } from "./notifications";
+// Type-only: erased at compile time, so it never pulls the module in at runtime.
+import type { NotificationResponse } from "expo-notifications";
+import { pushDisable, pushRegister } from "../net/api";
 import { useOnlineStore } from "../store/onlineStore";
 import { useNav } from "../store/navStore";
 import { useSettings } from "../store/settingsStore";
 
-/** Foreground presentation. SDK 53+ replaced shouldShowAlert with the
- *  banner/list pair; using the old key silently shows nothing. */
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldPlaySound: false, // the app has its own sounds; a double chime is noise
-    shouldSetBadge: false,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
+/**
+ * Foreground presentation. SDK 53+ replaced shouldShowAlert with the
+ * banner/list pair; using the old key silently shows nothing.
+ *
+ * Called from initPush rather than run at module scope: this file must be
+ * importable on a runtime where expo-notifications is not, so nothing here may
+ * touch the module before `notifications()` has been consulted.
+ */
+function setForegroundPresentation(): void {
+  const N = notifications();
+  if (!N) return;
+  N.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldPlaySound: false, // the app has its own sounds; a double chime is noise
+      shouldSetBadge: false,
+      shouldShowBanner: true,
+      shouldShowList: true,
+    }),
+  });
+}
 
 function projectId(): string | undefined {
   return (
@@ -60,12 +71,14 @@ export async function registerForPush(): Promise<boolean> {
   // keeps a dev build from writing a token that can never be delivered to.
   if (!Device.isDevice) return false;
   if (!useSettings.getState().pushOn) return false;
+  const N = notifications();
+  if (!N) return false;
 
   try {
-    const existing = await Notifications.getPermissionsAsync();
+    const existing = await N.getPermissionsAsync();
     let granted = existing.granted;
     if (!granted && existing.canAskAgain) {
-      const asked = await Notifications.requestPermissionsAsync();
+      const asked = await N.requestPermissionsAsync();
       granted = asked.granted;
     }
     if (!granted) return false;
@@ -73,26 +86,21 @@ export async function registerForPush(): Promise<boolean> {
     // Android needs a channel before anything is delivered; the id matches the
     // channelId the edge function sends.
     if (Platform.OS === "android") {
-      await Notifications.setNotificationChannelAsync("default", {
+      await N.setNotificationChannelAsync("default", {
         name: "Invites and friends",
-        importance: Notifications.AndroidImportance.DEFAULT,
+        importance: N.AndroidImportance.DEFAULT,
       });
     }
 
-    const { data: token } = await Notifications.getExpoPushTokenAsync({ projectId: projectId() });
+    const { data: token } = await N.getExpoPushTokenAsync({ projectId: projectId() });
     if (!token) return false;
 
-    const userId = await ensureSignedIn();
-    const supabase = getSupabase();
-    // Conflict on the TOKEN, not the user: reinstalling mints a new token, and
-    // signing into a different account on the same device must move the
-    // existing row rather than leave the old account receiving these pushes.
-    await supabase
-      .from("push_tokens")
-      .upsert(
-        { token, user_id: userId, platform: Platform.OS === "ios" ? "ios" : "android", updated_at: new Date().toISOString() },
-        { onConflict: "token" },
-      );
+    // Through the edge function, not the table. The write conflicts on the
+    // TOKEN — reinstalling mints a new one, and signing into a different account
+    // on the same device must MOVE the existing row rather than leave the old
+    // account receiving this handset's pushes. The RLS policy this replaced
+    // matched on the row's owner instead, so that move silently did nothing.
+    await pushRegister(token, Platform.OS === "ios" ? "ios" : "android");
     return true;
   } catch {
     return false; // permission dialog dismissed, offline, or no credentials yet
@@ -102,11 +110,15 @@ export async function registerForPush(): Promise<boolean> {
 /** Drop this device's registration (the player turned notifications off). */
 export async function unregisterPush(): Promise<void> {
   if (!Device.isDevice) return;
+  const N = notifications();
+  if (!N) return;
   try {
-    const { data: token } = await Notifications.getExpoPushTokenAsync({ projectId: projectId() });
+    const { data: token } = await N.getExpoPushTokenAsync({ projectId: projectId() });
     if (!token) return;
-    const supabase = getSupabase();
-    await supabase.from("push_tokens").delete().eq("token", token);
+    // Server-side for the same reason as registration: the row being cleared may
+    // belong to a previous account on this install, which is precisely the case
+    // a self-scoped delete could not reach.
+    await pushDisable(token);
   } catch {
     // Nothing to remove, or offline — the server prunes dead tokens on send.
   }
@@ -128,7 +140,7 @@ interface NotificationPayload {
  * from the match — the notification has already done its job by getting them
  * back into the app. Same rule the deep-link path follows.
  */
-function handleResponse(response: Notifications.NotificationResponse): void {
+function handleResponse(response: NotificationResponse): void {
   const data = response.notification.request.content.data as NotificationPayload | undefined;
   if (!data?.type) return;
 
@@ -163,12 +175,16 @@ function handleResponse(response: Notifications.NotificationResponse): void {
  * cold. Call once from App; returns an unsubscribe.
  */
 export function initPush(): () => void {
+  const N = notifications();
+  if (!N) return () => {}; // no notifications on this runtime — nothing to route
+  setForegroundPresentation();
+
   // A tap that cold-started the app has already fired by the time this runs,
   // so it has to be read rather than listened for.
-  void Notifications.getLastNotificationResponseAsync().then((response) => {
+  void N.getLastNotificationResponseAsync().then((response) => {
     if (response) handleResponse(response);
   });
 
-  const sub = Notifications.addNotificationResponseReceivedListener(handleResponse);
+  const sub = N.addNotificationResponseReceivedListener(handleResponse);
   return () => sub.remove();
 }
