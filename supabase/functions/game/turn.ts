@@ -165,7 +165,14 @@ export async function opTurn(
       // Fire-and-forget: a lost broadcast costs one spectator one die
       // animation, and the state push that follows is still authoritative.
       afterResponse(broadcastToRoom(gameId, "roll", { die, playerId: me.id, v }));
-      return json({ state: rolled, v });
+      // `folded` says which protocol answered, and the client needs telling
+      // rather than left to infer it. This is the only authoritative response
+      // that comes back at the version it was sent at, and by the ordinary
+      // staleness rule ("at or below the applied version is an echo") that
+      // makes it indistinguishable from a write whose realtime echo simply
+      // beat it home. One is a roll the client must take; the other is a
+      // duplicate it must ignore. Only the server knows which.
+      return json({ state: rolled, v, folded: true });
     }
   }
 
