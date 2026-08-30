@@ -92,6 +92,28 @@ describe("ensureSignedIn", () => {
     expect(d.writeStash).toHaveBeenCalledWith("rt-new");
   });
 
+  it("a guest the server has swept comes back as a clean new guest, not a wedge", async () => {
+    // Mechanically the same as the dead-token case above, and named separately
+    // because it now documents a deliberate SERVER behaviour rather than an
+    // accident: 0054 deletes guest accounts idle for 90 days, so a returning
+    // player's session and stashed refresh token are both revoked server-side.
+    //
+    // This is why the sweep needs no client change. The ladder ends in
+    // signInAnonymously, and remember() overwrites the dead token — so the
+    // player lands on a fresh guest with the default wallet on the very next
+    // API call, which is the intended product outcome for someone who
+    // abandoned an empty guest account for three months.
+    const d = deps({
+      getSession: vi.fn(async () => null), // refresh failed inside getSession
+      readStash: vi.fn(async () => "rt-swept"),
+      refreshSession: vi.fn(async () => null), // the auth user no longer exists
+    });
+    const { ensureSignedIn } = createIdentity(d);
+
+    expect(await ensureSignedIn()).toBe("new-guest");
+    expect(d.writeStash).toHaveBeenCalledWith("rt-new");
+  });
+
   it("does not wedge: a failed attempt is retried by the next caller", async () => {
     const signInAnonymously = vi
       .fn<IdentityDeps["signInAnonymously"]>()

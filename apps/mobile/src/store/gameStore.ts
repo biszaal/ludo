@@ -25,6 +25,7 @@ import { chooseMove } from "@ludo/bot";
 import { seatColors } from "../lib/seating";
 import { BUST_HOLD_MS } from "../lib/projection";
 import { DICE_ROLL_MS } from "../lib/moveTiming";
+import { resetGameClock } from "../lib/gameClock";
 import { ordinal } from "../lib/standings";
 import { useNav } from "./navStore";
 
@@ -99,6 +100,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
     // Re-dealing abandons any hold left over from the previous game.
     clearAutoTimer();
     clearBustTimer();
+    // A local game's id is derived from its seats, so "play again" with the
+    // same table hands back the SAME id — the elapsed clock has to be told
+    // this is a fresh deal or it would carry the last game's time over.
+    resetGameClock();
     const { players: numPlayers, bots: numBots = 0 } = config;
     const colors = seatColors(numPlayers);
     const players = Array.from({ length: numPlayers }, (_unused, i) => ({

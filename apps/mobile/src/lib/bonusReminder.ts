@@ -18,8 +18,8 @@
  * missing courtesy; it must never surface as an error over a game.
  */
 
-import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
+import { notifications } from "./notifications";
 import { useSettings } from "../store/settingsStore";
 import { useWallet } from "../store/walletStore";
 import { nextResetAfter, reminderTime } from "./bonusSchedule";
@@ -53,28 +53,30 @@ function body(streakDay: number): string {
  * reminder, so the schedule converges on the truth rather than accumulating.
  */
 export async function scheduleBonusReminder(claimable: boolean, streakDay: number): Promise<void> {
+  const N = notifications();
+  if (!N) return; // no notification module on this runtime — see lib/notifications
   try {
     // Always clear first, so turning the setting off (or claiming) actually
     // takes a reminder off the OS's queue instead of leaving a stale one armed.
-    await Notifications.cancelScheduledNotificationAsync(REMINDER_ID).catch(() => {});
+    await N.cancelScheduledNotificationAsync(REMINDER_ID).catch(() => {});
     if (!useSettings.getState().bonusRemindersOn) return;
 
     // Local notifications need the same permission push does, but must never
     // PROMPT for it: this runs off a wallet refresh, with no visible cause. It
     // rides on a grant the player already gave somewhere it made sense.
-    const { granted } = await Notifications.getPermissionsAsync();
+    const { granted } = await N.getPermissionsAsync();
     if (!granted) return;
 
     if (Platform.OS === "android") {
-      await Notifications.setNotificationChannelAsync(CHANNEL_ID, {
+      await N.setNotificationChannelAsync(CHANNEL_ID, {
         name: "Daily bonus",
-        importance: Notifications.AndroidImportance.DEFAULT,
+        importance: N.AndroidImportance.DEFAULT,
       });
     }
 
     const now = new Date();
     const at = reminderTime(now, claimable ? now : nextResetAfter(now));
-    await Notifications.scheduleNotificationAsync({
+    await N.scheduleNotificationAsync({
       identifier: REMINDER_ID,
       content: {
         title: "Daily bonus ready",
@@ -82,7 +84,7 @@ export async function scheduleBonusReminder(claimable: boolean, streakDay: numbe
         data: { type: "daily-bonus" },
       },
       trigger: {
-        type: Notifications.SchedulableTriggerInputTypes.DATE,
+        type: N.SchedulableTriggerInputTypes.DATE,
         date: at,
         channelId: CHANNEL_ID,
       },
@@ -134,12 +136,14 @@ export function initBonusReminder(): () => void {
  * either way.
  */
 export async function offerBonusReminder(streakDay: number): Promise<void> {
+  const N = notifications();
+  if (!N) return;
   try {
     if (!useSettings.getState().bonusRemindersOn) return;
-    const existing = await Notifications.getPermissionsAsync();
+    const existing = await N.getPermissionsAsync();
     if (!existing.granted) {
       if (!existing.canAskAgain) return;
-      const asked = await Notifications.requestPermissionsAsync();
+      const asked = await N.requestPermissionsAsync();
       if (!asked.granted) return;
     }
     // Just claimed, so the next one is tomorrow's.
@@ -151,8 +155,10 @@ export async function offerBonusReminder(streakDay: number): Promise<void> {
 
 /** Drop the pending reminder (the player turned reminders off). */
 export async function cancelBonusReminder(): Promise<void> {
+  const N = notifications();
+  if (!N) return;
   try {
-    await Notifications.cancelScheduledNotificationAsync(REMINDER_ID);
+    await N.cancelScheduledNotificationAsync(REMINDER_ID);
   } catch {
     // Nothing scheduled, which is the state we wanted anyway.
   }

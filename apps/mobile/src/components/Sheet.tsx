@@ -69,7 +69,13 @@ export function Sheet({ onClose, title, keyboardAvoiding = false, children }: Sh
         elevation: 12,
         paddingHorizontal: space.xl,
         paddingTop: space.lg,
-        paddingBottom: space.xxl,
+        // The host draws this at the app ROOT, outside every SafeAreaView, so
+        // nothing else keeps the card off the system bar. On Android's
+        // three-button nav that bar sat on top of the last row — the Play
+        // button's stake line, the Buy button — so the sheet's own bottom
+        // padding has to clear it. The tablet card is already lifted off the
+        // edge by marginBottom, so its inset is spent there instead.
+        paddingBottom: space.xxl + (isTablet ? 0 : insets.bottom),
         gap: space.md,
       }}
     >

@@ -65,7 +65,7 @@ const BOARD_INTERIOR_SCALE = 0.94;
  * landing callback (not a setTimeout), so it stays locked to the visible hop
  * regardless of JS-thread load. The throttle collapses the case where several
  * pawns land on the same frame — e.g. a move that also sends a captured pawn
- * home — into a single thock instead of a smeared overlap. HOP_STEP_MS (175) is
+ * home — into a single thock instead of a smeared overlap. HOP_STEP_MS (150) is
  * well above the gate, so genuine per-cell hops are never dropped.
  */
 let lastHopAt = 0;

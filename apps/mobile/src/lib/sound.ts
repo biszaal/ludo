@@ -7,40 +7,48 @@
  */
 
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from "expo-audio";
+import { freshSlot, pickSlot, type Slot } from "./soundPool";
 import { useSettings } from "../store/settingsStore";
 
 export type SoundName =
   | "hop" | "dice" | "capture" | "finish" | "win" | "tap" | "turn" | "ding" | "pop" | "msg" | "safe"
   | "laugh" | "crying" | "angry" | "tease" | "cheer" | "shock" | "thumbs" | "gg";
 
-const SPECS: Record<SoundName, { source: number; pool: number; volume: number }> = {
-  hop: { source: require("../../assets/audio/sfx/hop.wav"), pool: 4, volume: 0.5 },
-  dice: { source: require("../../assets/audio/sfx/dice.wav"), pool: 2, volume: 0.6 },
-  capture: { source: require("../../assets/audio/sfx/capture.wav"), pool: 2, volume: 0.55 },
-  finish: { source: require("../../assets/audio/sfx/finish.wav"), pool: 2, volume: 0.5 },
-  win: { source: require("../../assets/audio/sfx/win.wav"), pool: 1, volume: 0.6 },
-  tap: { source: require("../../assets/audio/sfx/tap.wav"), pool: 2, volume: 0.35 },
-  turn: { source: require("../../assets/audio/sfx/turn.wav"), pool: 2, volume: 0.4 },
-  ding: { source: require("../../assets/audio/sfx/ding.wav"), pool: 2, volume: 0.5 },
-  pop: { source: require("../../assets/audio/sfx/pop.wav"), pool: 2, volume: 0.5 },
-  msg: { source: require("../../assets/audio/sfx/msg.wav"), pool: 2, volume: 0.45 },
-  safe: { source: require("../../assets/audio/sfx/safe.wav"), pool: 2, volume: 0.45 },
+/**
+ * `ms` is the clip's real length, measured from the file. The pool uses it to
+ * know which players have finished — asking the native player instead
+ * (`.playing` / `.currentTime`) means a blocking round trip to the Android main
+ * thread on every single hop. See lib/soundPool.
+ */
+const SPECS: Record<SoundName, { source: number; pool: number; volume: number; ms: number }> = {
+  hop: { source: require("../../assets/audio/sfx/hop.wav"), pool: 4, volume: 0.5, ms: 130 },
+  dice: { source: require("../../assets/audio/sfx/dice.wav"), pool: 2, volume: 0.6, ms: 360 },
+  capture: { source: require("../../assets/audio/sfx/capture.wav"), pool: 2, volume: 0.55, ms: 320 },
+  finish: { source: require("../../assets/audio/sfx/finish.wav"), pool: 2, volume: 0.5, ms: 450 },
+  win: { source: require("../../assets/audio/sfx/win.wav"), pool: 1, volume: 0.6, ms: 1100 },
+  tap: { source: require("../../assets/audio/sfx/tap.wav"), pool: 2, volume: 0.35, ms: 50 },
+  turn: { source: require("../../assets/audio/sfx/turn.wav"), pool: 2, volume: 0.4, ms: 90 },
+  ding: { source: require("../../assets/audio/sfx/ding.wav"), pool: 2, volume: 0.5, ms: 600 },
+  pop: { source: require("../../assets/audio/sfx/pop.wav"), pool: 2, volume: 0.5, ms: 140 },
+  msg: { source: require("../../assets/audio/sfx/msg.wav"), pool: 2, volume: 0.45, ms: 280 },
+  safe: { source: require("../../assets/audio/sfx/safe.wav"), pool: 2, volume: 0.45, ms: 400 },
   // Reaction-emoji voices — one per sprite, so a reaction never borrows a UI
   // sound. These are recorded audio normalized by scripts/process-reaction-sfx.mjs
   // (sources in assets/source/raw-reactions/), not synthesis: a synthesized voice next
   // to the recorded laugh reads as obviously fake.
-  laugh: { source: require("../../assets/audio/reactions/laugh.wav"), pool: 1, volume: 0.5 },
-  crying: { source: require("../../assets/audio/reactions/crying.wav"), pool: 1, volume: 0.5 },
-  angry: { source: require("../../assets/audio/reactions/angry.wav"), pool: 1, volume: 0.5 },
-  tease: { source: require("../../assets/audio/reactions/tease.wav"), pool: 1, volume: 0.5 },
-  cheer: { source: require("../../assets/audio/reactions/cheer.wav"), pool: 1, volume: 0.5 },
-  shock: { source: require("../../assets/audio/reactions/shock.wav"), pool: 1, volume: 0.5 },
-  thumbs: { source: require("../../assets/audio/reactions/thumbs.wav"), pool: 1, volume: 0.5 },
-  gg: { source: require("../../assets/audio/reactions/gg.wav"), pool: 1, volume: 0.5 },
+  laugh: { source: require("../../assets/audio/reactions/laugh.wav"), pool: 1, volume: 0.5, ms: 1360 },
+  crying: { source: require("../../assets/audio/reactions/crying.wav"), pool: 1, volume: 0.5, ms: 1360 },
+  angry: { source: require("../../assets/audio/reactions/angry.wav"), pool: 1, volume: 0.5, ms: 1360 },
+  tease: { source: require("../../assets/audio/reactions/tease.wav"), pool: 1, volume: 0.5, ms: 1360 },
+  cheer: { source: require("../../assets/audio/reactions/cheer.wav"), pool: 1, volume: 0.5, ms: 1360 },
+  shock: { source: require("../../assets/audio/reactions/shock.wav"), pool: 1, volume: 0.5, ms: 1360 },
+  thumbs: { source: require("../../assets/audio/reactions/thumbs.wav"), pool: 1, volume: 0.5, ms: 140 },
+  gg: { source: require("../../assets/audio/reactions/gg.wav"), pool: 1, volume: 0.5, ms: 1000 },
 };
 
 const pools = {} as Record<SoundName, AudioPlayer[]>;
-const cursors = {} as Record<SoundName, number>;
+/** What JS believes each pooled player is doing. See lib/soundPool. */
+const slots = {} as Record<SoundName, Slot[]>;
 let ready = false;
 
 /**
@@ -77,6 +85,9 @@ declare global {
 }
 
 function releaseAll(): void {
+  for (const name of Object.keys(pools) as SoundName[]) {
+    delete slots[name];
+  }
   for (const pool of Object.values(pools)) {
     for (const p of pool) {
       try {
@@ -99,21 +110,33 @@ function releaseAll(): void {
 function buildPool(name: SoundName): void {
   if (pools[name]) return;
   const spec = SPECS[name];
-  pools[name] = Array.from({ length: spec.pool }, () => {
+  const mine: Slot[] = Array.from({ length: spec.pool }, freshSlot);
+  pools[name] = Array.from({ length: spec.pool }, (_, i) => {
     const player = createAudioPlayer(spec.source);
     player.volume = spec.volume;
-    // Park finished players back at 0. A player left at the end of its clip
-    // makes the next play() silently no-op (seekTo is async and loses the
-    // race) — this priming is what keeps rapid one-shots reliable.
+    // Park finished players back at 0, and only mark the slot parked once the
+    // rewind has actually LANDED. On Android that seek is a hop through the
+    // main looper, so under animation load it can arrive several frames late —
+    // and a slot wrongly believed to be at 0 is a silent play.
     player.addListener("playbackStatusUpdate", (status) => {
-      if (status.didJustFinish) {
+      if (!status.didJustFinish) return;
+      const slot = mine[i]!;
+      slot.busyUntil = 0;
+      try {
         player.pause();
-        void player.seekTo(0).catch(() => {});
+      } catch {
+        // ignore
       }
+      void player
+        .seekTo(0)
+        .then(() => {
+          slot.parked = true;
+        })
+        .catch(() => {});
     });
     return player;
   });
-  cursors[name] = 0;
+  slots[name] = mine;
 }
 
 /**
@@ -181,19 +204,23 @@ export function playSound(name: SoundName): void {
   if (!ready || !useSettings.getState().soundOn) return;
   if (!pools[name] && DEFERRED.has(name)) buildPool(name);
   const pool = pools[name];
-  if (!pool || pool.length === 0) return;
-  const player = pool[cursors[name] % pool.length]!;
-  cursors[name] += 1;
+  const mine = slots[name];
+  if (!pool || pool.length === 0 || !mine) return;
+
+  const now = Date.now();
+  const { index, rewind } = pickSlot(mine, now);
+  const player = pool[index]!;
+  const slot = mine[index]!;
+  slot.busyUntil = now + SPECS[name].ms;
+  slot.parked = false;
   try {
-    if (player.playing || player.currentTime > 0.01) {
-      // Mid-clip (pool wrapped) or not yet re-parked — restart once the seek lands.
-      void player
-        .seekTo(0)
-        .then(() => player.play())
-        .catch(() => {});
-    } else {
-      player.play(); // parked at 0 — instant start
-    }
+    // Never AWAIT the rewind. Both calls land on the same Android main queue in
+    // the order they are issued — the seek first, then the play — so the clip
+    // still starts from the top, but without a round trip back into JS that on
+    // a loaded main thread arrives long after the moment it was meant for.
+    // Awaiting it here is what made hops and dice rolls silent on Android.
+    if (rewind) void player.seekTo(0).catch(() => {});
+    player.play();
   } catch {
     // ignore
   }
