@@ -214,7 +214,15 @@ export async function opDailyBonus(admin: SupabaseClient, userId: string): Promi
   if (error) return json({ error: "Could not claim the bonus. Try again." });
 
   const row = (Array.isArray(data) ? data[0] : data) as
-    | { balance: number; streak_day: number; claimed: number; already: boolean }
+    | {
+      balance: number;
+      streak_day: number;
+      claimed: number;
+      already: boolean;
+      /** The streak BEFORE this claim (0057). Absent on a server whose
+       *  migration has not landed yet — see the finale check below. */
+      prev_streak_day?: number;
+    }
     | null;
   if (!row) return json({ error: "Could not claim the bonus. Try again." });
 
@@ -240,9 +248,27 @@ export async function opDailyBonus(admin: SupabaseClient, userId: string): Promi
   const gemDay = positiveNumber(economyCfg.gemDay, DAILY_GEM_DAY);
   const gemAmount = positiveNumber(economyCfg.gemAmount, DAILY_GEM_AMOUNT);
 
+  /**
+   * Did this claim ARRIVE at the finale, rather than sit on it?
+   *
+   * The streak clamps at DAILY_STREAK_MAX instead of climbing, so a player who
+   * keeps showing up reads 7 forever — and `streak === gemDay` was therefore
+   * true every day, paying the finale's gems again and again against a replay
+   * guard keyed per day. Two users collected it nine times before anyone
+   * noticed.
+   *
+   * The run length is not recoverable from the streak once it clamps, so the
+   * transition has to come from the database (0057). A server that predates
+   * that migration sends nothing, and `undefined !== gemDay` is true — which
+   * keeps the old, paying behaviour rather than silently withholding a bonus
+   * from players on a half-deployed stack. The per-day ext_id still bounds it
+   * to once a day there.
+   */
+  const arrivedAtFinale = row.prev_streak_day !== gemDay;
+
   let gems = w.gems;
   let gemsClaimed = 0;
-  if (gemsCfg.enabled === true && streak === gemDay) {
+  if (gemsCfg.enabled === true && streak === gemDay && arrivedAtFinale) {
     const next = await gemApply(admin, userId, gemAmount, "daily-bonus", `daily-gems:${userId}:${today}`);
     if (next !== null) {
       gems = next;
