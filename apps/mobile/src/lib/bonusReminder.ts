@@ -19,7 +19,7 @@
  */
 
 import { Platform } from "react-native";
-import { notifications } from "./notifications";
+import { notifications, PERMISSION_REQUEST } from "./notifications";
 import { useSettings } from "../store/settingsStore";
 import { useWallet } from "../store/walletStore";
 import { nextResetAfter, reminderTime } from "./bonusSchedule";
@@ -143,7 +143,7 @@ export async function offerBonusReminder(streakDay: number): Promise<void> {
     const existing = await N.getPermissionsAsync();
     if (!existing.granted) {
       if (!existing.canAskAgain) return;
-      const asked = await N.requestPermissionsAsync();
+      const asked = await N.requestPermissionsAsync(PERMISSION_REQUEST);
       if (!asked.granted) return;
     }
     // Just claimed, so the next one is tomorrow's.

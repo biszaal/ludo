@@ -33,6 +33,24 @@ export function notificationsAvailable(): boolean {
 }
 
 /**
+ * What to ask the OS for. iOS needs telling; Android ignores it.
+ *
+ * `requestPermissionsAsync()` with no argument is the shape that reads as
+ * correct and is silently wrong on iOS: without an explicit `ios` block the
+ * request can come back `granted: true` having authorised no ALERT, so
+ * everything downstream believes it has permission and not one banner is ever
+ * drawn. Android routes delivery through channels and never looks at this, so
+ * the bug is invisible on the platform most testing happens on — which is
+ * exactly how it shipped.
+ *
+ * One const, used by both askers (push registration and the bonus reminder), so
+ * the two cannot drift.
+ */
+export const PERMISSION_REQUEST = {
+  ios: { allowAlert: true, allowBadge: true, allowSound: true },
+} as const;
+
+/**
  * expo-notifications, or null on a runtime that cannot load it.
  *
  * `require` rather than `import` on purpose — the whole point is that the

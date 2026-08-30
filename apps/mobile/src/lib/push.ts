@@ -23,7 +23,7 @@
 import { Platform } from "react-native";
 import * as Device from "expo-device";
 import Constants from "expo-constants";
-import { notifications } from "./notifications";
+import { notifications, PERMISSION_REQUEST } from "./notifications";
 // Type-only: erased at compile time, so it never pulls the module in at runtime.
 import type { NotificationResponse } from "expo-notifications";
 import { pushDisable, pushRegister } from "../net/api";
@@ -78,7 +78,7 @@ export async function registerForPush(): Promise<boolean> {
     const existing = await N.getPermissionsAsync();
     let granted = existing.granted;
     if (!granted && existing.canAskAgain) {
-      const asked = await N.requestPermissionsAsync();
+      const asked = await N.requestPermissionsAsync(PERMISSION_REQUEST);
       granted = asked.granted;
     }
     if (!granted) return false;
