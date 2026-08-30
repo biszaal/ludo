@@ -24,17 +24,20 @@
  *   room         create / join / start / leave / rematch vote
  *   turn         roll / move / pass, and the stall bot
  *   tick         cron heartbeat for abandoned games (secret-authed, no JWT)
+ *   sweep        cron reaper for dormant guest accounts (secret-authed, no JWT)
  *   quick        matchmaking
  *   economy      wallet, daily bonus, rewarded ads, shop, gems, config
  *   social       friend discovery, account deletion
+ *   push         the Expo sender, and this device's registration
  */
 
-import { adminClient, authUserId, json, safeError } from "./lib.ts";
+import { adminClient, afterResponse, authUserId, json, safeError, touchGate } from "./lib.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import { opCreate, opJoin, opLeave, opRematchClose, opRematchVote, opStart } from "./room.ts";
 import { opPrepareRoll, opTimeout, opTurn } from "./turn.ts";
 import { opQuickBotFill, opQuickMatch } from "./quick.ts";
 import { opTick } from "./tick.ts";
+import { opSweepGuests } from "./sweep.ts";
 import {
   opAdRewardIntent,
   opAdRewardQuota,
@@ -59,7 +62,8 @@ import {
   opFriendsRecent,
   opPresenceOnline,
 } from "./social.ts";
-import { opChat } from "./chat.ts";
+import { opBlockedList, opChat, opReportPlayer } from "./chat.ts";
+import { opPushDisable, opPushRegister } from "./push.ts";
 
 /**
  * The caller's idempotency key for one turn action, if their build sends one.
@@ -90,6 +94,11 @@ Deno.serve(async (req: Request) => {
     // a signed-in caller.
     if (body.op === "tick") return await opTick(admin, req);
 
+    // Same shape, same reason: pg_cron's daily reaper for guest accounts nobody
+    // has used in months. Secret-authed inside opSweepGuests (fail-closed), and
+    // inert until an operator arms it — see the runbook in 0054.
+    if (body.op === "sweepGuests") return await opSweepGuests(admin, req);
+
     // Which build is speaking. Absent from every client shipped before the
     // handshake existed, and null is the honest record of that — the fold gate
     // downstream must read "unknown" as "cannot fold", never as "current".
@@ -98,6 +107,13 @@ Deno.serve(async (req: Request) => {
     const token = (req.headers.get("Authorization") ?? "").replace("Bearer ", "");
     const userId = await authUserId(admin, token);
     if (!userId) return json({ error: "Not authenticated." });
+
+    // Record that this player exists, at most once per isolate per 30 minutes
+    // (and once per user per 6 hours in the database). This is the ONLY signal
+    // the guest reaper fires on, so it must sit in front of every op rather than
+    // on whichever ones seemed representative. Deferred and swallowed: a failed
+    // bookkeeping write must never cost someone their turn.
+    if (touchGate.should(userId)) afterResponse(admin.rpc("touch_activity", { p_user: userId }));
 
     switch (body.op) {
       case "create":
@@ -136,7 +152,7 @@ Deno.serve(async (req: Request) => {
       case "quickBotFill":
         return await opQuickBotFill(admin, userId, String(body.gameId));
       case "config":
-        return await opConfig(admin, req, body.region ? String(body.region) : null);
+        return await opConfig(admin, userId, req, body.region ? String(body.region) : null);
       case "walletGet":
         return await opWalletGet(admin, userId);
       case "walletState":
@@ -182,10 +198,28 @@ Deno.serve(async (req: Request) => {
         );
       case "chat":
         return await opChat(admin, userId, { gameId: body.gameId, kind: body.kind, value: body.value });
+      case "reportPlayer":
+        return await opReportPlayer(admin, userId, {
+          userId: body.userId,
+          gameId: body.gameId,
+          message: body.message,
+          reason: body.reason,
+        });
+      case "blockedList":
+        return await opBlockedList(admin, userId);
       case "friendsRecent":
         return await opFriendsRecent(admin, userId);
       case "presenceOnline":
         return await opPresenceOnline(admin, userId);
+      case "pushRegister":
+        return await opPushRegister(
+          admin,
+          userId,
+          String(body.token ?? ""),
+          String(body.platform ?? ""),
+        );
+      case "pushDisable":
+        return await opPushDisable(admin, userId, String(body.token ?? ""));
       case "deleteAccount":
         return await opDeleteAccount(admin, userId);
       default:

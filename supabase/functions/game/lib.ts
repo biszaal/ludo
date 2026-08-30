@@ -344,8 +344,41 @@ export const LIMITS = {
   gemsExchange: 20,
   gemsBuy: 20,
   roomCreate: 30,
+  // Joining is the one op that takes a GUESSABLE key: room codes are four
+  // characters over a 32-symbol alphabet, so ~1M combinations, of which only
+  // the currently-waiting rooms are live. Unlimited, that is a free sweep of
+  // the room space; opJoin also collapses its refusals into one message so the
+  // reply cannot be used to tell "no such room" from "that room is full".
+  // Higher than roomCreate because rejoining a room you are already in is a
+  // normal reconnect path.
+  roomJoin: 60,
   roomInvite: 60,
   quickMatch: 60,
+  // Read-only ops. These are ABUSE ceilings on invocations and database reads,
+  // not gameplay limits — every one of them is already authorized, and none can
+  // move currency. Set well above what a foregrounded app reaches.
+  //
+  // adRewardStatus is the loosest on purpose: it is the poll that runs while an
+  // ad settles, once per second until the deadline, and a player may legitimately
+  // watch several ads in a session.
+  adRewardStatus: 600,
+  config: 120,
+  entitlements: 120,
+  friendCode: 60,
+  friendsRecent: 240,
+  presence: 240,
+  // Irreversible, and an account can only delete itself once — but a failed
+  // attempt on a bad connection is retried by a person who very much wants it
+  // to work, so this sits at the same floor as the other low limits rather than
+  // below it. Enough to stop a loop hammering the Auth admin API, not enough to
+  // ever refuse someone their own deletion.
+  deleteAccount: 10,
+  // Registration follows app launches and the notifications toggle, both of
+  // which a real player touches a handful of times a day at most.
+  push: 60,
+  // Reporting is a rare, deliberate act. Low enough that nobody can use it to
+  // spam the moderation queue, high enough that a bad table is fully reportable.
+  report: 30,
   // Generous on purpose: chat is now a server round trip, and a 30-minute
   // table of four chatty players is ordinary use, not abuse. The client's
   // 500ms send throttle is the first line; this is the backstop.
@@ -394,11 +427,24 @@ export function utcDay(at = new Date()): string {
 
 export type Json = Record<string, unknown>;
 
+/**
+ * Keys that must never be written through a merge.
+ *
+ * `JSON.parse` produces `__proto__` as an OWN enumerable property, so it
+ * survives `Object.entries` — and `out[k] = v` on a plain object then hits the
+ * prototype setter rather than defining a key, which is prototype pollution.
+ * Both inputs here are `app_config` rows today, so only an operator can reach
+ * it; the guard is so that stays true if a config value ever becomes
+ * region-supplied or client-influenced.
+ */
+const UNSAFE_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
 /** Deep-merge plain objects; `over` wins. Arrays and scalars replace wholesale
  *  so a country row can override a list without having to restate the rest. */
 export function deepMerge(base: Json, over: Json): Json {
   const out: Json = { ...base };
   for (const [k, v] of Object.entries(over)) {
+    if (UNSAFE_KEYS.has(k)) continue;
     const prev = out[k];
     const bothPlain =
       prev !== null && typeof prev === "object" && !Array.isArray(prev) &&
@@ -456,13 +502,21 @@ export function versionAtLeast(version: string | null, min: string): boolean {
  * that write away takes the die from them and there is no OTA channel to fix
  * it.
  *
- * 1.0.2 carries both halves in one release: the appVersion handshake that
- * makes this gate answerable, and the broadcast receiver that makes folding
- * safe. The two must never be split across builds — a binary that reports
- * 1.0.2 without the receiver would satisfy this gate and then fail to render
- * a die it cannot hear.
+ * Hearing the die was only ever half of it. 1.0.2 carries the appVersion
+ * handshake and the broadcast receiver, so it renders an OPPONENT's folded
+ * die correctly — and then deadlocks on its own, because it drops the roll
+ * response as a stale echo of a version it already has (a folded roll answers
+ * at the version it was sent at) and never clears the prediction that
+ * selectToken and pass refuse to act through. The seat rolls and can then
+ * neither move nor pass.
+ *
+ * So the floor is 1.0.3: the first release that reads the `folded` flag on the
+ * response. 1.0.2 was in store review when this was found, and this gate is
+ * what stops it shipping into a folding table. Every half of the protocol must
+ * land in one build — a binary that satisfies this gate and is missing any of
+ * them is unreachable by any OTA fix.
  */
-export const FOLD_MIN_VERSION = "1.0.2";
+export const FOLD_MIN_VERSION = "1.0.3";
 
 /**
  * May this table be spoken to in the folded protocol?
@@ -483,3 +537,54 @@ export function foldAllowed(
     (s) => botUserIds.has(String(s.user_id)) || versionAtLeast(s.app_version, FOLD_MIN_VERSION),
   );
 }
+
+/**
+ * Re-exported so the cron entrypoints here keep importing it from one place.
+ * The implementation moved to _shared once the RevenueCat webhook — a separate
+ * function, and the one path that mints paid currency — needed it too.
+ */
+export { secretMatches } from "../_shared/secret.ts";
+
+/**
+ * Should we spend a round trip recording that this user is alive?
+ *
+ * touch_activity (0053) already bounds the WRITE to once per user per 6 hours in
+ * its own WHERE clause. This bounds the CALL. Without it, opTurn — several times
+ * per player per minute — would fire an RPC per request: a 30-minute four-player
+ * match becomes ~400 round trips to record 4 facts, all of them no-ops.
+ *
+ * Per-isolate and lossy on purpose. A cold start forgets everyone, and that is
+ * fine: the SQL guard catches the duplicate and the fact being recorded has a
+ * horizon of months. The two throttles are belt and braces, and this is the belt.
+ *
+ * Bounded so a long-lived isolate can't grow the map without limit. Eviction is
+ * "drop the oldest half when full" rather than true LRU — at 5k entries against
+ * a 30-minute TTL the difference is unobservable, and this must stay cheap
+ * enough to run in front of every request.
+ */
+export function createTouchGate(ttlMs = 30 * 60_000, max = 5_000) {
+  const seen = new Map<string, number>();
+  return {
+    should(userId: string, now = Date.now()): boolean {
+      const last = seen.get(userId);
+      if (last !== undefined && now - last < ttlMs) return false;
+      if (seen.size >= max && last === undefined) {
+        // Map iterates in insertion order, so the first half is the oldest half.
+        let drop = Math.ceil(seen.size / 2);
+        for (const key of seen.keys()) {
+          seen.delete(key);
+          if (--drop <= 0) break;
+        }
+      }
+      seen.set(userId, now);
+      return true;
+    },
+    /** Test seam. */
+    size(): number {
+      return seen.size;
+    },
+  };
+}
+
+/** The router's gate. One per isolate, by design — see createTouchGate. */
+export const touchGate = createTouchGate();

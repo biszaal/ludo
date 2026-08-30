@@ -78,7 +78,13 @@ function positiveNumber(v: unknown, fallback: number): number {
  *  to whatever the client claims. That fallback is spoofable — fine here,
  *  since everything this returns is pacing and presentation. Never gate coin
  *  PURCHASES on it; use the store receipt's billing country for that. */
-export async function opConfig(admin: SupabaseClient, req: Request, claimed: string | null): Promise<Response> {
+export async function opConfig(
+  admin: SupabaseClient,
+  userId: string,
+  req: Request,
+  claimed: string | null,
+): Promise<Response> {
+  if (!(await rateOk(admin, userId, "config", LIMITS.config))) return rateLimited();
   const geo = req.headers.get("cf-ipcountry") ?? req.headers.get("x-vercel-ip-country");
   const region = (geo && geo !== "XX" ? geo : claimed ?? "").trim().toUpperCase().slice(0, 2);
 
@@ -380,10 +386,35 @@ export async function opAdRewardIntent(
   if (placement === "double-pot") {
     // Half the pot again, house-funded. Post-match and paid by us, never
     // debited from the loser — a reward may never come out of an opponent.
+    //
+    // Every other placement pays a fixed amount this function owns. This one is
+    // sized from a game the CALLER names, which makes the game id an input that
+    // has to be authorized rather than merely read. Until 0055 it wasn't: any
+    // signed-in caller could name any game — one they lost, or were never in —
+    // and be paid half its pot. Three checks, in the order that leaks least.
     if (!gameId) return json({ error: "Missing game." });
-    const { data: g } = await admin.from("games").select("stake, state").eq("id", gameId).single();
-    const stake = (g?.stake as number | null) ?? 0;
-    const seats = ((g?.state as GameState | null)?.players ?? []).length;
+    const { data: g } = await admin
+      .from("games")
+      .select("stake, state, status")
+      .eq("id", gameId)
+      .maybeSingle();
+    // One refusal for "no such game", "not yours" and "not finished" alike —
+    // three different messages would tell a prober which of the three it got
+    // past, and the room id space is enumerable.
+    const nothingToAward = json({ error: "Nothing to award here." });
+    if (!g || g.status !== "finished") return nothingToAward;
+
+    const state = g.state as GameState | null;
+    const me = state?.players.find((p) => p.userId === userId);
+    if (!me) return nothingToAward;
+
+    // Won it, by the same rule finish.ts pays the pot on: the first seat to
+    // finish, falling back to the engine's winner field.
+    const winnerId = state!.finishedOrder?.[0] ?? state!.winnerPlayerId;
+    if (!winnerId || winnerId !== me.id) return nothingToAward;
+
+    const stake = (g.stake as number | null) ?? 0;
+    const seats = state!.players.length;
     coins = Math.floor((stake * seats) / 2);
   }
   if (coins <= 0) return json({ error: "Nothing to award here." });
@@ -400,6 +431,10 @@ export async function opAdRewardIntent(
 
 /** Polled after the ad reports EARNED_REWARD, until SSV lands. */
 export async function opAdRewardStatus(admin: SupabaseClient, userId: string, nonce: string): Promise<Response> {
+  // Loose ceiling: this is the once-a-second poll that runs while an ad settles,
+  // so a real player legitimately spends hundreds of these an hour. It is here
+  // to bound a script, not to shorten anyone's wait.
+  if (!(await rateOk(admin, userId, "adRewardStatus", LIMITS.adRewardStatus))) return rateLimited();
   const { data } = await admin
     .from("ad_rewards")
     .select("status, coins, currency")
@@ -420,6 +455,7 @@ export async function opAdRewardStatus(admin: SupabaseClient, userId: string, no
 // --- Shop --------------------------------------------------------------------
 
 export async function opEntitlementsGet(admin: SupabaseClient, userId: string): Promise<Response> {
+  if (!(await rateOk(admin, userId, "entitlements", LIMITS.entitlements))) return rateLimited();
   // Grandfather: pricing the cosmetics came AFTER people had already picked
   // them, so anyone already wearing a now-paid avatar keeps it for free. Taking
   // something back that a player is currently using is never worth the coins.

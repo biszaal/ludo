@@ -21,7 +21,7 @@
     "mobile": "npm start --workspace mobile",
     "ios": "npm run run:ios --workspace mobile",
     "android": "npm run run:android --workspace mobile",
-    "test:edge": "SUPABASE_URL=https://example.supabase.co SUPABASE_SERVICE_ROLE_KEY=test npx --yes deno@2.1.4 test --no-check --allow-env --allow-net supabase/functions/game/"
+    "test:edge": "SUPABASE_URL=https://example.supabase.co SUPABASE_SERVICE_ROLE_KEY=test npx --yes deno@2.1.4 test --no-check --allow-env --allow-net supabase/functions/game/ supabase/functions/rc-webhook/ supabase/functions/ads-ssv/"
   },
   "engines": {
     "node": ">=20"

@@ -14,7 +14,7 @@
  * Errors follow the file convention: HTTP 200 with an { error } body.
  */
 
-import { afterResponse, json, LIMITS, rateOk, type SupabaseClient } from "./lib.ts";
+import { afterResponse, json, LIMITS, rateLimited, rateOk, type SupabaseClient } from "./lib.ts";
 import { displayNameOf, sendPush } from "./push.ts";
 
 const FRIEND_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -50,6 +50,10 @@ const ONLINE_FANOUT_MAX = 10;
  * delete themselves — userId comes from the verified JWT, never the request body.
  */
 export async function opDeleteAccount(admin: SupabaseClient, userId: string): Promise<Response> {
+  // Irreversible, and an account can only ever delete itself once — so a low
+  // ceiling costs a real user nothing and stops a retry loop from hammering the
+  // Auth admin API.
+  if (!(await rateOk(admin, userId, "deleteAccount", LIMITS.deleteAccount))) return rateLimited();
   const { error } = await admin.auth.admin.deleteUser(userId);
   if (error) return json({ error: "Could not delete your account. Please try again." });
   return json({ ok: true });
@@ -65,6 +69,7 @@ function reapAutoDeclines(admin: SupabaseClient): void {
 
 /** The caller's own code, minted on first read if the 0015 trigger missed it. */
 export async function opFriendCode(admin: SupabaseClient, userId: string): Promise<Response> {
+  if (!(await rateOk(admin, userId, "friendCode", LIMITS.friendCode))) return rateLimited();
   const { data: existing } = await admin.from("friend_codes").select("code").eq("user_id", userId).maybeSingle();
   if (existing?.code) return json({ code: existing.code });
 
@@ -321,6 +326,7 @@ export async function opRoomInvite(
  * online and never answers an invite would unravel the quick-match illusion.
  */
 export async function opFriendsRecent(admin: SupabaseClient, userId: string): Promise<Response> {
+  if (!(await rateOk(admin, userId, "friendsRecent", LIMITS.friendsRecent))) return rateLimited();
   reapAutoDeclines(admin);
 
   // Games I was in, most recent first (players_user_recent_idx, 0015).
@@ -410,6 +416,7 @@ export async function opFriendsRecent(admin: SupabaseClient, userId: string): Pr
  * on top would only add a counter write to the app-launch path.
  */
 export async function opPresenceOnline(admin: SupabaseClient, userId: string): Promise<Response> {
+  if (!(await rateOk(admin, userId, "presence", LIMITS.presence))) return rateLimited();
   const now = Date.now();
 
   const { data: mine } = await admin

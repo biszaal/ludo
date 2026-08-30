@@ -1,0 +1,112 @@
+-- Security round following the 2026-08-28 audit. Four unrelated fixes that
+-- share one property: none of them changes what a correctly-behaving client
+-- sees, so they are safe to apply ahead of the matching function deploy.
+--
+--   1. push_tokens grants      — the one table 0024's rule never reached
+--   2. push_tokens writes      — move them server-side, fixing a live bug
+--   3. iap_purchases.status    — record a sandbox purchase without crediting it
+--   4. gems.creditSandboxPurchases — documented off; never seeded true
+--
+-- ROLLBACK is noted per section.
+
+-- ---------------------------------------------------------------------------
+-- 1 + 2. push_tokens
+-- ---------------------------------------------------------------------------
+-- 0024 trimmed every table's grants to the verbs a policy actually backs, and
+-- called out TRUNCATE specifically because it is the one verb RLS does not
+-- gate. 0029 created push_tokens five migrations later and revoked SELECT
+-- only, so the table kept Supabase's default `grant all` — anon and
+-- authenticated have held DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE and
+-- UPDATE on it ever since. Not reachable today (PostgREST exposes no TRUNCATE
+-- verb, and the policies deny the DML) but it is exactly the "nothing
+-- underneath the policy" state 0024 exists to prevent.
+--
+-- The fix goes further than restoring 0024's rule, because the policies
+-- themselves carry a live bug. Both client writes key on the TOKEN:
+--
+--   register:   upsert(..., { onConflict: "token" })
+--   unregister: delete().eq("token", token)
+--
+-- while both policies key on the OWNER (`user_id = auth.uid()`). A row already
+-- held by a different account on the same install — a reinstall, a new guest
+-- identity, a second player on one phone — fails the USING clause on both
+-- paths. So the upsert that is supposed to MOVE the registration silently does
+-- nothing and the previous account keeps receiving that device's pushes, and
+-- the player who then turns notifications off silently fails to stop them.
+-- 0029's own comment says the delete must work "even if the row currently
+-- belongs to a previous account on the same install"; the predicate could
+-- never do that.
+--
+-- Widening the policies to match by token would let any signed-in caller
+-- delete a registration whose token they can name. Handing both writes to the
+-- service role instead keeps the table closed and puts the token-keyed logic
+-- where it can be reasoned about — see opPushRegister / opPushDisable in the
+-- game function, which land in the same deploy.
+--
+-- DONE IN TWO STEPS, ON PURPOSE. 1.0.3 is live and writes this table directly;
+-- dropping the policies now would silently break push registration for every
+-- player until they update, which is a bigger outage than the thing being
+-- fixed. So this migration only removes what NO policy backs — and every
+-- client, old and new, carries on working:
+--
+--   anon           loses everything. It never had a policy here; the grant was
+--                  pure default-privilege residue.
+--   authenticated  keeps insert/update/delete, which the three policies back,
+--                  and loses TRUNCATE, REFERENCES and TRIGGER. TRUNCATE is the
+--                  one that matters: it is not subject to RLS at all.
+--
+-- STEP TWO, once the release carrying opPushRegister/opPushDisable has rolled
+-- out and old-build traffic has drained (check `select min(app_version) from
+-- players where created_at > now() - interval '7 days'`):
+--
+--   drop policy if exists "push_tokens: self upsert" on public.push_tokens;
+--   drop policy if exists "push_tokens: self update" on public.push_tokens;
+--   drop policy if exists "push_tokens: self delete" on public.push_tokens;
+--   revoke all on table public.push_tokens from anon, authenticated;
+--
+-- which leaves RLS on with no policies — the bot_identities / internal_config /
+-- user_activity shape — and the service role as the only writer.
+--
+-- ROLLBACK: `grant all on public.push_tokens to anon, authenticated;`
+
+revoke all on table public.push_tokens from anon, authenticated;
+
+-- Hand back exactly the three verbs the 0029 policies back, to the one role
+-- that has them. Deliberately not SELECT: 0029 revoked it so a client cannot
+-- enumerate device tokens, and anyone holding a token can push to that device
+-- through Expo with nothing else.
+grant insert, update, delete on public.push_tokens to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- 3. iap_purchases.status gains 'sandbox'
+-- ---------------------------------------------------------------------------
+-- The RevenueCat webhook credited SANDBOX purchases at the full product amount,
+-- distinguishing them only by ledger label (`iap-sandbox` vs `iap`). A sandbox
+-- purchase is one nobody paid for — TestFlight and Play licence testers get
+-- them free, and a device that can force StoreKit's sandbox gets them at will —
+-- so that minted real, spendable gems, which exchange one-way into coins that
+-- are staked against other players. One such credit exists in production
+-- (60 gems, 2026-07-28); it is left alone rather than clawed back.
+--
+-- The webhook now refuses the credit and records the event instead, so the
+-- status check has to admit the new terminal state. 'sandbox' means: RevenueCat
+-- told us about it, we believe them, and deliberately paid nothing.
+--
+-- ROLLBACK: restore the three-value check (after clearing any 'sandbox' rows).
+alter table public.iap_purchases drop constraint if exists iap_purchases_status_check;
+alter table public.iap_purchases add constraint iap_purchases_status_check
+  check (status in ('pending', 'credited', 'failed', 'sandbox'));
+
+-- ---------------------------------------------------------------------------
+-- 4. gems.creditSandboxPurchases
+-- ---------------------------------------------------------------------------
+-- The staging escape hatch for section 3, in the same shape as
+-- gems.allowStubProvider (0018): server-only, absent by default, and absent
+-- reads as false. Deliberately NOT seeded — writing `false` here would look
+-- like a switch someone is expected to flip, and the only environment that
+-- should ever set it true is one where the gems are not real.
+--
+-- To enable on a staging project:
+--   update app_config
+--      set value = jsonb_set(value, '{gems,creditSandboxPurchases}', 'true')
+--    where key = 'default';

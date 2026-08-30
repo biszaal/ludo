@@ -12,7 +12,7 @@
  * actual feature. Callers fire-and-forget via afterResponse.
  */
 
-import type { SupabaseClient } from "./lib.ts";
+import { json, LIMITS, rateLimited, rateOk, type SupabaseClient } from "./lib.ts";
 
 const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
 /** Expo accepts up to 100 messages per request. */
@@ -98,4 +98,69 @@ export async function displayNameOf(admin: SupabaseClient, userId: string): Prom
     .eq("user_id", userId)
     .maybeSingle();
   return (data?.display_name as string | undefined) ?? "A friend";
+}
+
+// --- Registration ------------------------------------------------------------
+//
+// Both writes moved here in 0055. They key on the TOKEN — a device has one, and
+// it must belong to exactly one account — while the RLS policies they replaced
+// keyed on the OWNER, so neither could touch a row left behind by a previous
+// account on the same install. The visible bug was a player turning
+// notifications off and still getting them, and a device that had signed into a
+// second account pushing to the first.
+//
+// The service role is what makes the token-keyed write possible, so the checks
+// that RLS used to make have to be made explicitly here instead.
+
+/** Platforms we accept a token for. Anything else is a client we don't ship. */
+const PLATFORMS = new Set(["ios", "android"]);
+
+/** Expo tokens look like `ExponentPushToken[...]` or `ExpoPushToken[...]`.
+ *  Bounded and shape-checked because this value reaches Expo's API verbatim. */
+const TOKEN_RE = /^Ex(?:ponent|po)PushToken\[[A-Za-z0-9_-]{1,128}\]$/;
+
+/** Claim this device's push token for the calling account.
+ *
+ *  Conflict on the TOKEN, not the user: one device pushes to one account, so
+ *  signing in as somebody else MOVES the row rather than leaving the previous
+ *  account subscribed to this handset. */
+export async function opPushRegister(
+  admin: SupabaseClient,
+  userId: string,
+  token: string,
+  platform: string,
+): Promise<Response> {
+  if (!(await rateOk(admin, userId, "push", LIMITS.push))) return rateLimited();
+  if (!TOKEN_RE.test(token)) return json({ error: "That isn't a valid device token." });
+  if (!PLATFORMS.has(platform)) return json({ error: "That isn't a valid platform." });
+
+  const { error } = await admin
+    .from("push_tokens")
+    .upsert(
+      { token, user_id: userId, platform, updated_at: new Date().toISOString() },
+      { onConflict: "token" },
+    );
+  if (error) return json({ error: "Couldn't turn notifications on. Try again." });
+  return json({ ok: true });
+}
+
+/** Drop this device's registration, whoever currently owns it.
+ *
+ *  Deliberately not scoped to the caller's own rows: the whole point is to clear
+ *  a row a PREVIOUS identity on this install left behind, which is the case the
+ *  policy could not express. Naming someone else's token would unregister their
+ *  device — but anyone who knows a token can already push to that device
+ *  directly through Expo, which is why push_tokens has no read path at all, so
+ *  the knowledge is what leaks, not this op. */
+export async function opPushDisable(
+  admin: SupabaseClient,
+  userId: string,
+  token: string,
+): Promise<Response> {
+  if (!(await rateOk(admin, userId, "push", LIMITS.push))) return rateLimited();
+  if (!TOKEN_RE.test(token)) return json({ error: "That isn't a valid device token." });
+
+  const { error } = await admin.from("push_tokens").delete().eq("token", token);
+  if (error) return json({ error: "Couldn't turn notifications off. Try again." });
+  return json({ ok: true });
 }

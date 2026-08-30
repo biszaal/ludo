@@ -19,7 +19,8 @@
  * Errors follow the file convention: HTTP 200 with an { error } body.
  */
 
-import { json, LIMITS, rateLimited, rateOk, type SupabaseClient } from "./lib.ts";
+import { json, LIMITS, rateLimited, rateOk, safeError, UNIQUE_VIOLATION, type SupabaseClient } from "./lib.ts";
+import { maskProfanity } from "./moderation.ts";
 
 /** Longest message we relay. Mirrors CHAT_MAX_LEN in the app's src/lib/chat.ts;
  *  the client caps its input, this is the cap that actually holds. */
@@ -39,11 +40,17 @@ export interface ChatRequest {
  * Whitespace runs collapse to a single space: the transcript row in ChatSheet
  * has no line cap, so newlines are a way to shove other players' messages off
  * screen. Length is cut after collapsing, so padding can't buy extra room.
+ *
+ * Blocked terms are masked last, on the clamped string, so a word split across
+ * the length cut cannot survive by being half a token. Masking rather than
+ * refusing: see moderation.ts for why. This is the filter half of the
+ * user-generated-content obligation; the report and block halves are
+ * opReportPlayer and the client's mute list.
  */
 export function sanitizeChatValue(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
   const clean = raw.replace(/\s+/g, " ").trim().slice(0, CHAT_MAX_LEN);
-  return clean.length > 0 ? clean : null;
+  return clean.length > 0 ? maskProfanity(clean) : null;
 }
 
 /**
@@ -137,4 +144,90 @@ export async function opChat(admin: SupabaseClient, userId: string, req: ChatReq
   if (!ok) return json({ error: "Message didn't send. Try again." });
 
   return json({ ok: true });
+}
+
+// --- Reporting ---------------------------------------------------------------
+
+/** Longest snippet we keep with a report. Matches the column's check. */
+const REPORT_MESSAGE_MAX = 200;
+
+const REPORT_REASONS = new Set(["chat", "conduct", "name"]);
+
+/**
+ * Report a player, and block them in the same action.
+ *
+ * The two are one gesture on purpose. Someone who has just been abused in a
+ * game wants it to stop first and be dealt with second, and a Report button
+ * that files a ticket while leaving the person talking is the version people
+ * rightly complain about. So the block is what the caller feels immediately;
+ * the report is what a human reads later (0056).
+ *
+ * Neither half is allowed to fail the other: the block is the part that matters
+ * to the person pressing it, so a duplicate report — they pressed it twice, or
+ * already reported this player in this game — still returns ok.
+ *
+ * Deliberately NOT gated on sharing a game. Reporting someone should not
+ * require still being in the room with them, and a report about a display name
+ * has no room at all.
+ */
+export async function opReportPlayer(
+  admin: SupabaseClient,
+  userId: string,
+  req: { userId: unknown; gameId: unknown; message: unknown; reason: unknown },
+): Promise<Response> {
+  if (!(await rateOk(admin, userId, "report", LIMITS.report))) return rateLimited();
+
+  const reported = String(req.userId ?? "");
+  if (!UUID_RE.test(reported)) return json({ error: "That isn't a player we know." });
+  if (reported === userId) return json({ error: "You can't report yourself." });
+
+  const gameId = typeof req.gameId === "string" && UUID_RE.test(req.gameId) ? req.gameId : null;
+  const reason = REPORT_REASONS.has(String(req.reason)) ? String(req.reason) : "chat";
+  // Already sanitized on the way in; clamped again because this row is written
+  // from whatever the client sends, not from the message we relayed.
+  const message = typeof req.message === "string"
+    ? req.message.replace(/\s+/g, " ").trim().slice(0, REPORT_MESSAGE_MAX) || null
+    : null;
+
+  // Block first — this is the half the caller is waiting on.
+  const { error: blockErr } = await admin
+    .from("blocks")
+    .insert({ blocker_user_id: userId, blocked_user_id: reported });
+  // A duplicate means they were already blocked, which is the desired end state.
+  if (blockErr && blockErr.code !== UNIQUE_VIOLATION) {
+    return safeError("chat.report.block", blockErr, "Couldn't block that player. Try again.");
+  }
+
+  // The report is bookkeeping for a human queue; a duplicate is one complaint.
+  const { error: reportErr } = await admin
+    .from("player_reports")
+    .insert({
+      reporter_user_id: userId,
+      reported_user_id: reported,
+      game_id: gameId,
+      message,
+      reason,
+    });
+  if (reportErr && reportErr.code !== UNIQUE_VIOLATION) {
+    // Logged, not surfaced: they are blocked, which is what they asked for.
+    console.error("[chat.report]", reportErr.message);
+  }
+
+  return json({ ok: true, blocked: reported });
+}
+
+/**
+ * The user_ids this player has blocked.
+ *
+ * Read through the function rather than the table so one round trip serves the
+ * whole mute list at game entry. `blocks` is self-readable over RLS, so this is
+ * convenience rather than access — but the client needs it before the first
+ * message arrives, and bundling it here keeps that a single call.
+ */
+export async function opBlockedList(admin: SupabaseClient, userId: string): Promise<Response> {
+  const { data } = await admin
+    .from("blocks")
+    .select("blocked_user_id")
+    .eq("blocker_user_id", userId);
+  return json({ userIds: (data ?? []).map((r) => String(r.blocked_user_id)) });
 }

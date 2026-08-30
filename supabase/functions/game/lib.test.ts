@@ -10,7 +10,7 @@
  */
 
 import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { LIMITS, rateLimited, rateOk, safeError, WRITE_FAILED } from "./lib.ts";
+import { createTouchGate, deepMerge, LIMITS, rateLimited, rateOk, safeError, secretMatches, WRITE_FAILED } from "./lib.ts";
 import type { SupabaseClient } from "./lib.ts";
 import { collectStakes, payingSeats } from "./deal.ts";
 
@@ -195,4 +195,117 @@ Deno.test("payingSeats can empty the pot when every remaining seat is a bot", ()
   // A solo host who filled the table: nobody pays in, and finish.ts pays only
   // them — the house covers the other three seats either way.
   assertEquals(payingSeats(seats("bot1", "bot2"), new Set(["bot1", "bot2"])), []);
+});
+
+// --- secretMatches -----------------------------------------------------------
+// Shared by the two secret-authed cron entrypoints (opTick, opSweepGuests). Both
+// gate destructive work, so a compare that leaks or that returns true too
+// readily is the whole security model of those paths.
+
+Deno.test("secretMatches accepts only the exact secret", () => {
+  assertEquals(secretMatches("s3cret", "s3cret"), true);
+  assertEquals(secretMatches("s3cret", "s3crex"), false);
+});
+
+Deno.test("secretMatches rejects a length mismatch outright", () => {
+  // The early return is the one place the compare is not constant-time, and it
+  // leaks length only — which the caller's secret is free to be long enough for.
+  assertEquals(secretMatches("short", "muchlongersecret"), false);
+  assertEquals(secretMatches("", "nonempty"), false);
+});
+
+Deno.test("secretMatches is true for empty vs empty, so callers must check first", () => {
+  // Pinning the fail-OPEN shape deliberately: this is why opTick and
+  // opSweepGuests both test `!expected` BEFORE calling. If that guard is ever
+  // dropped, an unconfigured environment becomes an open endpoint.
+  assertEquals(secretMatches("", ""), true);
+});
+
+// --- createTouchGate ---------------------------------------------------------
+// Bounds how often the router spends a round trip recording that a user is
+// alive. touch_activity already bounds the WRITE in SQL; this bounds the CALL,
+// because opTurn fires several times per player per minute.
+
+Deno.test("touch gate lets the first sighting of a user through", () => {
+  const gate = createTouchGate();
+  assertEquals(gate.should("a", 1_000), true);
+});
+
+Deno.test("touch gate swallows repeats inside the window", () => {
+  // Without this a 30-minute four-player match costs ~400 round trips to record
+  // 4 facts, every one of them a no-op at the database.
+  const gate = createTouchGate(30 * 60_000);
+  assertEquals(gate.should("a", 0), true);
+  assertEquals(gate.should("a", 60_000), false);
+  assertEquals(gate.should("a", 29 * 60_000), false);
+});
+
+Deno.test("touch gate reopens once the window has passed", () => {
+  const gate = createTouchGate(30 * 60_000);
+  assertEquals(gate.should("a", 0), true);
+  assertEquals(gate.should("a", 31 * 60_000), true);
+});
+
+Deno.test("touch gate tracks users independently", () => {
+  // One busy player must not suppress the recording of everyone else — that
+  // would age live users toward deletion.
+  const gate = createTouchGate(30 * 60_000);
+  assertEquals(gate.should("a", 0), true);
+  assertEquals(gate.should("b", 0), true);
+  assertEquals(gate.should("a", 0), false);
+});
+
+Deno.test("touch gate stays bounded in a long-lived isolate", () => {
+  const gate = createTouchGate(30 * 60_000, 100);
+  for (let i = 0; i < 500; i++) gate.should(`u${i}`, i);
+  // Eviction drops the oldest half when full, so the map oscillates below the
+  // cap rather than growing forever.
+  assertEquals(gate.size() <= 100, true);
+});
+
+Deno.test("an evicted user is simply asked again", () => {
+  // Eviction must be lossy in the SAFE direction: forgetting someone costs one
+  // extra round trip, which the SQL guard turns into a no-op. It must never
+  // cause a user to be skipped.
+  const gate = createTouchGate(30 * 60_000, 4);
+  assertEquals(gate.should("a", 0), true);
+  for (let i = 0; i < 10; i++) gate.should(`filler${i}`, 1);
+  assertEquals(gate.should("a", 2), true);
+});
+
+// --- deepMerge ---------------------------------------------------------------
+
+Deno.test("deepMerge cannot be used to reach the prototype", () => {
+  // `JSON.parse` yields __proto__ as an OWN enumerable property, so it survives
+  // Object.entries — and `out[k] = v` on a plain object then hits the prototype
+  // SETTER rather than defining a key. Both inputs are app_config rows today,
+  // so only an operator can reach this; the guard is what keeps that true if a
+  // config value ever becomes region-supplied.
+  const hostile = JSON.parse('{"__proto__": {"polluted": "yes"}}');
+  const merged = deepMerge({ ads: { enabled: true } }, hostile);
+
+  assertEquals(({} as Record<string, unknown>).polluted, undefined, "Object.prototype was polluted");
+  assertEquals((merged as Record<string, unknown>).polluted, undefined);
+  // The legitimate half of the document is untouched.
+  assertEquals((merged.ads as Record<string, unknown>).enabled, true);
+});
+
+Deno.test("deepMerge ignores constructor and prototype keys too", () => {
+  const merged = deepMerge({}, JSON.parse('{"constructor": "x", "prototype": "y", "keep": 1}'));
+  assertEquals(merged.constructor, Object);
+  assertEquals(merged.prototype, undefined);
+  // Everything not on the deny list still merges normally.
+  assertEquals(merged.keep, 1);
+});
+
+Deno.test("deepMerge still deep-merges, with the override winning", () => {
+  const merged = deepMerge(
+    { ads: { rewarded: { gemGrant: true }, interstitial: 60 }, economy: { stakeTiers: [100] } },
+    { ads: { interstitial: 90 }, economy: { stakeTiers: [100, 1000] } },
+  );
+  // Nested object: the untouched sibling survives, the named key is replaced.
+  assertEquals((merged.ads as Record<string, unknown>).interstitial, 90);
+  assertEquals(((merged.ads as Record<string, unknown>).rewarded as Record<string, unknown>).gemGrant, true);
+  // Arrays replace wholesale rather than concatenating.
+  assertEquals((merged.economy as Record<string, unknown>).stakeTiers, [100, 1000]);
 });

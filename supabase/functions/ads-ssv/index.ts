@@ -34,13 +34,46 @@ interface VerifierKey {
 let keyCache: { fetchedAt: number; keys: VerifierKey[] } | null = null;
 const KEY_TTL_MS = 24 * 60 * 60 * 1000;
 
-async function verifierKeys(): Promise<VerifierKey[]> {
-  if (keyCache && Date.now() - keyCache.fetchedAt < KEY_TTL_MS) return keyCache.keys;
+/** Floor between forced refetches, so an unsigned flood of unknown key ids
+ *  can't turn every request into a round trip to gstatic. */
+const KEY_REFETCH_MIN_MS = 5 * 60 * 1000;
+
+async function fetchVerifierKeys(): Promise<VerifierKey[]> {
   const res = await fetch(KEY_SERVER);
   if (!res.ok) throw new Error(`verifier keys ${res.status}`);
   const body = (await res.json()) as { keys: VerifierKey[] };
   keyCache = { fetchedAt: Date.now(), keys: body.keys ?? [] };
   return keyCache.keys;
+}
+
+async function verifierKeys(): Promise<VerifierKey[]> {
+  if (keyCache && Date.now() - keyCache.fetchedAt < KEY_TTL_MS) return keyCache.keys;
+  return await fetchVerifierKeys();
+}
+
+/**
+ * The key for one `key_id`, refetching once if the cache has never seen it.
+ *
+ * Google rotates these. Without the refetch, the first callback signed by a new
+ * key finds a cache that predates it, is rejected, and — because a rejection
+ * returns 200 by design so Google stops retrying — the reward is lost rather
+ * than delayed. Every callback then fails the same way until the 24h TTL lapses,
+ * silently, for a whole day.
+ *
+ * The refetch is floored so this can't be used as a fetch amplifier: an unknown
+ * id inside the floor window is simply unknown.
+ */
+async function verifierKey(keyId: string): Promise<VerifierKey | null> {
+  const find = (keys: VerifierKey[]) => keys.find((k) => String(k.keyId) === String(keyId)) ?? null;
+
+  const cached = find(await verifierKeys());
+  if (cached) return cached;
+
+  const age = keyCache ? Date.now() - keyCache.fetchedAt : Infinity;
+  if (age < KEY_REFETCH_MIN_MS) return null;
+
+  console.warn("ssv: unknown key_id, refetching verifier keys", keyId);
+  return find(await fetchVerifierKeys());
 }
 
 function b64ToBytes(b64: string): Uint8Array {
@@ -99,8 +132,7 @@ async function verifySignature(rawQuery: string, keyId: string, signatureB64: st
   const payload = signedPortion(rawQuery);
   if (!payload) return false;
 
-  const keys = await verifierKeys();
-  const key = keys.find((k) => String(k.keyId) === String(keyId));
+  const key = await verifierKey(keyId);
   if (!key) return false;
 
   const pub = await crypto.subtle.importKey(

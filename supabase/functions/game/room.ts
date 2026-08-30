@@ -95,20 +95,34 @@ export async function opJoin(
   rawCode: string,
   appVersion: string | null,
 ): Promise<Response> {
+  if (!(await rateOk(admin, userId, "roomJoin", LIMITS.roomJoin))) return rateLimited();
   const roomCode = rawCode.trim().toUpperCase();
+
+  /**
+   * One refusal for every way a code can fail to admit you.
+   *
+   * These used to be three messages — "No game found with that code", "That
+   * game has already started", "That game is full" — which made the endpoint an
+   * oracle: a script sweeping the ~1M code space could tell an empty code from
+   * a live room it merely arrived at too late, and map who was playing. The
+   * distinction was never actionable for the person typing a code in either
+   * way; they retype it or ask for a new one regardless.
+   */
+  const noRoom = json({ error: "That code isn't open. Check it and try again." });
+
   const { data: game } = await admin
     .from("games")
     .select("id, status, stake")
     .eq("room_code", roomCode)
     .maybeSingle();
-  if (!game) return json({ error: "No game found with that code." });
-  if (game.status !== "waiting") return json({ error: "That game has already started." });
+  if (!game) return noRoom;
+  if (game.status !== "waiting") return noRoom;
   const stake = (game.stake as number | null) ?? 0;
 
   const { data: existing } = await admin.from("players").select("id, user_id, seat").eq("game_id", game.id).order("seat");
   const mine = existing?.find((p) => p.user_id === userId);
   if (mine) return json({ gameId: game.id, roomCode, playerId: mine.id, stake });
-  if ((existing?.length ?? 0) >= 4) return json({ error: "That game is full." });
+  if ((existing?.length ?? 0) >= 4) return noRoom;
 
   const seat = existing?.length ?? 0;
   const { data: player, error } = await admin
