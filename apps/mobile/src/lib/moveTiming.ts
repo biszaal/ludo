@@ -130,6 +130,18 @@ export function stateAnimationMs(prev: GameState, next: GameState): number {
   // transition instant and drop the next state on top of the hold.
   if (isBustHandoff(prev, next)) return BUST_HOLD_MS;
   const rollMs = rolled(prev, next) ? DICE_ROLL_MS + DICE_READ_MS : 0;
+  return rollMs + moverLegMs(prev, next);
+}
+
+/**
+ * How long the board spends animating pawns across `prev -> next`: the slowest
+ * mover, plus a captured token's retrace home (the Board holds that back until
+ * the capturing mover lands, so the two are sequential, not concurrent).
+ *
+ * Split out of stateAnimationMs because the die hand-off needs this leg WITHOUT
+ * the roll: by the time a pawn is moving, the tumble has already been watched.
+ */
+function moverLegMs(prev: GameState, next: GameState): number {
   const prevPos = new Map(prev.tokens.map((t) => [t.id, t.position]));
   let moverMs = 0;
   let captureMs = 0;
@@ -139,5 +151,45 @@ export function stateAnimationMs(prev: GameState, next: GameState): number {
     if (t.position === "home") captureMs = Math.max(captureMs, walkDurationMs(t.color, was, t.position));
     else moverMs = Math.max(moverMs, walkDurationMs(t.color, was, t.position));
   }
-  return rollMs + moverMs + captureMs;
+  return moverMs + captureMs;
+}
+
+/**
+ * Least time the number stays on screen when a roll leads straight to a
+ * hand-off with nothing to animate — a roll with no legal move.
+ *
+ * Long enough to read a single digit that is about to be taken away, and short
+ * enough that a table of players who all roll badly does not crawl.
+ */
+const DIE_HANDOVER_FLOOR_MS = 450;
+
+/**
+ * How long the die stays beside the player who rolled it, once the turn has
+ * moved on.
+ *
+ * A move that ends a turn arrives as one state — token moved, `diceValue`
+ * cleared by applyMove, `currentTurnPlayerId` already the next player — and the
+ * die renders beside whichever seat is current. So it jumped to the next player
+ * on the frame that state applied, while the pawn it explained was still
+ * hopping. The number itself survives in the store's `lastRoll`; what was lost
+ * was WHOSE it was and the chance to read it at all.
+ *
+ * The hold is the mover's own animation, taken from the same waypoints the
+ * Board hops to, so the die is still in place as the pawn lands and has moved
+ * on before the next player is asked to roll. Zero means hand over at once:
+ * nothing was rolled, the roller kept the turn (a six — the die never left), or
+ * this is not the same game.
+ */
+export function dieHandoverMs(prev: GameState, next: GameState): number {
+  if (prev.gameId !== next.gameId) return 0;
+  // The turn is still the roller's — a six, or a move that granted another
+  // roll. The die is already where it belongs.
+  if (prev.currentTurnPlayerId === next.currentTurnPlayerId) return 0;
+  // Nothing was rolled into this hand-off (a timeout, a seat leaving), so there
+  // is no number on the face worth keeping there.
+  if (prev.diceValue == null) return 0;
+  // A bust is already held by BUST_HOLD_MS in applyState, which keeps the whole
+  // previous state — die included — on screen. Holding again would double it.
+  if (isBustHandoff(prev, next)) return 0;
+  return Math.max(moverLegMs(prev, next), DIE_HANDOVER_FLOOR_MS);
 }

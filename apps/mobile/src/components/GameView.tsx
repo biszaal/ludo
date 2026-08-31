@@ -45,6 +45,7 @@ import { useSettings } from "../store/settingsStore";
 import { payoutSplit, potFor } from "../lib/economy";
 import { clockStartFor, elapsedSeconds, formatElapsed } from "../lib/gameClock";
 import { matchOverForSeat, seatFinish } from "../lib/seatFinish";
+import { useDieHandover } from "../lib/useDieHandover";
 import { useAds, canShowInterstitial } from "../store/adsStore";
 import { useConfig } from "../store/configStore";
 import { preloadInterstitial, showInterstitial } from "../lib/ads/provider";
@@ -194,6 +195,15 @@ export function GameView({
     ? railedBoardSize(colWidth, railedFreeHeight)
     : stackedBoardSize(colWidth, height, tier);
   const diceSize = Math.round(48 * scale);
+
+  /**
+   * The seat the die is still sitting at, if the roller's pawn is mid-hop.
+   * While this is set it overrides the active seat for the die ALONE — the
+   * board, the chips and the turn ring all follow the real current player.
+   */
+  const heldDie = useDieHandover(state, lastRoll);
+  const dieSeatId = heldDie?.playerId ?? state.currentTurnPlayerId;
+  const dieValue = heldDie ? heldDie.value : state.diceValue ?? lastRoll;
   const finished = state.status === "finished";
   // Every seat's entry, bot seats included — matches what the server pays out.
   const pot = potFor(stake, state.players.length);
@@ -433,18 +443,23 @@ export function GameView({
           />
           {bubble ? <ChatBubble value={bubble.value} kind={bubble.kind} seq={bubble.seq} align={align} vAlign={vAlign} /> : null}
         </View>
-        {isActive && withDice ? (
+        {p.id === dieSeatId && withDice ? (
           // Constant size — resizing mid-roll made the face flicker/jump.
           // On an autopilot seat the die stays tappable too: tapping it (like
           // tapping the avatar) hands control back to the human.
+          //
+          // While the die is HELD here after the turn moved on, this seat is no
+          // longer the active one: the face must show its number rather than
+          // the awaiting-roll swirl, and nothing about it may be tappable — the
+          // roll it represents is already spent.
           <Dice
-            value={state.diceValue ?? lastRoll}
+            value={dieValue}
             spinSeq={rollSeq}
             size={diceSize}
-            idle={state.phase === "awaiting-roll" && !bustHold}
+            idle={!heldDie && state.phase === "awaiting-roll" && !bustHold}
             theme={theme}
             skin={resolveDiceSkin(diceSkinFor?.(p.id) ?? null)}
-            onRollPress={canRoll ? onRoll : pilot ? autoPilot?.onTakeControl ?? null : null}
+            onRollPress={heldDie ? null : canRoll ? onRoll : pilot ? autoPilot?.onTakeControl ?? null : null}
             pressLabel={canRoll ? "Roll the dice" : "Bot is playing for you — tap to take back control"}
           />
         ) : null}
@@ -562,16 +577,20 @@ export function GameView({
   const activeSeat = state.players.find((p) => p.id === state.currentTurnPlayerId) ?? null;
   const activeIsPilot = !!activeSeat && autoPilot?.playerId === activeSeat.id;
   const canRollNow = !!activeSeat && canAct && !paused && state.phase === "awaiting-roll";
+  // The rail shows ONE die for the table, so a hold here is about the skin and
+  // the face rather than the position: it keeps the roller's die, with their
+  // number on it, until their pawn lands. Same reasoning as the corner chips.
+  const dieSeat = state.players.find((p) => p.id === dieSeatId) ?? activeSeat;
   const railDie =
-    activeSeat && !finished ? (
+    dieSeat && !finished ? (
       <Dice
-        value={state.diceValue ?? lastRoll}
+        value={dieValue}
         spinSeq={rollSeq}
         size={diceSize}
-        idle={state.phase === "awaiting-roll" && !bustHold}
+        idle={!heldDie && state.phase === "awaiting-roll" && !bustHold}
         theme={theme}
-        skin={resolveDiceSkin(diceSkinFor?.(activeSeat.id) ?? null)}
-        onRollPress={canRollNow ? onRoll : activeIsPilot ? autoPilot?.onTakeControl ?? null : null}
+        skin={resolveDiceSkin(diceSkinFor?.(dieSeat.id) ?? null)}
+        onRollPress={heldDie ? null : canRollNow ? onRoll : activeIsPilot ? autoPilot?.onTakeControl ?? null : null}
         pressLabel={canRollNow ? "Roll the dice" : "Bot is playing for you — tap to take back control"}
       />
     ) : null;

@@ -13,6 +13,7 @@ import {
   diceLandsThisLap,
   FLY_MS,
   HOP_STEP_MS,
+  dieHandoverMs,
   moveDurationMs,
   stateAnimationMs,
 } from "../src/lib/moveTiming";
@@ -242,5 +243,88 @@ describe("diceLandsThisLap", () => {
     // "go round again" has to stay small.
     expect(DICE_TUMBLE_MS).toBeLessThanOrEqual(DICE_ROLL_MS);
     expect(DICE_FACE_LOCK_MS).toBeLessThan(DICE_TUMBLE_MS);
+  });
+});
+
+/**
+ * The die must not leave the player who rolled it until their pawn has landed.
+ *
+ * A move that ends the turn arrives as ONE state: the token has moved, the
+ * die is cleared, and `currentTurnPlayerId` already names the next player. The
+ * board animates the hop over that transition, but the die is rendered beside
+ * whichever seat is current — so it teleported to the next player on the frame
+ * the state applied, taking the number with it while the pawn was still in the
+ * air. On a four-player table an opponent's roll was gone before it could be
+ * read: the whole account of what just happened, removed mid-sentence.
+ *
+ * dieHandoverMs is how long the die stays put: the mover's own animation, the
+ * same clock the Board hops to, so the number is still there when the pawn
+ * lands and gone by the time the next player is asked to roll.
+ */
+describe("dieHandoverMs", () => {
+  const base = (): GameState =>
+    createGame(
+      [
+        { id: "p1", userId: "u1", color: "red" },
+        { id: "p2", userId: "u2", color: "yellow" },
+      ],
+      { gameId: "g1" },
+    );
+
+  const withToken = (state: GameState, tokenId: string, position: TokenPosition): GameState => ({
+    ...state,
+    tokens: state.tokens.map((t) => (t.id === tokenId ? { ...t, position } : t)),
+  });
+
+  const handTo = (state: GameState, playerId: string): GameState => ({
+    ...state,
+    currentTurnPlayerId: playerId,
+    diceValue: null,
+  });
+
+  it("holds the die for the mover's hop when the turn changes hands", () => {
+    const prev = { ...withToken(base(), "red-0", fromRelativeIndex("red", 5)), diceValue: 4 };
+    const next = handTo(withToken(prev, "red-0", fromRelativeIndex("red", 9)), "p2");
+    expect(dieHandoverMs(prev, next)).toBe(4 * HOP_STEP_MS);
+  });
+
+  it("covers a capture too — the number outlasts the pawn it sent home", () => {
+    const landing = fromRelativeIndex("red", 8);
+    let prev = withToken(base(), "red-0", fromRelativeIndex("red", 5));
+    prev = { ...withToken(prev, "yellow-0", landing), diceValue: 3 };
+    let next = withToken(prev, "red-0", landing);
+    next = handTo(withToken(next, "yellow-0", "home"), "p2");
+
+    const retrace = moveDurationMs("yellow", landing, "home");
+    expect(dieHandoverMs(prev, next)).toBe(3 * HOP_STEP_MS + retrace);
+  });
+
+  it("does not hold when the roller keeps the turn — the die never left", () => {
+    // A six: same seat rolls again, so there is no handover to delay.
+    const prev = { ...withToken(base(), "red-0", fromRelativeIndex("red", 5)), diceValue: 6 };
+    const next = withToken(prev, "red-0", fromRelativeIndex("red", 11));
+    expect(dieHandoverMs(prev, next)).toBe(0);
+  });
+
+  it("does not hold a turn that changed without a roll being seen", () => {
+    // A seat that timed out or left: nothing was rolled, so there is no number
+    // to keep on screen and the die should follow the turn immediately.
+    const prev = base();
+    const next = handTo(prev, "p2");
+    expect(dieHandoverMs(prev, next)).toBe(0);
+  });
+
+  it("does not hold across a different game", () => {
+    const prev = { ...base(), diceValue: 5 };
+    const next = handTo({ ...base(), gameId: "g2" }, "p2");
+    expect(dieHandoverMs(prev, next)).toBe(0);
+  });
+
+  it("holds a pass with no mover long enough to read the number", () => {
+    // Rolled, nothing legal to do, turn handed on. No pawn animates, so the
+    // mover clock is zero — but the number still has to be readable.
+    const prev = { ...base(), diceValue: 2 };
+    const next = handTo(prev, "p2");
+    expect(dieHandoverMs(prev, next)).toBeGreaterThan(0);
   });
 });

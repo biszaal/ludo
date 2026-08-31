@@ -1547,7 +1547,21 @@ function applyStateNow(state: GameState, rolled: boolean, deadlineAt: number | n
   // Our own roll's tumble already started on the tap — don't restart it when
   // the rolled state arrives (whichever of HTTP/realtime/resync gets it here).
   const bump = rolled && !rollBumped;
-  if (rolled) rollBumped = false;
+  // Spent on ANY authoritative state, not only one that `rolled`.
+  //
+  // The flag means "the tumble for the roll now in flight has already been
+  // started", and the state that resolves that roll is the one that ends it —
+  // whether or not the state still carries a die. On a folding table it does
+  // NOT: the roll and the move are written together, so applyMove has already
+  // cleared diceValue and `rolled` is false. Spending the flag only on a rolled
+  // state therefore never spent it there at all, and it stayed set for the rest
+  // of the match.
+  //
+  // Left set, it swallows the NEXT roll's bump — and rollSeq is the only thing
+  // that starts the tumble or plays the rattle. That is the die that flips
+  // straight to a number without rolling, and the roll that makes no sound: not
+  // an animation fault, an accounting one. Two symptoms, one stale boolean.
+  rollBumped = false;
 
   // The countdown resets when a new ACTION WINDOW opens, not on every write.
   // It used to bump on all of them, so an opponent's roll restarted the ring
