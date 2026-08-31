@@ -20,7 +20,8 @@
  */
 
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, Share, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Pressable, Share, Text, TextInput, View } from "react-native";
+import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as Clipboard from "expo-clipboard";
 import { TableBackground } from "../components/TableBackground";
@@ -126,8 +127,13 @@ export function AddFriendScreen() {
         <Button label="Back" onPress={pop} variant="ghost" />
       </View>
 
-      <ScrollView
+      {/* Keyboard-aware because Android stopped resizing the window for the
+          IME (see Sheet.tsx): a plain ScrollView never learned the keyboard was
+          there, so the username field it scrolls to was left underneath it.
+          bottomOffset keeps a little air between the field and the keys. */}
+      <KeyboardAwareScrollView
         keyboardShouldPersistTaps="handled"
+        bottomOffset={space.xl}
         contentContainerStyle={{ paddingHorizontal: space.xl, paddingTop: space.lg, paddingBottom: space.xxl, gap: space.xl }}
       >
         {/* Your code */}
@@ -233,7 +239,7 @@ export function AddFriendScreen() {
             ))}
           </View>
         ) : null}
-      </ScrollView>
+      </KeyboardAwareScrollView>
     </SafeAreaView>
   );
 }

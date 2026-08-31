@@ -1,8 +1,25 @@
 /**
- * Play-with-friends flow, off the hub and into a sheet: pick what the game is
- * worth, create a room, or join by code. The only TextInput on Home lives here,
- * so the shell's keyboardAvoiding mode handles the keyboard. No close-on-success
- * wiring: joining/creating pushes the lobby and ScreenStack unmounts Home.
+ * Play-with-friends flow, off the hub and into a centered POPUP: join by code,
+ * or pick what the game is worth and open a room. The only TextInput on Home
+ * lives here, so the shell's keyboardAvoiding mode handles the keyboard. No
+ * close-on-success wiring: joining/creating pushes the lobby and ScreenStack
+ * unmounts Home.
+ *
+ * A popup rather than a bottom band because this is a short decision, not a
+ * list to browse — and because a card that is already vertically centred lifts
+ * cleanly when the keyboard opens instead of being shoved off the top.
+ *
+ * JOINING COMES FIRST, and the order is the fix rather than a preference.
+ * Creating a room and joining one are not symmetric acts: the host is browsing,
+ * while the guest has been sent four letters by someone already sitting in a
+ * lobby waiting for them. Leading with the stake tiles and "Create a room" put
+ * a decision the guest does not have to make above the one thing they came in
+ * to do, with the field itself below a divider at the bottom of the sheet —
+ * small, ghost-buttoned, and reported as simply not findable.
+ *
+ * So the code field opens the sheet, at full width with a real button on it,
+ * and hosting sits below under its own heading. A host loses nothing: they are
+ * exploring the sheet anyway, and "Create a room" is still plainly there.
  *
  * The pot is the HOST's choice and nobody pays on the way in — the server
  * collects from every seat when the game actually starts. That is why tiers you
@@ -34,13 +51,53 @@ export function RoomSheet({ onClose }: { onClose: () => void }) {
   const error = useOnlineStore((s) => s.error);
   const push = useNav((s) => s.push);
   const connecting = status === "connecting";
+  // Room codes are four characters; three is accepted because the join RPC has
+  // always tolerated it, and rejecting on length here would be a new rule.
+  const canJoin = code.length >= 3 && !connecting;
 
   const tiers = useConfig((s) => s.config.economy.stakeTiers);
   const balance = useWallet((s) => s.balance);
   const [stake, setStake] = useState(0);
 
   return (
-    <Sheet onClose={onClose} title="Play with friends" keyboardAvoiding>
+    <Sheet onClose={onClose} title="Play with friends" keyboardAvoiding variant="popup">
+      <SectionLabel>Got a code from a friend?</SectionLabel>
+      <View style={{ flexDirection: "row", gap: space.sm, alignItems: "center" }}>
+        <Field
+          accessibilityLabel="Room code"
+          value={code}
+          onChangeText={(t) => setCode(t.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4))}
+          placeholder="CODE"
+          autoCapitalize="characters"
+          autoCorrect={false}
+          maxLength={4}
+          mono
+          style={{ flex: 1 }}
+        />
+        <View style={{ width: 130 }}>
+          <Button
+            label={connecting ? "Joining…" : "Join"}
+            // Filled, not ghost: this is the reason most people open this
+            // sheet, and a ghost button beside an empty field read as decoration.
+            disabled={!canJoin}
+            onPress={() => {
+              if (canJoin) void join(code);
+            }}
+          />
+        </View>
+      </View>
+      <Text style={{ fontFamily: font.regular, fontSize: 12, color: palette.mutedSteel }}>
+        Four letters, from whoever set the game up.
+      </Text>
+
+      {error ? <Text style={{ fontFamily: font.regular, fontSize: 13, color: teamColor.red }}>{error}</Text> : null}
+
+      <View style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
+        <View style={{ flex: 1, height: 1, backgroundColor: palette.hairline }} />
+        <Text style={{ fontFamily: font.regular, fontSize: 12, color: palette.mutedSteel }}>or start your own</Text>
+        <View style={{ flex: 1, height: 1, backgroundColor: palette.hairline }} />
+      </View>
+
       <SectionLabel>Play for</SectionLabel>
       <View style={{ flexDirection: "row", gap: space.sm }}>
         <SelectTile label="Free" selected={stake === 0} onPress={() => setStake(0)} />
@@ -68,38 +125,11 @@ export function RoomSheet({ onClose }: { onClose: () => void }) {
         </Text>
       ) : null}
 
-      <Button label={connecting ? "Creating…" : "Create a room"} onPress={() => void create(stake)} />
-
-      <View style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
-        <View style={{ flex: 1, height: 1, backgroundColor: palette.hairline }} />
-        <Text style={{ fontFamily: font.regular, fontSize: 12, color: palette.mutedSteel }}>or join with a code</Text>
-        <View style={{ flex: 1, height: 1, backgroundColor: palette.hairline }} />
-      </View>
-
-      <View style={{ flexDirection: "row", gap: space.sm, alignItems: "center" }}>
-        <Field
-          accessibilityLabel="Room code"
-          value={code}
-          onChangeText={(t) => setCode(t.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4))}
-          placeholder="CODE"
-          autoCapitalize="characters"
-          autoCorrect={false}
-          maxLength={4}
-          mono
-          style={{ flex: 1 }}
-        />
-        <View style={{ width: 130 }}>
-          <Button
-            label="Join"
-            variant="ghost"
-            onPress={() => {
-              if (code.length >= 3) void join(code);
-            }}
-          />
-        </View>
-      </View>
-
-      {error ? <Text style={{ fontFamily: font.regular, fontSize: 13, color: teamColor.red }}>{error}</Text> : null}
+      <Button
+        label={connecting ? "Creating…" : "Create a room"}
+        variant="ghost"
+        onPress={() => void create(stake)}
+      />
 
       <Pressable
         accessibilityRole="button"

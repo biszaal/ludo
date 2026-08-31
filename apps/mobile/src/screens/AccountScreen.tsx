@@ -28,7 +28,8 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
+import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { TableBackground } from "../components/TableBackground";
 import { ScreenHeader } from "../components/ScreenHeader";
@@ -186,7 +187,13 @@ export function AccountScreen() {
         }
       />
 
-      <ScrollView contentContainerStyle={{ paddingTop: space.lg, paddingBottom: space.xxl + dockPad, alignItems: "center" }}>
+      {/* Keyboard-aware: the display-name field lives in here, and Android no
+          longer resizes the window for the IME (see Sheet.tsx). */}
+      <KeyboardAwareScrollView
+        keyboardShouldPersistTaps="handled"
+        bottomOffset={space.xl}
+        contentContainerStyle={{ paddingTop: space.lg, paddingBottom: space.xxl + dockPad, alignItems: "center" }}
+      >
         <ContentColumn style={{ paddingHorizontal: space.xl, gap: space.xl }}>
           {/* Identity tray */}
           <Surface3D rad={radius.lg} faceStyle={{ padding: space.lg, gap: space.md }}>
@@ -333,7 +340,7 @@ export function AccountScreen() {
           {/* Stats below */}
           <StatsContent />
         </ContentColumn>
-      </ScrollView>
+      </KeyboardAwareScrollView>
 
       {accountSheet ? (
         <AccountSheet

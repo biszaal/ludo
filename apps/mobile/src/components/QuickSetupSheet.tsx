@@ -66,7 +66,7 @@ export function QuickSetupSheet({ onClose, onNeedCoins }: QuickSetupSheetProps) 
   };
 
   return (
-    <Sheet onClose={onClose} title="Quick match">
+    <Sheet onClose={onClose} title="Quick match" variant="popup">
       <SectionLabel>Table</SectionLabel>
       <View style={{ flexDirection: "row", gap: space.sm }}>
         <TableTile size={2} title="1 vs 1" selected={size === 2} onPress={() => setSize(2)} />

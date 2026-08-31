@@ -5,7 +5,8 @@
  */
 
 import { useState } from "react";
-import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { Alert, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import Animated, { Easing, FadeIn, FadeOut, SlideInDown, SlideOutDown } from "react-native-reanimated";
 import { Button } from "./Button";
 import type { ChatEvent } from "../store/onlineStore";
@@ -84,7 +85,10 @@ export function ChatSheet({ events, nameForUser, myUserId, onSend, onReport, onC
         <Pressable accessibilityLabel="Close chat" style={{ flex: 1 }} onPress={onClose} />
       </Animated.View>
 
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1, justifyContent: "flex-end" }} pointerEvents="box-none">
+      {/* Same reasoning as Sheet.tsx: RN's implementation is a no-op on Android
+          now that edge-to-edge stops the window resizing, which left the chat
+          composer under the keyboard. */}
+      <KeyboardAvoidingView behavior="padding" style={{ flex: 1, justifyContent: "flex-end" }} pointerEvents="box-none">
         <Animated.View
           entering={SlideInDown.duration(260).easing(Easing.out(Easing.cubic))}
           exiting={SlideOutDown.duration(180)}

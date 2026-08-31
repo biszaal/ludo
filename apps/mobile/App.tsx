@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { AppState, Platform } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { KeyboardProvider } from "react-native-keyboard-controller";
 import {
   useFonts,
   Outfit_400Regular,
@@ -147,6 +148,23 @@ export default function App() {
   // system face and snaps. The loading screen then fades off the top of the
   // already-mounted UI, and drops out of the tree once it's invisible.
   return (
+    /**
+     * KeyboardProvider wraps everything because Android no longer resizes the
+     * window for the keyboard.
+     *
+     * Edge-to-edge is mandatory from SDK 56 (the `edgeToEdgeEnabled` opt-out is
+     * gone), so the app draws behind the system bars and the IME animates OVER
+     * the layout instead of shrinking it. `softwareKeyboardLayoutMode` still
+     * says "resize" and still has no visible effect — which is why the
+     * documented Android recipe of "just mount a KeyboardAvoidingView with no
+     * behavior" quietly stopped working, and why the friend-code and username
+     * fields ended up under the keyboard.
+     *
+     * This provider subscribes to the IME insets directly, which is the only
+     * thing that still reports the keyboard under edge-to-edge. Everything
+     * keyboard-aware in the app reads from it.
+     */
+    <KeyboardProvider>
     <SafeAreaProvider>
       <StatusBar style="light" />
       {ready && (
@@ -164,5 +182,6 @@ export default function App() {
       )}
       {!launched && <LoadingScreen done={ready} onHidden={onLaunched} />}
     </SafeAreaProvider>
+    </KeyboardProvider>
   );
 }
