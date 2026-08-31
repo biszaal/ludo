@@ -165,7 +165,7 @@ export function setLinkMonitor(m: LinkMonitor | null): void {
  *
  * functions-js reports three kinds of failure and only one of them is a verdict:
  *
- *   FunctionsHttpError  — the function RAN and returned non-2xx. A real answer.
+ *   FunctionsHttpError  — a non-2xx response. See below: NOT always an answer.
  *   FunctionsFetchError — the request never completed. No answer.
  *   FunctionsRelayError — the gateway failed to relay it. No answer.
  *
@@ -175,10 +175,54 @@ export function setLinkMonitor(m: LinkMonitor | null): void {
  * landed perfectly well, and the client discarded its prediction anyway. The
  * 20s timeout was never the only way to fail to get an answer — it was just
  * the only one being modelled.
+ *
+ * FunctionsHttpError was the third of those mistakes and the last one found.
+ * The router answers every op it actually handles with a 200 carrying either a
+ * payload or `{ error }` — so a non-2xx never comes from the game logic, only
+ * from the platform in front of it, and the status says which kind:
+ *
+ *   4xx — the platform refused the request itself (bad JWT, malformed body,
+ *         payload too large). Asking again cannot change it. A verdict.
+ *   5xx — the edge runtime could not RUN the function. 502 in particular is
+ *         "no worker could be created": refused in single-digit milliseconds,
+ *         nothing booted, no code ran. The project's logs show these in bursts,
+ *         clustered in the quiet hours where no worker is warm — one player's
+ *         first tap of the evening is exactly when it lands.
+ *   429 — rate limited. Also transient, and also nothing the caller did wrong.
+ *
+ * Reading a 502 as a verdict is what put "Edge Function returned a non-2xx
+ * status code" in front of a player pressing PLAY: not retried because a
+ * verdict is not worth asking twice, and not translated because the body is
+ * the gateway's HTML, so the `ctx.json()` below throws and supabase-js's own
+ * string is what survives.
  */
-function unanswered(error: { name?: string }): boolean {
-  return error.name === "FunctionsFetchError" || error.name === "FunctionsRelayError";
+function unanswered(error: { name?: string; context?: { status?: number } }): boolean {
+  if (error.name === "FunctionsFetchError" || error.name === "FunctionsRelayError") return true;
+  if (error.name !== "FunctionsHttpError") return false;
+  const status = error.context?.status;
+  // A status we cannot read is treated as a verdict — the conservative reading,
+  // since retrying is only safe for calls that are prepared for it.
+  return typeof status === "number" && (status >= 500 || status === 429);
 }
+
+/**
+ * Was it the SERVER that could not answer, rather than the link that could not
+ * carry the question?
+ *
+ * Both end up as a TimeoutError, because to a caller they mean the same thing —
+ * no answer, so reconcile rather than roll back. But they must not say the same
+ * thing to the player. TimeoutError's default asks them to check their
+ * connection, which for a 502 sends someone to toggle aeroplane mode over a
+ * fault three hundred miles away on somebody else's machine.
+ */
+function serverSideFailure(error: { name?: string }): boolean {
+  // Only ever consulted for an error `unanswered` already accepted, and the
+  // only HttpError it accepts is a 5xx/429 — so the name alone settles it.
+  return error.name === "FunctionsHttpError";
+}
+
+/** Shown when the platform, not the link, is the thing that failed. */
+const SERVER_BUSY = "The game server is busy. Give it a moment and try again.";
 
 /** Invoke the `game` Edge Function and surface its `{ error }` payload as a throw. */
 async function callGame<T>(
@@ -210,7 +254,7 @@ async function callGame<T>(
     // No answer ever arrived — same contract as the timeout above.
     if (unanswered(error)) {
       observe(null);
-      throw new TimeoutError();
+      throw new TimeoutError(serverSideFailure(error) ? SERVER_BUSY : undefined);
     }
     observe(Date.now() - startedAt);
     let message = error.message;
@@ -372,11 +416,56 @@ export interface QuickMatchResult {
   size?: number;
 }
 
+/**
+ * How an idempotent non-turn call rides out a gateway that is not answering.
+ *
+ * Deliberately unlike the turn ladder above, because it is waiting on a
+ * different thing. A turn op re-fires at 300ms to catch a dropped packet on a
+ * flaky radio. This one is waiting for the edge runtime to produce a WORKER,
+ * and re-asking a runtime that just said "no worker" in 8ms gets the same
+ * answer just as fast — the log bursts run several seconds before a boot
+ * finally succeeds. So the pauses grow, and three attempts spread over ~1.3s
+ * cover the observed bursts without turning one tap into a flood.
+ */
+const PLATFORM_TRIES = 3;
+const PLATFORM_BACKOFF_MS = [400, 900];
+
+/**
+ * Re-fire a call that the platform never delivered to the function.
+ *
+ * ONLY safe for ops that can be asked twice with no second effect — the retry
+ * fires precisely when we cannot know whether the first attempt ran, so an op
+ * that would act twice must not use this. `quickMatch` qualifies because the
+ * server answers a re-tap with the room the caller is already waiting in
+ * (see quick.ts) rather than opening a second one.
+ *
+ * A verdict still throws on the first attempt, exactly as before.
+ */
+async function idempotentCall<T>(
+  op: string,
+  payload: Record<string, unknown>,
+  timeoutMs = CALL_TIMEOUT_MS,
+): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await callGame<T>(op, payload, timeoutMs);
+    } catch (e) {
+      if (attempt >= PLATFORM_TRIES || !isTimeout(e)) throw e;
+      const pause = PLATFORM_BACKOFF_MS[attempt - 1] ?? PLATFORM_BACKOFF_MS[PLATFORM_BACKOFF_MS.length - 1]!;
+      await new Promise((resolve) => setTimeout(resolve, pause));
+    }
+  }
+}
+
 /** Pair into the oldest open quick game of this size AND stake tier, or open
- *  one and wait. The server validates the stake against its tier list. */
+ *  one and wait. The server validates the stake against its tier list.
+ *
+ *  Laddered: a cold edge worker turns the first tap of a quiet evening into a
+ *  502, and pressing PLAY is the worst possible moment to hand someone a dead
+ *  end. Safe to re-ask — the server hands back the room already claimed. */
 export async function quickMatch(size: 2 | 4, stake?: number): Promise<QuickMatchResult> {
   const userId = await ensureSignedIn();
-  const res = await callGame<{
+  const res = await idempotentCall<{
     gameId: string;
     playerId: string;
     waiting?: boolean;
