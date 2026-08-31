@@ -69,3 +69,25 @@ export function pickSlot(slots: readonly Slot[], now: number): Pick {
   if (firstFree !== -1) return { index: firstFree, rewind: true };
   return { index: earliest, rewind: true };
 }
+
+/**
+ * A `didJustFinish` notice has arrived for this slot — should it be parked?
+ *
+ * The listener's response to a finished clip is to pause, rewind and mark the
+ * slot parked, which is right for a clip that has ended and destructive for one
+ * that has just started: `pause()` is a synchronous native call, so it stops
+ * the new sound outright.
+ *
+ * And the two are easy to confuse, because the notice comes from the Android
+ * main thread — the same thread Reanimated and Skia have saturated during a hop
+ * chain. It can land a whole step late, by which time `pickSlot` has already
+ * handed this slot to the next clip. `busyUntil` is what tells them apart: a
+ * slot still sounding has it in the future, and a notice for a slot that is
+ * sounding cannot be about the clip now playing.
+ *
+ * Pure and clock-injected, like pickSlot, so the rule can be tested without a
+ * native player.
+ */
+export function parkOnFinish(slot: Slot, now: number): boolean {
+  return slot.busyUntil <= now;
+}

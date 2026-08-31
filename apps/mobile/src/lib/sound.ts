@@ -7,7 +7,7 @@
  */
 
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from "expo-audio";
-import { freshSlot, pickSlot, type Slot } from "./soundPool";
+import { freshSlot, parkOnFinish, pickSlot, type Slot } from "./soundPool";
 import { useSettings } from "../store/settingsStore";
 
 export type SoundName =
@@ -121,6 +121,11 @@ function buildPool(name: SoundName): void {
     player.addListener("playbackStatusUpdate", (status) => {
       if (!status.didJustFinish) return;
       const slot = mine[i]!;
+      // The notice may be stale: it comes off the Android main thread, which a
+      // hop chain has saturated, so it can arrive after this slot was already
+      // handed to the next clip. Parking it then would pause a sound that has
+      // only just started — see parkOnFinish.
+      if (!parkOnFinish(slot, Date.now())) return;
       slot.busyUntil = 0;
       try {
         player.pause();

@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { freshSlot, pickSlot, type Slot } from "../src/lib/soundPool";
+import { freshSlot, parkOnFinish, pickSlot, type Slot } from "../src/lib/soundPool";
 
 const NOW = 10_000;
 
@@ -80,5 +80,56 @@ describe("pickSlot", () => {
     }
 
     expect(picks).toHaveLength(12);
+  });
+});
+
+/**
+ * A finish notice that arrives late must not silence the play that replaced it.
+ *
+ * expo-audio delivers `didJustFinish` from the Android main thread, which
+ * during a hop chain is exactly the thread Reanimated and Skia have saturated.
+ * So the notice for clip N can arrive AFTER slot N has already been handed to
+ * clip N+1 and told to play. The listener's job at that point — pause, rewind,
+ * mark parked — is the correct handling of a clip that has ended and the exact
+ * wrong handling of one that has just begun: `pause()` is synchronous, so it
+ * stops the new sound outright.
+ *
+ * That is the second half of the reported Android bug. `pickSlot` was fixed to
+ * stop AWAITING a rewind; this is the same late-main-thread problem arriving
+ * from the other direction, and it is why hops and dice rolls stayed
+ * intermittently silent rather than becoming reliable.
+ */
+describe("parkOnFinish", () => {
+  const NOW = 1_000_000;
+
+  it("parks a slot whose clip really has ended", () => {
+    expect(parkOnFinish({ busyUntil: NOW - 1, parked: false }, NOW)).toBe(true);
+  });
+
+  it("parks a slot that ended exactly now", () => {
+    expect(parkOnFinish({ busyUntil: NOW, parked: false }, NOW)).toBe(true);
+  });
+
+  it("leaves a slot alone once it has been re-issued to a newer clip", () => {
+    // busyUntil in the future means this slot is sounding again: the notice
+    // being handled belongs to the clip before it.
+    expect(parkOnFinish({ busyUntil: NOW + 120, parked: false }, NOW)).toBe(false);
+  });
+
+  it("keeps a re-issued slot audible across a whole hop chain of late notices", () => {
+    // Every notice arrives one full step late — the worst realistic case.
+    const HOP_MS = 130;
+    const STEP_MS = 150;
+    const slots = [{ busyUntil: 0, parked: true }];
+    let silenced = 0;
+
+    for (let i = 0; i < 10; i++) {
+      const now = NOW + i * STEP_MS;
+      slots[0] = { busyUntil: now + HOP_MS, parked: false };
+      // The PREVIOUS clip's finish notice lands here, a step behind.
+      if (i > 0 && parkOnFinish(slots[0]!, now)) silenced++;
+    }
+
+    expect(silenced).toBe(0);
   });
 });
