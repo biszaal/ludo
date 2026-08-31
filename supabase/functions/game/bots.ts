@@ -22,6 +22,8 @@ import {
   AWAY_TURN_SECONDS,
   cryptoRng,
   deriveDie,
+  dryTurnsFor,
+  nextDryTurns,
   isAwaySeat,
   rngForDie,
   sleep,
@@ -459,12 +461,15 @@ async function driveLoop(
   let v = 0;
   /** Read with the row: whether this table can be folded to. */
   let foldWrites = false;
+  /** Read with the row, and carried across the loop's own writes: the per-seat
+   *  dry-turn map. Bots are counted exactly like humans — see 0058. */
+  let dryTurns: unknown = {};
 
   for (let step = 0; step < BOT_MAX_ACTIONS * 3; step++) {
     if (!cur) {
       const { data: game } = await admin
         .from("games")
-        .select("state, state_version, fold_writes")
+        .select("state, state_version, fold_writes, dry_turns")
         .eq("id", gameId)
         .single();
       const fetched = game?.state as GameState | undefined;
@@ -472,6 +477,7 @@ async function driveLoop(
       cur = fetched;
       v = (game!.state_version as number | null) ?? 0;
       foldWrites = !!game!.fold_writes;
+      dryTurns = game!.dry_turns;
     }
 
     if (cur.status !== "active") {
@@ -491,8 +497,14 @@ async function driveLoop(
       // Derived like every other roll (see turn.ts rollRng). A hidden bot's seat
       // is never one a client may call prepareRoll for, so nothing is revealed
       // here — this is uniformity, so there is exactly one way a die is made.
-      const die = await deriveDie(gameId, v, pid);
+      // Bots are counted exactly like humans. A dry-streak rescue that only
+      // helped players would be an asymmetry sitting inside the dice of a game
+      // with coin stakes, and the whole defence of the bias is that it is the
+      // same rule for every seat at the table.
+      const die = await deriveDie(gameId, v, pid, dryTurnsFor(dryTurns, pid));
       const roll = rollDice(cur, die === null ? cryptoRng : rngForDie(die));
+      const stuck = roll.diceValue !== 6 && getValidMoves(roll.newState, pid).length === 0;
+      dryTurns = nextDryTurns(dryTurns, pid, stuck);
 
       /**
        * On a folding table this roll does not write. The die goes out as a
@@ -550,6 +562,7 @@ async function driveLoop(
         current_turn_player_id: next.currentTurnPlayerId,
         turn_deadline: next.status === "active" ? new Date(Date.now() + deadlineSecs * 1000).toISOString() : null,
         state_version: v + 1,
+        dry_turns: dryTurns,
       })
       .eq("id", gameId)
       .eq("state_version", v)

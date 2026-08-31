@@ -236,12 +236,77 @@ export function dieFromDigest(digest: Uint8Array): number {
   return Number(n % 6n) + 1;
 }
 
-/** The die for one roll, or null when there is no key to derive it with. */
-export async function deriveDie(gameId: string, v: number, playerId: string): Promise<number | null> {
+/**
+ * Dry turns a seat must accumulate before the die starts helping.
+ *
+ * Six, because that is roughly where the run stops reading as bad luck and
+ * starts reading as the game being broken: P(no six in six rolls) is 33%, so a
+ * third of stuck players reach here and essentially none of them enjoyed it.
+ */
+export const DRY_TURNS_THRESHOLD = 6;
+
+/** Added to the chance of a six per dry turn past the threshold, and the ceiling
+ *  it climbs to. At the threshold the die is ~29% to come up six rather than
+ *  ~17%; by four turns past it, ~58%. It never becomes a certainty — a rescue
+ *  that is guaranteed is a rescue a player can plan around. */
+const DRY_STEP = 0.15;
+const DRY_MAX = 0.5;
+
+/**
+ * How much of a thumb goes on the scale at `dryTurns`.
+ *
+ * Exported for its test: the shape of this curve is the whole of the fairness
+ * argument, and "0 below the threshold, capped above it" is the part that has
+ * to stay true no matter how the constants are retuned.
+ */
+export function dryBoost(dryTurns: number): number {
+  if (dryTurns < DRY_TURNS_THRESHOLD) return 0;
+  return Math.min(DRY_MAX, (dryTurns - DRY_TURNS_THRESHOLD + 1) * DRY_STEP);
+}
+
+/** A second, independent draw from the same key — used only to decide whether a
+ *  rescue fires. Separate info string so it cannot correlate with the die. */
+const RESCUE_INFO = "ludo-dice-rescue-v1";
+
+/**
+ * The die for one roll, or null when there is no key to derive it with.
+ *
+ * `dryTurns` is how many consecutive turns this seat has rolled with no legal
+ * move and no six (players.dry_turns, migration 0058). Past a threshold it
+ * makes a six more likely — deliberately, and with the reasoning and the limits
+ * set out in that migration.
+ *
+ * The bias is DERIVED, not drawn. That matters as much as the odds do: the
+ * whole anti-stalling property in turn.ts's rollRng comment rests on the same
+ * (game, version, seat) producing the same number every time it is asked, so a
+ * player who is shown a bad die and declines to roll cannot get a different one
+ * by letting the bot play the seat. A rescue rolled from fresh randomness would
+ * hand that exploit straight back. Hashing the counter alongside the rest keeps
+ * the answer stable for as long as the counter is — which is for exactly this
+ * turn, since it only moves when a roll resolves.
+ */
+export async function deriveDie(
+  gameId: string,
+  v: number,
+  playerId: string,
+  dryTurns = 0,
+): Promise<number | null> {
   const key = await diceKey();
   if (!key) return null;
   const msg = new TextEncoder().encode(`${DICE_INFO}:${gameId}:${v}:${playerId}`);
-  return dieFromDigest(new Uint8Array(await crypto.subtle.sign("HMAC", key, msg)));
+  const die = dieFromDigest(new Uint8Array(await crypto.subtle.sign("HMAC", key, msg)));
+  if (die === 6) return 6;
+
+  const boost = dryBoost(dryTurns);
+  if (boost <= 0) return die;
+
+  // A uniform in [0,1) from an independent derivation of the same inputs.
+  const rescueMsg = new TextEncoder().encode(`${RESCUE_INFO}:${gameId}:${v}:${playerId}:${dryTurns}`);
+  const digest = new Uint8Array(await crypto.subtle.sign("HMAC", key, rescueMsg));
+  let n = 0n;
+  for (let i = 0; i < DIE_BYTES; i++) n = (n << 8n) | BigInt(digest[i]!);
+  const unit = Number(n % 1000000n) / 1000000;
+  return unit < boost ? 6 : die;
 }
 
 /**
@@ -536,6 +601,50 @@ export function foldAllowed(
   return seats.every(
     (s) => botUserIds.has(String(s.user_id)) || versionAtLeast(s.app_version, FOLD_MIN_VERSION),
   );
+}
+
+/** The per-seat dry-turn map as it is stored on `games.dry_turns`. */
+export type DryTurns = Record<string, number>;
+
+/**
+ * This seat's dry-turn count, read from the games row the caller already has.
+ *
+ * Absent, malformed or negative all read as 0 — i.e. no bias, the dice this
+ * game had before 0058. That is what makes the edge deploy safe to ship in
+ * either order with the migration: a row without the column simply never
+ * rescues anyone.
+ */
+export function dryTurnsFor(raw: unknown, playerId: string): number {
+  if (!raw || typeof raw !== "object") return 0;
+  const n = (raw as DryTurns)[playerId];
+  return typeof n === "number" && n > 0 ? Math.floor(n) : 0;
+}
+
+/**
+ * The map to write back after a roll resolves.
+ *
+ * `stuck` means the roll produced no legal move at all — the only kind of turn
+ * worth counting, and the reason this cannot be farmed: advancing it costs the
+ * player the turn. Anything else resets that seat to 0, so a count only ever
+ * climbs through the exact run of dead turns the bias exists to end.
+ *
+ * Pure, and returns a NEW object: it goes straight into the same
+ * version-guarded games update as the state, so a roll that loses the race
+ * leaves the stored map untouched.
+ *
+ * A reset drops the key rather than storing 0 — otherwise a long game
+ * accumulates an entry per seat that means nothing, and the common case is a
+ * map that stays empty.
+ */
+export function nextDryTurns(raw: unknown, playerId: string, stuck: boolean): DryTurns {
+  const current: DryTurns =
+    raw && typeof raw === "object" ? { ...(raw as DryTurns) } : {};
+  if (!stuck) {
+    delete current[playerId];
+    return current;
+  }
+  current[playerId] = dryTurnsFor(raw, playerId) + 1;
+  return current;
 }
 
 /**

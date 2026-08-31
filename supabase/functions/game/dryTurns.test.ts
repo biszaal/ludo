@@ -1,0 +1,91 @@
+/**
+ * The dry-turn rescue: what it does, and what it must never do.
+ *
+ * This is a deliberate thumb on the scale — after enough turns with no six and
+ * no legal move, the die becomes more likely to come up six. It is the one
+ * place the game does not deal straight, so the properties that keep it
+ * defensible are worth pinning harder than the odds themselves.
+ *
+ *   npm run test:edge
+ */
+
+import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { deriveDie, dryBoost, dryTurnsFor, nextDryTurns, DRY_TURNS_THRESHOLD } from "./lib.ts";
+
+const GAME = "22222222-2222-2222-2222-222222222222";
+const SEAT = "33333333-3333-3333-3333-333333333333";
+
+Deno.test("no help at all below the threshold", () => {
+  for (let n = 0; n < DRY_TURNS_THRESHOLD; n++) assertEquals(dryBoost(n), 0);
+});
+
+Deno.test("help starts at the threshold and grows", () => {
+  const at = dryBoost(DRY_TURNS_THRESHOLD);
+  const later = dryBoost(DRY_TURNS_THRESHOLD + 2);
+  assertEquals(at > 0, true);
+  assertEquals(later > at, true);
+});
+
+Deno.test("help is capped — a rescue is never a certainty", () => {
+  // A guaranteed six is a six a player can plan around, which is a different
+  // and worse game than one that is merely kind.
+  const huge = dryBoost(500);
+  assertEquals(huge <= 0.5, true);
+  assertEquals(dryBoost(50), huge);
+});
+
+Deno.test("a negative or absent count is simply no help", () => {
+  assertEquals(dryBoost(0), 0);
+  assertEquals(dryBoost(-3), 0);
+});
+
+Deno.test("a die is always a die, however much help is applied", async () => {
+  // Whatever the bias does, it must never produce something that is not a face.
+  for (const dry of [0, DRY_TURNS_THRESHOLD, 99]) {
+    const die = await deriveDie(GAME, 3, SEAT, dry);
+    if (die === null) continue; // no DICE_SECRET configured — nothing to bias
+    assertEquals(die >= 1 && die <= 6, true);
+    assertEquals(Number.isInteger(die), true);
+  }
+});
+
+Deno.test("a stuck roll advances only that seat", () => {
+  const before = { [SEAT]: 2, other: 5 };
+  const after = nextDryTurns(before, SEAT, true);
+  assertEquals(dryTurnsFor(after, SEAT), 3);
+  assertEquals(dryTurnsFor(after, "other"), 5);
+  // Pure: the stored map is untouched, so a write that loses the version race
+  // cannot have moved anything.
+  assertEquals(dryTurnsFor(before, SEAT), 2);
+});
+
+Deno.test("any roll that achieved something resets the streak", () => {
+  const after = nextDryTurns({ [SEAT]: 9 }, SEAT, false);
+  assertEquals(dryTurnsFor(after, SEAT), 0);
+  // Dropped rather than stored as 0, so the common case is an empty map.
+  assertEquals(Object.prototype.hasOwnProperty.call(after, SEAT), false);
+});
+
+Deno.test("a missing or malformed map is simply no help", () => {
+  // A database whose migration has not landed yet lands here, which is what
+  // makes the edge deploy safe to ship in either order.
+  assertEquals(dryTurnsFor(undefined, SEAT), 0);
+  assertEquals(dryTurnsFor(null, SEAT), 0);
+  assertEquals(dryTurnsFor("nonsense", SEAT), 0);
+  assertEquals(dryTurnsFor({ [SEAT]: -4 }, SEAT), 0);
+  assertEquals(dryTurnsFor({}, SEAT), 0);
+  assertEquals(dryTurnsFor({ [SEAT]: 3 }, "someone-else"), 0);
+});
+
+Deno.test("counting from nothing starts at one", () => {
+  assertEquals(dryTurnsFor(nextDryTurns({}, SEAT, true), SEAT), 1);
+});
+
+Deno.test("the same inputs always give the same die", async () => {
+  // The anti-stalling property: a player shown a bad die who declines to roll
+  // must get that same die when the bot plays their seat. A rescue drawn from
+  // fresh randomness would hand that exploit back.
+  const a = await deriveDie(GAME, 7, SEAT, 9);
+  const b = await deriveDie(GAME, 7, SEAT, 9);
+  assertEquals(a, b);
+});

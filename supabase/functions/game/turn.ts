@@ -21,6 +21,8 @@ import {
   AWAY_TURN_SECONDS,
   cryptoRng,
   deriveDie,
+  dryTurnsFor,
+  nextDryTurns,
   freshState,
   isAwaySeat,
   json,
@@ -75,8 +77,8 @@ const AWAY_TAKEOVER_MS = 1200;
  * rolls for you: the stall path re-derives at the same state_version, with the
  * same seat, and gets the same number.
  */
-async function rollRng(gameId: string, v: number, playerId: string): Promise<Rng> {
-  const die = await deriveDie(gameId, v, playerId);
+async function rollRng(gameId: string, v: number, playerId: string, dryTurns: number): Promise<Rng> {
+  const die = await deriveDie(gameId, v, playerId, dryTurns);
   return die === null ? cryptoRng : rngForDie(die);
 }
 
@@ -104,7 +106,7 @@ export async function opTurn(
 ): Promise<Response> {
   const { data: game } = await admin
     .from("games")
-    .select("id, state, state_version, has_bots, fold_writes")
+    .select("id, state, state_version, has_bots, fold_writes, dry_turns")
     .eq("id", gameId)
     .single();
   if (!game || !game.state) return json({ error: "Game not found." });
@@ -151,6 +153,11 @@ export async function opTurn(
    * never happened. Re-deriving at an unchanged v is idempotent by
    * construction.
    */
+  // Read once from the row already fetched: no extra query, and every
+  // derivation in this request must use the SAME count or the die the player
+  // was shown is not the die that gets rolled.
+  const myDry = dryTurnsFor(game.dry_turns, me.id);
+
   if (action === "roll" && game.fold_writes) {
     if (state.phase !== "awaiting-roll") return await reject("You already rolled.");
     // Derivability is a PRECONDITION of folding, not an optimisation. With
@@ -159,7 +166,7 @@ export async function opTurn(
     // DIFFERENT die than the one just shown, and the pawn would move by a
     // number the player never saw. Fall through to the writing path instead:
     // slower, and correct.
-    const die = await deriveDie(gameId, v, me.id);
+    const die = await deriveDie(gameId, v, me.id, myDry);
     if (die !== null) {
       const rolled = rollDice(state, rngForDie(die)).newState;
       // Fire-and-forget: a lost broadcast costs one spectator one die
@@ -191,7 +198,10 @@ export async function opTurn(
     state.phase === "awaiting-roll" &&
     (action === "move" || action === "pass")
   ) {
-    const die = await deriveDie(gameId, v, me.id);
+    // The SAME dry count the roll was derived with: it only moves when a roll
+    // resolves, and this seat's has not since. A different count here would
+    // re-derive a different die than the player was shown.
+    const die = await deriveDie(gameId, v, me.id, myDry);
     // Same precondition as the roll: an underivable die cannot be reproduced,
     // so there is nothing to fold and the client must be on the writing path.
     if (die !== null) working = rollDice(state, rngForDie(die)).newState;
@@ -200,7 +210,7 @@ export async function opTurn(
   let next: GameState;
   if (action === "roll") {
     if (state.phase !== "awaiting-roll") return await reject("You already rolled.");
-    next = rollDice(state, await rollRng(gameId, v, me.id)).newState;
+    next = rollDice(state, await rollRng(gameId, v, me.id, myDry)).newState;
   } else if (action === "pass") {
     if (working.phase !== "awaiting-move") return await reject("Roll first.");
     if (getValidMoves(working, me.id).length > 0) return await reject("You still have a move.");
@@ -211,6 +221,20 @@ export async function opTurn(
     if (!check.valid) return await reject(check.reason ?? "Illegal move.");
     next = applyMove(working, { tokenId: tokenId ?? "" });
   }
+
+  /**
+   * Did this roll leave the seat with nothing it could do?
+   *
+   * Only a ROLL is judged: a move or a pass is the tail of a turn whose roll
+   * was already counted, and counting it again would advance the streak twice
+   * for one dead turn. A six is never stuck by definition — it always opens the
+   * yard — and `getValidMoves` settles the rest.
+   *
+   * Written after the game row lands, not before: a roll whose write loses the
+   * version race did not happen, and must not move the counter.
+   */
+  const rolledStuck =
+    action === "roll" && next.diceValue !== 6 && getValidMoves(next, me.id).length === 0;
 
   const logged = {
     game_id: gameId,
@@ -246,6 +270,9 @@ export async function opTurn(
       current_turn_player_id: next.currentTurnPlayerId,
       turn_deadline: away ? turnDeadline(next, AWAY_TURN_SECONDS) : turnDeadline(next),
       state_version: v + 1,
+      // Rides the same version-guarded write as the state, so a roll that loses
+      // the race cannot move the streak either. Only a roll touches it.
+      ...(action === "roll" ? { dry_turns: nextDryTurns(game.dry_turns, me.id, rolledStuck) } : {}),
     })
     .eq("id", gameId)
     .eq("state_version", v)
@@ -284,7 +311,11 @@ export async function opTurn(
   // a chained roll is exactly the one that has no gap to prefetch in.
   const chained =
     next.status === "active" && next.phase === "awaiting-roll" && next.currentTurnPlayerId === me.id
-      ? await deriveDie(gameId, v + 1, me.id)
+      // Dry count 0, and not a guess: a chained roll is only granted by a six,
+      // a capture or a finish, every one of which means this turn was NOT a
+      // stuck one — so the write above has reset the counter to 0, which is
+      // what the next derivation at v+1 will read.
+      ? await deriveDie(gameId, v + 1, me.id, 0)
       : null;
 
   return json({ state: next, v: v + 1, ...(chained === null ? {} : { nextRoll: { v: v + 1, dice: chained } }) });
@@ -321,13 +352,15 @@ export async function opTurn(
  */
 export async function opPrepareRoll(admin: SupabaseClient, userId: string, gameId: string): Promise<Response> {
   const unavailable = json({ available: false });
-  const { data: game } = await admin.from("games").select("state, state_version").eq("id", gameId).single();
+  const { data: game } = await admin.from("games").select("state, state_version, dry_turns").eq("id", gameId).single();
   const state = game?.state as GameState | undefined;
   if (!state || state.status !== "active" || state.phase !== "awaiting-roll") return unavailable;
   const me = state.players.find((p) => p.userId === userId);
   if (!me || me.id !== state.currentTurnPlayerId) return unavailable;
   const v = (game!.state_version as number | null) ?? 0;
-  const dice = await deriveDie(gameId, v, me.id);
+  // Same dry count opTurn will use at this same version, so the number shown
+  // here is the number that actually gets rolled.
+  const dice = await deriveDie(gameId, v, me.id, dryTurnsFor(game!.dry_turns, me.id));
   return dice === null ? unavailable : json({ available: true, v, dice });
 }
 
@@ -350,7 +383,7 @@ function driveAwaySeatSoon(admin: SupabaseClient, gameId: string): void {
     await sleep(AWAY_TAKEOVER_MS);
     const { data: game } = await admin
       .from("games")
-      .select("id, state, turn_deadline, state_version, is_quick, has_bots")
+      .select("id, state, turn_deadline, state_version, is_quick, has_bots, dry_turns")
       .eq("id", gameId)
       .maybeSingle();
     const state = game?.state as GameState | undefined;
@@ -434,9 +467,13 @@ async function decideStalledStep(
   v: number,
   cur: GameState,
   awayPlayerId: string,
+  dryTurns: number,
 ): Promise<{ next: GameState; logged: Record<string, unknown> }> {
   if (cur.phase === "awaiting-roll") {
-    const roll = rollDice(cur, await rollRng(gameId, v, cur.currentTurnPlayerId));
+    // The away seat's own count: the die the bot rolls for a player has to be
+    // the die that player would have rolled, bias included, or declining to
+    // roll would change the number. See rollRng.
+    const roll = rollDice(cur, await rollRng(gameId, v, cur.currentTurnPlayerId, dryTurns));
     return { next: roll.newState, logged: { action: "bot-roll", dice: roll.diceValue } };
   }
   const moves = getValidMoves(cur, awayPlayerId);
@@ -454,6 +491,9 @@ interface StepOutcome {
   state: GameState;
   v: number;
   guard: string | null;
+  /** The dry-turn map as written, so a chained turn carries it forward rather
+   *  than re-deriving from a copy that is now a write behind. */
+  dryTurns: unknown;
 }
 
 /** Play one action for the stalled seat and CAS-write it. Null means someone
@@ -466,8 +506,21 @@ async function writeStalledStep(
   cur: GameState,
   v: number,
   guard: string | null,
+  /** The whole map as stored, so this can both derive from it and write it back. */
+  dryTurns: unknown,
 ): Promise<StepOutcome | null> {
-  const { next, logged } = await decideStalledStep(gameId, v, cur, awayPlayerId);
+  const roller = cur.currentTurnPlayerId;
+  const rolling = cur.phase === "awaiting-roll";
+  const { next, logged } = await decideStalledStep(
+    gameId,
+    v,
+    cur,
+    awayPlayerId,
+    dryTurnsFor(dryTurns, roller),
+  );
+  // A seat played for its owner still counts: the die it was handed is the die
+  // the player would have rolled, so the streak it belongs to has to move too.
+  const stuck = rolling && next.diceValue !== 6 && getValidMoves(next, roller).length === 0;
   // The seat we are playing for is away, so as long as the turn stays with it
   // the clock stays short; handing off asks about the seat receiving it.
   const stays = next.currentTurnPlayerId === awayPlayerId;
@@ -476,7 +529,14 @@ async function writeStalledStep(
   const nextDeadline = short ? turnDeadline(next, AWAY_TURN_SECONDS) : turnDeadline(next);
   const { data: updated, error } = await admin
     .from("games")
-    .update({ state: next, status: next.status, current_turn_player_id: next.currentTurnPlayerId, turn_deadline: nextDeadline, state_version: v + 1 })
+    .update({
+      state: next,
+      status: next.status,
+      current_turn_player_id: next.currentTurnPlayerId,
+      turn_deadline: nextDeadline,
+      state_version: v + 1,
+      ...(rolling ? { dry_turns: nextDryTurns(dryTurns, roller, stuck) } : {}),
+    })
     .eq("id", gameId)
     .eq("turn_deadline", guard!)
     .eq("state_version", v)
@@ -485,7 +545,12 @@ async function writeStalledStep(
   if (error || !updated) return null;
 
   afterResponse(admin.from("moves").insert({ game_id: gameId, player_id: awayPlayerId, action: logged }));
-  return { state: next, v: v + 1, guard: nextDeadline };
+  return {
+    state: next,
+    v: v + 1,
+    guard: nextDeadline,
+    dryTurns: rolling ? nextDryTurns(dryTurns, roller, stuck) : dryTurns,
+  };
 }
 
 /** Does the stalled seat still owe another action (extra turn from a 6 or a capture)? */
@@ -530,7 +595,7 @@ function continueStalledTurn(
       // 0 choices: this is an absent human's seat being played out, not a
       // hidden opponent to make convincing — pace it for readability, not feel.
       await sleep(stepPauseMs(0));
-      const nextStep = await writeStalledStep(admin, gameId, awayPlayerId, cur.state, cur.v, cur.guard);
+      const nextStep = await writeStalledStep(admin, gameId, awayPlayerId, cur.state, cur.v, cur.guard, cur.dryTurns);
       if (!nextStep) return; // someone else owns the turn now — they'll settle it
       cur = nextStep;
       if (!stillStalled(cur, awayPlayerId)) break;
@@ -547,6 +612,9 @@ export interface StalledGameRow {
   state_version: number | null;
   is_quick: boolean | null;
   has_bots: boolean | null;
+  /** Per-seat dry-turn map (0058). Absent on a database whose migration has not
+   *  landed, which reads as "nobody is owed a rescue". */
+  dry_turns?: unknown;
 }
 
 /**
@@ -676,7 +744,7 @@ export async function advanceStalledGame(
     }
   }
 
-  const first = await writeStalledStep(admin, gameId, awayPlayerId, state, v, game.turn_deadline);
+  const first = await writeStalledStep(admin, gameId, awayPlayerId, state, v, game.turn_deadline, game.dry_turns);
   if (!first) return { kind: "raced" };
 
   if (stillStalled(first, awayPlayerId)) {
