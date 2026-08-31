@@ -1,16 +1,16 @@
 /** Shared test utilities. Not a test file (excluded by the `*.test.ts` glob). */
 
 import { createGame } from "../src/createGame.js";
-import type { GameState, Phase, TokenPosition } from "../src/types.js";
+import type { GameState, Phase, RuleConfig, TokenPosition } from "../src/types.js";
 import type { Rng } from "../src/rng.js";
 
-export function twoPlayerGame(): GameState {
+export function twoPlayerGame(rules?: Partial<RuleConfig>): GameState {
   return createGame(
     [
       { id: "p1", userId: "u1", color: "red" },
       { id: "p2", userId: "u2", color: "yellow" },
     ],
-    { gameId: "g1" },
+    rules ? { gameId: "g1", rules } : { gameId: "g1" },
   );
 }
 

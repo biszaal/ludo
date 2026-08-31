@@ -17,6 +17,7 @@ export const DEFAULT_RULES = {
     exactRollToFinish: true,
     safeSquares: true,
     protectStacks: true,
+    threeRollsFromYard: true,
     enableBlockades: false,
 };
 //# sourceMappingURL=types.js.map

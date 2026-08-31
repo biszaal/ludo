@@ -539,6 +539,39 @@ export function foldAllowed(
 }
 
 /**
+ * The first client release that knows the three-rolls-from-the-yard rule.
+ *
+ * The rule lives in the engine, and the engine is dual-deployed: the client
+ * predicts with it and the server decides with it. A seat running an older
+ * build would predict a hand-off on its first dud roll from a full yard, watch
+ * the server keep the turn, and snap back — on every one of those turns, for
+ * the whole match. With no OTA channel that seat can never be fixed, so the
+ * table has to be dealt with the rule OFF instead.
+ */
+export const YARD_ROLLS_MIN_VERSION = "1.0.4";
+
+/**
+ * May this table be dealt with the three-roll rule on?
+ *
+ * Same shape and same reasoning as foldAllowed: every human seat must be new
+ * enough, and bot seats are exempt because they have no client and never
+ * render. `botUserIds` MUST come from `game_bots` for the reason given there.
+ *
+ * Decided once, at deal, and carried in the state's own `rules` — so a game
+ * plays by one ruleset from first roll to last, and a player updating
+ * mid-match cannot change the rules of a table already in progress.
+ */
+export function yardRollsAllowed(
+  seats: Array<{ user_id: string; app_version: string | null }>,
+  botUserIds: Set<string>,
+): boolean {
+  if (seats.length === 0) return false;
+  return seats.every(
+    (s) => botUserIds.has(String(s.user_id)) || versionAtLeast(s.app_version, YARD_ROLLS_MIN_VERSION),
+  );
+}
+
+/**
  * Re-exported so the cron entrypoints here keep importing it from one place.
  * The implementation moved to _shared once the RevenueCat webhook — a separate
  * function, and the one path that mints paid currency — needed it too.

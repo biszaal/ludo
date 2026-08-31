@@ -30,7 +30,7 @@ describe("forced-action pacing", () => {
     expect(store.getState().state!.status).toBe("active");
   });
 
-  it("waits out the die tumble plus a beat before auto-passing a no-move roll", () => {
+  it("waits out the die tumble plus a beat before resolving a no-move roll", () => {
     vi.spyOn(Math, "random").mockReturnValue(0); // roll = 1 → nothing can leave the yard
     vi.useFakeTimers();
     store.getState().newLocalGame({ players: 2, bots: 1 });
@@ -40,9 +40,29 @@ describe("forced-action pacing", () => {
 
     // The number must stay on screen past the whole tumble.
     vi.advanceTimersByTime(DICE_ROLL_MS);
-    expect(store.getState().state!.currentTurnPlayerId).toBe("p1");
+    expect(store.getState().state!.phase).toBe("awaiting-move");
 
+    // A full yard no longer loses the turn on one dud: threeRollsFromYard hands
+    // the same player another roll, and the seat returns to awaiting-roll for
+    // them to take it. The pacing above is unchanged — only where it lands is.
     vi.advanceTimersByTime(500);
+    expect(store.getState().state!.currentTurnPlayerId).toBe("p1");
+    expect(store.getState().state!.phase).toBe("awaiting-roll");
+  });
+
+  it("passes to the next player once all three yard rolls are duds", () => {
+    vi.spyOn(Math, "random").mockReturnValue(0); // every roll is a 1
+    vi.useFakeTimers();
+    store.getState().newLocalGame({ players: 2, bots: 1 });
+
+    for (let i = 0; i < 3; i++) {
+      expect(store.getState().state!.currentTurnPlayerId).toBe("p1");
+      store.getState().roll();
+      vi.advanceTimersByTime(DICE_ROLL_MS + 500);
+    }
+
+    // Three duds spent: the turn finally moves on, and the human was asked to
+    // roll each time rather than having the extras taken automatically.
     expect(store.getState().state!.currentTurnPlayerId).toBe("p2");
   });
 

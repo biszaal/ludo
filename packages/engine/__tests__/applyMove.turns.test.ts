@@ -57,7 +57,21 @@ describe("applyMove — turn flow", () => {
 
 describe("endTurn", () => {
   it("passes the turn when there are no legal moves", () => {
-    const state = withDice(twoPlayerGame(), 3); // all yarded, can't move
+    // A full yard is the one case that does NOT pass on the first dud any more:
+    // threeRollsFromYard grants another roll instead (see yardRolls.test.ts).
+    // Turned off here so this stays a test of endTurn's own contract.
+    const state = withDice(twoPlayerGame({ threeRollsFromYard: false }), 3);
+    expect(getValidMoves(state, "p1")).toEqual([]);
+    const next = endTurn(state);
+    expect(next.currentTurnPlayerId).toBe("p2");
+    expect(next.phase).toBe("awaiting-roll");
+  });
+
+  it("passes the turn once the yard allowance is spent", () => {
+    // The same forced pass with the rule ON, on its third roll: the allowance
+    // is gone, so endTurn does what it always did.
+    const base = withDice(twoPlayerGame(), 3);
+    const state = { ...base, yardRolls: 2 };
     expect(getValidMoves(state, "p1")).toEqual([]);
     const next = endTurn(state);
     expect(next.currentTurnPlayerId).toBe("p2");

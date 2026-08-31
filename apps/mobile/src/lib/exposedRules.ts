@@ -15,6 +15,7 @@ export interface ExposedRule {
 
 export const EXPOSED_RULES: ExposedRule[] = [
   { key: "leaveYardOnSix", label: "Six to leave the yard", hint: "Pawns need a 6 to enter play" },
+  { key: "threeRollsFromYard", label: "Three rolls when stuck", hint: "With nothing on the board, roll up to 3 times for a 6" },
   { key: "extraTurnOnSix", label: "Extra roll on a six", hint: "Rolling 6 grants another roll" },
   { key: "threeSixesForfeit", label: "Three sixes forfeit", hint: "Three 6s in a row ends the turn" },
   { key: "exactRollToFinish", label: "Exact roll to finish", hint: "Overshooting the center is not allowed" },

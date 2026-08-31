@@ -106,6 +106,22 @@ export interface RuleConfig {
      * passage — opponents move straight over a stack, they just can't land on it.
      */
     protectStacks: boolean;
+    /**
+     * A player with NOTHING on the board gets up to three rolls to find a six,
+     * instead of one.
+     *
+     * With `leaveYardOnSix`, a full yard means a turn in which no roll but a six
+     * can do anything, and P(no six in n rolls) is (5/6)^n — 58% still stuck
+     * after three turns. Three rolls takes "still stuck after five turns" from
+     * 40% to 6.5% while leaving every die perfectly uniform: it is the standard
+     * Ludo rule, not a thumb on the scale.
+     *
+     * Kept as a flag because it must be switchable per game. It is dual-deployed
+     * (client prediction and server authority) with no OTA channel, so a table
+     * holding any client too old to know the rule has to be dealt with it OFF or
+     * that client mispredicts every hand-off from a full yard.
+     */
+    threeRollsFromYard: boolean;
     /** Two same-color tokens form an impassable, capture-proof block. Off in v1. */
     enableBlockades: boolean;
 }
@@ -120,6 +136,13 @@ export interface GameState {
     diceValue: number | null;
     /** 6s rolled in a row this turn; drives the three-sixes-forfeit rule. */
     consecutiveSixes: number;
+    /**
+     * Rolls already spent this turn by a player with nothing on the board.
+     *
+     * Only ever non-zero under `threeRollsFromYard`. Reset by advanceTurn, so it
+     * counts within a turn and never across one.
+     */
+    yardRolls: number;
     tokens: Token[];
     rules: RuleConfig;
     /** First player to finish all tokens (kept for compat; = finishedOrder[0]). */

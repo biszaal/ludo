@@ -1,4 +1,6 @@
 import type { GameState, TransitionOptions } from "./types.js";
+/** Rolls a player with nothing on the board gets to find a six. */
+export declare const YARD_ROLLS = 3;
 /**
  * Pass the turn to the next player. Used after a roll that produced no legal
  * moves (a forced pass).

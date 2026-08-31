@@ -54,6 +54,7 @@ export function createGame(players: PlayerInput[], options: CreateGameOptions = 
     phase: "awaiting-roll",
     diceValue: null,
     consecutiveSixes: 0,
+    yardRolls: 0,
     tokens,
     rules: { ...DEFAULT_RULES, ...options.rules },
     winnerPlayerId: null,

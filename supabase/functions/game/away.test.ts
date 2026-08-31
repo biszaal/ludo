@@ -46,7 +46,11 @@ function passableGame(): GameState {
   const rolled = rollDice(fresh, () => 0.4).newState;
   assertEquals(rolled.diceValue! < 6, true);
   assertEquals(getValidMoves(rolled, "p1").length, 0);
-  return rolled;
+  // On the LAST of the three yard rolls, so the pass genuinely hands the turn
+  // over. Without this, threeRollsFromYard gives p1 another roll and the seat
+  // never changes — which is the rule working, and no longer a fixture for
+  // testing what a hand-off writes.
+  return { ...rolled, yardRolls: 2 };
 }
 
 interface Fake {
