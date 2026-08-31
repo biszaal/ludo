@@ -16,9 +16,11 @@ import { SheetHost } from "./src/components/SheetHost";
 import { InviteBanner } from "./src/components/InviteBanner";
 import { ConfirmDialog } from "./src/components/ConfirmDialog";
 import { LoadingScreen } from "./src/components/LoadingScreen";
+import { ChooseNameScreen } from "./src/components/ChooseNameScreen";
 import { ErrorBoundary } from "./src/components/ErrorBoundary";
 import { useOnlineStore } from "./src/store/onlineStore";
 import { useNav } from "./src/store/navStore";
+import { useProfile } from "./src/store/profileStore";
 import { initSound, setMusicActive } from "./src/lib/sound";
 import { initFeedback } from "./src/lib/feedback";
 import { initDeepLinks } from "./src/lib/invite";
@@ -61,6 +63,8 @@ export default function App() {
     JetBrainsMono_500Medium,
   });
   const [launched, setLaunched] = useState(false);
+  // Never prompted on an existing install: profileStore v3 migrates them past it.
+  const namePromptSeen = useProfile((s) => s.namePromptSeen);
   const onLaunched = useCallback(() => setLaunched(true), []);
 
   useEffect(() => {
@@ -180,6 +184,10 @@ export default function App() {
           <ConfirmDialog />
         </ErrorBoundary>
       )}
+      {/* First launch only: asked once, above the hub so nothing behind it can
+          be tapped, and below the loading screen so it never flashes during
+          startup. Skipping keeps the minted guest handle. */}
+      {ready && launched && !namePromptSeen && <ChooseNameScreen />}
       {!launched && <LoadingScreen done={ready} onHidden={onLaunched} />}
     </SafeAreaProvider>
     </KeyboardProvider>

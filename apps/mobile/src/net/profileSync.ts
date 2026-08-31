@@ -50,3 +50,40 @@ export function initProfileSync(): () => void {
     unsub();
   };
 }
+
+/** What happened to a name the player asked for. */
+export type NameClaim = "ok" | "taken" | "offline";
+
+/**
+ * Claim a display name and report whether it actually stuck.
+ *
+ * pushProfile above adopts whatever the server kept and says nothing, which is
+ * right for a debounced edit in a settings field — the name simply settles. It
+ * is wrong for a screen that ASKED a direct question: typing a name someone
+ * else already holds would snap the field back to `guest481920` with no
+ * explanation at all.
+ *
+ * Names are unique-indexed (0006) and the server keeps the existing row rather
+ * than raising, so "taken" is not an error to catch — it is the returned name
+ * differing from the one we sent. Compared case-insensitively, for the same
+ * reason pushProfile does: the DB accepts a capitalisation verbatim, and
+ * fighting the player over it would report a successful claim as a failure.
+ *
+ * "offline" is not a refusal. Nothing is written, the local name still changes,
+ * and initProfileSync's subscription pushes it on the next connection — the
+ * player is not held at an onboarding screen because their train went into a
+ * tunnel.
+ */
+export async function claimName(name: string): Promise<NameClaim> {
+  const stored = await upsertMyProfile(name, useProfile.getState().avatarId, useProfile.getState().diceSkinId).catch(
+    () => null,
+  );
+  if (!stored) return "offline";
+  if (stored.displayName && stored.displayName.toLowerCase() !== name.toLowerCase()) {
+    // Someone else holds it. Leave the local store alone so the field keeps
+    // what was typed and the player can edit it rather than retype it.
+    return "taken";
+  }
+  useProfile.getState().setName(stored.displayName ?? name);
+  return "ok";
+}
