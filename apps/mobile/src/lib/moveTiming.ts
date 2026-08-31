@@ -179,15 +179,23 @@ const DIE_HANDOVER_FLOOR_MS = 450;
  * on before the next player is asked to roll. Zero means hand over at once:
  * nothing was rolled, the roller kept the turn (a six — the die never left), or
  * this is not the same game.
+ *
+ * `broadcastRoll` is the number the store is holding in `lastRoll`, and it is
+ * what makes this work on a FOLDING table at all. There, a roll is broadcast
+ * and never written: the state that follows carries the roll and the move
+ * together, so applyMove has already cleared diceValue and `prev` is the state
+ * from before the roll, with no die on it. Keying the hold on `prev.diceValue`
+ * alone therefore missed every opponent hand-off — precisely the case the hold
+ * exists for — and the die jumped away mid-hop with the number never shown.
  */
-export function dieHandoverMs(prev: GameState, next: GameState): number {
+export function dieHandoverMs(prev: GameState, next: GameState, broadcastRoll: number | null = null): number {
   if (prev.gameId !== next.gameId) return 0;
   // The turn is still the roller's — a six, or a move that granted another
   // roll. The die is already where it belongs.
   if (prev.currentTurnPlayerId === next.currentTurnPlayerId) return 0;
   // Nothing was rolled into this hand-off (a timeout, a seat leaving), so there
-  // is no number on the face worth keeping there.
-  if (prev.diceValue == null) return 0;
+  // is no number on the face worth keeping there. Either source counts.
+  if (prev.diceValue == null && broadcastRoll == null) return 0;
   // A bust is already held by BUST_HOLD_MS in applyState, which keeps the whole
   // previous state — die included — on screen. Holding again would double it.
   if (isBustHandoff(prev, next)) return 0;

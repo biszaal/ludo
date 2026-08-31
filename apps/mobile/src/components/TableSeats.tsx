@@ -119,7 +119,15 @@ export function TableSeats({ size, occupants = {}, searching = false, boardSize 
         }}
       />
 
-      {searching
+      {/* Ripples only where they can actually RIPPLE.
+          `wave` never starts on the reduced tier, so drawing them there left
+          three motionless rings parked mid-expansion on top of the plate — a
+          deliberate downgrade wearing the costume of a broken screen, and the
+          "matchmaking animation is not working" report. A radar with no sweep
+          is not a quieter radar, it is a smudge; the breathing seat pads below
+          still carry the sense of waiting, and they degrade to nothing rather
+          than to a frozen artefact. */}
+      {searching && fullMotion
         ? Array.from({ length: RIPPLES }, (_, i) => (
             <Ripple key={i} index={i} wave={wave} boardSize={boardSize} />
           ))

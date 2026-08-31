@@ -6,7 +6,7 @@
 
 // @deno-types="../_shared/engine/index.d.ts"
 import { createGame as engineCreateGame, type GameState } from "../_shared/engine/index.js";
-import { afterResponse, foldAllowed, seatColors, turnDeadline, yardRollsAllowed, type SupabaseClient, WRITE_FAILED } from "./lib.ts";
+import { afterResponse, foldAllowed, seatColors, turnDeadline, type SupabaseClient, WRITE_FAILED } from "./lib.ts";
 import { walletApply } from "./wallet.ts";
 import { afterGameWrite } from "./bots.ts";
 
@@ -115,18 +115,7 @@ export async function startGameNow(admin: SupabaseClient, gameId: string): Promi
 
   const colors = seatColors(lobby.length, gameId);
   const players = lobby.map((p, i) => ({ id: p.id, userId: p.user_id, color: colors[i]! }));
-  // The rule set is fixed for the life of the table, here, where every seat's
-  // build is known. See yardRollsAllowed: a seat too old to know the rule would
-  // mispredict every dud roll from a full yard, and cannot be fixed without a
-  // store release.
-  const seatVersions = lobby.map((p) => ({
-    user_id: String(p.user_id),
-    app_version: (p.app_version as string | null) ?? null,
-  }));
-  const state = engineCreateGame(players, {
-    gameId,
-    rules: { threeRollsFromYard: yardRollsAllowed(seatVersions, botIds) },
-  });
+  const state = engineCreateGame(players, { gameId });
 
   const { data: updated, error } = await admin
     .from("games")
@@ -138,7 +127,10 @@ export async function startGameNow(admin: SupabaseClient, gameId: string): Promi
       state_version: v + 1,
       // Decided here and only here — see 0050. Every seat's build is known by
       // now, and it must not be re-asked once the table is being rendered.
-      fold_writes: foldAllowed(seatVersions, botIds),
+      fold_writes: foldAllowed(
+        lobby.map((p) => ({ user_id: String(p.user_id), app_version: (p.app_version as string | null) ?? null })),
+        botIds,
+      ),
     })
     .eq("id", gameId)
     .eq("state_version", v)

@@ -204,6 +204,26 @@ export function GameView({
   const heldDie = useDieHandover(state, lastRoll);
   const dieSeatId = heldDie?.playerId ?? state.currentTurnPlayerId;
   const dieValue = heldDie ? heldDie.value : state.diceValue ?? lastRoll;
+
+  /**
+   * A roll is on screen that the STATE does not know about yet.
+   *
+   * On a folding table the die is broadcast and the state that explains it
+   * arrives later carrying the roll and the move together — so for the whole of
+   * an opponent's tumble the phase is still "awaiting-roll". `idle` was derived
+   * from the phase alone, and Dice paints the awaiting-roll SWIRL whenever it is
+   * set, so an opponent's die tumbled and then settled on a swirl: the number
+   * was never drawn at all. That is the "dice glitching on other players"
+   * report — tumble, swirl, tumble, swirl, no result ever readable.
+   *
+   * projection.ts sets `lastRoll` to the state's own die, which is null through
+   * an ordinary awaiting-roll, so a number here can only have come from a
+   * broadcast (or from prepareRoll on our own tap — the same situation).
+   */
+  const rollInFlight = state.phase === "awaiting-roll" && lastRoll !== null;
+  // Idle means "nothing has been rolled — tap me", and none of the three cases
+  // below is that.
+  const dieIdle = !heldDie && !rollInFlight && state.phase === "awaiting-roll" && !bustHold;
   const finished = state.status === "finished";
   // Every seat's entry, bot seats included — matches what the server pays out.
   const pot = potFor(stake, state.players.length);
@@ -456,7 +476,7 @@ export function GameView({
             value={dieValue}
             spinSeq={rollSeq}
             size={diceSize}
-            idle={!heldDie && state.phase === "awaiting-roll" && !bustHold}
+            idle={dieIdle}
             theme={theme}
             skin={resolveDiceSkin(diceSkinFor?.(p.id) ?? null)}
             onRollPress={heldDie ? null : canRoll ? onRoll : pilot ? autoPilot?.onTakeControl ?? null : null}
@@ -587,7 +607,7 @@ export function GameView({
         value={dieValue}
         spinSeq={rollSeq}
         size={diceSize}
-        idle={!heldDie && state.phase === "awaiting-roll" && !bustHold}
+        idle={dieIdle}
         theme={theme}
         skin={resolveDiceSkin(diceSkinFor?.(dieSeat.id) ?? null)}
         onRollPress={heldDie ? null : canRollNow ? onRoll : activeIsPilot ? autoPilot?.onTakeControl ?? null : null}

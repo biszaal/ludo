@@ -328,3 +328,62 @@ describe("dieHandoverMs", () => {
     expect(dieHandoverMs(prev, next)).toBeGreaterThan(0);
   });
 });
+
+/**
+ * A hand-off must hold the die even when the roll never entered a state.
+ *
+ * dieHandoverMs originally keyed the hold on `prev.diceValue` — the number the
+ * roller had on screen. On a FOLDING table there is never such a number: the
+ * roll is broadcast and the state that follows carries the roll AND the move
+ * together, so applyMove has already cleared diceValue and `prev` is the state
+ * from BEFORE the roll, whose diceValue is null.
+ *
+ * So the hold never fired for exactly the case it was written for — an
+ * opponent's roll — and the die jumped to the next seat the instant their state
+ * applied. The number lives in the store's `lastRoll` on that path, so the
+ * caller has to be able to say "there was a roll" for itself.
+ */
+describe("dieHandoverMs on a folding table", () => {
+  const base = (): GameState =>
+    createGame(
+      [
+        { id: "p1", userId: "u1", color: "red" },
+        { id: "p2", userId: "u2", color: "yellow" },
+      ],
+      { gameId: "g1" },
+    );
+
+  const withToken = (state: GameState, tokenId: string, position: TokenPosition): GameState => ({
+    ...state,
+    tokens: state.tokens.map((t) => (t.id === tokenId ? { ...t, position } : t)),
+  });
+
+  it("holds when the roll was broadcast rather than written", () => {
+    // prev.diceValue is null — the roll never entered a state at all.
+    const prev = withToken(base(), "red-0", fromRelativeIndex("red", 5));
+    const next = {
+      ...withToken(prev, "red-0", fromRelativeIndex("red", 9)),
+      currentTurnPlayerId: "p2",
+      diceValue: null,
+    };
+    expect(prev.diceValue).toBeNull();
+    expect(dieHandoverMs(prev, next, 4)).toBe(4 * HOP_STEP_MS);
+  });
+
+  it("still holds on the written path, where the state carried the die", () => {
+    const prev = { ...withToken(base(), "red-0", fromRelativeIndex("red", 5)), diceValue: 4 };
+    const next = {
+      ...withToken(prev, "red-0", fromRelativeIndex("red", 9)),
+      currentTurnPlayerId: "p2",
+      diceValue: null,
+    };
+    expect(dieHandoverMs(prev, next, null)).toBe(4 * HOP_STEP_MS);
+  });
+
+  it("does not hold a hand-off where nothing was rolled at all", () => {
+    // A timeout or a seat leaving: no state die, and no broadcast die either.
+    const prev = base();
+    const next = { ...prev, currentTurnPlayerId: "p2", diceValue: null };
+    expect(dieHandoverMs(prev, next, null)).toBe(0);
+  });
+});

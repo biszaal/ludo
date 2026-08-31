@@ -33,7 +33,7 @@ const SECTIONS = [
   {
     key: "roll",
     title: "Rolling & sixes",
-    body: "Roll a six to move a pawn out of your yard onto your start square. A six also earns another roll — but three sixes in a row forfeits the turn. With nothing on the board, you get up to three rolls to find a six.",
+    body: "Roll a six to move a pawn out of your yard onto your start square. A six also earns another roll — but three sixes in a row forfeits the turn.",
     Diagram: RollSixDiagram,
   },
   {

@@ -73,7 +73,6 @@ export function endIfComplete(state) {
     state.phase = "awaiting-roll";
     state.diceValue = null;
     state.consecutiveSixes = 0;
-    state.yardRolls = 0;
     return true;
 }
 /**
@@ -113,8 +112,6 @@ export function advanceTurn(state) {
     state.phase = "awaiting-roll";
     state.diceValue = null;
     state.consecutiveSixes = 0;
-    // Three-roll allowance is per turn, so the next player starts with all of it.
-    state.yardRolls = 0;
 }
 export function makeAction(type, payload, now) {
     return { type, payload, timestamp: now ?? 0 };

@@ -43,7 +43,7 @@ export function useDieHandover(state: GameState | null, lastRoll: number | null)
     prev.current = state;
     if (!was || !state) return;
 
-    const ms = dieHandoverMs(was, state);
+    const ms = dieHandoverMs(was, state, latestRoll.current);
     if (ms <= 0) {
       // An immediate hand-off cancels any hold still running: this is a newer
       // truth than the one being held, and a stale die outliving it would sit
@@ -56,8 +56,9 @@ export function useDieHandover(state: GameState | null, lastRoll: number | null)
       return;
     }
 
-    // dieHandoverMs only returns > 0 when `was.diceValue` is set, so the
-    // fallback is belt and braces rather than an expected path.
+    // On a folding table the number is only ever in lastRoll — `was.diceValue`
+    // is null there — so the fallback is the NORMAL path for an opponent's
+    // roll, not a safety net.
     const value = was.diceValue ?? latestRoll.current;
     if (value == null) return;
 
