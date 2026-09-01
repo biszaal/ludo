@@ -14,8 +14,12 @@ import {
   FLY_MS,
   HOP_STEP_MS,
   dieHandoverMs,
+  dieHoldFor,
+  latchRoll,
   moveDurationMs,
+  ROLL_PACING_MS,
   stateAnimationMs,
+  type RollLatch,
 } from "../src/lib/moveTiming";
 import { RETURN_TOTAL_MS } from "../src/render/waypoints";
 
@@ -385,5 +389,182 @@ describe("dieHandoverMs on a folding table", () => {
     const prev = base();
     const next = { ...prev, currentTurnPlayerId: "p2", diceValue: null };
     expect(dieHandoverMs(prev, next, null)).toBe(0);
+  });
+});
+
+/**
+ * The latch that carries an opponent's number from its broadcast to the
+ * hand-off that has to show it.
+ *
+ * Every case here is a real sequence the online store produces. The one that
+ * matters most is "the store forgetting": on a folding table `lastRoll` goes
+ * back to null in the SAME setState that changes the state, because applyMove
+ * cleared diceValue and that is what the projection honestly reports. Anything
+ * that mirrors `lastRoll` therefore reads null at the exact moment the hand-off
+ * needs the number, which is how an opponent's die ended up showing the
+ * awaiting-roll swirl instead of what they rolled.
+ */
+describe("latchRoll", () => {
+  const seed = (seq: number, value: number | null): RollLatch => ({ seq, value });
+
+  it("takes the number a new roll publishes with it", () => {
+    // Our own prepared roll: rollSeq and the number arrive in one setState.
+    expect(latchRoll(seed(1, null), 2, 5)).toEqual({ seq: 2, value: 5 });
+  });
+
+  it("takes a number that arrives after its roll started", () => {
+    // The slow path: the tumble begins with nothing, and the server answers.
+    expect(latchRoll(seed(2, null), 2, 3)).toEqual({ seq: 2, value: 3 });
+  });
+
+  it("ignores the store forgetting the number", () => {
+    // THE BUG. The folded state clears lastRoll in the same render that changes
+    // the state, and the hand-off reads the latch during that render.
+    const held = seed(2, 4);
+    expect(latchRoll(held, 2, null)).toBe(held);
+  });
+
+  it("drops the previous roll's number when a new roll begins", () => {
+    // A roll whose number has not arrived yet must not inherit the last one, or
+    // the die lands on a number the server never sent.
+    expect(latchRoll(seed(2, 4), 3, null)).toEqual({ seq: 3, value: null });
+  });
+
+  it("keeps its identity when nothing changed", () => {
+    // Held in a ref and folded on every render, so a needless new object would
+    // be churn on the hottest render path in the game.
+    const held = seed(2, 4);
+    expect(latchRoll(held, 2, 4)).toBe(held);
+  });
+
+  it("carries a number across a spend and a fresh roll", () => {
+    // The whole sequence for one opponent turn on a folding table:
+    // broadcast -> folded state (lastRoll nulled) -> spent -> next broadcast.
+    let latch = seed(7, null);
+    latch = latchRoll(latch, 8, 6); // the broadcast
+    expect(latch.value).toBe(6);
+    latch = latchRoll(latch, 8, null); // the folded state's null
+    expect(latch.value).toBe(6);
+    latch = { ...latch, value: null }; // spent by the hand-off
+    latch = latchRoll(latch, 9, 2); // their next roll
+    expect(latch).toEqual({ seq: 9, value: 2 });
+  });
+});
+
+describe("ROLL_PACING_MS", () => {
+  it("is what a written roll is charged, so a broadcast one can be charged the same", () => {
+    // The online store arms its hold timer with this on a broadcast. If the two
+    // ever drifted, a folded roll would be paced differently from a written one
+    // — which is the difference between watching a tumble and watching a pawn
+    // set off over the top of it.
+    const before = createGame(
+      [
+        { id: "p1", userId: "u1", color: "red" },
+        { id: "p2", userId: "u2", color: "yellow" },
+      ],
+      { gameId: "g1" },
+    );
+    const rolledOnly = { ...before, diceValue: 4, phase: "awaiting-move" as const };
+    expect(stateAnimationMs(before, rolledOnly)).toBe(ROLL_PACING_MS);
+    expect(ROLL_PACING_MS).toBeGreaterThan(DICE_ROLL_MS);
+  });
+});
+
+/**
+ * The hand-off decision and the latch, composed the way the hook composes them.
+ *
+ * useDieHandover is refs and a timer around exactly these two calls: fold the
+ * render's `(rollSeq, lastRoll)` into the latch, then on the next state read the
+ * latch, spend it, and ask for a hold. Driving that sequence here is the only
+ * way to pin what a watcher actually SEES, since the component itself cannot be
+ * rendered in this suite.
+ */
+describe("the die hand-off, driven as the hook drives it", () => {
+  const P1 = { id: "p1", userId: "u1", color: "red" as const };
+  const P2 = { id: "p2", userId: "u2", color: "yellow" as const };
+  const P3 = { id: "p3", userId: "u3", color: "green" as const };
+
+  /** A minimal stand-in for the hook: latch on render, spend on state change. */
+  function watcher(first: GameState) {
+    let latch: RollLatch = { seq: 0, value: null };
+    let prev = first;
+    return {
+      /** A render with no new state — a broadcast, or our own prepared roll. */
+      render(rollSeq: number, lastRoll: number | null) {
+        latch = latchRoll(latch, rollSeq, lastRoll);
+      },
+      /** A state landing, with whatever `lastRoll` the store publishes alongside. */
+      apply(next: GameState, rollSeq: number, lastRoll: number | null) {
+        latch = latchRoll(latch, rollSeq, lastRoll);
+        const rolled = latch.value;
+        latch = { ...latch, value: null };
+        const hold = dieHoldFor(prev, next, rolled);
+        prev = next;
+        return hold;
+      },
+    };
+  }
+
+  const base = (players: Parameters<typeof createGame>[0]): GameState => createGame(players, { gameId: "g1" });
+
+  const moved = (state: GameState, tokenId: string, index: number): GameState => ({
+    ...state,
+    tokens: state.tokens.map((t) => (t.id === tokenId ? { ...t, position: fromRelativeIndex("red", index) } : t)),
+  });
+
+  it("holds an opponent's broadcast die through their hop", () => {
+    // The reported bug. The folded state carries the move and NO die, and the
+    // store publishes lastRoll: null alongside it — so everything the hold needs
+    // has to come from the latch.
+    const start = moved(base([P1, P2]), "red-0", 5);
+    const w = watcher(start);
+
+    w.render(1, 4); // the broadcast
+    const folded = { ...moved(start, "red-0", 9), currentTurnPlayerId: "p2", diceValue: null };
+    const hold = w.apply(folded, 1, null); // the folded state, lastRoll nulled
+
+    expect(hold).toEqual({ playerId: "p1", value: 4, ms: 4 * HOP_STEP_MS });
+  });
+
+  it("does not hand a seat that never rolled the previous roller's die", () => {
+    // p1 rolls and hands over; then p2 leaves without rolling. Nothing may be
+    // held at p2's corner — this is what spending the latch buys.
+    const start = moved(base([P1, P2, P3]), "red-0", 5);
+    const w = watcher(start);
+
+    w.render(1, 4);
+    const folded = { ...moved(start, "red-0", 9), currentTurnPlayerId: "p2", diceValue: null };
+    expect(w.apply(folded, 1, null)).not.toBeNull();
+
+    // p2 leaves: the turn moves again, with no roll behind it at all.
+    const left = { ...folded, currentTurnPlayerId: "p3" };
+    expect(w.apply(left, 1, null)).toBeNull();
+  });
+
+  it("carries a fresh number through each roll of a six chain", () => {
+    // A six keeps the turn, so the folded state leaves the same seat awaiting
+    // another roll. Each broadcast must supply its OWN number.
+    const start = moved(base([P1, P2]), "red-0", 5);
+    const w = watcher(start);
+
+    w.render(1, 6);
+    const afterSix = { ...moved(start, "red-0", 11), currentTurnPlayerId: "p1", diceValue: null };
+    expect(w.apply(afterSix, 1, null)).toBeNull(); // turn kept — the die is already home
+
+    w.render(2, 3);
+    const handed = { ...moved(afterSix, "red-0", 14), currentTurnPlayerId: "p2", diceValue: null };
+    expect(w.apply(handed, 2, null)).toEqual({ playerId: "p1", value: 3, ms: 3 * HOP_STEP_MS });
+  });
+
+  it("still works on the written path, where the state carries the die", () => {
+    // An unfolded table: no broadcast at all, and `lastRoll` tracks diceValue.
+    const start = moved(base([P1, P2]), "red-0", 5);
+    const w = watcher(start);
+
+    const rolled = { ...start, diceValue: 4, phase: "awaiting-move" as const };
+    expect(w.apply(rolled, 1, 4)).toBeNull(); // a roll keeps the turn
+
+    const handed = { ...moved(rolled, "red-0", 9), currentTurnPlayerId: "p2", diceValue: null };
+    expect(w.apply(handed, 1, null)).toEqual({ playerId: "p1", value: 4, ms: 4 * HOP_STEP_MS });
   });
 });

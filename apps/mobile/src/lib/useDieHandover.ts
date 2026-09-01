@@ -21,7 +21,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { GameState } from "@ludo/engine";
-import { dieHandoverMs } from "./moveTiming";
+import { dieHoldFor, latchRoll, type RollLatch } from "./moveTiming";
 
 /** The seat the die is still sitting at, and the number on its face. */
 export interface HeldDie {
@@ -29,45 +29,53 @@ export interface HeldDie {
   value: number;
 }
 
-export function useDieHandover(state: GameState | null, lastRoll: number | null): HeldDie | null {
+export function useDieHandover(
+  state: GameState | null,
+  lastRoll: number | null,
+  rollSeq: number,
+): HeldDie | null {
   const [held, setHeld] = useState<HeldDie | null>(null);
   const prev = useRef<GameState | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Read in the effect below, which must not re-run when only the roll changes:
-  // lastRoll is a fallback for the number, never a reason to start a hold.
-  const latestRoll = useRef(lastRoll);
-  latestRoll.current = lastRoll;
+
+  /**
+   * The number of the roll on screen, latched rather than mirrored — the rule,
+   * and why a mirror was the bug, are on `latchRoll` in lib/moveTiming.
+   *
+   * Folded during render, so the effect below always reads the value belonging
+   * to the render that queued it.
+   */
+  const latch = useRef<RollLatch>({ seq: rollSeq, value: lastRoll });
+  latch.current = latchRoll(latch.current, rollSeq, lastRoll);
 
   useEffect(() => {
     const was = prev.current;
     prev.current = state;
     if (!was || !state) return;
 
-    const ms = dieHandoverMs(was, state, latestRoll.current);
-    if (ms <= 0) {
+    // Read once, then spend: this transition is the roll's resolution whether or
+    // not it turns into a hold. See dieHoldFor.
+    const rolledValue = latch.current.value;
+    latch.current.value = null;
+
+    const hold = dieHoldFor(was, state, rolledValue);
+    if (timer.current) {
+      clearTimeout(timer.current);
+      timer.current = null;
+    }
+    if (!hold) {
       // An immediate hand-off cancels any hold still running: this is a newer
       // truth than the one being held, and a stale die outliving it would sit
       // at a corner whose turn is long gone.
-      if (timer.current) {
-        clearTimeout(timer.current);
-        timer.current = null;
-      }
       setHeld(null);
       return;
     }
 
-    // On a folding table the number is only ever in lastRoll — `was.diceValue`
-    // is null there — so the fallback is the NORMAL path for an opponent's
-    // roll, not a safety net.
-    const value = was.diceValue ?? latestRoll.current;
-    if (value == null) return;
-
-    if (timer.current) clearTimeout(timer.current);
-    setHeld({ playerId: was.currentTurnPlayerId, value });
+    setHeld({ playerId: hold.playerId, value: hold.value });
     timer.current = setTimeout(() => {
       timer.current = null;
       setHeld(null);
-    }, ms);
+    }, hold.ms);
   }, [state]);
 
   // Leaving the table mid-hold must not leave a timer pointing at a screen that

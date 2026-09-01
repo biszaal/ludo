@@ -31,6 +31,20 @@ export const DICE_ROLL_MS = 700;
 /** Beat after the die lands before the pawn is allowed to move. */
 const DICE_READ_MS = 200;
 
+/**
+ * The whole screen budget one roll owns: the tumble plus the beat to read it.
+ *
+ * `stateAnimationMs` charges this for a transition that carries a die, which is
+ * how a WRITTEN roll gets paced. A folding table writes no roll at all — the die
+ * arrives as a broadcast and the state behind it carries the roll and the move
+ * together — so `rolled()` is false there and the folded state used to be
+ * applied ROW_HOLD_PAD_MS (80ms) after the tumble started, cutting a 700ms
+ * animation to nothing and starting the pawn's hop over the top of it. The
+ * online store arms the same hold on a broadcast so both protocols pace a roll
+ * identically.
+ */
+export const ROLL_PACING_MS = DICE_ROLL_MS + DICE_READ_MS;
+
 /** Fraction of a roll spent tumbling; the rest is the landing squash. */
 export const DICE_CUBE_END = 0.8;
 /** One lap of the cube: the tumble alone, without the squash that ends a roll. */
@@ -100,6 +114,84 @@ export function diceLandsThisLap(input: {
   return seenAt <= lapStartedAt + DICE_TUMBLE_MS - DICE_FACE_LOCK_MS;
 }
 
+/**
+ * The number of the roll that is on screen but not yet explained by a state.
+ *
+ * `useDieHandover` keeps one of these so the die hand-off can still read an
+ * opponent's number, and the rule lives here — pure and Node-testable — because
+ * getting it wrong is invisible until someone watches a real game.
+ *
+ * WHAT GOES WRONG WITHOUT IT. On a folding table the store publishes an
+ * opponent's die from a broadcast and then, when the state carrying the roll AND
+ * the move arrives, sets `lastRoll` back to null in the SAME setState — because
+ * applyMove has already cleared `diceValue`, and null is what the projection
+ * honestly says. Both halves land in one render, so anything that merely
+ * MIRRORED `lastRoll` was null by the time the hand-off asked for it: the hold
+ * never fired for an opponent, which is the one case it exists for. The die
+ * jumped to the next seat mid-hop and painted the awaiting-roll swirl, so an
+ * opponent's roll was never readable at all.
+ *
+ * So this latches instead of mirroring. `seq` is the store's `rollSeq` — its own
+ * "a roll began" signal — and a number is adopted for as long as that seq holds.
+ * A null is the store forgetting, not the roll being cancelled, and is ignored.
+ *
+ * SPENDING is the caller's job and is not optional: the latch must be cleared by
+ * the first state transition after the roll, or a number outlives its own roll
+ * and turns up beside a seat that never rolled it (a player who leaves without
+ * rolling would inherit the previous roller's die).
+ */
+export interface RollLatch {
+  /** The `rollSeq` this number belongs to. */
+  seq: number;
+  /** The number, or null while the roll has none yet — or once it is spent. */
+  value: number | null;
+}
+
+/** Fold a render's `(rollSeq, lastRoll)` into the latch. Returns the SAME object
+ *  when nothing changed, so the caller can hold it in a ref without churn. */
+export function latchRoll(latch: RollLatch, rollSeq: number, lastRoll: number | null): RollLatch {
+  // A new roll: whatever was latched belonged to the last one. Seeded from
+  // lastRoll because our own prepared roll publishes both in one go.
+  if (latch.seq !== rollSeq) return { seq: rollSeq, value: lastRoll };
+  if (lastRoll === null) return latch;
+  return latch.value === lastRoll ? latch : { seq: rollSeq, value: lastRoll };
+}
+
+/** A die to keep at its roller's corner: whose it is, what it reads, how long. */
+export interface DieHold {
+  playerId: string;
+  value: number;
+  ms: number;
+}
+
+/**
+ * The whole hand-off decision for one state transition, in one place.
+ *
+ * `useDieHandover` is then only refs and a timer, and everything that decides
+ * what the player actually sees is testable in Node — which matters because
+ * every bug this has had was a case nobody could see from the component: a
+ * number that was null at the one moment it was read, or one that outlived its
+ * own roll.
+ *
+ * `rolled` is the caller's latched number (see `latchRoll`), and it is SPENT by
+ * this call whether or not a hold comes of it. That is the caller's contract and
+ * it is not optional: a transition that is not held is still the transition that
+ * resolved the roll, and a number carried past it turns up beside a seat that
+ * never rolled it — a player who leaves without rolling would inherit the
+ * previous roller's die.
+ */
+export function dieHoldFor(prev: GameState, next: GameState, rolled: number | null): DieHold | null {
+  const ms = dieHandoverMs(prev, next, rolled);
+  if (ms <= 0) return null;
+  // On a folding table the number is only ever in the latch — `prev.diceValue`
+  // is null there — so the fallback is the NORMAL path for an opponent's roll,
+  // not a safety net. (Unreachable when ms > 0, since dieHandoverMs needs one of
+  // the two to be set, but a total function is worth more than the saved line.)
+  const value = prev.diceValue ?? rolled;
+  if (value == null) return null;
+  return { playerId: prev.currentTurnPlayerId, value, ms };
+}
+
 /** Did `prev -> next` include a new roll landing on the board? */
 function rolled(prev: GameState, next: GameState): boolean {
   return next.diceValue != null && prev.diceValue !== next.diceValue;
@@ -129,7 +221,7 @@ export function stateAnimationMs(prev: GameState, next: GameState): number {
   // roller's six before handing over. Without this the queue would consider the
   // transition instant and drop the next state on top of the hold.
   if (isBustHandoff(prev, next)) return BUST_HOLD_MS;
-  const rollMs = rolled(prev, next) ? DICE_ROLL_MS + DICE_READ_MS : 0;
+  const rollMs = rolled(prev, next) ? ROLL_PACING_MS : 0;
   return rollMs + moverLegMs(prev, next);
 }
 

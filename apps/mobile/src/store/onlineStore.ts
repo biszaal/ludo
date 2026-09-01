@@ -20,7 +20,7 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 import * as api from "../net/api";
 import { pushProfile } from "../net/profileSync";
 import { acceptChatPayload, applyChatEvent, CHAT_MAX_LEN, type ChatEvent } from "../lib/chat";
-import { stateAnimationMs } from "../lib/moveTiming";
+import { ROLL_PACING_MS, stateAnimationMs } from "../lib/moveTiming";
 import { BUST_HOLD_MS, bustedRollDice, colorOf, isBustHandoff, project } from "../lib/projection";
 import { isOverdue, readProposal, type Proposal, type RematchVote } from "../lib/rematch";
 import { useNav } from "./navStore";
@@ -1058,11 +1058,80 @@ function receiveRoll(payload: api.RollPayload): void {
   if (payload.v < lastAppliedV) return;
   // Our own roll, already animated on the tap.
   if (payload.playerId === st.myPlayerId) return;
-  // Only the seat whose turn it is can be rolling.
-  if (payload.playerId !== st.state.currentTurnPlayerId) return;
 
+  // Everything else this broadcast has to be judged against — whose turn it is,
+  // whether the board is even at the version the die was derived for — is a
+  // question about a state this client may not have caught up to yet. Park it
+  // and let the row queue decide when it becomes true.
+  pendingRoll = payload;
+  startPendingRoll();
+}
+
+/**
+ * A die broadcast that is waiting for the board to catch up to it.
+ *
+ * Only ever one. A second broadcast can only exist because the roll before it
+ * was already resolved by a write, and that write is queued ahead — so an older
+ * pending roll is by definition stale.
+ */
+let pendingRoll: api.RollPayload | null = null;
+
+/**
+ * Animate the parked broadcast, if the board is finally standing where it
+ * describes.
+ *
+ * The broadcast used to be applied the instant it arrived, which is wrong on
+ * exactly the connection the pacing exists for. Under lag the row queue holds
+ * states back so each animation plays out, so `lastAppliedV` and `st.state` lag
+ * the server — and the checks the old code made against them were therefore
+ * being asked of the wrong board:
+ *
+ *   * an opponent who rolls again quickly had their next tumble start ON TOP of
+ *     the hop the queue was still playing out — the die visibly rolling while
+ *     their token was moving;
+ *   * a roll that had handed over to a DIFFERENT seat failed
+ *     `payload.playerId !== currentTurnPlayerId` against the stale state and was
+ *     dropped outright — and a folded state carries no die, so nothing behind it
+ *     re-tumbled either. That roll was never animated at all.
+ *
+ * Arming `rowHoldTimer` is what closes the loop: the tumble now owns the pacing
+ * clock for its own duration, so the folded state that resolves it queues behind
+ * the animation instead of landing on top of it.
+ */
+function startPendingRoll(): boolean {
+  const payload = pendingRoll;
+  if (!payload) return false;
+  // Something is still animating — this is not our moment. drainRowQueue asks
+  // again the instant it is. Deliberately NOT gated on the queue being empty:
+  // the roll at version v happened before the write at v+1, so once the board is
+  // standing at v the tumble goes first and the queued row waits behind it.
+  if (rowHoldTimer) return false;
+  // A write the board has already passed makes the roll it announced ancient.
+  if (payload.v < lastAppliedV) {
+    pendingRoll = null;
+    return false;
+  }
+  // The state this roll was derived against has not arrived yet. Wait: it is
+  // the very next thing the queue will hand us.
+  if (payload.v > lastAppliedV) return false;
+
+  const st = useOnlineStore.getState();
+  if (!st.state || st.state.status !== "active") {
+    pendingRoll = null;
+    return false;
+  }
+  // Now that the board is current, these mean what they say.
+  if (st.state.phase !== "awaiting-roll" || st.state.currentTurnPlayerId !== payload.playerId) {
+    pendingRoll = null;
+    return false;
+  }
+
+  pendingRoll = null;
   rollBumped = true;
   useOnlineStore.setState({ lastRoll: payload.die, rollSeq: st.rollSeq + 1 });
+  // The same budget stateAnimationMs charges a written roll — see ROLL_PACING_MS.
+  rowHoldTimer = setTimeout(drainRowQueue, ROLL_PACING_MS);
+  return true;
 }
 
 // --- Paced application of realtime rows ----------------------------------------
@@ -1083,6 +1152,7 @@ let rowHoldTimer: ReturnType<typeof setTimeout> | null = null;
 
 function clearRowQueue(): void {
   rowQueue = [];
+  pendingRoll = null;
   if (rowHoldTimer) clearTimeout(rowHoldTimer);
   rowHoldTimer = null;
 }
@@ -1094,6 +1164,10 @@ function enqueueGameRow(row: GameSnapshot): void {
 
 function drainRowQueue(): void {
   rowHoldTimer = null;
+  // A die waiting on the board to catch up goes first: it belongs to the version
+  // now on screen, and anything queued is a write that came after it. Firing it
+  // arms the hold timer, so this returns and the timer re-enters here.
+  if (startPendingRoll()) return;
   const row = rowQueue.shift();
   if (!row) return;
   const prev = useOnlineStore.getState().state;

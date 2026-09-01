@@ -201,7 +201,7 @@ export function GameView({
    * While this is set it overrides the active seat for the die ALONE — the
    * board, the chips and the turn ring all follow the real current player.
    */
-  const heldDie = useDieHandover(state, lastRoll);
+  const heldDie = useDieHandover(state, lastRoll, rollSeq);
   const dieSeatId = heldDie?.playerId ?? state.currentTurnPlayerId;
   const dieValue = heldDie ? heldDie.value : state.diceValue ?? lastRoll;
 
