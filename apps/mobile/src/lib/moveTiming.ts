@@ -248,14 +248,38 @@ export function moveDurationMs(color: Color, was: TokenPosition, now: TokenPosit
  * had visibly landed, and since the die only renders beside the active seat,
  * the number was gone before anyone could read it.
  */
-export function stateAnimationMs(prev: GameState, next: GameState): number {
+export function stateAnimationMs(
+  prev: GameState,
+  next: GameState,
+  broadcastRoll: number | null = null,
+): number {
   if (prev.gameId !== next.gameId) return 0;
   // A busted third six moves no token, but the board still holds on the
   // roller's six before handing over. Without this the queue would consider the
   // transition instant and drop the next state on top of the hold.
   if (isBustHandoff(prev, next)) return BUST_HOLD_MS;
   const rollMs = rolled(prev, next) ? ROLL_PACING_MS : 0;
-  return rollMs + moverLegMs(prev, next);
+  /**
+   * THE DIE HAND-OFF IS PART OF WHAT THIS TRANSITION OWNS, and leaving it out
+   * was a bug with three faces.
+   *
+   * The board's own animation can be much shorter than the hold that keeps the
+   * die at the seat that rolled it: a yard exit is FLY_MS, a short hop a couple
+   * of steps, while the hold has a half-second floor. So the queue would release
+   * the NEXT state — and with it the next player's roll — while the previous
+   * player's die was still on screen at their corner.
+   *
+   * What that looked like: the bump landed on the die still mounted at the old
+   * seat, so THAT die re-tumbled, showing the old number again; then the hold
+   * expired, the die moved corners (which remounts it), and the new roll's bump
+   * was swallowed by the mount, so the incoming number simply appeared without
+   * rolling at all. Reported as turns being missed, animations not appearing,
+   * and the die rolling twice — one seam, all three.
+   *
+   * Taking the max means the queue never hands over mid-hold: the die reaches
+   * the new seat first, and the roll that follows finds it there.
+   */
+  return Math.max(rollMs + moverLegMs(prev, next), dieHandoverMs(prev, next, broadcastRoll));
 }
 
 /**

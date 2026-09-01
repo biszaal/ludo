@@ -13,6 +13,7 @@ import {
   lambert,
   rotateScaleAbout,
   rotateVec,
+  swirlPoints,
   tumbleFaceValue,
   type Vec3,
 } from "../src/render/dieMath";
@@ -213,5 +214,44 @@ describe("the tumbling placeholder", () => {
     // The whole bug in one line: a waiting die and a die that genuinely rolled
     // a 1 must not look the same at the readable end of a lap.
     expect(tumbleFaceValue(null)).not.toBe(tumbleFaceValue(1));
+  });
+});
+
+/**
+ * The mark a tumbling die wears while it has no number.
+ *
+ * Painting nothing was the first answer to the placeholder problem and only got
+ * half of it: a spinning cube with no markings reads as a blank block, not a
+ * die — reported as "the die looks blank while it waits for the server". The
+ * swirl is what the resting face already shows for "not rolled yet", so the
+ * tumbling faces wear the same thing. What it must never be is mistakable for a
+ * value, which is the property the placeholder failed.
+ */
+describe("swirlPoints", () => {
+  it("stays inside the face it is drawn on", () => {
+    // Face-local units: a face spans 2, so nothing may exceed 1 from centre or
+    // it bleeds over the cube's edge onto its neighbours.
+    for (const pt of swirlPoints()) {
+      expect(Math.hypot(pt.x, pt.y)).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("spirals outward from the middle", () => {
+    const pts = swirlPoints();
+    expect(Math.hypot(pts[0]!.x, pts[0]!.y)).toBeCloseTo(0, 6);
+    const last = pts[pts.length - 1]!;
+    expect(Math.hypot(last.x, last.y)).toBeGreaterThan(0.5);
+    // Monotonic, so it reads as one continuous coil rather than a scribble.
+    let prev = -1;
+    for (const pt of pts) {
+      const r = Math.hypot(pt.x, pt.y);
+      expect(r).toBeGreaterThanOrEqual(prev);
+      prev = r;
+    }
+  });
+
+  it("draws enough points to look like a curve", () => {
+    expect(swirlPoints().length).toBeGreaterThan(20);
+    expect(swirlPoints(8)).toHaveLength(9);
   });
 });

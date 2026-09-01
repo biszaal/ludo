@@ -250,6 +250,46 @@ describe("die broadcast pacing", () => {
     expect(store.getState().lastRoll).toBe(5);
   });
 
+  it("animates BOTH rolls when two are parked before the board catches up", async () => {
+    // The dropped-turn bug, and it needs two rolls parked AT THE SAME TIME to
+    // show up — which is the ordinary case on a link slow enough to need this
+    // pacing, because the rolls and the writes that resolve them are all in
+    // flight together. A single pending slot let the newer broadcast overwrite
+    // the older one, and that seat's roll was never animated at all: its own
+    // resolving write is a folded state carrying no die, so nothing behind it
+    // re-tumbled either.
+    vi.useFakeTimers();
+    // Turn order follows the colour cycle — red, green, yellow, blue — not the
+    // seat list, so we take BLUE and let two opponents play in a row ahead of us.
+    const P3 = { id: "p3", userId: "u3", color: "green" as const };
+    const P4 = { id: "p4", userId: "u4", color: "yellow" as const };
+    const ME = { id: "p2", userId: "u2", color: "blue" as const };
+    const four = createGame([P1, P3, P4, ME], { gameId: "g1" });
+    await joinAsSpectator(four, 1);
+
+    const one = foldedTurn(four, () => 0.5); // p1 -> p3
+    const two = foldedTurn(one.folded, () => 0.5); // p3 -> p4
+    expect(one.folded.currentTurnPlayerId).toBe("p3");
+    expect(two.folded.currentTurnPlayerId).toBe("p4");
+
+    // p1's turn lands and starts animating, which is what puts the watcher
+    // behind for everything that follows.
+    subs.onGame(row(one.folded, 2));
+    const before = store.getState().rollSeq;
+
+    // Now both of the next two rolls arrive while that animation is still
+    // running, so both have to wait — together.
+    subs.onRoll?.({ die: 2, playerId: "p3", v: 2 });
+    subs.onGame(row(two.folded, 3));
+    subs.onRoll?.({ die: 5, playerId: "p4", v: 3 });
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    // Two seats rolled, so the die tumbled twice. One bump here means a player's
+    // turn went by with no animation at all.
+    expect(store.getState().rollSeq).toBe(before + 2);
+    expect(store.getState().lastRoll).toBe(5);
+  });
+
   it("drops a parked broadcast the board has since moved past", async () => {
     vi.useFakeTimers();
     await joinAsSpectator(freshGame(), 1);

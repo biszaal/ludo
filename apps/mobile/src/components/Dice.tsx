@@ -74,7 +74,7 @@ import {
 } from "../lib/moveTiming";
 import type { BoardTheme } from "../render/boardThemes";
 import { diceRenderParams, type DiceSkin } from "../render/diceSkins";
-import { cubeFaces, faceMatrix, lambert, rotateScaleAbout, rotateVec, tumbleFaceValue, type Vec3 } from "../render/dieMath";
+import { cubeFaces, faceMatrix, lambert, rotateScaleAbout, rotateVec, swirlPoints, tumbleFaceValue, type Vec3 } from "../render/dieMath";
 import { appendMotif, motifStyle } from "../render/faceMotifs";
 import { appendPip, overlayArt } from "../render/pipShapes";
 import { appendNumeral, NUMERAL_FACE_R, NUMERAL_KEYLINE, NUMERAL_STROKE, type Numeral } from "../render/dieNumerals";
@@ -449,6 +449,22 @@ export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = f
       return path;
     });
 
+    // The "no number yet" mark, face-local and built once: a tumbling die that
+    // is still waiting on the server wears this instead of a value. Stroked, so
+    // it needs its own paint rather than the pip fill.
+    const swirlPath = Skia.Path.Make();
+    swirlPoints().forEach((pt, i) => {
+      if (i === 0) swirlPath.moveTo(pt.x, pt.y);
+      else swirlPath.lineTo(pt.x, pt.y);
+    });
+    const swirlPaint = Skia.Paint();
+    swirlPaint.setAntiAlias(true);
+    swirlPaint.setStyle(PaintStyle.Stroke);
+    swirlPaint.setStrokeWidth(0.17); // the landed face's 0.085 of the die, in local units
+    swirlPaint.setStrokeCap(StrokeCap.Round);
+    swirlPaint.setStrokeJoin(StrokeJoin.Round);
+    swirlPaint.setColor(mix(sp.pipRGB, 0));
+
     return {
       shadow,
       core,
@@ -457,6 +473,8 @@ export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = f
       outlinePaint,
       glossPaint,
       numeralPaint,
+      swirlPath,
+      swirlPaint,
       faceShader,
       glossShader,
       facesFor,
@@ -662,7 +680,11 @@ export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = f
         // camera-on, that is the whole of the "die lands on 1, then rolls again
         // and gets the actual number" report. A bare tumbling cube reads as a
         // die that is still going, which is exactly what it is.
-        if (inkValue !== null) {
+        if (inkValue === null) {
+          // Waiting on the server: the swirl, not a number and not nothing. See
+          // dieMath.swirlPoints.
+          canvas.drawPath(kit.swirlPath, kit.swirlPaint);
+        } else {
           if (sp.pipShape === "dot") {
             for (const [px, py] of PIP_XY[face.value]!) {
               canvas.drawCircle((px - 0.5) * 1.84, (py - 0.5) * 1.84, 0.17, pipPaint);

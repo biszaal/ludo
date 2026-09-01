@@ -91,6 +91,33 @@ export function tumbleFaceValue(value: number | null): number | null {
   return value;
 }
 
+/**
+ * The waiting mark a tumbling face carries instead of a number, in FACE-LOCAL
+ * units (a face spans 2, centred on the origin).
+ *
+ * Painting nothing was the first answer to the placeholder problem and it was
+ * only half right: a cube with no markings, spinning, reads as a blank white
+ * block rather than as a die — reported exactly that way. The die already has a
+ * mark that means "not rolled yet", the swirl the resting face shows while it
+ * waits to be tapped, so the tumbling faces wear the same one. It cannot be
+ * mistaken for a value, which is the property that matters, and it keeps the
+ * thing recognisably a die while the server takes its time.
+ *
+ * Returned as points rather than a Path so this stays free of Skia and testable
+ * in Node; the caller strokes them once per skin, not per frame.
+ */
+export function swirlPoints(steps = 44): { x: number; y: number }[] {
+  const out: { x: number; y: number }[] = [];
+  for (let i = 0; i <= steps; i++) {
+    const st = i / steps;
+    const angle = st * 2.25 * 2 * Math.PI - Math.PI / 2;
+    // 0.3 of the die across, and a face spans 2 local units to the die's 1.
+    const r = 0.6 * Math.pow(st, 0.85);
+    out.push({ x: Math.cos(angle) * r, y: Math.sin(angle) * r });
+  }
+  return out;
+}
+
 /** Rotate `p` by Euler angles (radians): X axis first, then Y, then Z. */
 export function rotateVec(p: Vec3, ax: number, ay: number, az: number): Vec3 {
   "worklet";

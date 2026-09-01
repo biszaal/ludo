@@ -464,3 +464,55 @@ describe("the die hand-off, driven as the hook drives it", () => {
     expect(w.apply(handed, 1, null)).toEqual({ playerId: "p1", value: 4, ms: 4 * HOP_STEP_MS });
   });
 });
+
+/**
+ * The queue must not release the next roll while the last die is still on screen.
+ *
+ * REPORTED as three things that turned out to be one seam: a player's turn
+ * missing its animation, the die appearing already landed, and the die rolling
+ * twice. The board's own animation for a transition can be far shorter than the
+ * hold that keeps the die at the seat that rolled it — a yard exit is FLY_MS,
+ * the hold has a half-second floor — so the pacing released the next player's
+ * roll mid-hold. The bump then landed on the die still mounted at the OLD seat,
+ * which re-tumbled the old number; and when the hold expired the die moved
+ * corners, which remounts it, and the mount swallowed the roll that followed.
+ */
+describe("pacing covers the die hand-off", () => {
+  const P1 = { id: "p1", userId: "u1", color: "red" as const };
+  const P2 = { id: "p2", userId: "u2", color: "yellow" as const };
+  const base = () => createGame([P1, P2], { gameId: "g1" });
+  const at = (state: GameState, tokenId: string, index: number): GameState => ({
+    ...state,
+    tokens: state.tokens.map((t) => (t.id === tokenId ? { ...t, position: fromRelativeIndex("red", index) } : t)),
+  });
+
+  it("never releases a state sooner than the die it is still holding", () => {
+    // A two-cell hop is 300ms of board animation against a 500ms hold.
+    const prev = at(base(), "red-0", 5);
+    const next = { ...at(prev, "red-0", 7), currentTurnPlayerId: "p2", diceValue: null };
+    const hold = dieHandoverMs(prev, next, 2);
+    expect(hold).toBe(500);
+    expect(stateAnimationMs(prev, next, 2)).toBeGreaterThanOrEqual(hold);
+  });
+
+  it("still charges the longer of the two when the mover is slow", () => {
+    // Six cells is 900ms of hopping, well past the hold — the board wins, and
+    // the hand-off must not shorten it.
+    const prev = at(base(), "red-0", 5);
+    const next = { ...at(prev, "red-0", 11), currentTurnPlayerId: "p2", diceValue: null };
+    // The two coincide here rather than one padding the other: past the floor
+    // the hold IS the mover's leg, so taking the max changes nothing. What must
+    // not happen is the hand-off inflating a transition that was already long
+    // enough — a table where every move costs an extra half second.
+    expect(stateAnimationMs(prev, next, 6)).toBe(6 * HOP_STEP_MS);
+    expect(dieHandoverMs(prev, next, 6)).toBe(6 * HOP_STEP_MS);
+  });
+
+  it("adds nothing to a hand-off that had no roll behind it", () => {
+    // A timeout or a seat leaving holds no die, so there is nothing to wait for.
+    const prev = base();
+    const next = { ...prev, currentTurnPlayerId: "p2", diceValue: null };
+    expect(dieHandoverMs(prev, next, null)).toBe(0);
+    expect(stateAnimationMs(prev, next, null)).toBe(0);
+  });
+});
