@@ -66,6 +66,14 @@ vi.mock("../src/net/api", () => ({
 
 import * as api from "../src/net/api";
 import { useOnlineStore } from "../src/store/onlineStore";
+import { ROLL_PACING_MS } from "../src/lib/moveTiming";
+
+// This file waits out real animation budgets rather than ticking fake timers
+// (see `settle` below), and a roll now owns its landing plus the half second the
+// number is owed. Two paced rolls in one test is comfortably past vitest's 5s
+// default, so the ceiling is raised here rather than the waits being shortened
+// to fit it — a settle that does not actually cover the pacing tests nothing.
+vi.setConfig({ testTimeout: 30_000 });
 import { BUST_HOLD_MS } from "../src/lib/projection";
 
 const store = useOnlineStore;
@@ -132,8 +140,13 @@ async function joinActiveGame(state: GameState, v = 1): Promise<void> {
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 /** Realtime rows are applied one at a time, each waiting out the previous
- *  state's board animation — so a queued state needs real time, not a tick. */
-const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 1500));
+ *  state's board animation — so a queued state needs real time, not a tick.
+ *
+ *  Derived from ROLL_PACING_MS rather than a round number: a roll now owns the
+ *  landing plus the half second the landed number is owed, and a flat 1500ms
+ *  stopped covering two paced rolls the moment that budget grew. Two rolls plus
+ *  the move animation between them, with room to spare. */
+const settle = () => new Promise<void>((resolve) => setTimeout(resolve, ROLL_PACING_MS * 2 + 800));
 
 /**
  * A state as Postgres hands it back, rather than as the engine built it.

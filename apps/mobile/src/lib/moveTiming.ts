@@ -19,50 +19,124 @@ import { BUST_HOLD_MS, isBustHandoff } from "./projection";
 export { FLY_MS, HOP_STEP_MS } from "../render/waypoints";
 
 /**
- * How long the die tumble owns the screen: the animation itself plus a beat to
- * read the face it lands on.
+ * THE ROLL, AS ONE CONTINUOUS PHASE.
+ *
+ * The die's rotation is driven by a single scalar `phi`, counted in
+ * REVOLUTIONS, and every axis is an integer multiple of it (X turns twice per
+ * revolution, Y once). That one decision is what makes the whole thing work:
+ * because the multipliers are integers, EVERY whole value of phi is the identity
+ * rotation — the rolled face square to the camera. So the roll can stop at any
+ * integer and be legible, and it never has to stop anywhere else.
+ *
+ * WHY IT REPLACED THE LAPS. The previous design ran fixed 700ms laps and simply
+ * went round again when the answer had not arrived. It never stopped on a
+ * placeholder, but each lap still eased out to a near-halt before speeding up,
+ * so a slow connection visibly rolled the die twice — reported exactly that way,
+ * and reliably on the first roll of a game, where the prefetch has not landed
+ * yet and the slow path is guaranteed.
+ *
+ * WHY IT IS NOT THE DESIGN THAT WAS REVERTED. 09b0606 tore out an earlier
+ * attempt at a long wait because it PARKED the tumble arc and carried the wait
+ * on a second rotation: two sources feeding one die, and the speed jumped
+ * wherever they met. Here there is one source. The wait and the landing are the
+ * same phi, moving at the same speed across the join — see diceLandingMs, which
+ * exists precisely to make that speed continuous.
+ */
+
+/** Whole turns each axis makes per revolution of `phi`. Integers, so that every
+ *  whole phi is the identity rotation — see above. */
+export const DICE_TURNS_X = 2;
+export const DICE_TURNS_Y = 1;
+
+/** Revolutions the landing arc covers at its shortest, and how long that takes.
+ *  One revolution in 560ms is exactly the tumble the die has always played, so
+ *  an answer already in hand — every offline roll — animates unchanged. */
+export const DICE_LANDING_REVS = 1;
+export const DICE_LANDING_MS = 560;
+
+/**
+ * How fast the die spins while it is waiting, in revolutions per millisecond.
+ *
+ * Not a free choice. A cubic ease-out leaves its start three times faster than
+ * its average, so this is the speed the landing arc BEGINS at — which is what
+ * lets the wait hand over to the landing with no step in speed at all. Change
+ * the landing curve and this has to change with it.
+ */
+export const DICE_SPIN_REV_PER_MS = (3 * DICE_LANDING_REVS) / DICE_LANDING_MS;
+
+/**
+ * Where a roll should come to rest, given the phase it had reached when the
+ * answer arrived.
+ *
+ * The next whole revolution, plus one more. Whole because only whole phi is the
+ * identity rotation; plus one so there is always a full revolution of visible
+ * deceleration rather than a snap, however unlucky the timing.
+ */
+export function diceLandingTarget(phi: number): number {
+  return Math.ceil(phi) + DICE_LANDING_REVS;
+}
+
+/**
+ * How long that landing takes, so it opens at exactly the speed the die was
+ * already spinning.
+ *
+ * A cubic ease-out over distance d and duration D starts at 3d/D. Setting that
+ * equal to the spin rate gives D = 3d/rate, which is all this is. The die
+ * therefore never changes speed when the answer lands — it simply begins to
+ * slow, which is the whole difference between one roll and two.
+ */
+export function diceLandingMs(phi: number): number {
+  return (3 * (diceLandingTarget(phi) - phi)) / DICE_SPIN_REV_PER_MS;
+}
+
+/**
+ * The landing arc, and the squash that ends it.
  *
  * Defined here rather than in Dice.tsx because this module is the timing
  * authority the sync path consults, and it has to stay importable from Node
  * (see __tests__/moveTiming.test.ts) — Dice.tsx pulls in Skia. Dice.tsx imports
- * this constant so the animation and the hold can never drift apart.
+ * these so the animation and the hold can never drift apart.
  */
-export const DICE_ROLL_MS = 700;
-/** Beat after the die lands before the pawn is allowed to move. */
-const DICE_READ_MS = 200;
+export const DICE_SETTLE_MS = 140;
 
 /**
- * The whole screen budget one roll owns: the tumble plus the beat to read it.
+ * A roll whose number is already in hand, start to finish.
+ *
+ * Every offline roll, and every online one whose die was prefetched. It is no
+ * longer the length of ALL rolls: a roll still waiting on the server spins for
+ * as long as that takes and then plays this landing, which is the whole point
+ * of the phase design above.
+ */
+export const DICE_ROLL_MS = DICE_LANDING_MS + DICE_SETTLE_MS;
+
+/**
+ * How long the landed number stays on screen before anything else may move.
+ *
+ * Half a second, at the user's direction: a number you cannot finish reading
+ * before the board moves under it may as well not have been shown. It is the
+ * floor for the roller and, through ROLL_PACING_MS, for everyone watching.
+ */
+const DICE_READ_MS = 500;
+
+/**
+ * The whole screen budget one roll owns: the landing plus the beat to read it.
  *
  * `stateAnimationMs` charges this for a transition that carries a die, which is
  * how a WRITTEN roll gets paced. A folding table writes no roll at all — the die
  * arrives as a broadcast and the state behind it carries the roll and the move
  * together — so `rolled()` is false there and the folded state used to be
- * applied ROW_HOLD_PAD_MS (80ms) after the tumble started, cutting a 700ms
+ * applied ROW_HOLD_PAD_MS (80ms) after the tumble started, cutting the whole
  * animation to nothing and starting the pawn's hop over the top of it. The
  * online store arms the same hold on a broadcast so both protocols pace a roll
  * identically.
  */
 export const ROLL_PACING_MS = DICE_ROLL_MS + DICE_READ_MS;
 
-/** Fraction of a roll spent tumbling; the rest is the landing squash. */
-export const DICE_CUBE_END = 0.8;
-/** One lap of the cube: the tumble alone, without the squash that ends a roll. */
-export const DICE_TUMBLE_MS = Math.round(DICE_ROLL_MS * DICE_CUBE_END);
-
 /**
- * The tail of a lap in which the camera face is readable.
- *
- * The tumble eases out, so it has spent ~95% of its rotation by this point and
- * whatever is on the front face is what the player takes the roll to be.
- */
-export const DICE_FACE_LOCK_MS = 200;
-
-/**
- * How long a roll may keep looping before it stops and admits it has nothing.
+ * How long a roll may spin before it stops and admits it has nothing.
  *
  * Past the first turn-op attempt's budget (api.TURN_TIMEOUT_MS, 6s) so an
- * ordinary slow answer still lands on a lap rather than on this, and well short
+ * ordinary slow answer still lands normally rather than on this, and well short
  * of the turn clock so a die whose roll is never coming back stops instead of
  * spinning at the player indefinitely. A die that spins forever reads as a
  * frozen app; one that stops with no number reads as what it is, and the store
@@ -72,47 +146,6 @@ export const DICE_FACE_LOCK_MS = 200;
  * rolls again to receive it, so it is never painted onto a resting face.
  */
 export const DICE_MAX_ROLL_MS = 9_000;
-
-/**
- * At the end of a lap: does the die stop here, or go round again?
- *
- * The die tumbles in fixed laps and finishes on one of them, so this is the
- * only decision the roll animation actually makes — and getting it wrong is
- * visible either way. Land too eagerly and the number appears on a face the
- * player has already read, which is the die changing its mind. Never land and
- * it spins forever over a roll that was answered long ago.
- *
- * Landing requires the value to have been known for the whole readable part of
- * this lap, which is why `seenAt` is a timestamp rather than a boolean: a value
- * that arrived two frames ago has not been on the face long enough to be the
- * one the player watched the die settle onto.
- *
- * Pure and clock-injected; Dice.tsx supplies the times. Kept here rather than
- * in the component because this module is the timing authority for the die and
- * has to stay importable from Node — Dice.tsx pulls in Skia.
- */
-export function diceLandsThisLap(input: {
-  /** When a value first arrived for this roll, or null while still unknown. */
-  seenAt: number | null;
-  /** Is a value on screen RIGHT NOW? Belt to seenAt's braces: seenAt is a ref
-   *  the component latches, and a die must never keep spinning over a number it
-   *  is already holding just because the latch missed it. */
-  haveValue: boolean;
-  /** When the lap now ending began. */
-  lapStartedAt: number;
-  /** When the whole roll began, for the giving-up cap. */
-  rollStartedAt: number;
-  now: number;
-}): boolean {
-  const { seenAt, haveValue, lapStartedAt, rollStartedAt, now } = input;
-  // Out of patience: stop, whether or not there is a number to stop on.
-  if (now - rollStartedAt >= DICE_MAX_ROLL_MS) return true;
-  if (!haveValue) return false;
-  // Known, but not known WHEN — treat it as having just landed and give it a
-  // lap to sit on the face before the die is allowed to stop on it.
-  if (seenAt === null) return false;
-  return seenAt <= lapStartedAt + DICE_TUMBLE_MS - DICE_FACE_LOCK_MS;
-}
 
 /**
  * The number of the roll that is on screen but not yet explained by a state.
@@ -247,13 +280,14 @@ function moverLegMs(prev: GameState, next: GameState): number {
 }
 
 /**
- * Least time the number stays on screen when a roll leads straight to a
+ * Least time the number stays beside its roller when a roll leads straight to a
  * hand-off with nothing to animate — a roll with no legal move.
  *
- * Long enough to read a single digit that is about to be taken away, and short
- * enough that a table of players who all roll badly does not crawl.
+ * The same half second DICE_READ_MS gives every other roll, and for the same
+ * reason: this is the case where the number is about to be taken away, so it is
+ * the one that most needs the beat.
  */
-const DIE_HANDOVER_FLOOR_MS = 450;
+const DIE_HANDOVER_FLOOR_MS = 500;
 
 /**
  * How long the die stays beside the player who rolled it, once the turn has

@@ -100,6 +100,10 @@ interface OnlineStore {
   /** A busted third six is being shown on the roller's own die; the seat has
    *  not changed hands yet and no input should be accepted. */
   bustHold: boolean;
+  /** The table has just been dealt and the first roll is not armed yet — the
+   *  screen covers the board rather than handing over a die that cannot answer
+   *  instantly. Always clears: see dealReady and DEAL_READY_MS. */
+  dealing: boolean;
   /** I idled out my turn clock, so the bot policy plays my seat from this
    *  device until I take back control. Local-only — opponents just see moves. */
   autoPilot: boolean;
@@ -166,6 +170,7 @@ const INITIAL = {
   validMoves: [] as Move[],
   lastRoll: null,
   rollSeq: 0,
+  dealing: false,
   message: "",
   chat: [] as ChatEvent[],
   chatSeq: 0,
@@ -723,14 +728,58 @@ function enqueueSend<T>(fn: () => Promise<T>): Promise<T> {
  * twice. Chained rolls don't need it anyway: their die rides back on the
  * response that earned them (see nextRoll).
  */
+/**
+ * How long the board may stay covered while the first die is fetched.
+ *
+ * A ceiling, not a target: the cover lifts the moment prepareRoll answers, and
+ * on any ordinary connection that is well inside this. What it guarantees is the
+ * failure mode — no key configured, a request that never returns, an old server
+ * — where the answer is simply never coming. A player must never be left looking
+ * at a loading screen because an optimisation did not arrive.
+ */
+const DEAL_READY_MS = 2_000;
+let dealTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** The board is playable: uncover it. Idempotent, and called from every path
+ *  that ends the wait — including the ones that end it by failing. */
+function dealReady(): void {
+  if (dealTimer) {
+    clearTimeout(dealTimer);
+    dealTimer = null;
+  }
+  if (useOnlineStore.getState().dealing) useOnlineStore.setState({ dealing: false });
+}
+
+/**
+ * Cover the board while the table is dealt and the opening roll is armed.
+ *
+ * The first roll of a game is the one whose die prefetch is least likely to have
+ * landed — the request is queued behind everything else a fresh game screen
+ * starts — so it was reliably the one roll that had to wait on the network with
+ * a player already tapping. The die handles that correctly now (it simply rolls
+ * for as long as the server takes), but the better answer is not to hand
+ * somebody a die that cannot answer yet.
+ *
+ * Armed with its own timeout, because the thing being waited for is an
+ * optimisation and optimisations are allowed to fail.
+ */
+function dealPending(): void {
+  if (dealTimer) clearTimeout(dealTimer);
+  useOnlineStore.setState({ dealing: true });
+  dealTimer = setTimeout(dealReady, DEAL_READY_MS);
+}
+
 function primeRoll(): void {
   const { state, gameId, myPlayerId } = useOnlineStore.getState();
-  if (!gameId || !state || pending || rollInFlight) return;
-  if (state.status !== "active" || state.phase !== "awaiting-roll") return;
-  if (state.currentTurnPlayerId !== myPlayerId) return;
+  // Every exit below means there is no die to wait for — either it is not our
+  // turn, or one is already in hand. Uncover the board on all of them, or a seat
+  // that simply is not first to play would sit behind the cover for its timeout.
+  if (!gameId || !state || pending || rollInFlight) return dealReady();
+  if (state.status !== "active" || state.phase !== "awaiting-roll") return dealReady();
+  if (state.currentTurnPlayerId !== myPlayerId) return dealReady();
   const v = lastAppliedV;
-  if (v < 0) return;
-  if (rollCache && rollCache.gameId === gameId && rollCache.v === v) return; // already holding it
+  if (v < 0) return dealReady();
+  if (rollCache && rollCache.gameId === gameId && rollCache.v === v) return dealReady();
   const seq = ++prepareSeq;
   // Wrapped, not just awaited: this runs from the middle of applying an
   // authoritative state, and a prefetch is an optimisation. Nothing about it
@@ -748,7 +797,10 @@ function primeRoll(): void {
       rollCache = { gameId, v: prepared.v, dice: prepared.dice };
       adoptPreparedRoll();
     })
-    .catch(() => {});
+    .catch(() => {})
+    // Settled either way: the die is armed, or it is not coming and the player
+    // takes the slow path — which now simply rolls for longer.
+    .finally(dealReady);
 }
 
 /**
@@ -914,6 +966,7 @@ function onActionFailed(e: unknown, gameId: string): void {
 function resetSyncState(): void {
   stopKeepWarm();
   clearBustHold();
+  dealReady();
   lastAppliedV = -1;
   pending = null;
   syncInFlight();
@@ -1679,6 +1732,11 @@ function applyStateNow(state: GameState, rolled: boolean, deadlineAt: number | n
   const top = nav.stack[nav.stack.length - 1]!.name;
   if (top === "lobby") nav.replace("onlineGame");
   else if (top !== "onlineGame") nav.push("onlineGame");
+
+  // A table has just been dealt — a fresh game, or a rematch onto the same id.
+  // Cover the board until the opening die is armed; primeRoll below uncovers it,
+  // on every route including the ones that fail.
+  if (active && (!prev || prev.gameId !== state.gameId || st.status !== "active")) dealPending();
 
   // Dealt: the match's own traffic keeps the function hot from here.
   stopKeepWarm();

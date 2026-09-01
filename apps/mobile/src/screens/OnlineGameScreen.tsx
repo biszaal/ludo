@@ -6,7 +6,9 @@
  * accepters are dealt the new board.
  */
 
+import { View } from "react-native";
 import { ConnectionStrip } from "../components/ConnectionStrip";
+import { DealingOverlay } from "../components/DealingOverlay";
 import { GameView } from "../components/GameView";
 import { useOnlineStore } from "../store/onlineStore";
 import { useProfile } from "../store/profileStore";
@@ -43,6 +45,7 @@ export function OnlineGameScreen() {
   const turnSeconds = useOnlineStore((s) => s.turnSeconds);
   const autoPilot = useOnlineStore((s) => s.autoPilot);
   const bustHold = useOnlineStore((s) => s.bustHold);
+  const dealing = useOnlineStore((s) => s.dealing);
   const takeControl = useOnlineStore((s) => s.takeControl);
   const stake = useOnlineStore((s) => s.stake);
   const myName = useProfile((s) => s.displayName);
@@ -99,6 +102,11 @@ export function OnlineGameScreen() {
   };
 
   return (
+    // The overlay sits OVER a fully rendered board rather than replacing it, so
+    // the table is already there when the cover lifts — no second layout pass,
+    // and nothing pops in. It also swallows taps, which is the point: the die
+    // underneath is not ready to be rolled yet.
+    <View style={{ flex: 1 }}>
     <GameView
       state={state}
       validMoves={validMoves}
@@ -152,5 +160,7 @@ export function OnlineGameScreen() {
         onOpened: markChatRead,
       }}
     />
+    {dealing ? <DealingOverlay /> : null}
+    </View>
   );
 }

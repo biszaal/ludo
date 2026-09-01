@@ -6,11 +6,15 @@
 import { describe, it, expect } from "vitest";
 import { createGame, fromRelativeIndex, type GameState, type TokenPosition } from "@ludo/engine";
 import {
-  DICE_FACE_LOCK_MS,
+  DICE_LANDING_MS,
+  DICE_LANDING_REVS,
   DICE_MAX_ROLL_MS,
   DICE_ROLL_MS,
-  DICE_TUMBLE_MS,
-  diceLandsThisLap,
+  DICE_SPIN_REV_PER_MS,
+  DICE_TURNS_X,
+  DICE_TURNS_Y,
+  diceLandingMs,
+  diceLandingTarget,
   FLY_MS,
   HOP_STEP_MS,
   dieHandoverMs,
@@ -141,195 +145,81 @@ describe("stateAnimationMs", () => {
  * number arrived late was allowed to finish the lap it was already on, so the
  * player watched the die decelerate onto one face and then swap to another.
  */
-describe("diceLandsThisLap", () => {
-  const LAP = 1_000_000; // an arbitrary lap start; only offsets matter
-  const ask = (over: Partial<Parameters<typeof diceLandsThisLap>[0]>) => {
-    const seenAt = "seenAt" in over ? (over.seenAt as number | null) : null;
-    return diceLandsThisLap({
-      seenAt,
-      haveValue: seenAt !== null,
-      lapStartedAt: LAP,
-      rollStartedAt: LAP,
-      now: LAP + DICE_TUMBLE_MS,
-      ...over,
-    });
-  };
-
-  it("goes round again while the number is still unknown", () => {
-    expect(ask({})).toBe(false);
-  });
-
-  it("lands when the number was there from the start of the lap", () => {
-    // Every offline roll, and any online one answered before the tap rendered.
-    expect(ask({ seenAt: LAP })).toBe(true);
-  });
-
-  it("lands when the number arrived with the face still a blur", () => {
-    const justInTime = LAP + DICE_TUMBLE_MS - DICE_FACE_LOCK_MS;
-    expect(ask({ seenAt: justInTime })).toBe(true);
-  });
-
-  it("goes round again when the number arrives during the readable tail", () => {
-    // One millisecond the wrong side of the lock is the whole bug: the die is
-    // nearly stopped, its face is legible, and relabelling it now is the "it
-    // showed a 2 and changed to a 5" report.
-    const tooLate = LAP + DICE_TUMBLE_MS - DICE_FACE_LOCK_MS + 1;
-    expect(ask({ seenAt: tooLate })).toBe(false);
-  });
-
-  it("lands on the next lap once the number has had time to settle", () => {
-    // The value arrived too late for lap 1; by the end of lap 2 it has been on
-    // the face throughout, so the roll ends rather than looping forever.
-    const arrived = LAP + DICE_TUMBLE_MS - 10;
-    const lapTwo = LAP + DICE_TUMBLE_MS;
-    expect(
-      diceLandsThisLap({
-        seenAt: arrived,
-        haveValue: true,
-        lapStartedAt: lapTwo,
-        rollStartedAt: LAP,
-        now: lapTwo + DICE_TUMBLE_MS,
-      }),
-    ).toBe(true);
-  });
-
-  it("gives up rather than spinning forever when no answer ever comes", () => {
-    // A dead connection. The die stops with no number on it, which is honest;
-    // spinning indefinitely would be the app pretending it is still working.
-    expect(
-      diceLandsThisLap({
-        seenAt: null,
-        haveValue: false,
-        lapStartedAt: LAP + DICE_MAX_ROLL_MS,
-        rollStartedAt: LAP,
-        now: LAP + DICE_MAX_ROLL_MS + DICE_TUMBLE_MS,
-      }),
-    ).toBe(true);
-  });
-
-  it("never keeps spinning over a number it is already holding", () => {
-    // The safety net. seenAt is a ref the component latches in an effect, and
-    // if that ever misses — a render ordering the component did not anticipate,
-    // a value that blinked — the die must still stop. Spinning forever on top
-    // of an answer already on screen is the worst failure this has: it reads as
-    // a frozen game rather than a slow one.
-    const stuck = diceLandsThisLap({
-      seenAt: null,
-      haveValue: true,
-      lapStartedAt: LAP,
-      rollStartedAt: LAP,
-      now: LAP + DICE_TUMBLE_MS,
-    });
-    // Not this lap — the number has not provably been on the face — but the
-    // next one, once the latch has had a lap's grace to catch up.
-    expect(stuck).toBe(false);
-    expect(
-      diceLandsThisLap({
-        seenAt: LAP + 10,
-        haveValue: true,
-        lapStartedAt: LAP + DICE_TUMBLE_MS,
-        rollStartedAt: LAP,
-        now: LAP + 2 * DICE_TUMBLE_MS,
-      }),
-    ).toBe(true);
-  });
-
-  it("gives up in seconds, not in a turn's worth of spinning", () => {
-    // Long enough that an ordinary slow answer (api.TURN_TIMEOUT_MS is 6s for
-    // one attempt) still lands on a lap rather than on the cap, short enough
-    // that a roll which is never coming back stops looking like a live one.
-    expect(DICE_MAX_ROLL_MS).toBeGreaterThan(6_000);
-    expect(DICE_MAX_ROLL_MS).toBeLessThan(15_000);
-  });
-
-  it("keeps a lap short enough that a loop is a beat, not a wait", () => {
-    // Each extra lap is time added to somebody's turn, so the granularity of
-    // "go round again" has to stay small.
-    expect(DICE_TUMBLE_MS).toBeLessThanOrEqual(DICE_ROLL_MS);
-    expect(DICE_FACE_LOCK_MS).toBeLessThan(DICE_TUMBLE_MS);
-  });
-});
-
 /**
- * The die must not leave the player who rolled it until their pawn has landed.
+ * The roll as one continuous phase — the rule that replaced the laps.
  *
- * A move that ends the turn arrives as ONE state: the token has moved, the
- * die is cleared, and `currentTurnPlayerId` already names the next player. The
- * board animates the hop over that transition, but the die is rendered beside
- * whichever seat is current — so it teleported to the next player on the frame
- * the state applied, taking the number with it while the pawn was still in the
- * air. On a four-player table an opponent's roll was gone before it could be
- * read: the whole account of what just happened, removed mid-sentence.
+ * REPORTED: "the die rolls twice while the internet is slow", and reliably on
+ * the first roll of every game, where the prefetch has not landed and the slow
+ * path is guaranteed. Fixed 700ms laps that went round again never stopped on a
+ * placeholder, but each one eased out to a near-halt before speeding up, which
+ * is what a player reads as a second roll.
  *
- * dieHandoverMs is how long the die stays put: the mover's own animation, the
- * same clock the Board hops to, so the number is still there when the pawn
- * lands and gone by the time the next player is asked to roll.
+ * Three properties carry the replacement, and all three are pinned here.
  */
-describe("dieHandoverMs", () => {
-  const base = (): GameState =>
-    createGame(
-      [
-        { id: "p1", userId: "u1", color: "red" },
-        { id: "p2", userId: "u2", color: "yellow" },
-      ],
-      { gameId: "g1" },
-    );
-
-  const withToken = (state: GameState, tokenId: string, position: TokenPosition): GameState => ({
-    ...state,
-    tokens: state.tokens.map((t) => (t.id === tokenId ? { ...t, position } : t)),
+describe("the continuous roll", () => {
+  it("puts the rolled face at the camera on every whole revolution", () => {
+    // The load-bearing decision: integer turns per revolution mean every whole
+    // phi IS the identity rotation, so the roll may stop at any of them and be
+    // legible. Non-integers here would land the die on a corner.
+    expect(Number.isInteger(DICE_TURNS_X)).toBe(true);
+    expect(Number.isInteger(DICE_TURNS_Y)).toBe(true);
   });
 
-  const handTo = (state: GameState, playerId: string): GameState => ({
-    ...state,
-    currentTurnPlayerId: playerId,
-    diceValue: null,
+  it("always leaves a full revolution of visible slowing down", () => {
+    // However unlucky the moment the answer arrives, the landing is never a
+    // snap: at least one whole revolution, at most two.
+    for (const phi of [0, 0.01, 0.5, 0.99, 1, 3.4, 17.999]) {
+      const delta = diceLandingTarget(phi) - phi;
+      expect(delta).toBeGreaterThanOrEqual(DICE_LANDING_REVS);
+      expect(delta).toBeLessThanOrEqual(DICE_LANDING_REVS + 1);
+    }
   });
 
-  it("holds the die for the mover's hop when the turn changes hands", () => {
-    const prev = { ...withToken(base(), "red-0", fromRelativeIndex("red", 5)), diceValue: 4 };
-    const next = handTo(withToken(prev, "red-0", fromRelativeIndex("red", 9)), "p2");
-    expect(dieHandoverMs(prev, next)).toBe(4 * HOP_STEP_MS);
+  it("comes to rest on a whole revolution", () => {
+    for (const phi of [0, 0.37, 2.5, 9.81]) {
+      expect(Number.isInteger(diceLandingTarget(phi))).toBe(true);
+    }
   });
 
-  it("covers a capture too — the number outlasts the pawn it sent home", () => {
-    const landing = fromRelativeIndex("red", 8);
-    let prev = withToken(base(), "red-0", fromRelativeIndex("red", 5));
-    prev = { ...withToken(prev, "yellow-0", landing), diceValue: 3 };
-    let next = withToken(prev, "red-0", landing);
-    next = handTo(withToken(next, "yellow-0", "home"), "p2");
-
-    const retrace = moveDurationMs("yellow", landing, "home");
-    expect(dieHandoverMs(prev, next)).toBe(3 * HOP_STEP_MS + retrace);
+  it("begins the landing at exactly the speed it was already spinning", () => {
+    // THE WHOLE FIX. A cubic ease-out over distance d in duration D opens at
+    // 3d/D; if that is not the spin rate the die visibly changes speed when the
+    // answer lands, and a speed change mid-roll is what reads as a second roll.
+    // This is the seam that 09b0606 could not close with two rotation sources.
+    for (const phi of [0, 0.25, 0.5, 0.999, 4.2]) {
+      const d = diceLandingTarget(phi) - phi;
+      const openingRate = (3 * d) / diceLandingMs(phi);
+      expect(openingRate).toBeCloseTo(DICE_SPIN_REV_PER_MS, 12);
+    }
   });
 
-  it("does not hold when the roller keeps the turn — the die never left", () => {
-    // A six: same seat rolls again, so there is no handover to delay.
-    const prev = { ...withToken(base(), "red-0", fromRelativeIndex("red", 5)), diceValue: 6 };
-    const next = withToken(prev, "red-0", fromRelativeIndex("red", 11));
-    expect(dieHandoverMs(prev, next)).toBe(0);
+  it("rolls for longer the longer the server takes", () => {
+    // "If the server is slow the die keeps rolling; if it is fast the number
+    // lands faster." Measured on the WHOLE roll — the wait plus the landing —
+    // because those are not independent: a target has to be a whole revolution,
+    // so an answer arriving later in a revolution gets a correspondingly shorter
+    // landing. Each further revolution of waiting is a strictly longer roll.
+    const whole = (phi: number) => phi / DICE_SPIN_REV_PER_MS + diceLandingMs(phi);
+    for (const phi of [0.5, 1.5, 2.5, 3.5]) {
+      expect(whole(phi + 1)).toBeGreaterThan(whole(phi));
+    }
   });
 
-  it("does not hold a turn that changed without a roll being seen", () => {
-    // A seat that timed out or left: nothing was rolled, so there is no number
-    // to keep on screen and the die should follow the turn immediately.
-    const prev = base();
-    const next = handTo(prev, "p2");
-    expect(dieHandoverMs(prev, next)).toBe(0);
+  it("never stops before the answer has arrived", () => {
+    // The property the whole report rests on: whatever the server does, the die
+    // is still rolling when the number turns up.
+    const whole = (phi: number) => phi / DICE_SPIN_REV_PER_MS + diceLandingMs(phi);
+    for (const phi of [0, 0.3, 1, 2.7, 10]) {
+      expect(whole(phi)).toBeGreaterThan(phi / DICE_SPIN_REV_PER_MS);
+    }
   });
 
-  it("does not hold across a different game", () => {
-    const prev = { ...base(), diceValue: 5 };
-    const next = handTo({ ...base(), gameId: "g2" }, "p2");
-    expect(dieHandoverMs(prev, next)).toBe(0);
-  });
-
-  it("holds a pass with no mover long enough to read the number", () => {
-    // Rolled, nothing legal to do, turn handed on. No pawn animates, so the
-    // mover clock is zero — but the number still has to be readable.
-    const prev = { ...base(), diceValue: 2 };
-    const next = handTo(prev, "p2");
-    expect(dieHandoverMs(prev, next)).toBeGreaterThan(0);
+  it("animates an answer already in hand exactly as it always did", () => {
+    // Every offline roll, and every prefetched online one: phi is 0 at the tap,
+    // so the landing is one revolution over the tumble length the die has
+    // always played. This is the case 09b0606 protected and it must not move.
+    expect(diceLandingMs(0)).toBeCloseTo(DICE_LANDING_MS, 6);
+    expect(diceLandingTarget(0)).toBe(DICE_LANDING_REVS);
   });
 });
 
@@ -553,7 +443,13 @@ describe("the die hand-off, driven as the hook drives it", () => {
 
     w.render(2, 3);
     const handed = { ...moved(afterSix, "red-0", 14), currentTurnPlayerId: "p2", diceValue: null };
-    expect(w.apply(handed, 2, null)).toEqual({ playerId: "p1", value: 3, ms: 3 * HOP_STEP_MS });
+    const hold = w.apply(handed, 2, null);
+    expect(hold).toMatchObject({ playerId: "p1", value: 3 });
+    // Three cells is 450ms of hopping, which is now SHORTER than the half
+    // second a landed number is owed — so the floor wins and the die waits for
+    // the reader rather than for the pawn.
+    expect(hold!.ms).toBe(500);
+    expect(hold!.ms).toBeGreaterThan(3 * HOP_STEP_MS);
   });
 
   it("still works on the written path, where the state carries the die", () => {
