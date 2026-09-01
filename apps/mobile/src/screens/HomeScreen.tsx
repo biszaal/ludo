@@ -29,6 +29,9 @@ import { CoinsPill } from "../components/CoinsPill";
 import { GemsPill } from "../components/GemsPill";
 import { GetCoinsSheet } from "../components/GetCoinsSheet";
 import { DailyBonusSheet } from "../components/DailyBonusSheet";
+import { AccountSheet } from "../components/AccountSheet";
+import { useSavePrompt } from "../lib/useSavePrompt";
+import { savePromptCopy } from "../lib/savePrompt";
 import { AdSlot } from "../components/AdSlot";
 import { CycleGlyph, PeopleGlyph } from "../components/HomeGlyphs";
 import { ContentColumn } from "../components/ContentColumn";
@@ -56,6 +59,21 @@ export function HomeScreen() {
   const [roomSheet, setRoomSheet] = useState(false);
   const [quickSheet, setQuickSheet] = useState(false);
   const [bonusSheet, setBonusSheet] = useState(false);
+  /**
+   * The one place the save-account prompt is raised.
+   *
+   * Home, and only Home. The triggers behind it are a purchase, a balance worth
+   * losing and a few games played — all of which are TRUE for a while, so the
+   * question is not when they become true but when it is decent to interrupt.
+   * Landing back on Home is that moment: a match has ended, nothing is at stake
+   * on screen, and a dialog costs the player nothing. Firing it where the
+   * triggers actually happen would put it over a results screen or a purchase
+   * confirmation, both of which are somebody's good news.
+   */
+  const savePrompt = useSavePrompt();
+  useEffect(() => {
+    savePrompt.check();
+  }, [savePrompt]);
   const [dioramaBox, setDioramaBox] = useState({ w: 0, h: 0 });
   const newLocalGame = useGameStore((s) => s.newLocalGame);
   const boardTheme = BOARD_THEMES[useSettings((s) => s.boardThemeId)];
@@ -224,6 +242,13 @@ export function HomeScreen() {
         />
       )}
 
+      {savePrompt.reason && (
+        <AccountSheet
+          initialMode="save"
+          heading={savePromptCopy(savePrompt.reason)}
+          onClose={savePrompt.dismiss}
+        />
+      )}
       {coinsSheet && <GetCoinsSheet onClose={() => setCoinsSheet(false)} onDailyBonus={() => { setCoinsSheet(false); setBonusSheet(true); }} />}
       {bonusSheet && <DailyBonusSheet onClose={() => setBonusSheet(false)} />}
       {roomSheet && <RoomSheet onClose={() => setRoomSheet(false)} />}

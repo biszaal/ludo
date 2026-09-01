@@ -9,7 +9,8 @@ import { Text, View } from "react-native";
 import { Sheet } from "./Sheet";
 import { Field } from "./Field";
 import { Button } from "./Button";
-import { saveAccount, signIn } from "../lib/auth";
+import { Platform } from "react-native";
+import { saveAccount, signIn, linkProvider, signInWithProvider, type LinkProvider } from "../lib/auth";
 import { font, palette, space } from "../theme";
 
 type Mode = "save" | "signin";
@@ -24,7 +25,23 @@ type Mode = "save" | "signin";
  */
 const MIN_NEW_PASSWORD = 8;
 
-export function AccountSheet({ initialMode, onClose }: { initialMode: Mode; onClose: () => void }) {
+/**
+ * `heading` lets a caller replace the title and blurb without forking the sheet.
+ * The save-account PROMPT needs to say why it appeared — a player who has just
+ * bought gems and a player three games in are being asked the same thing for
+ * visibly different reasons — while the Account screen, where the player came
+ * looking, wants the plain wording. Same card either way, so the flow can only
+ * be got wrong in one place.
+ */
+export function AccountSheet({
+  initialMode,
+  onClose,
+  heading,
+}: {
+  initialMode: Mode;
+  onClose: () => void;
+  heading?: { title: string; message: string };
+}) {
   const [mode, setMode] = useState<Mode>(initialMode);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -34,6 +51,36 @@ export function AccountSheet({ initialMode, onClose }: { initialMode: Mode; onCl
   const [done, setDone] = useState<string | null>(null);
 
   const saving = mode === "save";
+
+  /**
+   * Apple first on iOS, and present at all only there.
+   *
+   * The App Store requires Sign in with Apple wherever a third-party login is
+   * offered, and Apple's guidelines expect it to be at least as prominent as
+   * the alternatives — so it leads. On Android it would be a worse version of
+   * Google for no reason, so it is simply absent.
+   */
+  const providers: LinkProvider[] = Platform.OS === "ios" ? ["apple", "google"] : ["google"];
+
+  const runProvider = async (provider: LinkProvider) => {
+    if (busy) return;
+    setError(null);
+    setDone(null);
+    setBusy(true);
+    try {
+      const res = saving ? await linkProvider(provider) : await signInWithProvider(provider);
+      if (!res.ok) {
+        // An empty message is a deliberate cancel — the player closed the sheet.
+        // Saying anything here would turn a change of mind into a failure.
+        if (res.error) setError(res.error);
+        return;
+      }
+      if (saving) setDone("Saved. Your coins, gems and looks now follow this account to any phone.");
+      else onClose(); // restored + rehydrated
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const submit = async () => {
     if (busy) return;
@@ -80,12 +127,32 @@ export function AccountSheet({ initialMode, onClose }: { initialMode: Mode; onCl
   };
 
   return (
-    <Sheet onClose={onClose} title={saving ? "Save your account" : "Sign in"} keyboardAvoiding>
+    <Sheet onClose={onClose} title={heading?.title ?? (saving ? "Save your account" : "Sign in")} keyboardAvoiding>
       <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel }}>
-        {saving
-          ? "Back up your coins, gems and looks so they survive a reinstall or a new phone. You'll keep playing exactly as you are."
-          : "Restore an account you saved earlier — its coins, gems and cosmetics come with it."}
+        {heading?.message ??
+          (saving
+            ? "Back up your coins, gems and looks so they survive a reinstall or a new phone. You'll keep playing exactly as you are."
+            : "Restore an account you saved earlier — its coins, gems and cosmetics come with it.")}
       </Text>
+
+      {done ? null : (
+        <>
+          {providers.map((provider) => (
+            <Button
+              key={provider}
+              label={`${saving ? "Continue" : "Sign in"} with ${provider === "apple" ? "Apple" : "Google"}`}
+              variant={provider === providers[0] ? undefined : "ghost"}
+              onPress={() => void runProvider(provider)}
+              disabled={busy}
+            />
+          ))}
+          <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm, paddingVertical: space.xs }}>
+            <View style={{ flex: 1, height: 1, backgroundColor: palette.hairline }} />
+            <Text style={{ fontFamily: font.regular, fontSize: 12, color: palette.mutedSteel }}>or use email</Text>
+            <View style={{ flex: 1, height: 1, backgroundColor: palette.hairline }} />
+          </View>
+        </>
+      )}
 
       <Field
         accessibilityLabel="Email"

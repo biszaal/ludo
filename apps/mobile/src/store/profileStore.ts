@@ -36,8 +36,25 @@ interface ProfileState {
    * onboarding screen on their next update.
    */
   namePromptSeen: boolean;
+  /**
+   * When this device last asked the player to secure their guest account, and
+   * how many times it ever has. The rule that reads them is lib/savePrompt.ts;
+   * they live here because they describe this device's relationship with the
+   * player, exactly as namePromptSeen does.
+   *
+   * NOT migrated to "already asked" the way namePromptSeen was, and the
+   * difference matters: an existing player who has never linked an account is
+   * precisely who this is for. They are the ones holding balances, and the ones
+   * August stranded.
+   */
+  savePromptAt: number | null;
+  savePromptCount: number;
   setName: (name: string) => void;
   markNamePromptSeen: () => void;
+  markSavePromptShown: (at: number) => void;
+  /** Back to never-asked — for a deliberate sign-out or account deletion, where
+   *  the device is starting a new guest's life over. */
+  resetSavePrompt: () => void;
   setAvatar: (id: string) => void;
   setDiceSkin: (id: string) => void;
 }
@@ -50,6 +67,8 @@ export const useProfile = create<ProfileState>()(
       displayName: initialGuestName,
       guestName: initialGuestName,
       namePromptSeen: false,
+      savePromptAt: null,
+      savePromptCount: 0,
       avatarId: "orbit-moss",
       diceSkinId: "classic",
       setName: (name) => {
@@ -57,12 +76,15 @@ export const useProfile = create<ProfileState>()(
         set({ displayName: trimmed.trim().length === 0 ? get().guestName : trimmed });
       },
       markNamePromptSeen: () => set({ namePromptSeen: true }),
+      markSavePromptShown: (at) =>
+        set((st) => ({ savePromptAt: at, savePromptCount: st.savePromptCount + 1 })),
+      resetSavePrompt: () => set({ savePromptAt: null, savePromptCount: 0 }),
       setAvatar: (id) => set({ avatarId: id }),
       setDiceSkin: (id) => set({ diceSkinId: id }),
     }),
     {
       name: "ludo-profile",
-      version: 3,
+      version: 4,
       storage: createJSONStorage(kvStorage),
       // v1 had no guestName and defaulted displayName to the literal "You".
       // v2 had no namePromptSeen: anyone with a stored profile is an EXISTING
@@ -75,6 +97,10 @@ export const useProfile = create<ProfileState>()(
           p = { ...p, guestName, displayName: unnamed ? guestName : p.displayName };
         }
         if (version < 3) p = { ...p, namePromptSeen: true };
+        // v4 adds the save-account prompt counters. Deliberately NOT seeded as
+        // "already asked": an existing guest is the person most at risk here,
+        // and silencing the prompt for exactly them would defeat it.
+        if (version < 4) p = { ...p, savePromptAt: null, savePromptCount: 0 };
         return p as ProfileState;
       },
     },

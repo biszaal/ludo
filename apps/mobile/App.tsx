@@ -14,6 +14,7 @@ import { JetBrainsMono_500Medium } from "@expo-google-fonts/jetbrains-mono";
 import { ScreenStack } from "./src/components/ScreenStack";
 import { SheetHost } from "./src/components/SheetHost";
 import { InviteBanner } from "./src/components/InviteBanner";
+import { GuestBanner } from "./src/components/GuestBanner";
 import { ConfirmDialog } from "./src/components/ConfirmDialog";
 import { LoadingScreen } from "./src/components/LoadingScreen";
 import { ChooseNameScreen } from "./src/components/ChooseNameScreen";
@@ -179,6 +180,7 @@ export default function App() {
               to whatever scroll view happened to contain them. */}
           <SheetHost />
           <InviteBanner />
+          <GuestBanner />
           {/* Above everything, including the banner: it is asked about an
               action the player just tried to take. */}
           <ConfirmDialog />
