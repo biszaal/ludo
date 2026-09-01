@@ -7,7 +7,7 @@
  */
 
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from "expo-audio";
-import { freshSlot, parkOnFinish, pickSlot, type Slot } from "./soundPool";
+import { freshSlot, pickSlot, slotsToPark, stillOwns, type Slot } from "./soundPool";
 import { useSettings } from "../store/settingsStore";
 
 export type SoundName =
@@ -21,7 +21,13 @@ export type SoundName =
  * thread on every single hop. See lib/soundPool.
  */
 const SPECS: Record<SoundName, { source: number; pool: number; volume: number; ms: number }> = {
-  hop: { source: require("../../assets/audio/sfx/hop.wav"), pool: 4, volume: 0.5, ms: 130 },
+  // Eight, sized by the longest BURST rather than by the clip. A six-cell move
+  // plus a captured pawn's retrace is ~7 thocks 150ms apart, and a slot is only
+  // free of a rewind while it is still parked — so four players meant the back
+  // half of every long move was paying a seek on a main thread that had no time
+  // for it. Eight covers a whole burst from parked slots alone, and the quiet
+  // sweep re-parks them all between turns. A 130ms mono clip costs nothing.
+  hop: { source: require("../../assets/audio/sfx/hop.wav"), pool: 8, volume: 0.5, ms: 130 },
   dice: { source: require("../../assets/audio/sfx/dice.wav"), pool: 2, volume: 0.6, ms: 360 },
   capture: { source: require("../../assets/audio/sfx/capture.wav"), pool: 2, volume: 0.55, ms: 320 },
   finish: { source: require("../../assets/audio/sfx/finish.wav"), pool: 2, volume: 0.5, ms: 450 },
@@ -86,19 +92,26 @@ declare global {
 
 function releaseAll(): void {
   for (const name of Object.keys(pools) as SoundName[]) {
+    const timer = sweepTimers[name];
+    if (timer) clearTimeout(timer);
+    sweepTimers[name] = null;
     delete slots[name];
   }
+  // `remove()`, not `release()`. There is no `release` on an AudioPlayer — the
+  // old call threw on every dev reload and was swallowed by the catch, so the
+  // previous generation's players lived on and its music loop played UNDER the
+  // new one, which is the exact thing this function exists to prevent.
   for (const pool of Object.values(pools)) {
     for (const p of pool) {
       try {
-        p.release();
+        p.remove();
       } catch {
-        // already released or context torn down
+        // already removed or context torn down
       }
     }
   }
   try {
-    music?.release();
+    music?.remove();
   } catch {
     // ignore
   }
@@ -110,38 +123,75 @@ function releaseAll(): void {
 function buildPool(name: SoundName): void {
   if (pools[name]) return;
   const spec = SPECS[name];
-  const mine: Slot[] = Array.from({ length: spec.pool }, freshSlot);
-  pools[name] = Array.from({ length: spec.pool }, (_, i) => {
+  slots[name] = Array.from({ length: spec.pool }, freshSlot);
+  // No `playbackStatusUpdate` listener, deliberately. Rewinding on the native
+  // finish notice was the obvious place to do it and the wrong one: the notice
+  // arrives over the Android main thread, which is saturated for the whole of a
+  // hop chain, so the rewinds it triggered queued up alongside the plays they
+  // were meant to precede — and it cost one native→JS event per clip on top.
+  // The quiet sweep below does the same job when the thread is free.
+  pools[name] = Array.from({ length: spec.pool }, () => {
     const player = createAudioPlayer(spec.source);
     player.volume = spec.volume;
-    // Park finished players back at 0, and only mark the slot parked once the
-    // rewind has actually LANDED. On Android that seek is a hop through the
-    // main looper, so under animation load it can arrive several frames late —
-    // and a slot wrongly believed to be at 0 is a silent play.
-    player.addListener("playbackStatusUpdate", (status) => {
-      if (!status.didJustFinish) return;
-      const slot = mine[i]!;
-      // The notice may be stale: it comes off the Android main thread, which a
-      // hop chain has saturated, so it can arrive after this slot was already
-      // handed to the next clip. Parking it then would pause a sound that has
-      // only just started — see parkOnFinish.
-      if (!parkOnFinish(slot, Date.now())) return;
-      slot.busyUntil = 0;
-      try {
-        player.pause();
-      } catch {
-        // ignore
-      }
-      void player
-        .seekTo(0)
-        .then(() => {
-          slot.parked = true;
-        })
-        .catch(() => {});
-    });
     return player;
   });
-  slots[name] = mine;
+}
+
+/**
+ * How long a pool must go untouched before its players are rewound.
+ *
+ * It has one job: outlast a BURST, so a sweep can only land after the pawn has
+ * stopped moving. 600ms is four hops at HOP_STEP_MS, and every play pushes it
+ * out again, so a twelve-cell chain defers it just as effectively as a short
+ * one. The upper bound is the gap to the next burst — a whole turn — so there is
+ * a great deal of room here and no reason to shave it.
+ */
+const QUIET_MS = 600;
+const sweepTimers = {} as Record<SoundName, ReturnType<typeof setTimeout> | null>;
+
+/**
+ * Rewind a pool's finished players, once nothing has used it for a beat.
+ *
+ * This is the half of the fix that the pool sizes rest on: a slot only takes the
+ * one-op `play()` path while it is parked, and playing it is what un-parks it.
+ * Doing the rewind here rather than per-clip means every `seekTo` lands during
+ * the gap between turns, when the main thread is idle, instead of in the middle
+ * of the animation whose sound it was supposed to serve.
+ */
+function sweepPool(name: SoundName): void {
+  const pool = pools[name];
+  const mine = slots[name];
+  if (!pool || !mine) return;
+  for (const i of slotsToPark(mine, Date.now())) {
+    const slot = mine[i]!;
+    const player = pool[i]!;
+    const gen = slot.gen;
+    try {
+      // Load-bearing, not tidiness: a finished ExoPlayer still has
+      // playWhenReady set, so seeking it back to 0 without pausing first replays
+      // the clip out loud.
+      player.pause();
+    } catch {
+      // ignore
+    }
+    void player
+      .seekTo(0)
+      .then(() => {
+        if (stillOwns(slot, gen)) slot.parked = true;
+      })
+      .catch(() => {});
+  }
+}
+
+/** Push the sweep out to `QUIET_MS` from now — called on every play, so a burst
+ *  keeps deferring it and only the silence after the burst lets it run. */
+function deferSweep(name: SoundName): void {
+  const running = sweepTimers[name];
+  if (running) clearTimeout(running);
+  sweepTimers[name] = setTimeout(() => {
+    sweepTimers[name] = null;
+    sweepPool(name);
+  }, QUIET_MS);
 }
 
 /**
@@ -218,17 +268,25 @@ export function playSound(name: SoundName): void {
   const slot = mine[index]!;
   slot.busyUntil = now + SPECS[name].ms;
   slot.parked = false;
+  // Claims the slot for this clip: anything still in flight for the last one is
+  // now stale. See Slot.gen.
+  slot.gen++;
   try {
     // Never AWAIT the rewind. Both calls land on the same Android main queue in
     // the order they are issued — the seek first, then the play — so the clip
     // still starts from the top, but without a round trip back into JS that on
     // a loaded main thread arrives long after the moment it was meant for.
     // Awaiting it here is what made hops and dice rolls silent on Android.
+    //
+    // `rewind` should be rare: the pools are sized so a burst finds parked
+    // players, and the sweep re-parks them in the quiet afterwards. It is the
+    // fallback for a burst longer than the pool, not the normal path.
     if (rewind) void player.seekTo(0).catch(() => {});
     player.play();
   } catch {
     // ignore
   }
+  deferSweep(name);
 }
 
 /** A single hop "boing" — call once per cell a token steps through. */

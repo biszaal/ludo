@@ -1,24 +1,30 @@
 /**
- * Which pooled player a one-shot effect should use, and whether that player has
- * to be rewound before it will make a sound.
+ * Which pooled player a one-shot effect should use, and which players are idle
+ * enough to be rewound.
  *
  * This exists as its own pure module because of an Android bug it is the fix
- * for. In expo-audio, `play()` and `pause()` are synchronous native calls, but
- * `seekTo()` is an *async* one dispatched to the Android main looper — and so
- * are the `playing` / `currentTime` property reads (each one blocks the JS
- * thread until the main thread answers). The hop and dice sounds fire while
- * Reanimated and Skia have that same main thread saturated, so anything routed
- * through it arrives late: a `seekTo(0).then(play)` restart usually landed after
- * the hop it belonged to had already come and gone, and the finished-player
- * re-park that was supposed to restore the fast path was stuck in the same
- * queue. The result on Android was hops and dice rolls that were silent almost
- * every time, while the sounds that fire on an idle UI (messages, reaction
- * voices, taps) stayed perfectly reliable.
+ * for. In expo-audio, `play()` and `pause()` are synchronous JS-side calls whose
+ * bodies post to the Android MAIN looper, and `seekTo()` is an async function
+ * dispatched to that same looper (see AudioModule.kt: `runOnMain { … }` and
+ * `AsyncFunction("seekTo").runOnQueue(Queues.MAIN)`). The hop and dice sounds
+ * fire while Reanimated and Skia have that exact thread saturated, so everything
+ * routed through it arrives late — and a slot that needs a rewind costs TWO
+ * queued ops per play. Several of those pile up and interleave as
+ * `seek(0), play, seek(0), play`, where each seek restarts the clip the
+ * preceding play had just begun: N hops collapse into one audible thock. On
+ * Android that read as hops and dice rolls being silent most of the time, while
+ * sounds that fire on an idle UI (messages, reaction voices, taps) stayed
+ * perfectly reliable.
  *
- * So the pool now tracks in JS what it used to ask the native player: which
- * slots are still sounding, and which are known to sit at position 0. Picking a
- * slot costs no native calls at all, and the common case starts with a bare
- * synchronous `play()`.
+ * Two rules follow, and both live here so they can be tested in Node:
+ *
+ *   1. PICK A PARKED SLOT. A player known to sit at position 0 plays with a bare
+ *      `play()` — one queued op, and the only path that cannot be spoilt by a
+ *      busy main thread. Pools are sized so a whole burst finds parked players.
+ *   2. REWIND IN THE QUIET. Rewinding is what makes a slot parked again, and
+ *      doing it per-clip puts the seeks back onto the congested thread. The
+ *      caller instead sweeps a pool once it has been silent for a beat, which is
+ *      between turns — when the main thread has nothing else to do.
  */
 
 /** One pooled player's state, as JS believes it to be. */
@@ -27,11 +33,22 @@ export interface Slot {
   busyUntil: number;
   /** The slot is known to sit at position 0, so `play()` alone will sound it. */
   parked: boolean;
+  /**
+   * Bumped every time the slot is handed to a clip.
+   *
+   * The rewind that parks a slot finishes asynchronously — `seekTo` returns a
+   * promise that resolves off the main looper, which under load can be several
+   * frames late. By then the slot may already have been handed to the next clip,
+   * and marking THAT one "parked at 0" is a lie that costs the sound after it:
+   * the next play would skip its rewind and start from wherever the clip had
+   * got to. Comparing the generation is how a late answer knows it is stale.
+   */
+  gen: number;
 }
 
 /** A newly created player: loaded, at position 0, never played. */
 export function freshSlot(): Slot {
-  return { busyUntil: 0, parked: true };
+  return { busyUntil: 0, parked: true, gen: 0 };
 }
 
 export interface Pick {
@@ -71,23 +88,33 @@ export function pickSlot(slots: readonly Slot[], now: number): Pick {
 }
 
 /**
- * A `didJustFinish` notice has arrived for this slot — should it be parked?
+ * Which slots the quiet sweep should rewind: everything that has finished
+ * sounding and is not already known to sit at 0.
  *
- * The listener's response to a finished clip is to pause, rewind and mark the
- * slot parked, which is right for a clip that has ended and destructive for one
- * that has just started: `pause()` is a synchronous native call, so it stops
- * the new sound outright.
+ * The caller runs this only after a pool has been silent for a beat, so in
+ * practice every slot qualifies — but the checks are not decoration. A sound
+ * that fires exactly as the sweep lands (a chat message during the pause between
+ * turns) must not have its player paused out from under it, and re-seeking a
+ * slot that is already parked would put a needless op back on the main thread,
+ * which is the whole thing this module exists to avoid.
  *
- * And the two are easy to confuse, because the notice comes from the Android
- * main thread — the same thread Reanimated and Skia have saturated during a hop
- * chain. It can land a whole step late, by which time `pickSlot` has already
- * handed this slot to the next clip. `busyUntil` is what tells them apart: a
- * slot still sounding has it in the future, and a notice for a slot that is
- * sounding cannot be about the clip now playing.
- *
- * Pure and clock-injected, like pickSlot, so the rule can be tested without a
- * native player.
+ * Pure and clock-injected, like pickSlot.
  */
-export function parkOnFinish(slot: Slot, now: number): boolean {
-  return slot.busyUntil <= now;
+export function slotsToPark(slots: readonly Slot[], now: number): number[] {
+  const out: number[] = [];
+  for (let i = 0; i < slots.length; i++) {
+    const slot = slots[i]!;
+    if (!slot.parked && slot.busyUntil <= now) out.push(i);
+  }
+  return out;
+}
+
+/**
+ * Is a rewind that has just landed still about the clip that asked for it?
+ *
+ * See `Slot.gen`. False means the slot was handed on while the seek was in
+ * flight, and the answer must be discarded rather than believed.
+ */
+export function stillOwns(slot: Slot, gen: number): boolean {
+  return slot.gen === gen;
 }
