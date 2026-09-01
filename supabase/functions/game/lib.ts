@@ -245,19 +245,41 @@ export function dieFromDigest(digest: Uint8Array): number {
  */
 export const DRY_TURNS_THRESHOLD = 6;
 
-/** Added to the chance of a six per dry turn past the threshold, and the ceiling
- *  it climbs to. At the threshold the die is ~29% to come up six rather than
- *  ~17%; by four turns past it, ~58%. It never becomes a certainty — a rescue
- *  that is guaranteed is a rescue a player can plan around. */
-const DRY_STEP = 0.15;
-const DRY_MAX = 0.5;
+/**
+ * Added to the chance of a six per dry turn past the threshold, and the ceiling
+ * it climbs to.
+ *
+ * The bias is only consulted when the honest die was NOT already a six, so the
+ * odds a player actually experiences are `1/6 + (5/6) * boost`:
+ *
+ *     dry turns   boost   P(six)
+ *     0-5         0       16.7%   the honest die, untouched
+ *     6           1/3     44%
+ *     7           2/3     72%
+ *     8+          1       100%
+ *
+ * SO IT DOES REACH CERTAINTY, and an earlier version of this comment argued it
+ * must not — "a rescue that is guaranteed is a rescue a player can plan around".
+ * That objection does not survive contact with what actually advances the
+ * counter. A guarantee is only plannable if knowing it is coming lets you do
+ * something different, and `dryTurns` only moves on a turn with NO LEGAL MOVE
+ * WHATSOEVER — in practice, every pawn still in the yard. At the moment the
+ * guarantee fires there is nothing to plan: no move to hold back, no choice to
+ * make, and no way to arrange to be stuck in the first place, since advancing
+ * the counter costs the player the turn.
+ *
+ * What a cap bought instead was a long tail of players who were still stuck at
+ * 58% a roll, which is the complaint this exists to answer.
+ */
+const DRY_STEP = 1 / 3;
+const DRY_MAX = 1;
 
 /**
  * How much of a thumb goes on the scale at `dryTurns`.
  *
  * Exported for its test: the shape of this curve is the whole of the fairness
- * argument, and "0 below the threshold, capped above it" is the part that has
- * to stay true no matter how the constants are retuned.
+ * argument, and "0 below the threshold, monotonic above it, never past 1" is the
+ * part that has to stay true no matter how the constants are retuned.
  */
 export function dryBoost(dryTurns: number): number {
   if (dryTurns < DRY_TURNS_THRESHOLD) return 0;
@@ -272,9 +294,9 @@ const RESCUE_INFO = "ludo-dice-rescue-v1";
  * The die for one roll, or null when there is no key to derive it with.
  *
  * `dryTurns` is how many consecutive turns this seat has rolled with no legal
- * move and no six (players.dry_turns, migration 0058). Past a threshold it
- * makes a six more likely — deliberately, and with the reasoning and the limits
- * set out in that migration.
+ * move and no six (games.dry_turns, migration 0058). Past a threshold it makes a
+ * six more likely, and far enough past it the six is certain — deliberately, and
+ * with the reasoning set out on DRY_STEP and in that migration.
  *
  * The bias is DERIVED, not drawn. That matters as much as the odds do: the
  * whole anti-stalling property in turn.ts's rollRng comment rests on the same

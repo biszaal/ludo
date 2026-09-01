@@ -31,6 +31,15 @@
 -- move in it. So it only ever climbs during the exact run of dead turns it
 -- exists to end.
 --
+-- WHERE THE CURVE ENDS: nothing happens for the first six dead turns; the
+-- seventh roll is 44% to be a six, the eighth 72%, and the ninth and everything
+-- after it is certain. A guarantee is only something a player can plan around if
+-- knowing it is coming lets them play differently, and by construction it cannot
+-- here: the counter only moves on a turn with no legal move at all, so at the
+-- moment the guarantee fires there is no choice to make and no move to hold
+-- back. Capping below certainty instead left a tail of players still rolling at
+-- 58% a turn, which is the complaint this column exists to answer.
+--
 -- ROLLBACK: drop the column; the edge function treats a missing value as 0 and
 -- simply stops biasing.
 

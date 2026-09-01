@@ -26,12 +26,37 @@ Deno.test("help starts at the threshold and grows", () => {
   assertEquals(later > at, true);
 });
 
-Deno.test("help is capped — a rescue is never a certainty", () => {
-  // A guaranteed six is a six a player can plan around, which is a different
-  // and worse game than one that is merely kind.
-  const huge = dryBoost(500);
-  assertEquals(huge <= 0.5, true);
-  assertEquals(dryBoost(50), huge);
+Deno.test("help climbs to certainty and stops there", () => {
+  // It DOES reach a guaranteed six, and the reasoning is on DRY_STEP: a rescue
+  // is only "plannable" if knowing it is coming lets you play differently, and
+  // the counter only advances on turns with no legal move at all — so there is
+  // nothing to plan with. What must stay true is the shape: monotonic, and never
+  // past 1, because dryBoost is compared against a unit interval.
+  let prev = 0;
+  for (let n = DRY_TURNS_THRESHOLD; n <= DRY_TURNS_THRESHOLD + 8; n++) {
+    const b = dryBoost(n);
+    assertEquals(b >= prev, true);
+    assertEquals(b <= 1, true);
+    prev = b;
+  }
+  assertEquals(dryBoost(DRY_TURNS_THRESHOLD + 2), 1);
+  // Past the ceiling it is flat, not growing — an unbounded boost would be a
+  // probability greater than one, which the comparison in deriveDie would read
+  // as "always", but only by accident.
+  assertEquals(dryBoost(500), 1);
+  assertEquals(dryBoost(50), dryBoost(500));
+});
+
+Deno.test("a seat stuck long enough is certainly freed", async () => {
+  // The whole point of the retune. At the certainty rung the derivation must
+  // return a six for every seat, not merely usually.
+  for (const seat of [SEAT, "44444444-4444-4444-4444-444444444444", "another-seat"]) {
+    for (let v = 0; v < 12; v++) {
+      const die = await deriveDie(GAME, v, seat, DRY_TURNS_THRESHOLD + 2);
+      if (die === null) return; // no DICE_SECRET configured — nothing to bias
+      assertEquals(die, 6);
+    }
+  }
 });
 
 Deno.test("a negative or absent count is simply no help", () => {
