@@ -60,6 +60,37 @@ export function cubeFaces(frontValue: number): DieFace[] {
   ];
 }
 
+/**
+ * The number a TUMBLING cube may paint on its faces, or null for none.
+ *
+ * A cube has to be laid out around some face value even before the server has
+ * answered, and that placeholder used to be painted like any other number. It
+ * cannot be, and the reason is the tumble's own easing rather than anything
+ * about the placeholder: a lap's rotation eases out to identity, so the camera
+ * face is within ~19 degrees of straight-on for the last third of EVERY lap and
+ * within ~6 degrees for the last fifth. Landing or not, that tail is read.
+ *
+ * So a roll still waiting on its number spent the tail of each lap showing a
+ * legible 1 — `value ?? 1` — before the real number arrived on a later lap.
+ * Reported exactly that way: "the die rolls and lands on 1 before rolling again
+ * and getting the actual number."
+ *
+ * The lap machinery in Dice.tsx already guarantees the die never STOPS on a
+ * placeholder, and that was never the problem. Stopping is not what makes a
+ * face readable; decelerating is.
+ *
+ * Deliberately NOT solved by spinning differently while waiting. That was tried
+ * across several rounds and reverted wholesale in 09b0606: parking the arc and
+ * carrying the wait on a second rotation meant two sources feeding one die, and
+ * every fix only moved which junction the speed changed at. One tumble, one
+ * rate, start to finish. The cube keeps rolling exactly as it always has — it
+ * just has nothing written on it until there is something true to write.
+ */
+export function tumbleFaceValue(value: number | null): number | null {
+  "worklet";
+  return value;
+}
+
 /** Rotate `p` by Euler angles (radians): X axis first, then Y, then Z. */
 export function rotateVec(p: Vec3, ax: number, ay: number, az: number): Vec3 {
   "worklet";

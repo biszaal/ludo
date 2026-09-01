@@ -13,6 +13,7 @@ import {
   lambert,
   rotateScaleAbout,
   rotateVec,
+  tumbleFaceValue,
   type Vec3,
 } from "../src/render/dieMath";
 
@@ -165,5 +166,52 @@ describe("rotateScaleAbout", () => {
     const m = rotateScaleAbout(0, 2, 0.5, 10, 10);
     close(apply(m, 20, 10).x, 30); // 10 right of pivot doubles
     close(apply(m, 10, 20).y, 15); // 10 below pivot halves
+  });
+});
+
+/**
+ * A tumbling die must never let the player read a number the server has not
+ * sent yet.
+ *
+ * REPORTED: "the die rolls and lands on 1 before rolling again and getting the
+ * actual number." The lap machinery already guarantees the die never STOPS on a
+ * placeholder — but stopping was never the problem. Each lap's rotation eases
+ * out to identity, so the camera face is face-on and plainly readable for the
+ * tail of EVERY lap, landing or not. With the cube laid out around `value ?? 1`
+ * and its pips painted, that tail reads as a rolled 1.
+ *
+ * The numbers below are the ones Dice.tsx actually animates: `back = (1-t)^3`
+ * scaled by TUMBLE_TURNS_X[0] = 2 whole turns.
+ */
+describe("the tumbling placeholder", () => {
+  /** Rotation still to unwind at `t` through a lap — Dice.tsx's own curve. */
+  const back = (t: number) => (1 - t) * (1 - t) * (1 - t);
+  /** How far off camera-on the landing face is, in degrees, at `t`. */
+  const degreesOff = (t: number) => Math.abs(2 * back(t) * 360) % 360;
+
+  it("is face-on and readable well before a lap ends", () => {
+    // This is the fact that makes a placeholder dangerous. If this ever stops
+    // being true the bug below cannot happen — but it is true, by design: the
+    // ease-out exists so a landing is legible.
+    expect(degreesOff(0.7)).toBeLessThan(20);
+    expect(degreesOff(0.8)).toBeLessThan(10);
+    expect(degreesOff(1)).toBeCloseTo(0);
+  });
+
+  it("paints no number at all while the roll is unanswered", () => {
+    // The guard Dice.tsx has documented since c4450a5 and never implemented:
+    // "Blank while the roll is still waiting on its number ... the die is never
+    // seen decelerating onto a placeholder."
+    expect(tumbleFaceValue(null)).toBeNull();
+  });
+
+  it("paints the real number once it is known", () => {
+    for (const v of [1, 2, 3, 4, 5, 6]) expect(tumbleFaceValue(v)).toBe(v);
+  });
+
+  it("never lets a waiting die be mistaken for a rolled one", () => {
+    // The whole bug in one line: a waiting die and a die that genuinely rolled
+    // a 1 must not look the same at the readable end of a lap.
+    expect(tumbleFaceValue(null)).not.toBe(tumbleFaceValue(1));
   });
 });

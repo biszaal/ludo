@@ -30,6 +30,16 @@
  * part of a lap — nearly all of them — lands on the first one, and the
  * animation is exactly the one this always played. The rule is
  * moveTiming.diceLandsThisLap, which is where it can be tested.
+ *
+ * THE OTHER HALF OF THAT, and the part this file got wrong for a long time:
+ * re-lapping stops the die STOPPING on a placeholder, but stopping was never
+ * what made a face readable — decelerating is. Since every lap eases out to
+ * camera-on, an unanswered roll spent the tail of each lap showing a perfectly
+ * legible placeholder 1, then rolled again and produced the real number, which
+ * is precisely how it was reported. So nothing is inked onto a tumbling face
+ * until there is something true to ink: the cube is laid out around a
+ * placeholder because it must be laid out around something, but it carries no
+ * number until the server has answered. See dieMath.tumbleFaceValue.
  */
 
 import { memo, useCallback, useEffect, useMemo, useRef } from "react";
@@ -51,7 +61,7 @@ import { diceSettle } from "../lib/haptics";
 import { DICE_CUBE_END, DICE_ROLL_MS, DICE_TUMBLE_MS, diceLandsThisLap } from "../lib/moveTiming";
 import type { BoardTheme } from "../render/boardThemes";
 import { diceRenderParams, type DiceSkin } from "../render/diceSkins";
-import { cubeFaces, faceMatrix, lambert, rotateScaleAbout, rotateVec, type Vec3 } from "../render/dieMath";
+import { cubeFaces, faceMatrix, lambert, rotateScaleAbout, rotateVec, tumbleFaceValue, type Vec3 } from "../render/dieMath";
 import { appendMotif, motifStyle } from "../render/faceMotifs";
 import { appendPip, overlayArt } from "../render/pipShapes";
 import { appendNumeral, NUMERAL_FACE_R, NUMERAL_KEYLINE, NUMERAL_STROKE, type Numeral } from "../render/dieNumerals";
@@ -490,11 +500,14 @@ export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = f
   const pad = Math.round(size * 0.65);
   const canvasSide = size + pad * 2;
   const c = canvasSide / 2;
-  // A tumbling cube always shows numbers, the way a real one does. Before the
-  // answer arrives the six faces are laid out around a placeholder; the lap
-  // machinery guarantees the die never STOPS on that arrangement, so the only
-  // thing a placeholder costs is a relabel while the cube is a blur.
+  // The cube has to be laid out around SOME face, so an unanswered roll still
+  // arranges itself around a placeholder — that part is unavoidable and
+  // harmless, because the arrangement is only geometry.
   const shownValue = value ?? 1;
+  // What may actually be INKED onto those faces, which is a different question:
+  // null until the server has answered. See tumbleFaceValue for why a lap that
+  // never stops on the placeholder is still read as one.
+  const inkValue = tumbleFaceValue(value);
 
   const picture = useDerivedValue(() => {
     const mix = mixColor;
@@ -604,32 +617,39 @@ export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = f
           glossPaint.setAlphaf(sp.sheen * (0.35 + 0.65 * lambert(n)));
           canvas.drawRRect(Skia.RRectXY(Skia.XYWHRect(-1, -1, 2, 2), 0.48, 0.48), glossPaint);
         }
-        // Blank while the roll is still waiting on its number. Pips appear the
-        // moment the value lands, which is also the moment the landing arc is
-        // allowed to start — so every face the player can actually read is the
-        // real one, and the die is never seen decelerating onto a placeholder.
-        if (sp.pipShape === "dot") {
-          for (const [px, py] of PIP_XY[face.value]!) {
-            canvas.drawCircle((px - 0.5) * 1.84, (py - 0.5) * 1.84, 0.17, pipPaint);
+        // INK ONLY WHAT IS TRUE. Blank while the roll is still waiting on its
+        // number, so the only face the player can ever read is a real one.
+        //
+        // This guard has been described here since c4450a5 and was never
+        // actually written — the pips below were painted unconditionally, over
+        // faces laid out around `value ?? 1`. Since every lap eases out to
+        // camera-on, that is the whole of the "die lands on 1, then rolls again
+        // and gets the actual number" report. A bare tumbling cube reads as a
+        // die that is still going, which is exactly what it is.
+        if (inkValue !== null) {
+          if (sp.pipShape === "dot") {
+            for (const [px, py] of PIP_XY[face.value]!) {
+              canvas.drawCircle((px - 0.5) * 1.84, (py - 0.5) * 1.84, 0.17, pipPaint);
+            }
+          } else if (sp.pipShape === "numeral") {
+            // One figure per face, at the same cap height the landed face uses
+            // (0.29 of the die, and a face spans 2 local units). Stroked, so the
+            // rim trick above becomes a plain wider under-stroke rather than an
+            // outline around a fill. The path is face-local, so it is the same
+            // one on every face and every frame showing this value.
+            const nr = NUMERAL_FACE_R;
+            const numeral = kit.pipPathFor[face.value - 1]!;
+            numeralPaint.setStrokeWidth(nr * NUMERAL_STROKE * NUMERAL_KEYLINE);
+            numeralPaint.setColor(kit.numeralKeyColor);
+            canvas.drawPath(numeral, numeralPaint);
+            numeralPaint.setStrokeWidth(nr * NUMERAL_STROKE);
+            numeralPaint.setColor(kit.numeralInkColor);
+            canvas.drawPath(numeral, numeralPaint);
+          } else {
+            const facePips = kit.pipPathFor[face.value - 1]!;
+            canvas.drawPath(facePips, outlinePaint);
+            canvas.drawPath(facePips, pipPaint);
           }
-        } else if (sp.pipShape === "numeral") {
-          // One figure per face, at the same cap height the landed face uses
-          // (0.29 of the die, and a face spans 2 local units). Stroked, so the
-          // rim trick above becomes a plain wider under-stroke rather than an
-          // outline around a fill. The path is face-local, so it is the same
-          // one on every face and every frame showing this value.
-          const nr = NUMERAL_FACE_R;
-          const numeral = kit.pipPathFor[face.value - 1]!;
-          numeralPaint.setStrokeWidth(nr * NUMERAL_STROKE * NUMERAL_KEYLINE);
-          numeralPaint.setColor(kit.numeralKeyColor);
-          canvas.drawPath(numeral, numeralPaint);
-          numeralPaint.setStrokeWidth(nr * NUMERAL_STROKE);
-          numeralPaint.setColor(kit.numeralInkColor);
-          canvas.drawPath(numeral, numeralPaint);
-        } else {
-          const facePips = kit.pipPathFor[face.value - 1]!;
-          canvas.drawPath(facePips, outlinePaint);
-          canvas.drawPath(facePips, pipPaint);
         }
         canvas.restore();
       }
