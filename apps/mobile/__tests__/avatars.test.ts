@@ -6,14 +6,24 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { AVATARS, CHIP_TONES, contrastRatio, hslOf, parseColor, saturationOf } from "../scripts/gen-avatars.mjs";
+import { AVATARS, CHIP_TONES, contrastRatio, hslOf, parseColor, renderAvatar, saturationOf } from "../scripts/gen-avatars.mjs";
 import { AVATAR_IDS, DEFAULT_AVATAR_ID, resolveAvatarId } from "../src/render/avatars";
 import { teamColor } from "../src/theme";
 
 const AVATAR_DIR = join(__dirname, "..", "assets", "images", "avatars");
+const MIGRATIONS = join(__dirname, "..", "..", "..", "supabase", "migrations");
+
+/** Every `avatar.<id>` SKU seeded anywhere in the migrations. */
+function seededAvatarSkus(): Set<string> {
+  const sql = readdirSync(MIGRATIONS)
+    .filter((f) => f.endsWith(".sql"))
+    .map((f) => readFileSync(join(MIGRATIONS, f), "utf8"))
+    .join("\n");
+  return new Set([...sql.matchAll(/'avatar\.([a-z0-9-]+)'/g)].map((m) => m[1]!));
+}
 
 describe("avatar catalog", () => {
   it("ships an image for every id the app knows", () => {
@@ -27,6 +37,20 @@ describe("avatar catalog", () => {
     // The two lists live in different files now; drift would ship an avatar
     // nobody can select, or a tile pointing at an image that was never drawn.
     expect([...AVATAR_IDS].sort()).toEqual(AVATARS.map((a) => a.id).sort());
+  });
+
+  // An avatar with no catalog row is a tile the shop can never sell, and a
+  // catalog row with no avatar is a purchase that resolves to no face. Dice
+  // have been guarded both ways since 0014; faces were not, which is how the
+  // coin tier could have shipped priced client-side and unsellable server-side.
+  it("has a catalog row for every avatar, and an avatar for every row", () => {
+    const seeded = seededAvatarSkus();
+    for (const id of AVATAR_IDS) {
+      expect(seeded.has(id), `${id} has no catalog row — it can never be sold`).toBe(true);
+    }
+    for (const sku of seeded) {
+      expect(AVATAR_IDS, `avatar.${sku} is seeded but no such avatar exists`).toContain(sku);
+    }
   });
 
   it("resolves legacy and unknown ids to a real avatar", () => {
@@ -106,6 +130,36 @@ describe("avatar chip background", () => {
   });
 });
 
+describe("premium regalia", () => {
+  // The regression this pins. The metal ramps started life on a diagonal axis,
+  // which put t<0 at the left edge of a wreath and t>1 at the right — both
+  // clamp, so saga rendered one wing white and the other charcoal, and every
+  // mirrored ornament in the tier was lopsided. A vertical ramp is the only
+  // one that survives mirroring, and nothing but a render can prove it did.
+  //
+  // Only the crown of the chip is compared. Below it sit highlights that are
+  // off-centre on purpose — the eye shine, and the specular on regis's
+  // amethyst — and selene is exempt outright because a crescent moon beside a
+  // star is asymmetric by design.
+  const SIZE = 96;
+  const CROWN_ROWS = Math.floor(SIZE * 0.33); // design y < ~33: ornament only
+
+  for (const spec of AVATARS.filter((a) => ["laurel", "saga", "pharo", "regis", "astra", "solis"].includes(a.id))) {
+    it(`draws ${spec.id}'s ornament the same on both sides`, () => {
+      const px = renderAvatar(spec, SIZE);
+      let worst = 0;
+      for (let y = 0; y < CROWN_ROWS; y++) {
+        for (let x = 0; x < SIZE / 2; x++) {
+          const a = (y * SIZE + x) * 4;
+          const b = (y * SIZE + (SIZE - 1 - x)) * 4;
+          for (let c = 0; c < 4; c++) worst = Math.max(worst, Math.abs(px[a + c]! - px[b + c]!));
+        }
+      }
+      expect(worst, `${spec.id} is lopsided across the centre line`).toBeLessThanOrEqual(2);
+    });
+  }
+});
+
 describe("avatar identity without a colored background", () => {
   it("gives every avatar a hex shirt color", () => {
     for (const a of AVATARS) {
@@ -116,7 +170,7 @@ describe("avatar identity without a colored background", () => {
   it("never repeats a style/hair/shirt combination", () => {
     const seen = new Map<string, string>();
     for (const a of AVATARS) {
-      const key = `${a.style}|${a.hair.toLowerCase()}|${a.shirt.toLowerCase()}`;
+      const key = `${a.style}|${a.hair.toLowerCase()}|${a.shirt.toLowerCase()}|${(a.cap ?? a.shirt).toLowerCase()}`;
       const clash = seen.get(key);
       expect(clash, `${a.id} is indistinguishable from ${clash}`).toBeUndefined();
       seen.set(key, a.id);
@@ -128,6 +182,19 @@ describe("avatar identity without a colored background", () => {
     // hair is drawn bare, so a pale hair color on a pale chip renders bald.
     for (const a of AVATARS) {
       expect(contrastRatio(a.hair, CHIP_TONES[a.tone]), `${a.id}'s hair vanishes into the chip`).toBeGreaterThan(2);
+    }
+  });
+
+  // A cap override escapes the shirt rule below, so guard the escape hatch: it
+  // has to be a real color, it has to be on an avatar that actually wears a cap,
+  // and it must not turn a character into a seat color's twin. Onyx's red is the
+  // one override, restored because players recognised him by it.
+  it("keeps any cap override deliberate and legible", () => {
+    for (const a of AVATARS) {
+      if (a.cap === undefined) continue;
+      expect(a.cap, `${a.id}'s cap is not a hex color`).toMatch(/^#[0-9A-Fa-f]{6}$/);
+      expect(a.style, `${a.id} names a cap color but wears no cap`).toBe("cap");
+      expect(contrastRatio(a.cap, CHIP_TONES[a.tone]), `${a.id}'s cap vanishes into the chip`).toBeGreaterThan(2);
     }
   });
 

@@ -25,6 +25,13 @@ const AVATAR_IMAGES: Record<AvatarId, ImageSourcePropType> = {
   kito: require("../../assets/images/avatars/kito.png"),
   nova: require("../../assets/images/avatars/nova.png"),
   onyx: require("../../assets/images/avatars/onyx.png"),
+  laurel: require("../../assets/images/avatars/laurel.png"),
+  saga: require("../../assets/images/avatars/saga.png"),
+  pharo: require("../../assets/images/avatars/pharo.png"),
+  regis: require("../../assets/images/avatars/regis.png"),
+  astra: require("../../assets/images/avatars/astra.png"),
+  selene: require("../../assets/images/avatars/selene.png"),
+  solis: require("../../assets/images/avatars/solis.png"),
 };
 
 /** The image for any stored id, legacy slugs and unknowns included. */

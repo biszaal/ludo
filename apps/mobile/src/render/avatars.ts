@@ -28,6 +28,15 @@ export const AVATAR_IDS = [
   // The gem tier (0018 seed).
   "nova",
   "onyx",
+  // Regalia — the coin prestige tier (0059 seed).
+  "laurel",
+  "saga",
+  "pharo",
+  "regis",
+  // Celestial — the gem prestige tier (0059 seed).
+  "astra",
+  "selene",
+  "solis",
 ] as const;
 
 export type AvatarId = (typeof AVATAR_IDS)[number];

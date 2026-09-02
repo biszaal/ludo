@@ -7,6 +7,8 @@ export interface AvatarArtSpec {
   skin: string;
   hair: string;
   shirt: string;
+  /** Overrides the shirt color for a "cap" style; other styles ignore it. */
+  cap?: string;
   style: string;
   tone: ChipTone;
 }
