@@ -26,6 +26,7 @@ import {
   nextDryTurns,
   isAwaySeat,
   rngForDie,
+  rollCanFold,
   sleep,
   TURN_SECONDS,
   type SupabaseClient,
@@ -516,7 +517,12 @@ async function driveLoop(
        * costs one write instead of two. Requires a derivable die for the same
        * reason turn.ts does: cryptoRng cannot be reproduced.
        */
-      if (foldWrites && die !== null) {
+      // Same precondition turn.ts has: a roll that ends the turn has nothing to
+      // fold into. A bot's busted third six used to be carried forward in
+      // memory and then dropped on the floor — the loop moved on with a state
+      // the database never saw, so the row still had the bot mid-turn and every
+      // client was told nothing at all.
+      if (foldWrites && die !== null && rollCanFold(cur, roll.newState)) {
         afterResponse(broadcastToRoom(gameId, "roll", { die, playerId: pid, v }));
         afterResponse(admin.from("moves").insert({
           game_id: gameId,

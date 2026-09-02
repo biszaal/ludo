@@ -13,7 +13,7 @@
  */
 
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { rngForDie } from "./lib.ts";
+import { rngForDie, rollCanFold } from "./lib.ts";
 // @deno-types="../_shared/engine/index.d.ts"
 import {
   applyMove,
@@ -138,4 +138,54 @@ Deno.test("a six still leaves the turn with the same player after folding", () =
   assertEquals(moves.length > 0, true);
   const next = applyMove(rolled, { tokenId: moves[0]!.tokenId });
   assertEquals(next.currentTurnPlayerId, base.currentTurnPlayerId);
+});
+
+/**
+ * THE ONE ROLL THAT CANNOT FOLD.
+ *
+ * Folding works because the roll's transition rides along with the move or pass
+ * that follows it — the roll writes nothing, and the client's next action
+ * carries both. That bargain has a precondition nobody wrote down: a move or
+ * pass has to actually follow.
+ *
+ * A third six is the one roll where none does. `rollDice` calls advanceTurn
+ * inside itself, so the roll IS the whole turn — the roller has nothing left to
+ * send, and the state that hands the turn on was returned to them and never
+ * written. Server-side the turn stayed where it was until the clock ran out;
+ * on the roller's own screen it had already moved. Reported as "I didn't see
+ * the third six and my turn was skipped".
+ *
+ * The existing "a six still leaves the turn with the same player" test above
+ * covers the FIRST and second six, which do leave it. That is why this went
+ * unnoticed.
+ */
+Deno.test("a third six hands the turn on, so it cannot be folded", () => {
+  let cur = freshGame();
+  const roller = cur.currentTurnPlayerId;
+
+  // Two sixes, each moving a pawn, so the streak survives to the third.
+  for (let i = 0; i < 2; i++) {
+    const rolled = rollDice(cur, rngForDie(6)).newState;
+    assertEquals(rollCanFold(cur, rolled), true); // these two DO fold
+    const moves = getValidMoves(rolled, roller);
+    cur = applyMove(rolled, { tokenId: moves[0]!.tokenId });
+    assertEquals(cur.currentTurnPlayerId, roller);
+  }
+
+  const third = rollDice(cur, rngForDie(6));
+  assertEquals(third.busted, true);
+  // The turn is already gone, inside the roll itself.
+  assertEquals(third.newState.currentTurnPlayerId === roller, false);
+  assertEquals(rollCanFold(cur, third.newState), false);
+});
+
+Deno.test("every roll that keeps the turn can fold", () => {
+  // The other side of the rule, so it cannot be tightened into uselessness: an
+  // ordinary roll — hit or dud — still folds, because the player owes a move or
+  // a pass either way.
+  for (const die of [1, 2, 3, 4, 5, 6]) {
+    const base = freshGame();
+    const rolled = rollDice(base, rngForDie(die)).newState;
+    assertEquals(rollCanFold(base, rolled), true);
+  }
 });

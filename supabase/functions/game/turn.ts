@@ -27,6 +27,7 @@ import {
   isAwaySeat,
   json,
   rngForDie,
+  rollCanFold,
   safeError,
   sleep,
   turnDeadline,
@@ -169,6 +170,13 @@ export async function opTurn(
     const die = await deriveDie(gameId, v, me.id, myDry);
     if (die !== null) {
       const rolled = rollDice(state, rngForDie(die)).newState;
+      // A roll that ends the turn has nothing to fold INTO — see rollCanFold.
+      // A busted third six is the whole turn by itself, so there is no move or
+      // pass coming to carry the write, and returning it unwritten left the row
+      // saying it was still this player's turn until the clock ran out. Fall
+      // through to the writing path, which is where a self-contained turn
+      // belongs.
+      if (rollCanFold(state, rolled)) {
       // Fire-and-forget: a lost broadcast costs one spectator one die
       // animation, and the state push that follows is still authoritative.
       afterResponse(broadcastToRoom(gameId, "roll", { die, playerId: me.id, v }));
@@ -180,6 +188,7 @@ export async function opTurn(
       // beat it home. One is a roll the client must take; the other is a
       // duplicate it must ignore. Only the server knows which.
       return json({ state: rolled, v, folded: true });
+      }
     }
   }
 
@@ -208,9 +217,20 @@ export async function opTurn(
   }
 
   let next: GameState;
+  /**
+   * The face this roll produced, or null when the action was not a roll.
+   *
+   * Read from the roll's own result rather than from the state it produced,
+   * because a busted third six has ALREADY cleared diceValue — rollDice calls
+   * advanceTurn inside itself. Judging by the state made three sixes look like a
+   * roll of nothing.
+   */
+  let rolledFace: number | null = null;
   if (action === "roll") {
     if (state.phase !== "awaiting-roll") return await reject("You already rolled.");
-    next = rollDice(state, await rollRng(gameId, v, me.id, myDry)).newState;
+    const outcome = rollDice(state, await rollRng(gameId, v, me.id, myDry));
+    next = outcome.newState;
+    rolledFace = outcome.diceValue;
   } else if (action === "pass") {
     if (working.phase !== "awaiting-move") return await reject("Roll first.");
     if (getValidMoves(working, me.id).length > 0) return await reject("You still have a move.");
@@ -234,12 +254,14 @@ export async function opTurn(
    * version race did not happen, and must not move the counter.
    */
   const rolledStuck =
-    action === "roll" && next.diceValue !== 6 && getValidMoves(next, me.id).length === 0;
+    rolledFace !== null && rolledFace !== 6 && getValidMoves(next, me.id).length === 0;
 
   const logged = {
     game_id: gameId,
     player_id: me.id,
-    action: { action, tokenId: tokenId ?? null, dice: next.diceValue ?? working.diceValue },
+    // rolledFace first: a busted third six clears diceValue on both states, so
+    // the log used to record the loudest roll in the game as `dice: null`.
+    action: { action, tokenId: tokenId ?? null, dice: rolledFace ?? next.diceValue ?? working.diceValue },
     ...(actionId ? { client_action_id: actionId } : {}),
   };
 

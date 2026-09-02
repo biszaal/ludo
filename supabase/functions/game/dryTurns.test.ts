@@ -11,6 +11,9 @@
 
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { deriveDie, dryBoost, dryTurnsFor, nextDryTurns, DRY_TURNS_THRESHOLD } from "./lib.ts";
+// @deno-types="../_shared/engine/index.d.ts"
+import { createGame, applyMove, getValidMoves, rollDice } from "../_shared/engine/index.js";
+import { rngForDie } from "./lib.ts";
 
 const GAME = "22222222-2222-2222-2222-222222222222";
 const SEAT = "33333333-3333-3333-3333-333333333333";
@@ -113,4 +116,48 @@ Deno.test("the same inputs always give the same die", async () => {
   const a = await deriveDie(GAME, 7, SEAT, 9);
   const b = await deriveDie(GAME, 7, SEAT, 9);
   assertEquals(a, b);
+});
+
+/**
+ * A BUSTED THIRD SIX IS NOT A DRY TURN, and the obvious way to check gets it
+ * exactly backwards.
+ *
+ * The rescue is meant to help a seat that keeps rolling nothing it can use.
+ * Three sixes is the opposite of that — yet the guard read `next.diceValue !== 6`
+ * off the state the roll produced, and `rollDice` calls advanceTurn inside
+ * itself on a bust, which CLEARS the die. So the loudest roll in the game looked
+ * like a roll of nothing, counted as a dry turn, and nudged the dice further
+ * toward six for a player who had just thrown three.
+ *
+ * The fix is to judge by the face the roll returned rather than by the state it
+ * left behind. This pins the trap itself, because the wrong version reads more
+ * naturally than the right one.
+ */
+Deno.test("a busted third six clears the die it rolled", () => {
+  let cur = createGame(
+    [
+      { id: "p1", userId: "u1", color: "red" },
+      { id: "p2", userId: "u2", color: "yellow" },
+    ],
+    { gameId: GAME },
+  );
+  const roller = cur.currentTurnPlayerId;
+  for (let i = 0; i < 2; i++) {
+    const rolled = rollDice(cur, rngForDie(6)).newState;
+    cur = applyMove(rolled, { tokenId: getValidMoves(rolled, roller)[0]!.tokenId });
+  }
+
+  const third = rollDice(cur, rngForDie(6));
+  assertEquals(third.busted, true);
+
+  // The roll knows it was a six...
+  assertEquals(third.diceValue, 6);
+  // ...and the state it produced does not.
+  assertEquals(third.newState.diceValue, null);
+
+  // Which is the whole bug: reading the state says "not a six", so the turn
+  // would be counted as dry.
+  assertEquals(third.newState.diceValue !== 6, true);
+  // Reading the roll says what actually happened.
+  assertEquals(third.diceValue !== 6, false);
 });

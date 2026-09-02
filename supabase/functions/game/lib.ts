@@ -340,6 +340,33 @@ export async function deriveDie(
  * refactor of rollDie away from landing a value low. The middle has no such
  * edge, and the engine is the only reader.
  */
+/**
+ * Can this roll be folded into the write that follows it?
+ *
+ * Folding rests on a bargain: the roll writes nothing, and the move or pass the
+ * player sends next carries both transitions in one write. That has a
+ * precondition which went unwritten until it broke — a move or pass has to
+ * actually follow.
+ *
+ * A BUSTED THIRD SIX is the one roll where none does. `rollDice` calls
+ * advanceTurn inside itself, so the roll is the entire turn: the roller has
+ * nothing left to send, and the state handing the turn on was returned to them
+ * and never written. The row kept saying it was still their turn until the
+ * clock ran out and the stall bot cleaned up, while the roller's own screen had
+ * already moved on. Reported as "I didn't see the third six and my turn was
+ * skipped".
+ *
+ * So the test is simply whether the turn survived the roll. Everything else —
+ * a hit, a dud with no legal move, an ordinary six — leaves the player owing an
+ * action, and folds exactly as before.
+ *
+ * Shared by turn.ts and bots.ts deliberately: both had the same hole, and a rule
+ * this easy to forget should exist once.
+ */
+export function rollCanFold(before: GameState, rolled: GameState): boolean {
+  return rolled.currentTurnPlayerId === before.currentTurnPlayerId;
+}
+
 export function rngForDie(die: number): Rng {
   return () => (die - 0.5) / 6;
 }
