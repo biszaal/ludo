@@ -36,7 +36,24 @@ export async function getIdentity(): Promise<AuthIdentity> {
   const { data } = await supabase.auth.getSession();
   const u = data.session?.user;
   if (!u) return { userId: null, isGuest: true, email: null };
-  return { userId: u.id, isGuest: (u.is_anonymous ?? false) || !u.email, email: u.email ?? null };
+  /**
+   * A guest is someone with no way back in — not someone with no email address.
+   *
+   * The original test was `is_anonymous || !u.email`, which was right while the
+   * only way to become permanent was to set an email. Provider linking breaks
+   * that: Apple returns no email at all for some users (Supabase has a "allow
+   * users without an email" setting precisely for them), so a player could link
+   * their Apple account, become fully recoverable, and still be told they were
+   * playing as a guest — banner up, prompts firing, "Save account" still on
+   * offer. The one person who did what we asked would be the one we kept asking.
+   *
+   * So the question is whether anything exists to sign back in WITH: a linked
+   * provider identity, or an email. `is_anonymous` is deliberately not consulted
+   * — Supabase's handling of that flag across linking is an implementation
+   * detail, and a linked identity is recoverable whatever the flag says.
+   */
+  const linked = (u.identities ?? []).some((i) => i.provider !== "anonymous");
+  return { userId: u.id, isGuest: !linked && !u.email, email: u.email ?? null };
 }
 
 /** Upgrade the current guest into an email+password account, in place. */
