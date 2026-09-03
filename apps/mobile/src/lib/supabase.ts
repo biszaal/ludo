@@ -20,6 +20,24 @@ const client: SupabaseClient | null = isSupabaseConfigured
         autoRefreshToken: true,
         persistSession: true,
         detectSessionInUrl: false,
+        /**
+         * PKCE, and it is not optional on this platform.
+         *
+         * supabase-js defaults to the IMPLICIT flow, which hands the session
+         * back in the URL FRAGMENT — `myapp://auth/link#access_token=...`. Every
+         * OAuth path in lib/auth.ts reads `?code=` out of the query string and
+         * calls exchangeCodeForSession with it, so under the default the code is
+         * always null, the exchange never runs, and the link silently does
+         * nothing: the browser sheet completes, the player is returned to the
+         * app, and the server still has an anonymous user with zero identities.
+         * Which is exactly what happened — a Google sign-in that looked like it
+         * worked and linked nothing.
+         *
+         * PKCE is also simply the right flow for a native app: the code is
+         * exchanged with a verifier this device generated and kept, so an
+         * intercepted redirect is worth nothing on its own.
+         */
+        flowType: "pkce",
       },
       // Faster dead-socket detection (default ~30s): a game client should
       // notice a dropped realtime connection and resync within seconds.

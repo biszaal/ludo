@@ -149,8 +149,25 @@ async function runOAuth(provider: LinkProvider, intent: "link" | "signin"): Prom
     // they simply changed their mind. The empty string means "say nothing".
     if (result.type !== "success") return { ok: false, error: "" };
 
-    const code = new URL(result.url).searchParams.get("code");
-    if (!code) return { ok: false, error: "Sign-in didn't complete. Try again." };
+    const returned = new URL(result.url);
+    const code = returned.searchParams.get("code");
+    if (!code) {
+      /**
+       * No code, but the provider said success. The one cause worth naming is a
+       * client that is not on PKCE: the implicit flow returns the session in the
+       * FRAGMENT instead, so this reads null every time and the link silently
+       * does nothing — the sheet completes, the player comes back, and the
+       * server still has an anonymous user with no identities. That shipped
+       * once. Logging it in dev turns a silent no-op into something findable,
+       * because from the outside the two failures look identical.
+       */
+      if (__DEV__ && returned.hash.includes("access_token")) {
+        console.warn(
+          "[auth] provider returned a fragment, not a code — supabase client is not on flowType 'pkce'",
+        );
+      }
+      return { ok: false, error: "Sign-in didn't complete. Try again." };
+    }
     const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
     if (exchangeError) return { ok: false, error: friendlyLink(exchangeError.message) };
 
