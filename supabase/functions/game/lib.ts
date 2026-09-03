@@ -468,6 +468,14 @@ export const LIMITS = {
   roomJoin: 60,
   roomInvite: 60,
   quickMatch: 60,
+  /**
+   * Feedback is written by hand, so the human ceiling here is genuinely low —
+   * but it is set at 12 rather than 3 because the honest failure mode is a
+   * player hitting send twice on a bad connection, and refusing the retry of a
+   * bug report is the worst possible moment to be strict. Each row is short,
+   * capped at 2000 characters by the table's own check, and read by a person.
+   */
+  feedback: 12,
   // Read-only ops. These are ABUSE ceilings on invocations and database reads,
   // not gameplay limits — every one of them is already authorized, and none can
   // move currency. Set well above what a foregrounded app reaches.

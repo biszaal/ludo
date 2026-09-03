@@ -697,6 +697,32 @@ export async function shopBuy(sku: string): Promise<{ sku: string; balance: numb
 
 /** Permanently delete the caller's account and all data keyed to it (cascade).
  *  The server derives the user from the JWT, so this only ever deletes yourself. */
+/**
+ * Send a player's own words about something that went wrong.
+ *
+ * `device` is the platform/model pair from lib/deviceInfo — the two facts that
+ * make a bug report actionable and identify nobody. The email is optional and
+ * is the only way to reply, so it is passed through as typed and validated
+ * server-side rather than silently dropped when it looks wrong.
+ *
+ * The build is NOT passed here: callGame appends `appVersion` last on every
+ * request precisely so a payload cannot misreport it, so anything set here
+ * would be silently overwritten. The server reads it from there.
+ */
+export async function sendFeedback(
+  message: string,
+  email: string,
+  device: { platform: string; model: string | null },
+): Promise<void> {
+  await ensureSignedIn();
+  await callGame<{ ok: true; id: string }>("sendFeedback", {
+    message,
+    email,
+    platform: device.platform,
+    device: device.model,
+  });
+}
+
 export async function deleteAccount(): Promise<void> {
   await ensureSignedIn();
   await callGame<{ ok: boolean }>("deleteAccount");

@@ -62,6 +62,7 @@ import {
   opFriendsRecent,
   opPresenceOnline,
 } from "./social.ts";
+import { opSendFeedback } from "./feedback.ts";
 import { opBlockedList, opChat, opReportPlayer } from "./chat.ts";
 import { opPushDisable, opPushRegister } from "./push.ts";
 
@@ -207,6 +208,14 @@ Deno.serve(async (req: Request) => {
         });
       case "blockedList":
         return await opBlockedList(admin, userId);
+      case "sendFeedback":
+        return await opSendFeedback(admin, userId, {
+          message: body.message,
+          email: body.email,
+          appVersion,
+          platform: body.platform,
+          device: body.device,
+        });
       case "friendsRecent":
         return await opFriendsRecent(admin, userId);
       case "presenceOnline":

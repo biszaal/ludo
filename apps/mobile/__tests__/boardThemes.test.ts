@@ -83,7 +83,7 @@ describe("board themes", () => {
       expect(t.sheen, id).toBeUndefined();
       expect(t.crest, id).toBeUndefined();
       expect(t.texture, id).toBeUndefined();
-      expect(t.inlay, id).toBeUndefined();
+      expect(t.emblem, id).toBeUndefined();
       expect(t.band, id).toBeUndefined();
       expect(t.vignette, id).toBeUndefined();
     }
@@ -109,7 +109,7 @@ describe("board themes", () => {
         expect(t.sheen, t.id).toBeGreaterThanOrEqual(0);
         expect(t.sheen, t.id).toBeLessThanOrEqual(0.2); // above this it is fog, not gloss
       }
-      for (const layer of [t.texture, t.inlay]) {
+      for (const layer of [t.texture, t.emblem]) {
         if (!layer) continue;
         expect(layer.color, t.id).toMatch(COLOR);
         expect(layer.alpha, t.id).toBeGreaterThan(0);
