@@ -15,6 +15,7 @@
 import * as SecureStore from "expo-secure-store";
 import { getSupabase } from "./supabase";
 import { createIdentity, type Identity, type IdentitySession } from "./identity";
+import { setCrashUser } from "./crashReporting";
 
 /** Keychain entry holding the refresh token. Renaming this strands every
  *  installed player's recovery token, so don't. */
@@ -71,6 +72,10 @@ export function getIdentity(): Identity {
   // lifeline intact so the next launch can pull the account back. Genuinely
   // forgetting an identity is an explicit act (lib/auth.ts), not an event.
   supabase.auth.onAuthStateChange((event, session) => {
+    // Ahead of the SIGNED_OUT guard below, and unlike the keychain this DOES
+    // follow a sign-out: a crash attributed to the account someone just left is
+    // worse than one attributed to nobody. No-op without a DSN.
+    setCrashUser(session?.user?.id ?? null);
     if (event === "SIGNED_OUT") return;
     void identity?.rememberSession(toIdentitySession(session));
   });

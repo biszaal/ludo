@@ -2,7 +2,7 @@
   "expo": {
     "name": "Ludo",
     "slug": "ludo",
-    "version": "1.0.6",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/images/app-icon/icon.png",
     "userInterfaceStyle": "light",
@@ -235,7 +235,8 @@
           "deploymentTarget": "16.4"
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      "@sentry/react-native/expo"
     ],
     "scheme": [
       "ludobiszaal",

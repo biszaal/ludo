@@ -14,7 +14,6 @@ import { JetBrainsMono_500Medium } from "@expo-google-fonts/jetbrains-mono";
 import { ScreenStack } from "./src/components/ScreenStack";
 import { SheetHost } from "./src/components/SheetHost";
 import { InviteBanner } from "./src/components/InviteBanner";
-import { GuestBanner } from "./src/components/GuestBanner";
 import { ConfirmDialog } from "./src/components/ConfirmDialog";
 import { LoadingScreen } from "./src/components/LoadingScreen";
 import { ChooseNameScreen } from "./src/components/ChooseNameScreen";
@@ -24,6 +23,7 @@ import { useNav } from "./src/store/navStore";
 import { useProfile } from "./src/store/profileStore";
 import { initSound, setMusicActive } from "./src/lib/sound";
 import { initFeedback } from "./src/lib/feedback";
+import { initCrashReporting } from "./src/lib/crashReporting";
 import { initDeepLinks } from "./src/lib/invite";
 import { initConnection } from "./src/lib/connection";
 import { initPush } from "./src/lib/push";
@@ -69,6 +69,10 @@ export default function App() {
   const onLaunched = useCallback(() => setLaunched(true), []);
 
   useEffect(() => {
+    // FIRST, and synchronously: anything that throws during the rest of this
+    // startup is exactly the class of crash worth catching, and a reporter
+    // started afterwards would miss it. No-op when no DSN is configured.
+    initCrashReporting();
     void initSound();
     // Ad pacing / economy config. Fire-and-forget: the store already holds a
     // persisted or default document, so nothing waits on this.
@@ -180,7 +184,6 @@ export default function App() {
               to whatever scroll view happened to contain them. */}
           <SheetHost />
           <InviteBanner />
-          <GuestBanner />
           {/* Above everything, including the banner: it is asked about an
               action the player just tried to take. */}
           <ConfirmDialog />
