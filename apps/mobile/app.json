@@ -236,7 +236,13 @@
         }
       ],
       "expo-secure-store",
-      "@sentry/react-native/expo"
+      [
+        "@sentry/react-native/expo",
+        {
+          "organization": "biszaal-tech-ltd-09",
+          "project": "react-native"
+        }
+      ]
     ],
     "scheme": [
       "ludobiszaal",
