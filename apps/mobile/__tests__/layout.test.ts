@@ -15,6 +15,7 @@ import {
   HERO_MIN,
   homeFurniture,
   homeMetrics,
+  HOME_GUEST_STRIP,
   HOME_NATURAL,
   layoutTier,
   railedBoardSize,
@@ -194,6 +195,21 @@ describe("homeMetrics", () => {
       expect(total).toBeLessThanOrEqual(previous + 1);
       previous = total;
     }
+  });
+
+  it("pays for the guest strip out of the felt, not the doorways", () => {
+    const column = 667 - 20 - 50; // an SE-sized hub column
+    const bare = homeMetrics(column, 1);
+    const strip = homeMetrics(column - HOME_GUEST_STRIP, 1);
+
+    // The strip is what used to float over the dock, so the dock is the one
+    // thing that must not pay for it. The still-life and the friends line do.
+    expect(strip.dock).toBe(bare.dock);
+    expect(strip.tile).toBe(bare.tile);
+    expect(strip.hero).toBeLessThan(bare.hero);
+
+    // And the whole tower still fits with the strip's block set aside.
+    expect(homeFurniture(strip) + strip.hero + HOME_GUEST_STRIP).toBeLessThanOrEqual(column);
   });
 
   it("falls back to natural size before the column has been measured", () => {

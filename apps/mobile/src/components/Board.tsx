@@ -33,6 +33,7 @@ import {
 } from "@ludo/engine";
 import { playHop } from "../lib/sound";
 import { hopTick } from "../lib/haptics";
+import { cueDurations } from "../lib/moveTiming";
 import { FLY_MS, computeWaypoints, originsFromLastAction, positionKey, walkDurationMs } from "../render/waypoints";
 import { shade } from "../theme";
 import type { BoardTheme } from "../render/boardThemes";
@@ -66,19 +67,37 @@ const BOARD_INTERIOR_SCALE = 0.94;
 // sounds (capture, safe chime) fire when the pawn arrives, not when state lands.
 
 /**
- * One hop's sound + haptic, throttled globally. Driven from the animation's
- * landing callback (not a setTimeout), so it stays locked to the visible hop
- * regardless of JS-thread load. The throttle collapses the case where several
- * pawns land on the same frame — e.g. a move that also sends a captured pawn
- * home — into a single thock instead of a smeared overlap. HOP_STEP_MS (150) is
- * well above the gate, so genuine per-cell hops are never dropped.
+ * A hop's sound and its haptic, which no longer fire at the same moment.
+ *
+ * Both are driven from the animation's own clock (not a setTimeout), so they
+ * stay locked to the visible hop regardless of JS-thread load. What changed is
+ * WHICH beat each one is locked to: the sound is asked for SFX_LEAD_MS before
+ * the pawn touches down, because a sound is not audible when it is asked for
+ * (see lib/moveTiming), while the haptic keeps the landing itself — the
+ * vibrator's own delay is a fraction of the audio pipeline's, and leading a buzz
+ * by the same 90ms would put it plainly ahead of the picture.
+ *
+ * Separate throttles for the same reason: they are now separate events. Each
+ * collapses the case where several pawns land on the same frame — a move that
+ * also sends a captured pawn home — into one thock instead of a smeared
+ * overlap. HOP_STEP_MS (150) is well above the gate, so genuine per-cell hops
+ * are never dropped.
  */
-let lastHopAt = 0;
-function hopFeedback(): void {
+const FEEDBACK_GATE_MS = 70;
+
+let lastHopSoundAt = 0;
+function hopSound(): void {
   const now = Date.now();
-  if (now - lastHopAt < 70) return;
-  lastHopAt = now;
+  if (now - lastHopSoundAt < FEEDBACK_GATE_MS) return;
+  lastHopSoundAt = now;
   playHop();
+}
+
+let lastHopTickAt = 0;
+function hopHaptic(): void {
+  const now = Date.now();
+  if (now - lastHopTickAt < FEEDBACK_GATE_MS) return;
+  lastHopTickAt = now;
   hopTick();
 }
 
@@ -724,6 +743,19 @@ const AnimatedPawn = memo(function AnimatedPawn({ waypoints, walk, stepMs, retra
   // (lift + shadow) in and out with `movable` so it never pops on/off.
   const bob = useSharedValue(0);
   const cue = useSharedValue(0);
+  /**
+   * The sound clock: a shared value nothing draws with, animated purely so its
+   * completion callbacks land SFX_LEAD_MS before the pawn's. It exists because a
+   * `withSequence` can only call back at a segment boundary, and the boundary
+   * the thock is owed is not one the visible hop has — the sound has to be
+   * asked for on the way DOWN, partway through the descent it belongs to.
+   * Running the schedule separately buys that beat without splitting the hop's
+   * easing into pieces that would change the shape of the bounce.
+   *
+   * Being unread by any Skia node, it costs one UI-thread animation on a moving
+   * pawn and never re-records the canvas picture.
+   */
+  const sfxClock = useSharedValue(0);
   const mounted = useRef(false);
   const prevKey = useRef(posKey);
   const prevSpot = useRef(last);
@@ -761,23 +793,48 @@ const AnimatedPawn = memo(function AnimatedPawn({ waypoints, walk, stepMs, retra
       prevSpot.current = last;
       const { waypoints: wps, walk: doWalk, stepMs: step, retrace: isRetrace, delay: startDelay } = intent.current;
       const target = wps[wps.length - 1]!;
-      // The hop sound fires from each landing's completion callback, so it is
-      // locked to the animation itself — no setTimeout drift when several pawns
-      // move at once. `finished` guards against interrupted moves.
+      // The landing haptic, on the frame the pawn actually touches down.
+      // `finished` guards against interrupted moves.
       const onLand = (finished?: boolean) => {
         "worklet";
-        if (finished) runOnJS(hopFeedback)();
+        if (finished) runOnJS(hopHaptic)();
       };
-      // A retrace can cross 50 cells; thocking each one is a machine-gun. Only
-      // the arrival in the yard sounds.
+      // The same beat, SFX_LEAD_MS earlier, for the thock. Driven by sfxClock
+      // below rather than by the hop, so both stay on the animation's clock and
+      // neither needs a setTimeout that would drift when several pawns move at
+      // once.
+      const onCue = (finished?: boolean) => {
+        "worklet";
+        if (finished) runOnJS(hopSound)();
+      };
+      // Run the thock schedule (lib/moveTiming.cueDurations) on sfxClock. The
+      // value it counts to is meaningless — only the callbacks matter.
+      const cueSounds = (cells: number, firstMs: number, everyMs: number) => {
+        cancelAnimation(sfxClock);
+        sfxClock.value = 0;
+        sfxClock.value = withDelay(
+          startDelay,
+          withSequence(
+            ...cueDurations(cells, firstMs, everyMs).map((duration, i) =>
+              withTiming(i + 1, { duration, easing: Easing.linear }, onCue),
+            ),
+          ),
+        );
+      };
+      // A retrace's intermediate cells get no haptic — it slides home, it does
+      // not bounce fifty times. Only its arrival buzzes.
       const silent = () => {
         "worklet";
       };
       if (!doWalk) {
         tx.value = withDelay(startDelay, withTiming(target.x, { duration: FLY_MS, easing: Easing.out(Easing.cubic) }));
         ty.value = withDelay(startDelay, withTiming(target.y, { duration: FLY_MS, easing: Easing.out(Easing.cubic) }, onLand));
+        cueSounds(1, FLY_MS, FLY_MS);
       } else {
         const lastIndex = wps.length - 1;
+        // A retrace can cross 50 cells; thocking each one is a machine-gun, so
+        // only the arrival in the yard sounds.
+        cueSounds(isRetrace ? 1 : wps.length, isRetrace ? wps.length * step : step, step);
         tx.value = withDelay(startDelay, withSequence(...wps.map((p) => withTiming(p.x, { duration: step, easing: Easing.linear }))));
         ty.value = withDelay(
           startDelay,
@@ -813,7 +870,7 @@ const AnimatedPawn = memo(function AnimatedPawn({ waypoints, walk, stepMs, retra
       tx.value = withTiming(last.x, { duration: 200 });
       ty.value = withTiming(last.y, { duration: 200 });
     }
-  }, [posKey, last.x, last.y, tx, ty]);
+  }, [posKey, last.x, last.y, tx, ty, sfxClock]);
 
   // Drive the bob only while this pawn is a legal move. It's a transform-only
   // animation on the Skia Group (the same cheap path the hop uses), so an idle

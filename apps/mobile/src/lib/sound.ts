@@ -4,10 +4,20 @@
  * calls are best-effort — audio never blocks gameplay, and failures (e.g.
  * simulator quirks) are ignored. Effects respect settings.soundOn, music
  * respects settings.musicOn plus the app's foreground state.
+ *
+ * On the Android silence this file has been through three rounds of: see
+ * lib/soundPool for what the earlier fixes got wrong about expo-audio's
+ * threading. The short version is that `play()` blocks the JS thread on the
+ * Android main queue rather than posting to it, so ordering was never in
+ * danger — but the main thread is a genuinely scarce resource, and every player
+ * created here costs an ExoPlayer pinned to `context.mainLooper`, a media3
+ * `MediaSession` and a status-polling coroutine on `Dispatchers.Main`. So the
+ * pools below are as small as the sound needs, and SOUND_DEBUG exists to settle
+ * on a real device whether that was the whole story.
  */
 
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from "expo-audio";
-import { freshSlot, pickSlot, slotsToPark, stillOwns, type Slot } from "./soundPool";
+import { freshSlot, pickSlot, type Slot } from "./soundPool";
 import { useSettings } from "../store/settingsStore";
 
 export type SoundName =
@@ -17,27 +27,28 @@ export type SoundName =
 /**
  * `ms` is the clip's real length, measured from the file. The pool uses it to
  * know which players have finished — asking the native player instead
- * (`.playing` / `.currentTime`) means a blocking round trip to the Android main
- * thread on every single hop. See lib/soundPool.
+ * (`.playing` / `.currentTime`) is a `runOnMain` property read, which blocks the
+ * JS thread on the main thread to learn something we already know.
+ *
+ * `pool` is how many of a sound can overlap. Read it as a cost, not a safety
+ * margin: the fourth hop player is a fourth ExoPlayer + MediaSession + main-loop
+ * coroutine, all competing for the one thread every `play()` has to cross. Three
+ * covers a 130ms clip even at Board's 70ms landing throttle (see
+ * __tests__/soundPool), and nothing else in the game overlaps with itself at
+ * all.
  */
 const SPECS: Record<SoundName, { source: number; pool: number; volume: number; ms: number }> = {
-  // Eight, sized by the longest BURST rather than by the clip. A six-cell move
-  // plus a captured pawn's retrace is ~7 thocks 150ms apart, and a slot is only
-  // free of a rewind while it is still parked — so four players meant the back
-  // half of every long move was paying a seek on a main thread that had no time
-  // for it. Eight covers a whole burst from parked slots alone, and the quiet
-  // sweep re-parks them all between turns. A 130ms mono clip costs nothing.
-  hop: { source: require("../../assets/audio/sfx/hop.wav"), pool: 8, volume: 0.5, ms: 130 },
-  dice: { source: require("../../assets/audio/sfx/dice.wav"), pool: 2, volume: 0.6, ms: 360 },
-  capture: { source: require("../../assets/audio/sfx/capture.wav"), pool: 2, volume: 0.55, ms: 320 },
-  finish: { source: require("../../assets/audio/sfx/finish.wav"), pool: 2, volume: 0.5, ms: 450 },
+  hop: { source: require("../../assets/audio/sfx/hop.wav"), pool: 3, volume: 0.5, ms: 130 },
+  dice: { source: require("../../assets/audio/sfx/dice.wav"), pool: 1, volume: 0.6, ms: 360 },
+  capture: { source: require("../../assets/audio/sfx/capture.wav"), pool: 1, volume: 0.55, ms: 320 },
+  finish: { source: require("../../assets/audio/sfx/finish.wav"), pool: 1, volume: 0.5, ms: 450 },
   win: { source: require("../../assets/audio/sfx/win.wav"), pool: 1, volume: 0.6, ms: 1100 },
-  tap: { source: require("../../assets/audio/sfx/tap.wav"), pool: 2, volume: 0.35, ms: 50 },
-  turn: { source: require("../../assets/audio/sfx/turn.wav"), pool: 2, volume: 0.4, ms: 90 },
-  ding: { source: require("../../assets/audio/sfx/ding.wav"), pool: 2, volume: 0.5, ms: 600 },
-  pop: { source: require("../../assets/audio/sfx/pop.wav"), pool: 2, volume: 0.5, ms: 140 },
-  msg: { source: require("../../assets/audio/sfx/msg.wav"), pool: 2, volume: 0.45, ms: 280 },
-  safe: { source: require("../../assets/audio/sfx/safe.wav"), pool: 2, volume: 0.45, ms: 400 },
+  tap: { source: require("../../assets/audio/sfx/tap.wav"), pool: 1, volume: 0.35, ms: 50 },
+  turn: { source: require("../../assets/audio/sfx/turn.wav"), pool: 1, volume: 0.4, ms: 90 },
+  ding: { source: require("../../assets/audio/sfx/ding.wav"), pool: 1, volume: 0.5, ms: 600 },
+  pop: { source: require("../../assets/audio/sfx/pop.wav"), pool: 1, volume: 0.5, ms: 140 },
+  msg: { source: require("../../assets/audio/sfx/msg.wav"), pool: 1, volume: 0.45, ms: 280 },
+  safe: { source: require("../../assets/audio/sfx/safe.wav"), pool: 1, volume: 0.45, ms: 400 },
   // Reaction-emoji voices — one per sprite, so a reaction never borrows a UI
   // sound. These are recorded audio normalized by scripts/process-reaction-sfx.mjs
   // (sources in assets/source/raw-reactions/), not synthesis: a synthesized voice next
@@ -52,30 +63,45 @@ const SPECS: Record<SoundName, { source: number; pool: number; volume: number; m
   gg: { source: require("../../assets/audio/reactions/gg.wav"), pool: 1, volume: 0.5, ms: 1000 },
 };
 
+/**
+ * How often each player reports its status back to JS.
+ *
+ * expo-audio defaults to 500ms, and every player runs its own coroutine on
+ * `Dispatchers.Main` to do it (BaseAudioPlayer.startUpdating). Nothing here
+ * reads a status — the pool tracks clip lengths itself — so the loop is pure
+ * main-thread noise on the one thread `play()` has to get through. A minute is
+ * as close to "never" as the API allows.
+ */
+const STATUS_INTERVAL_MS = 60_000;
+
 const pools = {} as Record<SoundName, AudioPlayer[]>;
 /** What JS believes each pooled player is doing. See lib/soundPool. */
 const slots = {} as Record<SoundName, Slot[]>;
 let ready = false;
 
 /**
- * Reaction voices, held back from launch.
+ * Diagnostics for the Android silence, off in store builds.
  *
- * These eight are ~255KB each — about 2MB of the app's 2.6MB audio budget — and
- * they are only ever needed if someone opens the reaction bar in an online
- * match. Creating them up front meant every cold start paid for eight native
- * players most sessions never use. They are built when the reaction bar first
- * appears (warmReactionSounds), which is comfortably before anyone can tap one.
+ * Set `EXPO_PUBLIC_SOUND_DEBUG=1` for a build that logs every play and every
+ * native status/error for the pooled players. The three things it is there to
+ * separate, if slimming the pools was not enough:
+ *
+ *   - a play that JS issued but that never became `playing: true` natively
+ *     (main-thread starvation, or an audio sink that failed to initialise);
+ *   - a play that never happened because `ready` was false or the store said no;
+ *   - a play that sounded but far later than the animation it belonged to
+ *     (`lag` on the log line is how long `play()` blocked the JS thread, which
+ *     is the length of the main-thread queue in front of it).
  */
-const DEFERRED: ReadonlySet<SoundName> = new Set<SoundName>([
-  "laugh",
-  "crying",
-  "angry",
-  "tease",
-  "cheer",
-  "shock",
-  "thumbs",
-  "gg",
-]);
+const SOUND_DEBUG = process.env.EXPO_PUBLIC_SOUND_DEBUG === "1";
+
+/** Per-sound play counter, so a log line says which hop of a burst it is. */
+const plays = {} as Record<SoundName, number>;
+
+function debugLog(line: string): void {
+  // eslint-disable-next-line no-console
+  console.log(`[sfx] ${line}`);
+}
 
 let music: AudioPlayer | null = null;
 let appActive = true;
@@ -91,12 +117,7 @@ declare global {
 }
 
 function releaseAll(): void {
-  for (const name of Object.keys(pools) as SoundName[]) {
-    const timer = sweepTimers[name];
-    if (timer) clearTimeout(timer);
-    sweepTimers[name] = null;
-    delete slots[name];
-  }
+  for (const name of Object.keys(pools) as SoundName[]) delete slots[name];
   // `remove()`, not `release()`. There is no `release` on an AudioPlayer — the
   // old call threw on every dev reload and was swallowed by the catch, so the
   // previous generation's players lived on and its music loop played UNDER the
@@ -124,75 +145,57 @@ function buildPool(name: SoundName): void {
   if (pools[name]) return;
   const spec = SPECS[name];
   slots[name] = Array.from({ length: spec.pool }, freshSlot);
-  // No `playbackStatusUpdate` listener, deliberately. Rewinding on the native
-  // finish notice was the obvious place to do it and the wrong one: the notice
-  // arrives over the Android main thread, which is saturated for the whole of a
-  // hop chain, so the rewinds it triggered queued up alongside the plays they
-  // were meant to precede — and it cost one native→JS event per clip on top.
-  // The quiet sweep below does the same job when the thread is free.
-  pools[name] = Array.from({ length: spec.pool }, () => {
-    const player = createAudioPlayer(spec.source);
+  pools[name] = Array.from({ length: spec.pool }, (_, i) => {
+    const player = createAudioPlayer(spec.source, { updateInterval: STATUS_INTERVAL_MS });
     player.volume = spec.volume;
+    // Only under the debug flag: a status listener is a native→JS event per
+    // change, over the same main thread the sound has to cross, so a shipped
+    // build must not pay for one.
+    if (SOUND_DEBUG) {
+      try {
+        player.addListener("playbackStatusUpdate", (st) => {
+          if (!st.playing && !st.didJustFinish && st.isLoaded) return;
+          debugLog(
+            `native ${name}#${i} playing=${st.playing} finished=${st.didJustFinish}` +
+              ` loaded=${st.isLoaded} state=${st.playbackState} waiting=${st.reasonForWaitingToPlay}`,
+          );
+        });
+      } catch (err) {
+        debugLog(`listen ${name}#${i} FAILED ${String(err)}`);
+      }
+    }
     return player;
   });
+  if (SOUND_DEBUG) debugLog(`built ${name} x${spec.pool} (${countPlayers()} players total)`);
+}
+
+/** Native players currently alive, music included — the number that matters if
+ *  Android's per-app audio track limit is what is eating the sound. */
+function countPlayers(): number {
+  let n = music ? 1 : 0;
+  for (const pool of Object.values(pools)) n += pool.length;
+  return n;
 }
 
 /**
- * How long a pool must go untouched before its players are rewound.
+ * Reaction voices, held back from launch.
  *
- * It has one job: outlast a BURST, so a sweep can only land after the pawn has
- * stopped moving. 600ms is four hops at HOP_STEP_MS, and every play pushes it
- * out again, so a twelve-cell chain defers it just as effectively as a short
- * one. The upper bound is the gap to the next burst — a whole turn — so there is
- * a great deal of room here and no reason to shave it.
+ * These eight are ~255KB each — about 2MB of the app's 2.6MB audio budget — and
+ * they are only ever needed if someone opens the reaction bar in an online
+ * match. Creating them up front meant every cold start paid for eight native
+ * players most sessions never use. They are built when the reaction bar first
+ * appears (warmReactionSounds), which is comfortably before anyone can tap one.
  */
-const QUIET_MS = 600;
-const sweepTimers = {} as Record<SoundName, ReturnType<typeof setTimeout> | null>;
-
-/**
- * Rewind a pool's finished players, once nothing has used it for a beat.
- *
- * This is the half of the fix that the pool sizes rest on: a slot only takes the
- * one-op `play()` path while it is parked, and playing it is what un-parks it.
- * Doing the rewind here rather than per-clip means every `seekTo` lands during
- * the gap between turns, when the main thread is idle, instead of in the middle
- * of the animation whose sound it was supposed to serve.
- */
-function sweepPool(name: SoundName): void {
-  const pool = pools[name];
-  const mine = slots[name];
-  if (!pool || !mine) return;
-  for (const i of slotsToPark(mine, Date.now())) {
-    const slot = mine[i]!;
-    const player = pool[i]!;
-    const gen = slot.gen;
-    try {
-      // Load-bearing, not tidiness: a finished ExoPlayer still has
-      // playWhenReady set, so seeking it back to 0 without pausing first replays
-      // the clip out loud.
-      player.pause();
-    } catch {
-      // ignore
-    }
-    void player
-      .seekTo(0)
-      .then(() => {
-        if (stillOwns(slot, gen)) slot.parked = true;
-      })
-      .catch(() => {});
-  }
-}
-
-/** Push the sweep out to `QUIET_MS` from now — called on every play, so a burst
- *  keeps deferring it and only the silence after the burst lets it run. */
-function deferSweep(name: SoundName): void {
-  const running = sweepTimers[name];
-  if (running) clearTimeout(running);
-  sweepTimers[name] = setTimeout(() => {
-    sweepTimers[name] = null;
-    sweepPool(name);
-  }, QUIET_MS);
-}
+const DEFERRED: ReadonlySet<SoundName> = new Set<SoundName>([
+  "laugh",
+  "crying",
+  "angry",
+  "tease",
+  "cheer",
+  "shock",
+  "thumbs",
+  "gg",
+]);
 
 /**
  * Build the reaction voices. Called when the reaction bar mounts, which is the
@@ -232,13 +235,17 @@ export async function initSound(): Promise<void> {
       if (DEFERRED.has(name)) continue;
       buildPool(name);
     }
-    music = createAudioPlayer(require("../../assets/audio/music/music.wav"));
+    music = createAudioPlayer(require("../../assets/audio/music/music.wav"), {
+      updateInterval: STATUS_INTERVAL_MS,
+    });
     music.loop = true;
     music.volume = 0.25;
     ready = true;
-  } catch {
+  } catch (err) {
     ready = false;
+    if (SOUND_DEBUG) debugLog(`init FAILED ${String(err)}`);
   }
+  if (SOUND_DEBUG) debugLog(`init ready=${ready} players=${countPlayers()}`);
   // React to the music toggle; effects check soundOn per play.
   //
   // syncMusic reads musicOn and nothing else, so the guard below is the whole
@@ -256,37 +263,43 @@ export async function initSound(): Promise<void> {
 
 /** Play a one-shot effect (no-op when sound is off or audio failed to load). */
 export function playSound(name: SoundName): void {
-  if (!ready || !useSettings.getState().soundOn) return;
+  if (!ready || !useSettings.getState().soundOn) {
+    if (SOUND_DEBUG) debugLog(`skip ${name} ready=${ready} soundOn=${useSettings.getState().soundOn}`);
+    return;
+  }
   if (!pools[name] && DEFERRED.has(name)) buildPool(name);
   const pool = pools[name];
   const mine = slots[name];
-  if (!pool || pool.length === 0 || !mine) return;
+  if (!pool || pool.length === 0 || !mine) {
+    if (SOUND_DEBUG) debugLog(`skip ${name} no pool`);
+    return;
+  }
 
   const now = Date.now();
-  const { index, rewind } = pickSlot(mine, now);
+  const index = pickSlot(mine, now);
   const player = pool[index]!;
-  const slot = mine[index]!;
-  slot.busyUntil = now + SPECS[name].ms;
-  slot.parked = false;
-  // Claims the slot for this clip: anything still in flight for the last one is
-  // now stale. See Slot.gen.
-  slot.gen++;
+  mine[index]!.busyUntil = now + SPECS[name].ms;
   try {
-    // Never AWAIT the rewind. Both calls land on the same Android main queue in
-    // the order they are issued — the seek first, then the play — so the clip
-    // still starts from the top, but without a round trip back into JS that on
-    // a loaded main thread arrives long after the moment it was meant for.
-    // Awaiting it here is what made hops and dice rolls silent on Android.
-    //
-    // `rewind` should be rare: the pools are sized so a burst finds parked
-    // players, and the sweep re-parks them in the quiet afterwards. It is the
-    // fallback for a burst longer than the pool, not the normal path.
-    if (rewind) void player.seekTo(0).catch(() => {});
+    // Seek unconditionally, and never await it. All three states a pooled
+    // player can be in want a rewind: a finished ExoPlayer still holds
+    // `playWhenReady`, so the seek alone restarts it; a never-played one is
+    // already at 0, so it costs nothing; and one stolen mid-clip is meant to
+    // restart. The play below cannot overtake it — `play()` is
+    // `runBlocking(mainQueue)` and the seek was dispatched onto that same queue
+    // first (see lib/soundPool), so the seek has already run by the time play
+    // returns.
+    void player.seekTo(0).catch(() => {});
     player.play();
-  } catch {
-    // ignore
+  } catch (err) {
+    if (SOUND_DEBUG) debugLog(`play ${name}#${index} THREW ${String(err)}`);
+    return;
   }
-  deferSweep(name);
+  if (SOUND_DEBUG) {
+    plays[name] = (plays[name] ?? 0) + 1;
+    // `lag` is how long play() blocked the JS thread waiting for the Android
+    // main queue — i.e. how far behind the main thread was at that instant.
+    debugLog(`play ${name}#${index} n=${plays[name]} lag=${Date.now() - now}ms`);
+  }
 }
 
 /** A single hop "boing" — call once per cell a token steps through. */

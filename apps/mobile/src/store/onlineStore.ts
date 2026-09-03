@@ -93,9 +93,10 @@ interface OnlineStore {
   turnStartedAt: number | null;
   /** Bumps each time the turn clock resets — re-keys the countdown animation. */
   turnSeq: number;
-  /** How long the current turn's clock actually runs. Normally TURN_SECONDS,
-   *  but the server shortens it for a seat it already knows is away, and the
-   *  countdown has to sweep over the real one or it lies about the wait. */
+  /** How long the countdown ring should sweep for. TURN_SECONDS for any window
+   *  this client watched open — the server's shorter deadlines for bot and
+   *  away seats are resilience numbers, and drawing them names the seat (see
+   *  clockSeconds). Only a window we arrived mid-way into draws what is left. */
   turnSeconds: number;
   /** A busted third six is being shown on the roller's own die; the seat has
    *  not changed hands yet and no input should be accepted. */
@@ -235,7 +236,8 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
       void syncThenFetchProfiles(synced, lobby);
       const row = await api.fetchGame(m.gameId);
       if (row.status === "active" && row.state) {
-        applyGameRow(row);
+        // A cold snapshot: this window may be most of the way through.
+        applyGameRow(row, false);
       } else {
         set({ status: "lobby" });
         useNav.getState().push("lobby");
@@ -1269,7 +1271,8 @@ function drainRowQueue(): void {
     unwindPrediction();
   }
 
-  applyGameRow(row);
+  // Straight off the realtime stream — a window that opens here opens NOW.
+  applyGameRow(row, true);
   const hold = prev && row.state ? stateAnimationMs(prev, row.state, heldRoll) + ROW_HOLD_PAD_MS : 0;
   rowHoldTimer = setTimeout(drainRowQueue, hold);
 }
@@ -1611,7 +1614,12 @@ function clearBustHold(): void {
  * turn with nothing to look at. Paint the roller's own six first, then the
  * truth — everyone at the table sees the same beat.
  */
-function applyState(state: GameState, rolled: boolean, deadlineAt: number | null = null): void {
+function applyState(
+  state: GameState,
+  rolled: boolean,
+  deadlineAt: number | null = null,
+  watched = false,
+): void {
   const st = useOnlineStore.getState();
   const prev = st.state;
   const busted = prev ? bustedRollDice(state) : null;
@@ -1631,12 +1639,12 @@ function applyState(state: GameState, rolled: boolean, deadlineAt: number | null
       bustTimer = null;
       // The room may have moved on (resync, leave) during the hold.
       if (useOnlineStore.getState().state?.gameId !== state.gameId) return;
-      applyStateNow(state, false, deadlineAt);
+      applyStateNow(state, false, deadlineAt, watched);
     }, BUST_HOLD_MS);
     return;
   }
   clearBustHold(); // any newer authoritative state wins over a pending hold
-  applyStateNow(state, rolled, deadlineAt);
+  applyStateNow(state, rolled, deadlineAt, watched);
 }
 
 /**
@@ -1657,7 +1665,12 @@ function seatIsGone(state: GameState, myPlayerId: string | null, userId: string 
   return !state.players.some((p) => p.id === myPlayerId || (!!userId && p.userId === userId));
 }
 
-function applyStateNow(state: GameState, rolled: boolean, deadlineAt: number | null): void {
+function applyStateNow(
+  state: GameState,
+  rolled: boolean,
+  deadlineAt: number | null,
+  watched: boolean,
+): void {
   const st = useOnlineStore.getState();
   // The room played on without us. Hold the finished game we're looking at —
   // its result is still the last thing that happened to this player — and say
@@ -1736,7 +1749,10 @@ function applyStateNow(state: GameState, rolled: boolean, deadlineAt: number | n
     rollSeq: st.rollSeq + (bump ? 1 : 0),
     turnStartedAt: !active ? null : clockReset ? Date.now() : st.turnStartedAt,
     turnSeq: active && clockReset ? st.turnSeq + 1 : st.turnSeq,
-    turnSeconds: clockReset ? clockSeconds(deadlineAt) : st.turnSeconds,
+    // `watched && !!prev`: a realtime row is only evidence that a window opened
+    // now if we were already holding the state it opened FROM. The first row of
+    // a session has no such predecessor, whichever way it arrived.
+    turnSeconds: clockReset ? clockSeconds(deadlineAt, watched && !!prev) : st.turnSeconds,
   });
   scheduleTimeout(active, deadlineAt);
   armAutoPilot(active);
@@ -1760,7 +1776,7 @@ function applyStateNow(state: GameState, rolled: boolean, deadlineAt: number | n
   primeRoll();
 }
 
-function applyGameRow(row: GameSnapshot): void {
+function applyGameRow(row: GameSnapshot, watched: boolean): void {
   if (!row.state || row.status === "waiting") {
     useOnlineStore.setState({ status: "lobby" });
     return;
@@ -1779,12 +1795,33 @@ function applyGameRow(row: GameSnapshot): void {
     busted ||
     (row.state.diceValue != null &&
       (st.state?.phase !== "awaiting-move" || prevDice !== row.state.diceValue));
-  applyState(row.state, rolled, row.turn_deadline ? Date.parse(row.turn_deadline) : null);
+  applyState(row.state, rolled, row.turn_deadline ? Date.parse(row.turn_deadline) : null, watched);
 }
 
-/** The countdown length to draw for a turn, from the server's deadline. */
-function clockSeconds(deadlineAt: number | null): number {
-  if (deadlineAt == null) return TURN_SECONDS;
+/**
+ * The countdown length to draw for a turn.
+ *
+ * NOT simply the server's deadline, because that deadline is not only a clock.
+ * The server shortens it for seats it drives or has written off — 12s while a
+ * bot plays, 6s for a human it knows is away — as internal resilience numbers
+ * deciding how soon the table may be resumed. Drawn literally they turn the ring
+ * into a bot detector: a quick-match fill-in is deliberately never flagged to
+ * the client, and its ring sweeping two and a half times faster than a human's
+ * gave the whole disguise away.
+ *
+ * So a window this client actually WATCHED open is drawn at full length. We know
+ * it started now, so the only thing the server's number could add is the fact we
+ * must not show. The skip is unaffected — scheduleTimeout still arms on the real
+ * deadline, so an away seat is still passed at 6s; the ring simply stops early
+ * rather than announcing in advance that it will.
+ *
+ * A window we merely ARRIVED INTO — a join, a resync — is different: it may be
+ * most of the way through, and drawing 30s there would promise time that does
+ * not exist. There the server's remaining is the honest answer and the only one
+ * we have.
+ */
+function clockSeconds(deadlineAt: number | null, watchedOpen: boolean): number {
+  if (watchedOpen || deadlineAt == null) return TURN_SECONDS;
   return Math.max(1, Math.min(TURN_SECONDS, Math.round((deadlineAt - Date.now()) / 1000)));
 }
 
@@ -1876,7 +1913,8 @@ async function runResync(gameId: string): Promise<void> {
     rollCache = null;
     prepareSeq++;
     clearRowQueue();
-    applyGameRow(row);
+    // A refetch, so treat it as an arrival rather than a window we watched.
+    applyGameRow(row, false);
     resyncBackoffMs = 0;
   } catch (e) {
     if (e instanceof api.RowGoneError) {

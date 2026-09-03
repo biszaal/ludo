@@ -19,6 +19,53 @@ import { BUST_HOLD_MS, isBustHandoff } from "./projection";
 export { FLY_MS, HOP_STEP_MS } from "../render/waypoints";
 
 /**
+ * How far AHEAD of the visible landing a sound must be asked for to be heard ON
+ * it. The one dial for audio sync — raise it if sounds still lag the picture,
+ * lower it if they now anticipate it.
+ *
+ * There is no API that plays a sound now. `playSound` returns once expo-audio's
+ * `play()` has crossed to the Android main thread (it is `runBlocking` on that
+ * queue, see lib/soundPool), and the clip is audible some way after that again,
+ * once ExoPlayer has re-primed its audio track. Both parts are real and neither
+ * is observable from JS, so the pipeline is treated as what it is — a fixed
+ * delay — and everything that must land on a visual beat is issued that much
+ * early.
+ *
+ * This only works because the delay is CONSTANT. It is the reason lib/sound
+ * seeks before every play instead of keeping some players pre-rewound: a fast
+ * path and a slow path would make the offset vary by play, and a varying offset
+ * cannot be compensated by any single number. Uniformly slow beats sometimes
+ * fast.
+ *
+ * 90ms is the starting estimate for a mid-range Android — roughly a frame for
+ * the UI→JS hop, the rest audio-track startup. iOS is quicker, but 90ms of lead
+ * against a ~40ms pipeline reads as "tight" rather than "early": an impact sound
+ * a little ahead of the picture is the convention in games, an impact sound
+ * behind it is the thing being fixed.
+ */
+export const SFX_LEAD_MS = 90;
+
+/**
+ * Segment durations for a move's sound clock — the run of timings whose
+ * completion callbacks ask for the thocks.
+ *
+ * `cells` is how many landings sound: every cell of a forward hop, and exactly
+ * one (the arrival) for a fly or a captured pawn's retrace. `firstLandingMs` is
+ * when the first of them touches down, `everyMs` the cadence after that.
+ *
+ * Only the FIRST segment is shortened. That is the whole trick: it shifts the
+ * entire train of callbacks SFX_LEAD_MS earlier while leaving the spacing
+ * identical to the pawn's, so the sounds keep the rhythm of the hops instead of
+ * drifting against them. Clamped at 0 for the case where the lead is longer than
+ * the run-up — the sound is then as early as it can be, which is at once.
+ */
+export function cueDurations(cells: number, firstLandingMs: number, everyMs: number): number[] {
+  return Array.from({ length: Math.max(cells, 0) }, (_, i) =>
+    i === 0 ? Math.max(firstLandingMs - SFX_LEAD_MS, 0) : everyMs,
+  );
+}
+
+/**
  * THE ROLL, AS ONE CONTINUOUS PHASE.
  *
  * The die's rotation is driven by a single scalar `phi`, counted in

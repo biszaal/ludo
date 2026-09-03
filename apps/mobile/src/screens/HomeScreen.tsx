@@ -30,6 +30,7 @@ import { GemsPill } from "../components/GemsPill";
 import { GetCoinsSheet } from "../components/GetCoinsSheet";
 import { DailyBonusSheet } from "../components/DailyBonusSheet";
 import { AccountSheet } from "../components/AccountSheet";
+import { GuestBanner, useGuestStrip } from "../components/GuestBanner";
 import { useSavePrompt } from "../lib/useSavePrompt";
 import { savePromptCopy } from "../lib/savePrompt";
 import { AdSlot } from "../components/AdSlot";
@@ -37,7 +38,7 @@ import { CycleGlyph, PeopleGlyph } from "../components/HomeGlyphs";
 import { ContentColumn } from "../components/ContentColumn";
 import { stillDieColors } from "../components/DieStill";
 import { useLayout } from "../lib/useLayout";
-import { homeMetrics } from "../lib/layout";
+import { homeMetrics, HOME_GUEST_STRIP } from "../lib/layout";
 import { useWallet } from "../store/walletStore";
 import { useConfig } from "../store/configStore";
 import { resolveBoardTheme, type BoardTheme } from "../render/boardThemes";
@@ -98,11 +99,18 @@ export function HomeScreen() {
   const { insets, height: windowH, scale } = useLayout();
   const s = (n: number) => Math.round(n * scale);
 
+  // The guest strip is furniture like the rest, so the budget has to know about
+  // it before it runs. Asked here rather than inside the strip because a strip
+  // that sized itself would have to float, and the only place left to float
+  // over is the dock.
+  const guest = useGuestStrip();
+  const stripH = guest.visible ? s(HOME_GUEST_STRIP) : 0;
+
   // The tower's own box: the ad strip is a sibling below it, so this is the
   // exact room the hub has. The window-minus-insets estimate only covers the
   // first frame, before onLayout lands.
   const [columnH, setColumnH] = useState(0);
-  const metrics = homeMetrics(columnH || windowH - insets.top - insets.bottom, scale);
+  const metrics = homeMetrics((columnH || windowH - insets.top - insets.bottom) - stripH, scale);
   // Tile art tracks the budgeted tile, so a compressed row shrinks its glyphs
   // with it instead of pressing fixed-size art against the label.
   const tileK = metrics.tile / Math.round(96 * scale);
@@ -208,6 +216,15 @@ export function HomeScreen() {
           height={metrics.tile}
         />
       </View>
+
+      {/* The guest strip sits between the tiles and the dock: last thing before
+          the doorways, where it used to appear to be — but in the column, so it
+          covers none of them. */}
+      {guest.visible && (
+        <View style={{ paddingHorizontal: space.lg, paddingTop: metrics.gap }}>
+          <GuestBanner scale={scale} onSave={() => push("account")} onDismiss={guest.dismiss} />
+        </View>
+      )}
 
       {/* Dock — doorways to everything that isn't playing. */}
       <View style={{ paddingHorizontal: space.lg, paddingTop: metrics.gap, paddingBottom: metrics.gap }}>

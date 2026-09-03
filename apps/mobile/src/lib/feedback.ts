@@ -19,7 +19,7 @@ import { useOnlineStore } from "../store/onlineStore";
 import { useProfile } from "../store/profileStore";
 import { useStats } from "../store/statsStore";
 import { computeStandings } from "./standings";
-import { moveDurationMs } from "./moveTiming";
+import { SFX_LEAD_MS, moveDurationMs } from "./moveTiming";
 import { resolveEmoji } from "./emoji";
 import { playSound } from "./sound";
 import * as haptics from "./haptics";
@@ -69,29 +69,36 @@ function diffAndFire(prev: GameState | null, next: GameState | null, myPlayerId:
     return;
   }
 
-  after(arrivalMs, () => {
+  // Sounds are asked for SFX_LEAD_MS before the pawn arrives so they are HEARD
+  // as it arrives (see lib/moveTiming); haptics keep the arrival itself, their
+  // own delay being a fraction of the audio pipeline's. Two timers rather than
+  // one, because they are now two different moments.
+  after(arrivalMs - SFX_LEAD_MS, () => {
     if (captured) {
       playSound("capture");
       // Streak flair: back-to-back captures in the room get a sparkle on top.
       const now = Date.now();
       if (now - lastCaptureAt < CAPTURE_STREAK_MS) after(140, () => playSound("safe"));
       lastCaptureAt = now;
-      haptics.capture();
     } else if (finished) {
       playSound("finish");
     } else if (reachedSafety) {
       playSound("safe");
-      haptics.tapLight();
     }
 
     // The hand-off cue follows the landing too, so it never precedes the thock.
     if (next.currentTurnPlayerId !== prev.currentTurnPlayerId && next.status === "active") {
-      if (myPlayerId !== null && next.currentTurnPlayerId === myPlayerId) {
-        playSound("ding"); // online: it just became my turn
-        haptics.tapLight();
-      } else {
-        playSound("turn");
-      }
+      // online: it just became my turn
+      playSound(myPlayerId !== null && next.currentTurnPlayerId === myPlayerId ? "ding" : "turn");
+    }
+  });
+
+  after(arrivalMs, () => {
+    if (captured) haptics.capture();
+    else if (reachedSafety) haptics.tapLight();
+
+    if (next.currentTurnPlayerId !== prev.currentTurnPlayerId && next.status === "active") {
+      if (myPlayerId !== null && next.currentTurnPlayerId === myPlayerId) haptics.tapLight();
     }
   });
 }

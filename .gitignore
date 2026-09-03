@@ -65,3 +65,8 @@ coverage/
 # ones in apps/mobile and break `require("../../app.json")` in SettingsScreen.
 /app.json
 /eas.json
+
+# Local agent tooling — editor/assistant state, not app code.
+.claude/
+.agents/
+skills-lock.json

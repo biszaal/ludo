@@ -135,6 +135,16 @@ const HOME_FLOOR = {
   gap: 4,
 } as const;
 
+/**
+ * The guest strip's block in the tower — the card plus the gap above it.
+ *
+ * Not part of HOME_NATURAL because it is conditional: only a guest sees it, and
+ * only until they dismiss it. Home subtracts it from the column before
+ * budgeting, so the furniture compresses around the strip rather than the strip
+ * floating over the dock.
+ */
+export const HOME_GUEST_STRIP = 60;
+
 /** Below this the still-life reads as a stamp, not a diorama. */
 export const HERO_MIN = 150;
 
