@@ -14,7 +14,7 @@ import { Canvas } from "@shopify/react-native-skia";
 import { AvatarGlyph } from "./Avatar";
 import { BoardSurface } from "./Board";
 import { Dice } from "./Dice";
-import { BOARD_THEMES, DEFAULT_THEME, type BoardTheme, type BoardThemeId } from "../render/boardThemes";
+import { resolveBoardTheme, type BoardTheme } from "../render/boardThemes";
 import { resolveDiceSkin } from "../render/diceSkins";
 import type { CosmeticCategory } from "../lib/cosmetics";
 import { depth, font, palette, radius, space } from "../theme";
@@ -52,7 +52,7 @@ export function CosmeticPreview({
 }
 
 function BoardPreview({ themeId }: { themeId: string }) {
-  const theme = BOARD_THEMES[themeId as BoardThemeId] ?? DEFAULT_THEME;
+  const theme = resolveBoardTheme(themeId);
   return (
     <View style={{ borderRadius: radius.md, overflow: "hidden", ...depth.shadow }}>
       <Canvas style={{ width: BOARD_SIZE, height: BOARD_SIZE }}>

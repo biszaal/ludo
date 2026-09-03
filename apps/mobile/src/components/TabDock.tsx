@@ -23,7 +23,7 @@ import { incomingRequests, onlineFriendCount } from "../lib/friendship";
 import { activeTabFor, dockClearance, dockTrayHeight, tabNavOp, DOCK_PAD } from "../lib/tabs";
 import type { TabName } from "../lib/tabs";
 import { useLayout } from "../lib/useLayout";
-import { BOARD_THEMES } from "../render/boardThemes";
+import { resolveBoardTheme } from "../render/boardThemes";
 import { resolveDiceSkin } from "../render/diceSkins";
 import { useFriends } from "../store/friendsStore";
 import { useNav, type ScreenName } from "../store/navStore";
@@ -62,7 +62,7 @@ export function TabDock({ current }: { current: ScreenName }) {
   const { scale } = useLayout();
   const insets = useSafeAreaInsets();
 
-  const boardTheme = BOARD_THEMES[useSettings((s) => s.boardThemeId)];
+  const boardTheme = resolveBoardTheme(useSettings((s) => s.boardThemeId));
   const diceSkin = resolveDiceSkin(useProfile((s) => s.diceSkinId));
 
   const friendships = useFriends((s) => s.friendships);

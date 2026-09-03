@@ -24,7 +24,7 @@ import { GemsSection } from "./GemsSection";
 import { goToTab } from "./TabDock";
 import { Button } from "./Button";
 import { resolveAvatarId } from "../render/avatars";
-import { BOARD_THEMES, type BoardThemeId } from "../render/boardThemes";
+import { resolveBoardTheme, type BoardThemeId } from "../render/boardThemes";
 import { DICE_SKINS, resolveDiceSkin, type DiceSkinId } from "../render/diceSkins";
 import { cosmeticItems, ownedItems, sellableItems, type CosmeticCategory, type CosmeticItem } from "../lib/cosmetics";
 import { useCosmeticsUI, type ShopTab } from "../store/cosmeticsUI";
@@ -68,7 +68,7 @@ export function CosmeticsBrowser({ mode }: { mode: "locker" | "shop" }) {
   const setDiceSkin = useProfile((s) => s.setDiceSkin);
   const boardThemeId = useSettings((s) => s.boardThemeId);
   const setBoardTheme = useSettings((s) => s.setBoardTheme);
-  const boardTheme = BOARD_THEMES[boardThemeId];
+  const boardTheme = resolveBoardTheme(boardThemeId);
   const push = useNav((s) => s.push);
 
   const [highlights, setHighlights] = useState<Record<CosmeticCategory, string | null>>({
@@ -212,7 +212,7 @@ export function CosmeticsBrowser({ mode }: { mode: "locker" | "shop" }) {
             return (
               <ThemeSwatch
                 key={item.id}
-                theme={BOARD_THEMES[item.id as BoardThemeId]}
+                theme={resolveBoardTheme(item.id)}
                 selected={selected}
                 price={price}
                 currency={currency}

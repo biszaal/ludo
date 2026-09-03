@@ -38,7 +38,7 @@ import {
 } from "../lib/layout";
 import type { ChatEvent } from "../store/onlineStore";
 import { font, palette, radius, space, teamColor } from "../theme";
-import { BOARD_THEMES } from "../render/boardThemes";
+import { resolveBoardTheme } from "../render/boardThemes";
 import { resolveDiceSkin } from "../render/diceSkins";
 import { setBackInterceptor } from "../store/navStore";
 import { useSettings } from "../store/settingsStore";
@@ -177,7 +177,7 @@ export function GameView({
 }: GameViewProps) {
   const { width, height } = useWindowDimensions();
   const { tier, scale, insets } = useLayout();
-  const theme = BOARD_THEMES[useSettings((s) => s.boardThemeId)];
+  const theme = resolveBoardTheme(useSettings((s) => s.boardThemeId));
   const [paused, setPaused] = useState(false);
   const [reactionsOpen, setReactionsOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);

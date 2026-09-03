@@ -18,7 +18,7 @@ import {
   SafeSquareDiagram,
   WinDiagram,
 } from "../components/HowToPlayDiagrams";
-import { BOARD_THEMES } from "../render/boardThemes";
+import { resolveBoardTheme } from "../render/boardThemes";
 import { useNav } from "../store/navStore";
 import { useSettings } from "../store/settingsStore";
 import { font, palette, radius, space } from "../theme";
@@ -65,7 +65,7 @@ const SECTIONS = [
 export function HowToPlayScreen() {
   const { width } = useWindowDimensions();
   const { maxWidth } = useLayout();
-  const theme = BOARD_THEMES[useSettings((s) => s.boardThemeId)];
+  const theme = resolveBoardTheme(useSettings((s) => s.boardThemeId));
   const pop = useNav((s) => s.pop);
   // Diagrams size to the (capped) column, not the full iPad width.
   const diagramWidth = Math.min(width, maxWidth ?? width) - space.xl * 2 - space.lg * 2;

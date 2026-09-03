@@ -36,6 +36,10 @@ import { hopTick } from "../lib/haptics";
 import { FLY_MS, computeWaypoints, originsFromLastAction, positionKey, walkDurationMs } from "../render/waypoints";
 import { shade } from "../theme";
 import type { BoardTheme } from "../render/boardThemes";
+import { appendGlyph } from "../render/boardGlyphs";
+import { artSeed, frameBand, plateTexture, yardEmblem, type Art } from "../render/boardArt";
+import { mulberry32 } from "../render/pipShapes";
+import { appendMotif, motifStyle } from "../render/faceMotifs";
 import {
   HOME_CELLS,
   START_CELL_INDEX,
@@ -57,6 +61,7 @@ const SAFE = new Set(SAFE_SQUARES);
  * (in JS, so the tap layer stays aligned). 1 = no frame; lower = thicker frame.
  */
 const BOARD_INTERIOR_SCALE = 0.94;
+
 // Hop/fly durations live in lib/moveTiming: feedback.ts mirrors them so landing
 // sounds (capture, safe chime) fire when the pawn arrives, not when state lands.
 
@@ -318,16 +323,67 @@ export function BoardSurface({ size, theme }: { size: number; theme: BoardTheme 
   const cell = cellSize(size);
   const startIndices = new Set(Object.values(START_CELL_INDEX));
   const center = size / 2;
+  // Premium treatments, each defaulting to exactly what the board drew before
+  // they existed (see boardThemes.ts) — so the four original themes render byte
+  // for byte as they always have.
+  const plateColors = theme.plate?.colors ?? [shade(theme.boardBase, 0.02), shade(theme.boardBase, -0.07)];
+  const plateEnd = theme.plate?.angle === "diagonal" ? vec(size, size) : vec(0, size);
+  const lip = theme.lip ?? "rgba(255,255,255,0.5)";
+  const yardPlate = theme.yardPlate ?? theme.boardBase;
+  const sheen = theme.sheen ?? 0.05;
+  // The material and the worked edge (render/boardArt.ts). Both are plain
+  // geometry generated from a per-theme seed, so they cost one pass through the
+  // picture that Board already records once per (size, theme) — nothing here is
+  // re-derived while the game is running.
+  const texture = theme.texture ? plateTexture(theme.texture.kind, artSeed(theme.id, theme.texture.kind), size) : null;
+  // The clear plate between the rim lip and the first yard tile is 3.78% of
+  // the board (see boardThemes.ts), so the band gets 1.1%-3.5% of it and no
+  // more — any wider and the ornament runs under the yards.
+  const bandInset = size * 0.011;
+  const bandWidth = size * 0.024;
+  const band = theme.band ? frameBand(theme.band.kind, size, bandInset, bandWidth) : null;
+  const cellR = theme.cellRadius ? cell * theme.cellRadius : 2;
+  // Seeded per-cell tone. Drawn from one PRNG walked in track order, so a board
+  // varies the same way on every device — and so two neighbouring cells are
+  // never handed the same value, which a per-index hash would happily do.
+  const jitter = useMemo(() => {
+    const v = theme.cellVariance ?? 0;
+    if (!v) return null;
+    const rnd = mulberry32(artSeed(theme.id, "cells"));
+    return Array.from({ length: TRACK_CELLS.length + 32 }, () => (rnd() - 0.5) * 2 * v);
+  }, [theme.id, theme.cellVariance]);
   return (
     <Group>
       {/* Plate: vertical light-to-dark wash + bevel (outer edge, inner light lip).
           The plate fills the full footprint; the track interior below is scaled
           in (BOARD_INTERIOR_SCALE) so a board-coloured frame rings the cells. */}
       <RoundedRect x={0} y={0} width={size} height={size} r={18}>
-        <LinearGradient start={vec(0, 0)} end={vec(0, size)} colors={[shade(theme.boardBase, 0.02), shade(theme.boardBase, -0.07)]} />
+        <LinearGradient start={vec(0, 0)} end={plateEnd} colors={plateColors} positions={theme.plate?.positions} />
       </RoundedRect>
+      {/* Material, then a vignette, then the rim. Clipped to the plate so a
+          vein or a leaf that runs off the edge is cut by the board's own
+          rounded corner instead of squaring it off. */}
+      {texture ? (
+        <Group clip={plateClip(size)}>
+          <ArtLayer art={texture} color={theme.texture!.color} alpha={theme.texture!.alpha} />
+        </Group>
+      ) : null}
+      {theme.vignette ? (
+        <RoundedRect x={0} y={0} width={size} height={size} r={18}>
+          <RadialGradient
+            c={vec(size / 2, size / 2)}
+            r={size * 0.72}
+            colors={["rgba(0,0,0,0)", `rgba(0,0,0,${theme.vignette})`]}
+            positions={[0.45, 1]}
+          />
+        </RoundedRect>
+      ) : null}
       <RoundedRect x={1.5} y={1.5} width={size - 3} height={size - 3} r={16} color={theme.boardEdge} style="stroke" strokeWidth={2.5} />
-      <RoundedRect x={4} y={4} width={size - 8} height={size - 8} r={14} color="rgba(255,255,255,0.5)" style="stroke" strokeWidth={1.5} />
+      <RoundedRect x={4} y={4} width={size - 8} height={size - 8} r={14} color={lip} style="stroke" strokeWidth={1.5} />
+      {/* The worked edge, in the clear plate between the lip and the first
+          yard tile. That gap is ~3.8% of the board, which is why the band is
+          sized off `size` rather than off the cell. */}
+      {band ? <ArtLayer art={band} color={theme.band!.color} alpha={theme.band!.alpha} /> : null}
 
       <Group origin={{ x: center, y: center }} transform={[{ scale: BOARD_INTERIOR_SCALE }]}>
 
@@ -346,12 +402,123 @@ export function BoardSurface({ size, theme }: { size: number; theme: BoardTheme 
         return (
           <Group key={`yard-${color}`}>
             <RoundedRect x={x} y={y + 3} width={w} height={w} r={16} color="rgba(0,0,0,0.18)" />
-            <RoundedRect x={x} y={y} width={w} height={w} r={16}>
-              <LinearGradient start={vec(x, y)} end={vec(x, y + w)} colors={[shade(team, 0.22), team, shade(team, -0.18)]} positions={[0, 0.55, 1]} />
-            </RoundedRect>
-            <RoundedRect x={x + 1.5} y={y + 1.5} width={w - 3} height={w - 3} r={14} color="rgba(255,255,255,0.35)" style="stroke" strokeWidth={2} />
-            <RoundedRect x={ix} y={iy} width={iw} height={iw} r={12} color={theme.cellFill} />
-            <RoundedRect x={ix} y={iy} width={iw} height={iw} r={12} color={shade(team, -0.3)} opacity={0.35} style="stroke" strokeWidth={1.5} />
+            {theme.yardStyle === "disc" ? (
+              <Group>
+                {/* A round bed set into the board's material, with the tile's
+                    four corners left to ornament. Square yards are most of why
+                    every Ludo board on earth reads the same at a glance; a disc
+                    changes the silhouette without moving a single slot — all
+                    four still sit inside it (the inner disc is sized off the
+                    slot ring, not guessed). */}
+                <RoundedRect x={x} y={y} width={w} height={w} r={16}>
+                  <LinearGradient
+                    start={vec(x, y)}
+                    end={vec(x, y + w)}
+                    colors={[shade(yardPlate, 0.12), yardPlate, shade(yardPlate, -0.16)]}
+                    positions={[0, 0.5, 1]}
+                  />
+                </RoundedRect>
+                {theme.band
+                  ? ([
+                      [-1, -1],
+                      [1, -1],
+                      [1, 1],
+                      [-1, 1],
+                    ] as const).map(([sx, sy], i) => (
+                      <Path
+                        key={`flourish-${color}-${i}`}
+                        path={markPath(theme, x + w / 2 + sx * w * 0.4, y + w / 2 + sy * w * 0.4, cell * 0.34, cell * 0.15)}
+                        color={theme.band!.yardColor ?? theme.band!.color}
+                        opacity={theme.band!.alpha * 0.8}
+                      />
+                    ))
+                  : null}
+                <Circle cx={x + w / 2} cy={y + w / 2} r={w * 0.47}>
+                  <LinearGradient
+                    start={vec(x, y)}
+                    end={vec(x, y + w)}
+                    colors={[shade(team, 0.22), team, shade(team, -0.18)]}
+                    positions={[0, 0.55, 1]}
+                  />
+                </Circle>
+                <Circle cx={x + w / 2} cy={y + w / 2} r={w * 0.47} color="rgba(255,255,255,0.35)" style="stroke" strokeWidth={2} />
+              </Group>
+            ) : theme.yardStyle === "ring" ? (
+              <Group>
+                {/* The board's own material, with the seat colour set as a band
+                    around it — see BoardTheme.yardStyle on why the tile stops
+                    being a solid block of seat colour on these boards. */}
+                <RoundedRect x={x} y={y} width={w} height={w} r={16}>
+                  <LinearGradient
+                    start={vec(x, y)}
+                    end={vec(x, y + w)}
+                    colors={[shade(yardPlate, 0.14), yardPlate, shade(yardPlate, -0.16)]}
+                    positions={[0, 0.5, 1]}
+                  />
+                </RoundedRect>
+                <RoundedRect
+                  x={x + cell * 0.19}
+                  y={y + cell * 0.19}
+                  width={w - cell * 0.38}
+                  height={w - cell * 0.38}
+                  r={13}
+                  color={team}
+                  style="stroke"
+                  strokeWidth={cell * 0.3}
+                />
+                <RoundedRect
+                  x={x + cell * 0.19}
+                  y={y + cell * 0.19}
+                  width={w - cell * 0.38}
+                  height={w - cell * 0.38}
+                  r={13}
+                  color={shade(team, 0.3)}
+                  opacity={0.5}
+                  style="stroke"
+                  strokeWidth={1}
+                />
+                <RoundedRect x={x + 1.5} y={y + 1.5} width={w - 3} height={w - 3} r={14} color="rgba(255,255,255,0.18)" style="stroke" strokeWidth={1.5} />
+              </Group>
+            ) : (
+              <Group>
+                <RoundedRect x={x} y={y} width={w} height={w} r={16}>
+                  <LinearGradient start={vec(x, y)} end={vec(x, y + w)} colors={[shade(team, 0.22), team, shade(team, -0.18)]} positions={[0, 0.55, 1]} />
+                </RoundedRect>
+                <RoundedRect x={x + 1.5} y={y + 1.5} width={w - 3} height={w - 3} r={14} color="rgba(255,255,255,0.35)" style="stroke" strokeWidth={2} />
+              </Group>
+            )}
+            {theme.yardStyle === "disc" ? (
+              <Circle cx={x + w / 2} cy={y + w / 2} r={w * 0.4} color={theme.cellFill} />
+            ) : (
+              <RoundedRect x={ix} y={iy} width={iw} height={iw} r={12} color={theme.cellFill} />
+            )}
+            {/* One composed figure per yard, centred (render/boardArt.ts's
+                yardEmblem). The yard plates are the largest uninterrupted
+                surfaces on the board, and what belongs on a surface like that
+                is an emblem — a parterre, a medallion, a constellation — not a
+                sprinkling of texture. */}
+            {theme.emblem ? (
+              <Group
+                clip={
+                  theme.yardStyle === "disc"
+                    ? circleClip(x + w / 2, y + w / 2, w * 0.4)
+                    : roundedClip(ix, iy, iw, 12)
+                }
+              >
+                <ArtLayer
+                  art={yardEmblem(theme.emblem.kind, theme.yardStyle === "disc" ? w * 0.8 : iw)}
+                  color={theme.emblem.color}
+                  alpha={theme.emblem.alpha}
+                  dx={theme.yardStyle === "disc" ? x + w * 0.1 : ix}
+                  dy={theme.yardStyle === "disc" ? y + w * 0.1 : iy}
+                />
+              </Group>
+            ) : null}
+            {theme.yardStyle === "disc" ? (
+              <Circle cx={x + w / 2} cy={y + w / 2} r={w * 0.4} color={shade(team, -0.3)} opacity={0.4} style="stroke" strokeWidth={1.5} />
+            ) : (
+              <RoundedRect x={ix} y={iy} width={iw} height={iw} r={12} color={shade(team, -0.3)} opacity={0.35} style="stroke" strokeWidth={1.5} />
+            )}
             {YARD_SLOTS[color].map(([gx, gy], i) => {
               const cx = gx * cell;
               const cy = gy * cell;
@@ -375,7 +542,15 @@ export function BoardSurface({ size, theme }: { size: number; theme: BoardTheme 
       {/* Home-column runs: gradient colored path cells */}
       {COLORS.map((color) =>
         HOME_CELLS[color].map(([col, row], i) => (
-          <ColorCell key={`home-${color}-${i}`} x={col * cell} y={row * cell} cell={cell} team={theme.team[color]} />
+          <ColorCell
+            key={`home-${color}-${i}`}
+            x={col * cell}
+            y={row * cell}
+            cell={cell}
+            team={theme.team[color]}
+            r={cellR}
+            jitter={jitter ? jitter[TRACK_CELLS.length + COLORS.indexOf(color) * 5 + i]! : 0}
+          />
         )),
       )}
 
@@ -388,19 +563,37 @@ export function BoardSurface({ size, theme }: { size: number; theme: BoardTheme 
         if (isStart) {
           return (
             <Group key={`track-${idx}`}>
-              <ColorCell x={col * cell} y={row * cell} cell={cell} team={startColor(idx, theme)} />
-              <Path path={starPath(cx, cy, cell * 0.3, cell * 0.13)} color="rgba(255,255,255,0.9)" />
+              <ColorCell x={col * cell} y={row * cell} cell={cell} team={startColor(idx, theme)} r={cellR} jitter={0} />
+              <Path path={markPath(theme, cx, cy, cell * 0.3, cell * 0.13)} color="rgba(255,255,255,0.9)" />
             </Group>
           );
         }
         const g = cellInset(cell);
+        const j = jitter ? jitter[idx]! : 0;
         return (
           <Group key={`track-${idx}`}>
-            <RoundedRect x={col * cell + g} y={row * cell + g} width={cell - g * 2} height={cell - g * 2} r={2} color={theme.cellFill} />
-            <RoundedRect x={col * cell + g} y={row * cell + g} width={cell - g * 2} height={cell - g * 2} r={2} color={theme.cellBorder} style="stroke" strokeWidth={1} />
+            {theme.cellTop ? (
+              <RoundedRect x={col * cell + g} y={row * cell + g} width={cell - g * 2} height={cell - g * 2} r={cellR}>
+                <LinearGradient
+                  start={vec(0, row * cell)}
+                  end={vec(0, row * cell + cell)}
+                  colors={j ? [shade(theme.cellTop, j), shade(theme.cellFill, j)] : [theme.cellTop, theme.cellFill]}
+                />
+              </RoundedRect>
+            ) : (
+              <RoundedRect
+                x={col * cell + g}
+                y={row * cell + g}
+                width={cell - g * 2}
+                height={cell - g * 2}
+                r={cellR}
+                color={j ? shade(theme.cellFill, j) : theme.cellFill}
+              />
+            )}
+            <RoundedRect x={col * cell + g} y={row * cell + g} width={cell - g * 2} height={cell - g * 2} r={cellR} color={theme.cellBorder} style="stroke" strokeWidth={1} />
             <Line p1={vec(col * cell + g + 2.5, row * cell + g + 1.1)} p2={vec(col * cell + cell - g - 2.5, row * cell + g + 1.1)} color="rgba(255,255,255,0.75)" strokeWidth={1.2} />
             <Line p1={vec(col * cell + g + 2.5, row * cell + cell - g - 1.1)} p2={vec(col * cell + cell - g - 2.5, row * cell + cell - g - 1.1)} color="rgba(0,0,0,0.06)" strokeWidth={1.2} />
-            {SAFE.has(idx) && <Path path={starPath(cx, cy, cell * 0.28, cell * 0.12)} color={theme.starColor} />}
+            {SAFE.has(idx) && <Path path={markPath(theme, cx, cy, cell * 0.28, cell * 0.12)} color={theme.starColor} />}
           </Group>
         );
       })}
@@ -427,24 +620,40 @@ export function BoardSurface({ size, theme }: { size: number; theme: BoardTheme 
           <Path path={triangle([a[0], a[1]], [b[0], b[1]], [7.5, 7.5], cell)} color="rgba(255,255,255,0.5)" style="stroke" strokeWidth={1} />
         </Group>
       ))}
+      {/* The medallion sits ON the finishing wedges, not under them: the four
+          wedges are opaque and fill the centre square edge to edge, so anything
+          drawn beneath is simply not there. Finished pawns land above it (they
+          live on the other canvas), which is the right order — a crest is the
+          plate the winners stand on. */}
+      {theme.crest ? (
+        <Path
+          path={crestPath(theme.crest.kind, center, center, theme.crest.scale * cell)}
+          color={theme.crest.color}
+          opacity={theme.crest.alpha}
+          style={motifStyle(theme.crest.kind).style}
+          strokeWidth={motifStyle(theme.crest.kind).width * theme.crest.scale * cell}
+        />
+      ) : null}
       <RoundedRect x={6 * cell} y={6 * cell} width={3 * cell} height={3 * cell} r={3} color={theme.boardEdge} style="stroke" strokeWidth={1.5} />
       </Group>
 
-      {/* Soft diagonal sheen over the whole plate (plastic-board gloss). */}
-      <Path path={`M 0 0 L ${size} 0 L 0 ${size * 0.55} Z`} color="rgba(255,255,255,0.05)" />
+      {/* Soft diagonal sheen over the whole plate. 0.05 is the original
+          plastic-board gloss; a lacquer theme raises it, a matte stone one
+          drops it nearly to nothing. */}
+      <Path path={`M 0 0 L ${size} 0 L 0 ${size * 0.55} Z`} color={`rgba(255,255,255,${sheen})`} />
     </Group>
   );
 }
 
 /** A colored path cell (home runs + start cells): vertical gradient + tonal edge. */
-function ColorCell({ x, y, cell, team }: { x: number; y: number; cell: number; team: string }) {
+function ColorCell({ x, y, cell, team, r = 2, jitter = 0 }: { x: number; y: number; cell: number; team: string; r?: number; jitter?: number }) {
   const g = cellInset(cell);
   return (
     <Group>
-      <RoundedRect x={x + g} y={y + g} width={cell - g * 2} height={cell - g * 2} r={2}>
-        <LinearGradient start={vec(x, y)} end={vec(x, y + cell)} colors={[shade(team, 0.16), shade(team, -0.1)]} />
+      <RoundedRect x={x + g} y={y + g} width={cell - g * 2} height={cell - g * 2} r={r}>
+        <LinearGradient start={vec(x, y)} end={vec(x, y + cell)} colors={[shade(team, 0.16 + jitter), shade(team, -0.1 + jitter)]} />
       </RoundedRect>
-      <RoundedRect x={x + g} y={y + g} width={cell - g * 2} height={cell - g * 2} r={2} color={shade(team, -0.25)} opacity={0.4} style="stroke" strokeWidth={1} />
+      <RoundedRect x={x + g} y={y + g} width={cell - g * 2} height={cell - g * 2} r={r} color={shade(team, -0.25)} opacity={0.4} style="stroke" strokeWidth={1} />
     </Group>
   );
 }
@@ -794,6 +1003,126 @@ function triangle(a: number[], b: number[], c: number[], cell: number) {
   p.lineTo(b[0]! * cell, b[1]! * cell);
   p.lineTo(c[0]! * cell, c[1]! * cell);
   p.close();
+  return p;
+}
+
+/**
+ * Paints one Art bundle (render/boardArt.ts) in a single color, offset by
+ * (dx, dy).
+ *
+ * The offset is baked into the paths rather than applied with a Group
+ * transform, and that is deliberate: a Group carrying BOTH a clip and a
+ * transform does not agree between renderers on which space the clip is in, and
+ * the yard inlay needs both. Getting it wrong put three of the four yards'
+ * clips off the board entirely — the art was generated, and invisible.
+ *
+ * Strokes and marks are each merged into ONE path per alpha bucket rather than
+ * drawn node by node: a foliage texture is ~60 leaves and a Greek key is ~60
+ * polylines, and 120 extra Skia nodes on a picture that already carries ~500 is
+ * a real cost to record on a weak device. Bucketing by alpha keeps the depth
+ * that varied opacity gives a texture while collapsing the node count to a
+ * handful.
+ */
+function ArtLayer({ art, color, alpha, dx = 0, dy = 0 }: { art: Art; color: string; alpha: number; dx?: number; dy?: number }) {
+  const buckets = useMemo(() => {
+    const round = (a: number) => Math.round(Math.min(1, Math.max(0, a)) * 4) / 4;
+    const fills = new Map<number, ReturnType<typeof Skia.Path.Make>>();
+    const strokes = new Map<string, { path: ReturnType<typeof Skia.Path.Make>; w: number; a: number }>();
+
+    for (const d of art.dots) {
+      const key = round(d.a);
+      let p = fills.get(key);
+      if (!p) fills.set(key, (p = Skia.Path.Make()));
+      p.addCircle(d.x + dx, d.y + dy, d.r);
+    }
+    for (const m of art.marks) {
+      const key = round(m.a);
+      let p = fills.get(key);
+      if (!p) fills.set(key, (p = Skia.Path.Make()));
+      appendGlyph(p, m.glyph, m.x + dx, m.y + dy, m.r, m.rot);
+    }
+    for (const m of art.motifs) {
+      // Engine turning is cut, not inlaid, so it joins the stroke buckets and
+      // the filled ornaments join the fills — motifStyle is the same rule the
+      // dice faces follow (render/faceMotifs.ts).
+      const style = motifStyle(m.kind);
+      if (style.style === "fill") {
+        const key = round(m.a);
+        let p = fills.get(key);
+        if (!p) fills.set(key, (p = Skia.Path.Make()));
+        appendMotif(p, m.kind, m.x + dx, m.y + dy, m.r);
+      } else {
+        const w = Math.round(style.width * m.r * 2) / 2;
+        const key = `${round(m.a)}:${w}`;
+        let entry = strokes.get(key);
+        if (!entry) strokes.set(key, (entry = { path: Skia.Path.Make(), w, a: round(m.a) }));
+        appendMotif(entry.path, m.kind, m.x + dx, m.y + dy, m.r);
+      }
+    }
+    for (const st of art.strokes) {
+      // Width is bucketed too — a stroke path can only carry one width.
+      const w = Math.round(st.w * 2) / 2;
+      const key = `${round(st.a)}:${w}`;
+      let entry = strokes.get(key);
+      if (!entry) strokes.set(key, (entry = { path: Skia.Path.Make(), w, a: round(st.a) }));
+      st.pts.forEach(([x, y], i) => (i === 0 ? entry!.path.moveTo(x + dx, y + dy) : entry!.path.lineTo(x + dx, y + dy)));
+    }
+    return { fills: [...fills.entries()], strokes: [...strokes.values()] };
+  }, [art, dx, dy]);
+
+  return (
+    <Group>
+      {buckets.fills.map(([a, path], i) => (
+        <Path key={`f${i}`} path={path} color={color} opacity={alpha * a} />
+      ))}
+      {buckets.strokes.map((s, i) => (
+        <Path key={`s${i}`} path={s.path} color={color} opacity={alpha * s.a} style="stroke" strokeWidth={s.w} strokeCap="round" strokeJoin="round" />
+      ))}
+    </Group>
+  );
+}
+
+/** The plate's own rounded rect, as a clip for the texture pass. */
+function plateClip(size: number) {
+  const p = Skia.Path.Make();
+  p.addRRect(Skia.RRectXY(Skia.XYWHRect(0, 0, size, size), 18, 18));
+  return p;
+}
+
+/** A round yard bed, as a clip for its emblem. */
+function circleClip(cx: number, cy: number, r: number) {
+  const p = Skia.Path.Make();
+  p.addCircle(cx, cy, r);
+  return p;
+}
+
+/** A yard plate's rounded rect, as a clip for its emblem. */
+function roundedClip(x: number, y: number, w: number, r: number) {
+  const p = Skia.Path.Make();
+  p.addRRect(Skia.RRectXY(Skia.XYWHRect(x, y, w, w), r, r));
+  return p;
+}
+
+/**
+ * The start/safe-square marking: the theme's glyph, or the original star.
+ *
+ * The star branch is kept rather than routed through appendGlyph("star") so the
+ * four original themes draw the exact path they always drew — their inner/outer
+ * ratios differ by a hair between the two call sites, and "classic is not
+ * restyled" is a promise the theme test enforces on colour and this keeps on
+ * geometry.
+ */
+function markPath(theme: BoardTheme, cx: number, cy: number, outer: number, inner: number) {
+  if (!theme.glyph || theme.glyph === "star") return starPath(cx, cy, outer, inner);
+  const p = Skia.Path.Make();
+  appendGlyph(p, theme.glyph, cx, cy, outer);
+  return p;
+}
+
+/** The centre medallion's path (render/faceMotifs.ts ornament, board-scaled). */
+function crestPath(kind: Parameters<typeof appendMotif>[1], cx: number, cy: number, r: number) {
+  const p = Skia.Path.Make();
+  appendMotif(p, kind, cx, cy, r);
   return p;
 }
 

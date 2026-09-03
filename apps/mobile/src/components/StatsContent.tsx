@@ -13,7 +13,7 @@ import { SectionLabel } from "./SectionLabel";
 import { Surface3D } from "./Surface3D";
 import { BoardSurface, PawnShape } from "./Board";
 import { CycleGlyph, PeopleGlyph } from "./HomeGlyphs";
-import { BOARD_THEMES } from "../render/boardThemes";
+import { resolveBoardTheme, type BoardTheme } from "../render/boardThemes";
 import { useSettings } from "../store/settingsStore";
 import { useStats, type MatchMode, type MatchRecord } from "../store/statsStore";
 import { font, palette, radius, space } from "../theme";
@@ -23,7 +23,7 @@ const MODE_LABEL: Record<MatchMode, string> = { ai: "vs AI", pass: "Pass & play"
 export function StatsContent() {
   const totals = useStats((s) => s.totals);
   const recent = useStats((s) => s.recent);
-  const boardTheme = BOARD_THEMES[useSettings((s) => s.boardThemeId)];
+  const boardTheme = resolveBoardTheme(useSettings((s) => s.boardThemeId));
 
   const played = totals.ai.played + totals.pass.played + totals.online.played;
 
@@ -77,7 +77,7 @@ export function StatsContent() {
 
 /** Drawn per-mode mark: vs AI = two pawns squaring off, pass = hand-off loop,
  *  online = two player silhouettes. */
-function modeGlyph(m: MatchMode, theme: (typeof BOARD_THEMES)[keyof typeof BOARD_THEMES]): ReactNode {
+function modeGlyph(m: MatchMode, theme: BoardTheme): ReactNode {
   if (m === "pass") return <CycleGlyph size={22} />;
   if (m === "online") return <PeopleGlyph size={22} />;
   return (

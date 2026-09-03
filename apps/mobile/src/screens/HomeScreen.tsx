@@ -40,7 +40,7 @@ import { useLayout } from "../lib/useLayout";
 import { homeMetrics } from "../lib/layout";
 import { useWallet } from "../store/walletStore";
 import { useConfig } from "../store/configStore";
-import { BOARD_THEMES } from "../render/boardThemes";
+import { resolveBoardTheme, type BoardTheme } from "../render/boardThemes";
 import { resolveDiceSkin } from "../render/diceSkins";
 import { useGameStore } from "../store/gameStore";
 import { useOnlineStore } from "../store/onlineStore";
@@ -76,7 +76,7 @@ export function HomeScreen() {
   }, [savePrompt]);
   const [dioramaBox, setDioramaBox] = useState({ w: 0, h: 0 });
   const newLocalGame = useGameStore((s) => s.newLocalGame);
-  const boardTheme = BOARD_THEMES[useSettings((s) => s.boardThemeId)];
+  const boardTheme = resolveBoardTheme(useSettings((s) => s.boardThemeId));
   const diceSkin = resolveDiceSkin(useProfile((s) => s.diceSkinId));
   // Entry fee is server-tunable; the store's constant is only an offline floor.
   const stake = useConfig((s) => s.config.economy.quickStake);
@@ -266,7 +266,7 @@ export function HomeScreen() {
 }
 
 /** Two pawns squaring off — the vs-AI tile art, in the equipped theme. */
-function VsAiGlyph({ theme, scale = 1 }: { theme: (typeof BOARD_THEMES)[keyof typeof BOARD_THEMES]; scale?: number }) {
+function VsAiGlyph({ theme, scale = 1 }: { theme: BoardTheme; scale?: number }) {
   return (
     <Canvas style={{ width: 44 * scale, height: 32 * scale }}>
       <Group transform={[{ scale }]}>
