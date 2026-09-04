@@ -35,6 +35,10 @@ interface EntitlementsStore {
   /** sku -> currency. Absent means coins (old server / cached view). */
   currencies: Record<string, "coins" | "gems">;
   loading: boolean;
+  /** True when the last attempt finished and failed. Never persisted — a
+   *  failure is about this moment's network, not about the cached catalog,
+   *  which stays valid and stays sellable. */
+  failed: boolean;
   /** Set while a purchase is in flight, so the UI can disable the tile. */
   buying: string | null;
   refresh: () => Promise<void>;
@@ -49,6 +53,7 @@ export const useEntitlements = create<EntitlementsStore>()(
       prices: {},
       currencies: {},
       loading: false,
+      failed: false,
       buying: null,
 
       refresh: async () => {
@@ -62,9 +67,12 @@ export const useEntitlements = create<EntitlementsStore>()(
             prices[item.sku] = item.price;
             if (item.currency === "gems") currencies[item.sku] = "gems";
           }
-          set({ owned: skus, prices, currencies });
+          set({ owned: skus, prices, currencies, failed: false });
         } catch {
           // Offline — keep the cached view; buying will fail loudly anyway.
+          // The flag is only read when there is NO cached catalog to fall back
+          // on, which is the one case a player can neither see nor act on.
+          set({ failed: true });
         } finally {
           set({ loading: false });
         }

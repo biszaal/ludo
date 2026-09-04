@@ -26,7 +26,7 @@ import {
 import { useWallet } from "../src/store/walletStore";
 
 afterEach(() => {
-  useEntitlements.setState({ owned: [], prices: {}, loading: false, buying: null });
+  useEntitlements.setState({ owned: [], prices: {}, loading: false, buying: null, failed: false });
   useWallet.setState({ balance: null });
   vi.clearAllMocks();
 });
@@ -148,6 +148,36 @@ describe("refresh", () => {
     await useEntitlements.getState().refresh();
     expect(useEntitlements.getState().owned).toEqual(["theme.sand"]);
     expect(useEntitlements.getState().loading).toBe(false);
+  });
+});
+
+describe("a catalog fetch that fails", () => {
+  it("records the failure so the shop can offer a retry", async () => {
+    vi.mocked(api.getEntitlements).mockRejectedValueOnce(new Error("offline"));
+    await useEntitlements.getState().refresh();
+    expect(useEntitlements.getState().failed).toBe(true);
+  });
+
+  it("clears the failure once a later fetch lands", async () => {
+    vi.mocked(api.getEntitlements).mockRejectedValueOnce(new Error("offline"));
+    await useEntitlements.getState().refresh();
+
+    vi.mocked(api.getEntitlements).mockResolvedValueOnce({
+      skus: [],
+      catalog: [{ sku: "avatar.leo", price: 0, currency: "coins" }],
+    } as unknown as Awaited<ReturnType<typeof api.getEntitlements>>);
+    await useEntitlements.getState().refresh();
+
+    expect(useEntitlements.getState().failed).toBe(false);
+    expect(useEntitlements.getState().prices["avatar.leo"]).toBe(0);
+  });
+
+  it("keeps the cached catalog when a refresh fails, so the shop still sells", async () => {
+    useEntitlements.setState({ prices: { "avatar.leo": 0 }, owned: ["avatar.leo"] });
+    vi.mocked(api.getEntitlements).mockRejectedValueOnce(new Error("offline"));
+    await useEntitlements.getState().refresh();
+    expect(useEntitlements.getState().prices["avatar.leo"]).toBe(0);
+    expect(useEntitlements.getState().owned).toContain("avatar.leo");
   });
 });
 
