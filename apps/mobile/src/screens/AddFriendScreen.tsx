@@ -20,7 +20,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, Share, Text, TextInput, View } from "react-native";
+import { Pressable, Share, Text, TextInput, View } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as Clipboard from "expo-clipboard";
@@ -28,6 +28,9 @@ import { TableBackground } from "../components/TableBackground";
 import { Button } from "../components/Button";
 import { Surface3D } from "../components/Surface3D";
 import { AvatarGlyph } from "../components/Avatar";
+import { SectionLabel } from "../components/SectionLabel";
+import { SkeletonBlock, SkeletonGroup, SkeletonLine } from "../components/Skeleton";
+import { useLoadPhase } from "../lib/useLoadPhase";
 import { useFriends } from "../store/friendsStore";
 import { useProfile } from "../store/profileStore";
 import { useNav } from "../store/navStore";
@@ -45,6 +48,7 @@ export function AddFriendScreen() {
   const pop = useNav((s) => s.pop);
   const myCode = useFriends((s) => s.myCode);
   const recentPlayers = useFriends((s) => s.recentPlayers);
+  const recentLoaded = useFriends((s) => s.recentLoaded);
   const sendRequest = useFriends((s) => s.sendRequest);
   const viewPlayer = useFriends((s) => s.viewPlayer);
   const displayName = useProfile((s) => s.displayName);
@@ -119,6 +123,12 @@ export function AddFriendScreen() {
     }
   };
 
+  // Two independent waits on one screen. Neither has anything to retry against
+  // here — the code is fetched once and the recents section is optional — so
+  // both simply resolve or quietly stay away.
+  const codeView = useLoadPhase(!!myCode, false);
+  const recentView = useLoadPhase(recentLoaded, false);
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: palette.tableBlue }}>
       <TableBackground />
@@ -151,9 +161,13 @@ export function AddFriendScreen() {
                   {myCode}
                 </Text>
               </Pressable>
-            ) : (
-              <ActivityIndicator color={palette.mutedSteel} />
-            )}
+            ) : codeView === "skeleton" || codeView === "stalled" ? (
+              <SkeletonGroup label="Loading your friend code">
+                {/* Six mono glyphs at 20pt plus five 5pt gaps — the width the
+                    real code occupies, so nothing shifts when it lands. */}
+                <SkeletonBlock width={97} height={20} rad={4} />
+              </SkeletonGroup>
+            ) : null}
             <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel, textAlign: "center" }}>
               {copied ? "Copied!" : "Friends can search your username, or use the code."}
             </Text>
@@ -225,7 +239,29 @@ export function AddFriendScreen() {
         </View>
 
         {/* Recently played with */}
-        {recentPlayers.length > 0 ? (
+        {recentView === "skeleton" ? (
+          <View style={{ gap: space.sm }}>
+            <SectionLabel>RECENTLY PLAYED WITH</SectionLabel>
+            <SkeletonGroup label="Loading players you've played with" style={{ gap: space.sm }}>
+              {[0, 1].map((i) => (
+                // Geometry copied from <PlayerRow> at the bottom of this file:
+                // edge={2}, padding space.md, a 36pt avatar, ONE 15pt name
+                // line, and an "Add" chip at compact-Button height.
+                <Surface3D
+                  key={`sk-${i}`}
+                  edge={2}
+                  faceStyle={{ flexDirection: "row", alignItems: "center", gap: space.md, padding: space.md }}
+                >
+                  <SkeletonBlock width={36} height={36} rad={radius.pill} index={i} />
+                  <View style={{ flex: 1 }}>
+                    <SkeletonLine width="55%" size={15} index={i} />
+                  </View>
+                  <SkeletonBlock width={52} height={40} rad={radius.md} index={i + 1} />
+                </Surface3D>
+              ))}
+            </SkeletonGroup>
+          </View>
+        ) : recentPlayers.length > 0 ? (
           <View style={{ gap: space.sm }}>
             <SectionLabel>RECENTLY PLAYED WITH</SectionLabel>
             {recentPlayers.map((p) => (
@@ -241,14 +277,6 @@ export function AddFriendScreen() {
         ) : null}
       </KeyboardAwareScrollView>
     </SafeAreaView>
-  );
-}
-
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <Text style={{ fontFamily: font.medium, fontSize: 13, color: palette.mutedSteel, letterSpacing: 0.5 }}>
-      {children}
-    </Text>
   );
 }
 
