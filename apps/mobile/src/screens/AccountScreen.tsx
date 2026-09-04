@@ -62,6 +62,7 @@ import { useNav } from "../store/navStore";
 import { MAX_NAME_LENGTH, useProfile } from "../store/profileStore";
 import { confirm } from "../store/confirmStore";
 import { SkeletonBlock, SkeletonGroup, SkeletonLine } from "../components/Skeleton";
+import { LoadFailed } from "../components/LoadFailed";
 import { useLoadPhase } from "../lib/useLoadPhase";
 import { font, palette, radius, space, teamColor } from "../theme";
 
@@ -223,8 +224,9 @@ export function AccountScreen() {
 
   const dockPad = useDockClearance();
   const signedIn = !!identity && !identity.isGuest;
-  // Until the identity read lands, `signedIn` is false — which pitches a
-  // signed-in player the guest CTA and then takes it back. Wrong beats blank.
+  // Until the identity read lands, `signedIn` is false — which would pitch a
+  // signed-in player the guest CTA and then take it back. Blank beats wrong,
+  // so every arm below except `content` keeps the real tray off screen.
   const identityView = useLoadPhase(identity !== null, false);
 
   // No bottom edge: the dock floats over this screen and pays that inset
@@ -351,49 +353,63 @@ export function AccountScreen() {
           {/* Account: optional — guests keep playing without it. */}
           <View style={{ gap: space.sm }}>
             <SectionLabel>Account</SectionLabel>
-            <Surface3D rad={radius.lg} faceStyle={{ padding: space.lg, gap: space.md }}>
-              {identityView === "skeleton" || identityView === "stalled" ? (
-                <SkeletonGroup label="Loading your account" style={{ gap: space.md }}>
-                  <SkeletonLine width="70%" size={15} index={0} />
-                  <SkeletonLine width="90%" size={13} index={1} />
-                  {/* 56, not 52: a Button's total height is its 52pt face plus
-                      depth.edge (4). Standing in at 52 would shift the tray by
-                      4pt the moment the identity read lands. */}
-                  <SkeletonBlock width="100%" height={56} rad={radius.md} index={2} />
-                </SkeletonGroup>
-              ) : signedIn ? (
-                <>
-                  {/* The email can be null — an Apple link makes an account
-                      recoverable without ever handing us an address. */}
-                  <Text style={{ fontFamily: font.medium, fontSize: 15, color: palette.porcelain }}>
-                    {identity?.email ? `Signed in as ${identity.email}` : "Signed in"}
-                  </Text>
-                  <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel }}>
-                    Your coins, gems and looks are backed up to this account.
-                  </Text>
-                  <Button
-                    label="Sign out"
-                    variant="ghost"
-                    onPress={() => void signOutToGuest().then(refreshIdentity)}
-                  />
-                </>
-              ) : (
-                <>
-                  <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel }}>
-                    You're playing as a guest. Save an account so your coins, gems and looks survive a
-                    reinstall or a new phone — no account needed to keep playing.
-                  </Text>
-                  <View style={{ flexDirection: "row", gap: space.sm }}>
-                    <View style={{ flex: 1 }}>
-                      <Button label="Save account" onPress={() => setAccountSheet("save")} />
+            {/* Only the last two arms reach the real tray. `hidden` is blank,
+                not the guest pitch: getIdentity() resolves out of a local
+                session read, so it usually beats SHOW_AFTER_MS and the
+                skeleton never paints at all — falling through to the real
+                branch for those frames is exactly the "you're playing as a
+                guest" flash this tray was rewritten to remove. Blank for two
+                frames is free; wrong for two frames is the defect. */}
+            {identityView === "hidden" ? null : identityView === "stalled" ? (
+              <LoadFailed
+                message="We couldn't check your account. Check your connection and try again."
+                onRetry={refreshIdentity}
+              />
+            ) : (
+              <Surface3D rad={radius.lg} faceStyle={{ padding: space.lg, gap: space.md }}>
+                {identityView === "skeleton" ? (
+                  <SkeletonGroup label="Loading your account" style={{ gap: space.md }}>
+                    <SkeletonLine width="70%" size={15} index={0} />
+                    <SkeletonLine width="90%" size={13} index={1} />
+                    {/* 56, not 52: a Button's total height is its 52pt face plus
+                        depth.edge (4). Standing in at 52 would shift the tray by
+                        4pt the moment the identity read lands. */}
+                    <SkeletonBlock width="100%" height={56} rad={radius.md} index={2} />
+                  </SkeletonGroup>
+                ) : signedIn ? (
+                  <>
+                    {/* The email can be null — an Apple link makes an account
+                        recoverable without ever handing us an address. */}
+                    <Text style={{ fontFamily: font.medium, fontSize: 15, color: palette.porcelain }}>
+                      {identity?.email ? `Signed in as ${identity.email}` : "Signed in"}
+                    </Text>
+                    <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel }}>
+                      Your coins, gems and looks are backed up to this account.
+                    </Text>
+                    <Button
+                      label="Sign out"
+                      variant="ghost"
+                      onPress={() => void signOutToGuest().then(refreshIdentity)}
+                    />
+                  </>
+                ) : (
+                  <>
+                    <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel }}>
+                      You're playing as a guest. Save an account so your coins, gems and looks survive a
+                      reinstall or a new phone — no account needed to keep playing.
+                    </Text>
+                    <View style={{ flexDirection: "row", gap: space.sm }}>
+                      <View style={{ flex: 1 }}>
+                        <Button label="Save account" onPress={() => setAccountSheet("save")} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Button label="Sign in" variant="ghost" onPress={() => setAccountSheet("signin")} />
+                      </View>
                     </View>
-                    <View style={{ flex: 1 }}>
-                      <Button label="Sign in" variant="ghost" onPress={() => setAccountSheet("signin")} />
-                    </View>
-                  </View>
-                </>
-              )}
-            </Surface3D>
+                  </>
+                )}
+              </Surface3D>
+            )}
           </View>
 
           {/* Stats below */}
