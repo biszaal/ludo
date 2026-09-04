@@ -135,6 +135,13 @@ export function AccountSheet({
             : "Restore an account you saved earlier — its coins, gems and cosmetics come with it.")}
       </Text>
 
+      {/* Everything that ASKS for something disappears once the account is
+          saved — the provider buttons, the divider and both credential fields.
+          Leaving the email and password inputs up after a successful Google or
+          Apple link read as a second demand: the sheet said "Saved." in green
+          and then sat there with two empty boxes above it, so people typed
+          their details in again into a form that was no longer for them. Past
+          this point the sheet has exactly one job left, which is Done. */}
       {done ? null : (
         <>
           {providers.map((provider) => (
@@ -151,34 +158,34 @@ export function AccountSheet({
             <Text style={{ fontFamily: font.regular, fontSize: 12, color: palette.mutedSteel }}>or use email</Text>
             <View style={{ flex: 1, height: 1, backgroundColor: palette.hairline }} />
           </View>
+
+          <Field
+            accessibilityLabel="Email"
+            value={email}
+            onChangeText={setEmail}
+            focused={focused === "email"}
+            onFocus={() => setFocused("email")}
+            onBlur={() => setFocused(null)}
+            placeholder="you@example.com"
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoCorrect={false}
+            autoComplete="email"
+          />
+          <Field
+            accessibilityLabel="Password"
+            value={password}
+            onChangeText={setPassword}
+            focused={focused === "password"}
+            onFocus={() => setFocused("password")}
+            onBlur={() => setFocused(null)}
+            placeholder="At least 6 characters"
+            secureTextEntry
+            autoCapitalize="none"
+            autoComplete={saving ? "new-password" : "current-password"}
+          />
         </>
       )}
-
-      <Field
-        accessibilityLabel="Email"
-        value={email}
-        onChangeText={setEmail}
-        focused={focused === "email"}
-        onFocus={() => setFocused("email")}
-        onBlur={() => setFocused(null)}
-        placeholder="you@example.com"
-        keyboardType="email-address"
-        autoCapitalize="none"
-        autoCorrect={false}
-        autoComplete="email"
-      />
-      <Field
-        accessibilityLabel="Password"
-        value={password}
-        onChangeText={setPassword}
-        focused={focused === "password"}
-        onFocus={() => setFocused("password")}
-        onBlur={() => setFocused(null)}
-        placeholder="At least 6 characters"
-        secureTextEntry
-        autoCapitalize="none"
-        autoComplete={saving ? "new-password" : "current-password"}
-      />
 
       {error ? (
         <Text style={{ fontFamily: font.regular, fontSize: 13, color: "#E8705F" }}>{error}</Text>
@@ -192,18 +199,21 @@ export function AccountSheet({
         <Button label={busy ? (saving ? "Saving…" : "Signing in…") : saving ? "Save account" : "Sign in"} onPress={() => void submit()} disabled={busy} />
       )}
 
-      <View style={{ flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 6, paddingTop: space.xs }}>
-        <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel }}>
-          {saving ? "Already have an account?" : "New here?"}
-        </Text>
-        <Text
-          accessibilityRole="button"
-          onPress={() => swap(saving ? "signin" : "save")}
-          style={{ fontFamily: font.semibold, fontSize: 13, color: palette.porcelain }}
-        >
-          {saving ? "Sign in" : "Save an account"}
-        </Text>
-      </View>
+      {/* Same reason: swapping to the other mode is only noise once it worked. */}
+      {done ? null : (
+        <View style={{ flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 6, paddingTop: space.xs }}>
+          <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel }}>
+            {saving ? "Already have an account?" : "New here?"}
+          </Text>
+          <Text
+            accessibilityRole="button"
+            onPress={() => swap(saving ? "signin" : "save")}
+            style={{ fontFamily: font.semibold, fontSize: 13, color: palette.porcelain }}
+          >
+            {saving ? "Sign in" : "Save an account"}
+          </Text>
+        </View>
+      )}
     </Sheet>
   );
 }
