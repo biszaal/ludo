@@ -990,7 +990,13 @@ export async function getMyFriendCode(): Promise<string | null> {
     const { code } = await callGame<{ code: string }>("friendCode");
     return code ?? null;
   } catch {
-    return null; // cosmetic — the Add Friend screen shows a retry instead
+    // Cosmetic, and there is no loader to retry against: loadMyCode only ever
+    // stores a code it got, so a failure here leaves myCode null for the life
+    // of the session. The Add Friend screen simply omits the code line — the
+    // username above it is the thing friends actually search, the card stays
+    // usable, and a block that shimmers forever would be worse than an absent
+    // one.
+    return null;
   }
 }
 

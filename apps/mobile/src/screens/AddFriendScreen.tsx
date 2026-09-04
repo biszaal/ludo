@@ -155,13 +155,20 @@ export function AddFriendScreen() {
             <Text style={{ fontFamily: font.display, fontSize: 24, color: palette.porcelain }} numberOfLines={1}>
               {displayName}
             </Text>
+            {/* `stalled` falls through to null, and that absence is the whole
+                treatment. The username above is how friends actually find you
+                and the line below documents the code as the fallback, so the
+                card stays fully usable without it; getMyFriendCode swallows its
+                error and loadMyCode only ever stores a code it got, so there is
+                no loader here to retry against; and a block that shimmers
+                forever is worse than one that is simply not there. */}
             {myCode ? (
               <Pressable accessibilityRole="button" accessibilityLabel="Copy your friend code" onPress={() => void onCopy()}>
                 <Text style={{ fontFamily: font.mono, fontSize: 20, color: palette.mutedSteel, letterSpacing: 5 }}>
                   {myCode}
                 </Text>
               </Pressable>
-            ) : codeView === "skeleton" || codeView === "stalled" ? (
+            ) : codeView === "skeleton" ? (
               <SkeletonGroup label="Loading your friend code">
                 {/* Six mono glyphs at 20pt plus five 5pt gaps — the width the
                     real code occupies, so nothing shifts when it lands. */}
@@ -246,7 +253,9 @@ export function AddFriendScreen() {
               {[0, 1].map((i) => (
                 // Geometry copied from <PlayerRow> at the bottom of this file:
                 // edge={2}, padding space.md, a 36pt avatar, ONE 15pt name
-                // line, and an "Add" chip at compact-Button height.
+                // line, and an "Add" chip at a compact Button's TOTAL height —
+                // 44, its 40pt face plus depth.edge (4). Standing in at 40
+                // would shift the row the moment the real chip lands.
                 <Surface3D
                   key={`sk-${i}`}
                   edge={2}
@@ -256,7 +265,7 @@ export function AddFriendScreen() {
                   <View style={{ flex: 1 }}>
                     <SkeletonLine width="55%" size={15} index={i} />
                   </View>
-                  <SkeletonBlock width={52} height={40} rad={radius.md} index={i + 1} />
+                  <SkeletonBlock width={52} height={44} rad={radius.md} index={i + 1} />
                 </Surface3D>
               ))}
             </SkeletonGroup>

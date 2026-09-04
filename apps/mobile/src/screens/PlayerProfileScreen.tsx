@@ -26,6 +26,7 @@ import { useNav } from "../store/navStore";
 import { confirm, type ConfirmRequest } from "../store/confirmStore";
 import { formatRecord, isOnline, relationshipTo } from "../lib/friendship";
 import { SkeletonBlock, SkeletonGroup, SkeletonLine } from "../components/Skeleton";
+import { LoadFailed } from "../components/LoadFailed";
 import { useLoadPhase } from "../lib/useLoadPhase";
 import { font, palette, radius, space } from "../theme";
 
@@ -38,6 +39,7 @@ export function PlayerProfileScreen() {
   const friendships = useFriends((s) => s.friendships);
   const me = useFriends((s) => s.userId);
   const sendRequest = useFriends((s) => s.sendRequest);
+  const viewPlayer = useFriends((s) => s.viewPlayer);
   const accept = useFriends((s) => s.accept);
   const remove = useFriends((s) => s.remove);
   const block = useFriends((s) => s.block);
@@ -55,12 +57,15 @@ export function PlayerProfileScreen() {
     if (!userId) pop(); // opened without a target (e.g. state cleared) — bail out
   }, [userId, pop]);
 
-  if (!userId) return null;
-
-  const profile = profiles[userId];
+  const profile = userId ? profiles[userId] : undefined;
   // viewPlayer navigates first and fetches second, so a stranger reached by
   // friend code has no cached card — and the fallback name is someone else's.
+  // Above the bail-out below, because a hook that only sometimes runs is a
+  // crash the first time this screen is opened without a target.
   const view = useLoadPhase(!!profile, false);
+
+  if (!userId) return null;
+
   const name = profile?.display_name ?? "Ludo player";
   const record = stats[userId] ? formatRecord(stats[userId]!.games_played, stats[userId]!.games_won) : null;
   // Derived from the subscribed rows, not getState(): accepting a request has
@@ -96,30 +101,44 @@ export function PlayerProfileScreen() {
       </View>
 
       <ScrollView contentContainerStyle={{ paddingHorizontal: space.xl, paddingTop: space.lg, paddingBottom: space.xxl, gap: space.xl }}>
-        <Surface3D faceStyle={{ padding: space.xl, gap: space.md, alignItems: "center" }}>
-          {view === "skeleton" || view === "stalled" ? (
-            <SkeletonGroup label="Loading this player" style={{ alignItems: "center", gap: space.md }}>
-              <SkeletonBlock width={88} height={88} rad={radius.pill} index={0} />
-              <SkeletonLine width={140} size={22} index={1} />
-              <SkeletonLine width={72} size={13} index={2} />
-            </SkeletonGroup>
-          ) : (
-            <>
-              <View>
-                <AvatarGlyph id={profile?.avatar_id ?? "orbit-moss"} size={88} />
-                {known ? <PresenceDot online={online} size={20} /> : null}
-              </View>
-              <Text style={{ fontFamily: font.display, fontSize: 22, color: palette.porcelain }} numberOfLines={1}>
-                {name}
-              </Text>
-              {known ? (
-                <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel }}>
-                  {online ? "Online now" : "Offline"}
+        {/* Three arms, and only the third reaches the real card. `hidden` is
+            blank rather than the fallback name: two frames of nothing costs
+            nothing, whereas two frames of "Ludo player" names a stranger
+            something they are not. `stalled` replaces the card outright — a
+            profile that shimmers forever above live Add and Block buttons is
+            the exact failure the stalled phase exists to end, and viewPlayer
+            is the loader that did not land, so it is the one to retry. */}
+        {view === "hidden" ? null : view === "stalled" ? (
+          <LoadFailed
+            message="We couldn't load this player. Check your connection and try again."
+            onRetry={() => void viewPlayer(userId)}
+          />
+        ) : (
+          <Surface3D faceStyle={{ padding: space.xl, gap: space.md, alignItems: "center" }}>
+            {view === "skeleton" ? (
+              <SkeletonGroup label="Loading this player" style={{ alignItems: "center", gap: space.md }}>
+                <SkeletonBlock width={88} height={88} rad={radius.pill} index={0} />
+                <SkeletonLine width={140} size={22} index={1} />
+                <SkeletonLine width={72} size={13} index={2} />
+              </SkeletonGroup>
+            ) : (
+              <>
+                <View>
+                  <AvatarGlyph id={profile?.avatar_id ?? "orbit-moss"} size={88} />
+                  {known ? <PresenceDot online={online} size={20} /> : null}
+                </View>
+                <Text style={{ fontFamily: font.display, fontSize: 22, color: palette.porcelain }} numberOfLines={1}>
+                  {name}
                 </Text>
-              ) : null}
-            </>
-          )}
-        </Surface3D>
+                {known ? (
+                  <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel }}>
+                    {online ? "Online now" : "Offline"}
+                  </Text>
+                ) : null}
+              </>
+            )}
+          </Surface3D>
+        )}
 
         {/* Record — hidden until there's enough of one to be worth showing. */}
         {record ? (
