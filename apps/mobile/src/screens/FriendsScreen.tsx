@@ -92,8 +92,9 @@ export function FriendsScreen() {
 
   const dockPad = useDockClearance();
 
-  // Friends are fetched fresh on every visit — this store does not persist —
-  // so the cold wait here is every mount, not only the first ever.
+  // `loaded` lives on the module-level store, not in this component, so the
+  // cold wait is only the first fetch of the session: a later remount reads it
+  // true and goes straight to the rows while the refresh happens underneath.
   const view = useLoadPhase(loaded, failed);
 
   // No bottom edge: the dock floats over this screen and pays that inset
@@ -180,29 +181,46 @@ export function FriendsScreen() {
 
         {/* Friends */}
         <View style={{ gap: space.sm }}>
-          <SectionLabel>{`Your friends (${friendIds.length})`}</SectionLabel>
-          {view === "stalled" ? (
+          {/* No count until the list is actually in hand. "(0)" over a shimmer
+              is the last fragment of the original defect — and to a screen
+              reader it may be the only part of this section that gets read. */}
+          <SectionLabel>{view === "content" ? `Your friends (${friendIds.length})` : "Your friends"}</SectionLabel>
+          {view === "hidden" ? null : view === "stalled" ? (
             <LoadFailed
               message="Your friends list didn't load. Check your connection and try again."
-              onRetry={() => void refresh()}
+              // init(), not refresh(): the likeliest way to reach this card is
+              // ensureSignedIn() throwing, which leaves init returning before
+              // it ever calls refresh — retrying refresh alone would fail the
+              // same way forever. init redoes the sign-in, and falls through to
+              // a refresh when that was the half that failed.
+              onRetry={() => void useFriends.getState().init()}
             />
           ) : view === "skeleton" ? (
             <SkeletonGroup label="Loading your friends" style={{ gap: space.sm }}>
               {[0, 1, 2].map((i) => (
                 // Geometry copied from <Row> below: edge={2}, padding space.md,
-                // a 36pt avatar, ONE 15pt name line, and an action chip at
-                // compact-Button height. A taller block or a second caption
-                // line would make the list jump when the real rows land.
+                // space.sm between the identity half and the actions, space.md
+                // inside the identity half, a 36pt avatar and ONE 15pt name
+                // line. A taller block or a second caption line would make the
+                // list jump when the real rows land.
                 <Surface3D
                   key={`sk-${i}`}
                   edge={2}
-                  faceStyle={{ flexDirection: "row", alignItems: "center", gap: space.md, padding: space.md }}
+                  faceStyle={{ flexDirection: "row", alignItems: "center", gap: space.sm, padding: space.md }}
                 >
-                  <SkeletonBlock width={36} height={36} rad={radius.pill} index={i} />
-                  <View style={{ flex: 1 }}>
-                    <SkeletonLine width="60%" size={15} index={i} />
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: space.md, flex: 1 }}>
+                    <SkeletonBlock width={36} height={36} rad={radius.pill} index={i} />
+                    <View style={{ flex: 1 }}>
+                      <SkeletonLine width="60%" size={15} index={i} />
+                    </View>
                   </View>
-                  <SkeletonBlock width={64} height={40} rad={radius.md} index={i + 1} />
+                  {/* A friend row's action is <TextLink> — a 32pt pill — not a
+                      Button, unless you happen to be in a room. Standing in at
+                      a Button's 44 would be right for the rarer case and 12pt
+                      wrong for the one a player is almost always in, so this
+                      matches the pill: 32 tall, and about the width "Remove"
+                      takes at 13pt plus its 12pt side padding. */}
+                  <SkeletonBlock width={76} height={32} rad={radius.pill} index={i + 1} />
                 </Surface3D>
               ))}
             </SkeletonGroup>

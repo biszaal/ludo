@@ -121,12 +121,23 @@ export const useFriends = create<FriendsStore>((set, get) => ({
   },
 
   init: async () => {
-    if (get().ready) return;
+    // Already signed in and subscribed. Still finish the job if the list never
+    // landed: the Friends screen's retry is wired here because the failure it
+    // most often shows is a sign-in that threw (below), which only init can
+    // redo — but a refresh that threw reaches the same card, and returning flat
+    // would leave that button dead. `loaded` is what tells the two apart, so a
+    // plain remount with a list in hand still costs nothing.
+    if (get().ready) {
+      if (!get().loaded) await get().refresh();
+      return;
+    }
     let userId: string;
     try {
       userId = await ensureSignedIn();
     } catch {
-      return; // not signed in yet — a later create/join/init will retry
+      // Leaves `ready` false, deliberately — that is what lets a later
+      // create/join, a remount, or the retry card run this again.
+      return;
     }
     set({ userId, ready: true });
     await get().refresh();
