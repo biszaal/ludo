@@ -39,6 +39,16 @@ const PRESENCE_POLL_MS = 30_000;
 
 interface FriendsStore {
   ready: boolean;
+  /** True once a refresh has actually resolved. Distinct from `ready`, which
+   *  only says we are signed in — it is set before the first fetch runs, so on
+   *  its own it cannot tell an empty list apart from an unfetched one. */
+  loaded: boolean;
+  /** True when the last refresh finished and threw. */
+  failed: boolean;
+  /** True once recent players have been fetched. An empty array cannot answer
+   *  this: "you have played nobody new" and "not asked yet" are the same
+   *  value, and they want opposite treatments. */
+  recentLoaded: boolean;
   userId: string | null;
   friendships: friends.Friendship[];
   invites: friends.RoomInvite[];
@@ -80,6 +90,9 @@ let channel: RealtimeChannel | null = null;
 
 export const useFriends = create<FriendsStore>((set, get) => ({
   ready: false,
+  loaded: false,
+  failed: false,
+  recentLoaded: false,
   userId: null,
   friendships: [],
   invites: [],
@@ -124,9 +137,17 @@ export const useFriends = create<FriendsStore>((set, get) => ({
   },
 
   refresh: async () => {
-    const [friendships, invites] = await Promise.all([friends.listFriendships(), friends.listMyInvites()]);
-    set({ friendships, invites });
-    await mergeProfiles(get, set, friendships, invites);
+    try {
+      const [friendships, invites] = await Promise.all([friends.listFriendships(), friends.listMyInvites()]);
+      set({ friendships, invites });
+      await mergeProfiles(get, set, friendships, invites);
+      set({ loaded: true, failed: false });
+    } catch {
+      // Every caller invokes this as `void refresh()`, so a throw here used to
+      // surface as an unhandled rejection and nothing else. The screen reads
+      // the flag instead, and keeps whatever rows it already had.
+      set({ failed: true });
+    }
   },
 
   refreshPresence: async () => {
@@ -144,9 +165,15 @@ export const useFriends = create<FriendsStore>((set, get) => ({
   },
 
   loadRecentPlayers: async () => {
-    const players = await getRecentPlayers();
-    set({ recentPlayers: players });
-    if (players.length > 0) await mergeStats(get, set, players.map((p) => p.user_id));
+    try {
+      const players = await getRecentPlayers();
+      set({ recentPlayers: players, recentLoaded: true });
+      if (players.length > 0) await mergeStats(get, set, players.map((p) => p.user_id));
+    } catch {
+      // Nothing to retry against on this screen — the section simply stays
+      // hidden, exactly as it does for a player with no past opponents.
+      set({ recentLoaded: true });
+    }
   },
 
   sendRequest: async (userId) => {
