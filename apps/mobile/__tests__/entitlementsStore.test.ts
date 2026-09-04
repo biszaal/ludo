@@ -161,6 +161,7 @@ describe("a catalog fetch that fails", () => {
   it("clears the failure once a later fetch lands", async () => {
     vi.mocked(api.getEntitlements).mockRejectedValueOnce(new Error("offline"));
     await useEntitlements.getState().refresh();
+    expect(useEntitlements.getState().failed).toBe(true);
 
     vi.mocked(api.getEntitlements).mockResolvedValueOnce({
       skus: [],
