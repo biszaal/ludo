@@ -231,7 +231,7 @@ export function skeletonView(o: {
 cd apps/mobile && npx vitest run __tests__/loadPhase.test.ts
 ```
 
-Expected: PASS, 11 tests.
+Expected: PASS, 10 tests (4 in `loadPhase`, 6 in `skeletonView`).
 
 - [ ] **Step 5: Commit**
 

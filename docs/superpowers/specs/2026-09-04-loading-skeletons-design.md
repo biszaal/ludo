@@ -146,8 +146,9 @@ cost an `onLayout` measure per block to animate a highlight nobody parses at
 and the stagger already carries it.
 
 On the `reduced` motion tier the group never starts the loop and blocks render
-flat `liftedSlate`. This makes skeletons the first consumer of `useMotion()`,
-which exists on this branch and nothing uses yet.
+flat `liftedSlate`. `SettingsScreen` already reads `useFullMotion()` to drive
+the motion toggle's own value; skeletons are the first surface to change what it
+*draws* because of it.
 
 Blocks sit on `liftedSlate` against `raisedSlate` panels, so they read as part
 of the tray rather than as holes cut in it.
