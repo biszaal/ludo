@@ -5,7 +5,15 @@
  *
  * Reached from the Home dock (where Stats used to be). Play stays guest-first —
  * nothing here forces a login. Your LOOK (avatar/board/dice) is edited on the
- * Profile screen; this screen owns identity + account + stats.
+ * Profile screen; this screen owns identity + account + stats, and links across
+ * to the look rather than duplicating it.
+ *
+ * The page is a stack of labelled trays, one job each: WHO (avatar, name, the
+ * doorway to your look) · USERNAME (only when there is a name to claim or
+ * change) · ACCOUNT (save / sign in / sign out) · TOTALS · RECENT · the
+ * destructive row, alone at the bottom. Delete used to share a card with Save
+ * account and Sign in, which put an irreversible action a thumb-width from the
+ * two most-pressed buttons on the screen.
  *
  * The name saves instantly; it falls back to this device's guest handle when
  * cleared. The input is a local draft so the store's fallback never overwrites
@@ -13,7 +21,7 @@
  * lookup warns when the name is already taken.
  *
  * Usernames change ONCE per account (0030), because they are how other players
- * find you. Two consequences for this screen:
+ * find you. Three consequences for this screen:
  *
  *  - Availability is only asked about, and only reported, for a name you are
  *    actually trying to claim — a draft that differs from the name you already
@@ -25,10 +33,13 @@
  *    look edited.
  *  - Claiming a name off the minted guestNNNNNN handle is free; only a real
  *    rename spends the allowance, and we say so before it is spent.
+ *  - Once it is spent there is no field to show. A read-only box holding the
+ *    name already printed above it is a control that does nothing — the spent
+ *    allowance is a one-line note under the name instead.
  */
 
-import { useCallback, useEffect, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Pressable, Text, View, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { TableBackground } from "../components/TableBackground";
@@ -40,17 +51,23 @@ import { Surface3D } from "../components/Surface3D";
 import { Field } from "../components/Field";
 import { Button } from "../components/Button";
 import { AvatarGlyph } from "../components/Avatar";
+import { ChevronGlyph } from "../components/HomeGlyphs";
 import { CoinsPill } from "../components/CoinsPill";
 import { GemsPill } from "../components/GemsPill";
 import { AccountSheet } from "../components/AccountSheet";
 import { StatsContent } from "../components/StatsContent";
 import { getMyProfile, isNameTaken, type MyProfile } from "../net/api";
 import { deleteAccount, getIdentity, signOutToGuest, type AuthIdentity } from "../lib/auth";
+import { useNav } from "../store/navStore";
 import { MAX_NAME_LENGTH, useProfile } from "../store/profileStore";
 import { confirm } from "../store/confirmStore";
 import { font, palette, radius, space, teamColor } from "../theme";
 
 const NAME_CHECK_DEBOUNCE_MS = 600;
+
+/** How close to the bottom counts as "reached the end" — one row's worth, so
+ *  the next page of history is revealed just before it is needed. */
+const END_REACH_SLOP = 96;
 
 /** Mirrors makeGuestName() and 0030's trigger: renaming off one of these is
  *  the initial pick, not a change, and must not spend the allowance. */
@@ -61,6 +78,7 @@ export function AccountScreen() {
   const guestName = useProfile((s) => s.guestName);
   const avatarId = useProfile((s) => s.avatarId);
   const setName = useProfile((s) => s.setName);
+  const push = useNav((s) => s.push);
   const [focused, setFocused] = useState(false);
   const [draft, setDraft] = useState(displayName);
   /** Whether the player has actually typed in the field. Until they have, the
@@ -148,6 +166,20 @@ export function AccountScreen() {
     })();
   }, [draft, taken, currentName, setName]);
 
+  const onDeleteAccount = useCallback(() => {
+    void (async () => {
+      const ok = await confirm({
+        title: "Delete account?",
+        message:
+          "This permanently deletes your account and all data — coins, gems, purchases, cosmetics and friends. This can't be undone.",
+        confirmLabel: "Delete",
+        cancelLabel: "Keep it",
+        destructive: true,
+      });
+      if (ok) await deleteAccount().then(refreshIdentity);
+    })();
+  }, [refreshIdentity]);
+
   useEffect(() => {
     const name = draft.trim();
     // Only ever ask about a name you're actually trying to claim, and only
@@ -170,7 +202,25 @@ export function AccountScreen() {
     };
   }, [draft, claiming]);
 
+  /** Match history pages in as you reach the bottom. Edge-triggered: the tick
+   *  rises once per ARRIVAL at the end, not once per scroll frame, so a page
+   *  is revealed, the content grows past the slop, and the next scroll is what
+   *  asks for the one after. Holding at the bottom never runs the list out. */
+  const [loadMoreSignal, setLoadMoreSignal] = useState(0);
+  /** Where the last scroll event left us. KeyboardAwareScrollView pins
+   *  scrollEventThrottle to 16 for its own use, so this runs per frame while
+   *  dragging — a comparison and a ref write, nothing that touches state
+   *  unless the edge is actually crossed. */
+  const atEnd = useRef(false);
+  const onScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const { contentOffset, layoutMeasurement, contentSize } = e.nativeEvent;
+    const near = contentOffset.y + layoutMeasurement.height >= contentSize.height - END_REACH_SLOP;
+    if (near && !atEnd.current) setLoadMoreSignal((n) => n + 1);
+    atEnd.current = near;
+  }, []);
+
   const dockPad = useDockClearance();
+  const signedIn = !!identity && !identity.isGuest;
 
   // No bottom edge: the dock floats over this screen and pays that inset
   // itself. The scroll content buys its own room back with dockClearance.
@@ -192,44 +242,59 @@ export function AccountScreen() {
       <KeyboardAwareScrollView
         keyboardShouldPersistTaps="handled"
         bottomOffset={space.xl}
+        onScroll={onScroll}
         contentContainerStyle={{ paddingTop: space.lg, paddingBottom: space.xxl + dockPad, alignItems: "center" }}
       >
         <ContentColumn style={{ paddingHorizontal: space.xl, gap: space.xl }}>
-          {/* Identity tray */}
-          <Surface3D rad={radius.lg} faceStyle={{ padding: space.lg, gap: space.md }}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: space.lg }}>
-              <AvatarGlyph id={avatarId} size={72} />
+          {/* Who you are — the page's one unlabelled tray, and the doorway to
+              the look that the rest of the app shows alongside this name. */}
+          <Surface3D rad={radius.lg} faceStyle={{ paddingHorizontal: space.lg }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: space.lg, paddingVertical: space.lg }}>
+              <AvatarGlyph id={avatarId} size={64} />
               <View style={{ flex: 1, gap: 2 }}>
                 <Text style={{ fontFamily: font.display, fontSize: 20, color: palette.porcelain }}>{displayName}</Text>
                 <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel }}>
                   Shown to friends in online rooms.
                 </Text>
+                {nameLocked ? (
+                  <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel }}>
+                    Usernames change once, and you've used yours.
+                  </Text>
+                ) : null}
               </View>
             </View>
 
-            {nameLocked ? (
-              <>
-                <View
-                  style={{
-                    minHeight: 56,
-                    justifyContent: "center",
-                    paddingHorizontal: 16,
-                    borderRadius: radius.md,
-                    borderWidth: 1,
-                    borderColor: palette.hairline,
-                    backgroundColor: palette.feltCharcoal,
-                  }}
-                >
-                  <Text style={{ fontFamily: font.regular, fontSize: 16, color: palette.mutedSteel }}>
-                    {currentName}
-                  </Text>
-                </View>
+            <View style={{ height: 1, backgroundColor: palette.hairline }} />
+
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Change your look"
+              onPress={() => push("profile")}
+              style={({ pressed }) => ({
+                flexDirection: "row",
+                alignItems: "center",
+                minHeight: 52,
+                gap: space.md,
+                opacity: pressed ? 0.85 : 1,
+              })}
+            >
+              <View style={{ flex: 1, gap: 2 }}>
+                <Text style={{ fontFamily: font.medium, fontSize: 16, color: palette.porcelain }}>Change your look</Text>
                 <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel }}>
-                  Usernames can only be changed once, and you've used yours.
+                  Avatar, board and dice
                 </Text>
-              </>
-            ) : (
-              <>
+              </View>
+              <ChevronGlyph size={16} />
+            </Pressable>
+          </Surface3D>
+
+          {/* Username — only while there is one to claim or change. Once the
+              allowance is spent the note under your name says everything a
+              read-only field would have, without pretending to be editable. */}
+          {nameLocked ? null : (
+            <View style={{ gap: space.sm }}>
+              <SectionLabel>Username</SectionLabel>
+              <Surface3D rad={radius.lg} faceStyle={{ padding: space.lg, gap: space.md }}>
                 <Field
                   accessibilityLabel="Display name"
                   value={draft}
@@ -274,18 +339,20 @@ export function AccountScreen() {
                     You can change your username once. Friends find you by it.
                   </Text>
                 )}
-              </>
-            )}
-          </Surface3D>
+              </Surface3D>
+            </View>
+          )}
 
           {/* Account: optional — guests keep playing without it. */}
           <View style={{ gap: space.sm }}>
             <SectionLabel>Account</SectionLabel>
             <Surface3D rad={radius.lg} faceStyle={{ padding: space.lg, gap: space.md }}>
-              {identity && !identity.isGuest ? (
+              {signedIn ? (
                 <>
+                  {/* The email can be null — an Apple link makes an account
+                      recoverable without ever handing us an address. */}
                   <Text style={{ fontFamily: font.medium, fontSize: 15, color: palette.porcelain }}>
-                    Signed in as {identity.email}
+                    {identity?.email ? `Signed in as ${identity.email}` : "Signed in"}
                   </Text>
                   <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel }}>
                     Your coins, gems and looks are backed up to this account.
@@ -312,33 +379,38 @@ export function AccountScreen() {
                   </View>
                 </>
               )}
-
-              <View style={{ height: 1, backgroundColor: palette.hairline }} />
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Delete account and data"
-                onPress={() =>
-                  void (async () => {
-                    const ok = await confirm({
-                      title: "Delete account?",
-                      message:
-                        "This permanently deletes your account and all data — coins, gems, purchases, cosmetics and friends. This can't be undone.",
-                      confirmLabel: "Delete",
-                      cancelLabel: "Keep it",
-                      destructive: true,
-                    });
-                    if (ok) await deleteAccount().then(refreshIdentity);
-                  })()
-                }
-                style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, alignSelf: "flex-start" })}
-              >
-                <Text style={{ fontFamily: font.medium, fontSize: 14, color: teamColor.red }}>Delete account</Text>
-              </Pressable>
             </Surface3D>
           </View>
 
           {/* Stats below */}
-          <StatsContent />
+          <StatsContent loadMoreSignal={loadMoreSignal} />
+
+          {/* The one irreversible action on the screen, alone at the bottom
+              where nothing is pressed by accident on the way past. */}
+          <Surface3D rad={radius.lg} faceStyle={{ paddingHorizontal: space.lg }}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Delete account and data"
+              onPress={onDeleteAccount}
+              style={({ pressed }) => ({
+                flexDirection: "row",
+                alignItems: "center",
+                minHeight: 52,
+                gap: space.md,
+                opacity: pressed ? 0.7 : 1,
+              })}
+            >
+              <View style={{ flex: 1, gap: 2 }}>
+                <Text style={{ fontFamily: font.medium, fontSize: 16, color: teamColor.red }}>Delete account</Text>
+                <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel }}>
+                  Removes your coins, gems, cosmetics and friends for good.
+                </Text>
+              </View>
+              {/* No chevron. This row does not go anywhere — it raises a
+                  confirmation — and borrowing the navigation mark for the one
+                  irreversible action on the screen invites a casual press. */}
+            </Pressable>
+          </Surface3D>
         </ContentColumn>
       </KeyboardAwareScrollView>
 

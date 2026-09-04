@@ -4,10 +4,21 @@
  * Rendered inside the Account screen below the identity/account trays, so this
  * is just the content (no header/scroller of its own). Empty state is a compact
  * card, never bare text.
+ *
+ * Totals and history are each ONE tray of hairline-separated rows — the shape
+ * Settings already uses. A separate raised card per mode and per match read as
+ * a pile of unrelated objects on a screen that carries three trays above them.
+ *
+ * History is paged. The store keeps 30 matches (statsStore's HISTORY_CAP), and
+ * mounting all 30 rows costs layout for history nobody has scrolled to yet.
+ * RECENT_PAGE rows render; the Account screen hands down a `loadMoreSignal`
+ * tick each time its scroll reaches the bottom, and each tick reveals one more
+ * page. The "Show more" row does the same by hand — the tick needs a scroll
+ * that lands on the end, which a short list or a screen reader may never make.
  */
 
-import type { ReactNode } from "react";
-import { Text, View } from "react-native";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Pressable, Text, View } from "react-native";
 import { Canvas, Group } from "@shopify/react-native-skia";
 import { SectionLabel } from "./SectionLabel";
 import { Surface3D } from "./Surface3D";
@@ -20,10 +31,32 @@ import { font, palette, radius, space } from "../theme";
 
 const MODE_LABEL: Record<MatchMode, string> = { ai: "vs AI", pass: "Pass & play", online: "Online" };
 
-export function StatsContent() {
+/** Matches rendered per page — one screenful of history, no more. */
+const RECENT_PAGE = 6;
+
+interface StatsContentProps {
+  /** Increments each time the host scroll view reaches its end; every rise
+   *  reveals one more page of history. Starts at 0, so the mount pass is a
+   *  no-op and the first page is all that renders. */
+  loadMoreSignal?: number;
+}
+
+export function StatsContent({ loadMoreSignal = 0 }: StatsContentProps) {
   const totals = useStats((s) => s.totals);
   const recent = useStats((s) => s.recent);
   const boardTheme = resolveBoardTheme(useSettings((s) => s.boardThemeId));
+  const [visible, setVisible] = useState(RECENT_PAGE);
+
+  // Clamped to what the list actually holds, through a ref so a match finishing
+  // is not itself a reason to reveal a page. Left to run away, `visible` would
+  // sit far past the end after a few bounces at the bottom, and the next games
+  // you played would land already-expanded.
+  const total = useRef(recent.length);
+  total.current = recent.length;
+  useEffect(() => {
+    if (!loadMoreSignal) return;
+    setVisible((v) => Math.min(v + RECENT_PAGE, Math.max(RECENT_PAGE, total.current)));
+  }, [loadMoreSignal]);
 
   const played = totals.ai.played + totals.pass.played + totals.online.played;
 
@@ -46,33 +79,68 @@ export function StatsContent() {
     );
   }
 
+  const shown = recent.slice(0, visible);
+  const hidden = recent.length - shown.length;
+  const modes = (Object.keys(MODE_LABEL) as MatchMode[]).filter((m) => totals[m].played > 0);
+
   return (
     <>
       {/* Totals per mode */}
       <View style={{ gap: space.sm }}>
         <SectionLabel>Totals</SectionLabel>
-        {(Object.keys(MODE_LABEL) as MatchMode[])
-          .filter((m) => totals[m].played > 0)
-          .map((m) => (
-            <ModeTray
-              key={m}
-              mode={m}
-              glyph={modeGlyph(m, boardTheme)}
-              played={totals[m].played}
-              won={m === "pass" ? null : totals[m].won}
-            />
+        <Surface3D rad={radius.lg} faceStyle={{ paddingHorizontal: space.lg }}>
+          {modes.map((m, i) => (
+            <View key={m}>
+              {i > 0 ? <Hairline /> : null}
+              <ModeRow
+                mode={m}
+                glyph={modeGlyph(m, boardTheme)}
+                played={totals[m].played}
+                won={m === "pass" ? null : totals[m].won}
+              />
+            </View>
           ))}
+        </Surface3D>
       </View>
 
-      {/* Recent matches */}
+      {/* Recent matches — a page at a time */}
       <View style={{ gap: space.sm }}>
         <SectionLabel>Recent</SectionLabel>
-        {recent.map((r) => (
-          <MatchRow key={r.id} r={r} />
-        ))}
+        <Surface3D rad={radius.lg} faceStyle={{ paddingHorizontal: space.lg }}>
+          {shown.map((r, i) => (
+            <View key={r.id}>
+              {i > 0 ? <Hairline /> : null}
+              <MatchRow r={r} />
+            </View>
+          ))}
+
+          {hidden > 0 ? (
+            <>
+              <Hairline />
+              <MoreRow
+                label={`Show ${Math.min(RECENT_PAGE, hidden)} more`}
+                count={`${shown.length}/${recent.length}`}
+                onPress={() => setVisible((v) => Math.min(v + RECENT_PAGE, recent.length))}
+              />
+            </>
+          ) : recent.length > RECENT_PAGE ? (
+            <>
+              <Hairline />
+              <MoreRow
+                label="Show less"
+                count={`${recent.length}/${recent.length}`}
+                onPress={() => setVisible(RECENT_PAGE)}
+              />
+            </>
+          ) : null}
+        </Surface3D>
       </View>
     </>
   );
+}
+
+function Hairline() {
+  return <View style={{ height: 1, backgroundColor: palette.hairline }} />;
 }
 
 /** Drawn per-mode mark: vs AI = two pawns squaring off, pass = hand-off loop,
@@ -92,10 +160,10 @@ function modeGlyph(m: MatchMode, theme: BoardTheme): ReactNode {
   );
 }
 
-function ModeTray({ mode, glyph, played, won }: { mode: MatchMode; glyph: ReactNode; played: number; won: number | null }) {
+function ModeRow({ mode, glyph, played, won }: { mode: MatchMode; glyph: ReactNode; played: number; won: number | null }) {
   const rate = won === null ? null : Math.round((won / played) * 100);
   return (
-    <Surface3D rad={radius.lg} faceStyle={{ padding: space.md, gap: space.sm }}>
+    <View style={{ paddingVertical: space.md, gap: space.sm }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
         <View style={{ width: 28, alignItems: "center" }}>{glyph}</View>
         <Text style={{ flex: 1, fontFamily: font.semibold, fontSize: 15, color: palette.porcelain }}>{MODE_LABEL[mode]}</Text>
@@ -108,7 +176,7 @@ function ModeTray({ mode, glyph, played, won }: { mode: MatchMode; glyph: ReactN
           <View style={{ width: `${rate}%`, height: 4, borderRadius: 2, backgroundColor: palette.mutedSteel }} />
         </View>
       ) : null}
-    </Surface3D>
+    </View>
   );
 }
 
@@ -124,7 +192,7 @@ function Stat({ label, value }: { label: string; value: string }) {
 function MatchRow({ r }: { r: MatchRecord }) {
   const won = r.didWin === true;
   return (
-    <Surface3D edge={2} rad={radius.md} faceStyle={{ flexDirection: "row", alignItems: "center", gap: space.md, paddingVertical: space.sm, paddingHorizontal: space.md }}>
+    <View style={{ flexDirection: "row", alignItems: "center", gap: space.md, minHeight: 56, paddingVertical: space.sm }}>
       {/* Neutral outcome badge — team colors stay on the board. */}
       <View
         style={{
@@ -149,7 +217,29 @@ function MatchRow({ r }: { r: MatchRecord }) {
         </Text>
       </View>
       <Text style={{ fontFamily: font.mono, fontSize: 12, color: palette.mutedSteel }}>{when(r.finishedAt)}</Text>
-    </Surface3D>
+    </View>
+  );
+}
+
+/** The paging row that closes the history tray: what it does on the left, how
+ *  far through the list you are on the right. */
+function MoreRow({ label, count, onPress }: { label: string; count: string; onPress: () => void }) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={onPress}
+      style={({ pressed }) => ({
+        flexDirection: "row",
+        alignItems: "center",
+        minHeight: 48,
+        gap: space.md,
+        opacity: pressed ? 0.7 : 1,
+      })}
+    >
+      <Text style={{ flex: 1, fontFamily: font.medium, fontSize: 14, color: palette.porcelain }}>{label}</Text>
+      <Text style={{ fontFamily: font.mono, fontSize: 12, color: palette.mutedSteel }}>{count}</Text>
+    </Pressable>
   );
 }
 
