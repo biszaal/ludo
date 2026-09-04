@@ -12,9 +12,15 @@ import { loadPhase, skeletonView, type SkeletonView } from "./loadPhase";
  * How often the view is re-evaluated while a wait is unsettled.
  *
  * A polled tick rather than timers armed at each boundary: the boundaries move
- * as `hasData` and `failed` change under it, and 10Hz for the length of a
- * network wait costs a comparison and, at most, one re-render of a screen whose
- * content is a handful of static blocks. It stops the moment the wait settles.
+ * as `hasData` and `failed` change under it, and arming a timer per boundary
+ * would mean re-arming every time they do.
+ *
+ * It is not free. The hook sits in the screen component, so each tick
+ * re-renders that whole screen — on Account that is StatsContent and the
+ * paginated match history, not a handful of static blocks. What keeps it
+ * affordable is the window: it runs only while a wait is unsettled, at most
+ * sixty ticks before `stalled` ends it, and it stops the moment the wait
+ * settles.
  */
 const TICK_MS = 100;
 

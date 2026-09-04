@@ -61,7 +61,12 @@ export function SkeletonGroup({ label, children, style }: SkeletonGroupProps) {
 
   return (
     <WaveContext.Provider value={full ? wave : null}>
-      <View accessibilityRole="progressbar" accessibilityLabel={label} style={style}>
+      {/* `accessible` is what makes the role and label reachable: on iOS a
+          plain View is not an accessibility element, and every block inside is
+          accessible={false}, so without this VoiceOver has nothing to focus and
+          the label never gets read. With it the group is one element saying
+          what is loading. */}
+      <View accessible accessibilityRole="progressbar" accessibilityLabel={label} style={style}>
         {children}
       </View>
     </WaveContext.Provider>
@@ -116,6 +121,19 @@ export function SkeletonLine({
   /** The font size of the line this replaces. */
   size?: number;
 }) {
-  // Shorter than the line box: a full-height bar reads as a filled field.
-  return <SkeletonBlock width={width} height={Math.round(size * 0.85)} rad={4} index={index} />;
+  // Two heights, and they are answering two different questions.
+  //
+  // The BAR is shorter than the text it replaces — a full-height bar reads as a
+  // filled field rather than an absent line. That is a look decision and it
+  // stays.
+  //
+  // The BOX is the layout one. A 15pt Text does not occupy 15pt; it occupies a
+  // line box of roughly 1.3x the font size, so a bare 13pt bar stood in ~6pt
+  // short per line and the panel jumped when the real text landed. The bar is
+  // centred in a box at the height the line will actually take.
+  return (
+    <View style={{ height: Math.round(size * 1.3), justifyContent: "center" }}>
+      <SkeletonBlock width={width} height={Math.round(size * 0.85)} rad={4} index={index} />
+    </View>
+  );
 }
