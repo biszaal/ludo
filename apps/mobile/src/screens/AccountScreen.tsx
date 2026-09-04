@@ -61,6 +61,8 @@ import { deleteAccount, getIdentity, signOutToGuest, type AuthIdentity } from ".
 import { useNav } from "../store/navStore";
 import { MAX_NAME_LENGTH, useProfile } from "../store/profileStore";
 import { confirm } from "../store/confirmStore";
+import { SkeletonBlock, SkeletonGroup, SkeletonLine } from "../components/Skeleton";
+import { useLoadPhase } from "../lib/useLoadPhase";
 import { font, palette, radius, space, teamColor } from "../theme";
 
 const NAME_CHECK_DEBOUNCE_MS = 600;
@@ -221,6 +223,9 @@ export function AccountScreen() {
 
   const dockPad = useDockClearance();
   const signedIn = !!identity && !identity.isGuest;
+  // Until the identity read lands, `signedIn` is false — which pitches a
+  // signed-in player the guest CTA and then takes it back. Wrong beats blank.
+  const identityView = useLoadPhase(identity !== null, false);
 
   // No bottom edge: the dock floats over this screen and pays that inset
   // itself. The scroll content buys its own room back with dockClearance.
@@ -347,7 +352,16 @@ export function AccountScreen() {
           <View style={{ gap: space.sm }}>
             <SectionLabel>Account</SectionLabel>
             <Surface3D rad={radius.lg} faceStyle={{ padding: space.lg, gap: space.md }}>
-              {signedIn ? (
+              {identityView === "skeleton" || identityView === "stalled" ? (
+                <SkeletonGroup label="Loading your account" style={{ gap: space.md }}>
+                  <SkeletonLine width="70%" size={15} index={0} />
+                  <SkeletonLine width="90%" size={13} index={1} />
+                  {/* 56, not 52: a Button's total height is its 52pt face plus
+                      depth.edge (4). Standing in at 52 would shift the tray by
+                      4pt the moment the identity read lands. */}
+                  <SkeletonBlock width="100%" height={56} rad={radius.md} index={2} />
+                </SkeletonGroup>
+              ) : signedIn ? (
                 <>
                   {/* The email can be null — an Apple link makes an account
                       recoverable without ever handing us an address. */}
