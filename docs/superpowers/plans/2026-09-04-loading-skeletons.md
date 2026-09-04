@@ -1018,12 +1018,20 @@ Replace the `{friendIds.length === 0 ? (…) : (` opening and its empty-state
           ) : view === "skeleton" ? (
             <SkeletonGroup label="Loading your friends" style={{ gap: space.sm }}>
               {[0, 1, 2].map((i) => (
-                <Surface3D key={`sk-${i}`} faceStyle={{ padding: space.lg, flexDirection: "row", alignItems: "center", gap: space.md }}>
-                  <SkeletonBlock width={44} height={44} rad={radius.pill} index={i} />
-                  <View style={{ flex: 1, gap: 6 }}>
-                    <SkeletonLine width="55%" size={15} index={i} />
-                    <SkeletonLine width="32%" size={12} index={i + 1} />
+                // Geometry copied from <Row> below: edge={2}, padding space.md,
+                // a 36pt avatar, ONE 15pt name line, and an action chip at
+                // compact-Button height. A taller block or a second caption
+                // line would make the list jump when the real rows land.
+                <Surface3D
+                  key={`sk-${i}`}
+                  edge={2}
+                  faceStyle={{ flexDirection: "row", alignItems: "center", gap: space.md, padding: space.md }}
+                >
+                  <SkeletonBlock width={36} height={36} rad={radius.pill} index={i} />
+                  <View style={{ flex: 1 }}>
+                    <SkeletonLine width="60%" size={15} index={i} />
                   </View>
+                  <SkeletonBlock width={64} height={40} rad={radius.md} index={i + 1} />
                 </Surface3D>
               ))}
             </SkeletonGroup>
@@ -1158,12 +1166,19 @@ with:
             <SectionLabel>RECENTLY PLAYED WITH</SectionLabel>
             <SkeletonGroup label="Loading players you've played with" style={{ gap: space.sm }}>
               {[0, 1].map((i) => (
-                <Surface3D key={`sk-${i}`} faceStyle={{ padding: space.lg, flexDirection: "row", alignItems: "center", gap: space.md }}>
-                  <SkeletonBlock width={44} height={44} rad={radius.pill} index={i} />
-                  <View style={{ flex: 1, gap: 6 }}>
-                    <SkeletonLine width="50%" size={15} index={i} />
-                    <SkeletonLine width="30%" size={12} index={i + 1} />
+                // Geometry copied from <PlayerRow> at the bottom of this file:
+                // edge={2}, padding space.md, a 36pt avatar, ONE 15pt name
+                // line, and an "Add" chip at compact-Button height.
+                <Surface3D
+                  key={`sk-${i}`}
+                  edge={2}
+                  faceStyle={{ flexDirection: "row", alignItems: "center", gap: space.md, padding: space.md }}
+                >
+                  <SkeletonBlock width={36} height={36} rad={radius.pill} index={i} />
+                  <View style={{ flex: 1 }}>
+                    <SkeletonLine width="55%" size={15} index={i} />
                   </View>
+                  <SkeletonBlock width={52} height={40} rad={radius.md} index={i + 1} />
                 </Surface3D>
               ))}
             </SkeletonGroup>
@@ -1351,7 +1366,10 @@ Replace the `{signedIn ? (…) : (…)}` contents of the Account `Surface3D`
                 <SkeletonGroup label="Loading your account" style={{ gap: space.md }}>
                   <SkeletonLine width="70%" size={15} index={0} />
                   <SkeletonLine width="90%" size={13} index={1} />
-                  <SkeletonBlock width="100%" height={52} rad={radius.md} index={2} />
+                  {/* 56, not 52: a Button's total height is its 52pt face plus
+                      depth.edge (4). Standing in at 52 would shift the tray by
+                      4pt the moment the identity read lands. */}
+                  <SkeletonBlock width="100%" height={56} rad={radius.md} index={2} />
                 </SkeletonGroup>
               ) : signedIn ? (
                 <>
