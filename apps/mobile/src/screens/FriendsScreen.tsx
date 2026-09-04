@@ -33,11 +33,13 @@ import {
   outgoingRequests,
   sortFriendsByPresence,
 } from "../lib/friendship";
-import { font, palette, space } from "../theme";
+import { font, palette, radius, space } from "../theme";
+import { SkeletonBlock, SkeletonGroup, SkeletonLine } from "../components/Skeleton";
+import { LoadFailed } from "../components/LoadFailed";
+import { useLoadPhase } from "../lib/useLoadPhase";
 
 export function FriendsScreen() {
   const push = useNav((s) => s.push);
-  const ready = useFriends((s) => s.ready);
   const userId = useFriends((s) => s.userId);
   const friendships = useFriends((s) => s.friendships);
   const profiles = useFriends((s) => s.profiles);
@@ -48,6 +50,8 @@ export function FriendsScreen() {
   const stake = useOnlineStore((s) => s.stake);
   const viewPlayer = useFriends((s) => s.viewPlayer);
   const refresh = useFriends((s) => s.refresh);
+  const loaded = useFriends((s) => s.loaded);
+  const failed = useFriends((s) => s.failed);
 
   const roomCode = useOnlineStore((s) => s.roomCode);
   const onlineStatus = useOnlineStore((s) => s.status);
@@ -87,6 +91,10 @@ export function FriendsScreen() {
     )?.id;
 
   const dockPad = useDockClearance();
+
+  // Friends are fetched fresh on every visit — this store does not persist —
+  // so the cold wait here is every mount, not only the first ever.
+  const view = useLoadPhase(loaded, failed);
 
   // No bottom edge: the dock floats over this screen and pays that inset
   // itself. The scroll content buys its own room back with dockClearance.
@@ -173,14 +181,37 @@ export function FriendsScreen() {
         {/* Friends */}
         <View style={{ gap: space.sm }}>
           <SectionLabel>{`Your friends (${friendIds.length})`}</SectionLabel>
-          {friendIds.length === 0 ? (
+          {view === "stalled" ? (
+            <LoadFailed
+              message="Your friends list didn't load. Check your connection and try again."
+              onRetry={() => void refresh()}
+            />
+          ) : view === "skeleton" ? (
+            <SkeletonGroup label="Loading your friends" style={{ gap: space.sm }}>
+              {[0, 1, 2].map((i) => (
+                // Geometry copied from <Row> below: edge={2}, padding space.md,
+                // a 36pt avatar, ONE 15pt name line, and an action chip at
+                // compact-Button height. A taller block or a second caption
+                // line would make the list jump when the real rows land.
+                <Surface3D
+                  key={`sk-${i}`}
+                  edge={2}
+                  faceStyle={{ flexDirection: "row", alignItems: "center", gap: space.md, padding: space.md }}
+                >
+                  <SkeletonBlock width={36} height={36} rad={radius.pill} index={i} />
+                  <View style={{ flex: 1 }}>
+                    <SkeletonLine width="60%" size={15} index={i} />
+                  </View>
+                  <SkeletonBlock width={64} height={40} rad={radius.md} index={i + 1} />
+                </Surface3D>
+              ))}
+            </SkeletonGroup>
+          ) : friendIds.length === 0 ? (
             <Surface3D faceStyle={{ padding: space.lg, gap: space.sm, alignItems: "center" }}>
               <PeopleGlyph size={36} />
               <Text style={{ fontFamily: font.semibold, fontSize: 15, color: palette.porcelain }}>No friends yet</Text>
               <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel, textAlign: "center" }}>
-                {ready
-                  ? "Share your friend code, or add someone you've played with — tap “Add a friend” above."
-                  : "Connecting…"}
+                Share your friend code, or add someone you've played with — tap “Add a friend” above.
               </Text>
             </Surface3D>
           ) : (
