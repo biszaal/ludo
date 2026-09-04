@@ -12,8 +12,14 @@ timers. One primitive (`components/Skeleton.tsx`) draws the blocks, driven by a
 single shared value per group and gated on the device's motion tier. Each
 screen composes its own skeleton beside the markup it mimics.
 
-**Tech Stack:** React Native (Expo SDK 53), TypeScript, Zustand, Reanimated 3,
-Vitest (Node environment only — no React Native render harness exists).
+**Tech Stack:** Expo SDK 56 (`expo ~56.0.12`), React Native 0.85.3, React
+19.2.3, TypeScript, Zustand, Reanimated, Vitest (Node environment only — no
+React Native render harness exists).
+
+Per `apps/mobile/AGENTS.md`: read the versioned docs at
+<https://docs.expo.dev/versions/v56.0.0/> before writing code against any Expo
+API. No task in this plan introduces a new Expo API — the components use React
+Native and Reanimated primitives already in use elsewhere in the app.
 
 **Spec:** `docs/superpowers/specs/2026-09-04-loading-skeletons-design.md`
 
