@@ -28,12 +28,15 @@ import { resolveBoardTheme, type BoardThemeId } from "../render/boardThemes";
 import { DICE_SKINS, resolveDiceSkin, type DiceSkinId } from "../render/diceSkins";
 import { cosmeticItems, ownedItems, sellableItems, type CosmeticCategory, type CosmeticItem } from "../lib/cosmetics";
 import { useCosmeticsUI, type ShopTab } from "../store/cosmeticsUI";
-import { currencyOf, isUnlocked, priceOf, useEntitlements } from "../store/entitlementsStore";
+import { catalogKnown, currencyOf, isUnlocked, priceOf, useEntitlements } from "../store/entitlementsStore";
 import { useProfile } from "../store/profileStore";
 import { useSettings } from "../store/settingsStore";
 import { useWallet } from "../store/walletStore";
 import { useNav } from "../store/navStore";
 import { font, palette, radius, space } from "../theme";
+import { SkeletonBlock, SkeletonGroup, SkeletonLine } from "./Skeleton";
+import { LoadFailed } from "./LoadFailed";
+import { useLoadPhase } from "../lib/useLoadPhase";
 
 const TABS: { key: ShopTab; label: string }[] = [
   { key: "avatar", label: "Avatar" },
@@ -127,6 +130,12 @@ export function CosmeticsBrowser({ mode }: { mode: "locker" | "shop" }) {
   const items = mode === "locker" ? ownedItems(category, owned, prices) : sellableItems(category, owned, prices);
   const fillers = (COLS - (items.length % COLS)) % COLS;
 
+  // The catalog is what both modes are actually waiting on: the shop filters
+  // its grid through it, and the locker's "owned" verdict is unanswerable
+  // without it (isUnlocked fails closed on an unknown catalog, by design).
+  const failed = useEntitlements((s) => s.failed);
+  const view = useLoadPhase(catalogKnown(prices), failed);
+
   const highlightItem = cosmeticItems(category).find((it) => it.id === highlightId);
   const highlightOwned = highlightItem ? isUnlocked(owned, prices, highlightItem.sku) : true;
   const status =
@@ -180,26 +189,82 @@ export function CosmeticsBrowser({ mode }: { mode: "locker" | "shop" }) {
       <View style={{ gap: space.sm }}>
         <CosmeticPreview category={category} itemId={highlightId} boardTheme={boardTheme} />
         <View style={{ alignItems: "center", gap: 2 }}>
-          <Text style={{ fontFamily: font.display, fontSize: 17, color: palette.porcelain, textTransform: "capitalize" }}>
-            {highlightItem?.label ?? highlightId}
-          </Text>
-          <Text style={{ fontFamily: font.regular, fontSize: 12, color: palette.mutedSteel }}>{status}</Text>
+          {view === "skeleton" ? (
+            <SkeletonGroup label="Loading item details" style={{ alignItems: "center", gap: 6 }}>
+              <SkeletonLine width={96} size={17} index={0} />
+              <SkeletonLine width={64} size={12} index={1} />
+            </SkeletonGroup>
+          ) : (
+            <>
+              <Text style={{ fontFamily: font.display, fontSize: 17, color: palette.porcelain, textTransform: "capitalize" }}>
+                {highlightItem?.label ?? highlightId}
+              </Text>
+              <Text style={{ fontFamily: font.regular, fontSize: 12, color: palette.mutedSteel }}>{status}</Text>
+            </>
+          )}
         </View>
       </View>
 
       {/* Item grid */}
-      <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", rowGap: space.lg }}>
-        {items.map((item) => {
-          const unlocked = isUnlocked(owned, prices, item.sku);
-          const selected = item.id === highlightId;
-          const locked = mode === "shop" && !unlocked;
-          const price = priceOf(prices, item.sku);
-          const currency = currencyOf(currencies, item.sku);
-          if (category === "avatar") {
+      {view === "stalled" ? (
+        <LoadFailed
+          message={
+            mode === "shop"
+              ? "The shop didn't load. Check your connection and try again."
+              : "Your collection didn't load. Check your connection and try again."
+          }
+          onRetry={() => void refresh()}
+        />
+      ) : view === "skeleton" ? (
+        <SkeletonGroup
+          label={mode === "shop" ? "Loading the shop" : "Loading your collection"}
+          style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", rowGap: space.lg }}
+        >
+          {Array.from({ length: 8 }).map((_, i) => (
+            <View key={`sk-${i}`} style={{ width: "22%", alignItems: "center", padding: space.xs }}>
+              <SkeletonBlock width={56} height={56} rad={radius.md} index={i} />
+            </View>
+          ))}
+        </SkeletonGroup>
+      ) : (
+        <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", rowGap: space.lg }}>
+          {items.map((item) => {
+            const unlocked = isUnlocked(owned, prices, item.sku);
+            const selected = item.id === highlightId;
+            const locked = mode === "shop" && !unlocked;
+            const price = priceOf(prices, item.sku);
+            const currency = currencyOf(currencies, item.sku);
+            if (category === "avatar") {
+              return (
+                <AvatarSwatch
+                  key={item.id}
+                  id={item.id}
+                  selected={selected}
+                  price={price}
+                  currency={currency}
+                  locked={locked}
+                  onSelect={() => onSelect(item, unlocked)}
+                />
+              );
+            }
+            if (category === "board") {
+              return (
+                <ThemeSwatch
+                  key={item.id}
+                  theme={resolveBoardTheme(item.id)}
+                  selected={selected}
+                  price={price}
+                  currency={currency}
+                  locked={locked}
+                  onSelect={() => onSelect(item, unlocked)}
+                />
+              );
+            }
             return (
-              <AvatarSwatch
+              <DiceSwatch
                 key={item.id}
-                id={item.id}
+                skin={DICE_SKINS[item.id as DiceSkinId]}
+                theme={boardTheme}
                 selected={selected}
                 price={price}
                 currency={currency}
@@ -207,37 +272,12 @@ export function CosmeticsBrowser({ mode }: { mode: "locker" | "shop" }) {
                 onSelect={() => onSelect(item, unlocked)}
               />
             );
-          }
-          if (category === "board") {
-            return (
-              <ThemeSwatch
-                key={item.id}
-                theme={resolveBoardTheme(item.id)}
-                selected={selected}
-                price={price}
-                currency={currency}
-                locked={locked}
-                onSelect={() => onSelect(item, unlocked)}
-              />
-            );
-          }
-          return (
-            <DiceSwatch
-              key={item.id}
-              skin={DICE_SKINS[item.id as DiceSkinId]}
-              theme={boardTheme}
-              selected={selected}
-              price={price}
-              currency={currency}
-              locked={locked}
-              onSelect={() => onSelect(item, unlocked)}
-            />
-          );
-        })}
-        {Array.from({ length: fillers }).map((_, i) => (
-          <View key={`filler-${i}`} style={{ width: "22%" }} />
-        ))}
-      </View>
+          })}
+          {Array.from({ length: fillers }).map((_, i) => (
+            <View key={`filler-${i}`} style={{ width: "22%" }} />
+          ))}
+        </View>
+      )}
 
       {mode === "locker" ? (
         <Button label="Shop for more" variant="ghost" onPress={() => push("shop")} />
