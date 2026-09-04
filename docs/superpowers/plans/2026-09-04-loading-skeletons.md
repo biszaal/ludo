@@ -1081,7 +1081,13 @@ git commit -m "feat(friends): shimmer the list instead of claiming you have none
 ### Task 9: The add-friend screen, and the last spinner
 
 **Files:**
-- Modify: `apps/mobile/src/screens/AddFriendScreen.tsx` (imports line 23; code card lines 148-157; recent players lines 227-241)
+- Modify: `apps/mobile/src/screens/AddFriendScreen.tsx` (the `react-native` import; the `{myCode ? … : <ActivityIndicator …/>}` block inside the "HOW FRIENDS FIND YOU" card; the `{recentPlayers.length > 0 ? … : null}` block)
+
+Anchor by those code landmarks, not by line number: an unrelated refactor moved
+`SectionLabel` out of this file into `components/SectionLabel.tsx` (now imported
+near the top) and shifted everything below it. `<SectionLabel>` is still used
+exactly as before at each of its three call sites, so the JSX in this task is
+unaffected — only the line numbers moved.
 
 **Interfaces:**
 - Consumes: `recentLoaded` (Task 7), `useLoadPhase`, `SkeletonGroup`/`SkeletonBlock`/`SkeletonLine`.
@@ -1091,7 +1097,7 @@ that shipped (DESIGN.md §7).
 
 - [ ] **Step 1: Fix the imports**
 
-Change the `react-native` import on line 23 from:
+Change the `react-native` import (the second import in the file) from:
 
 ```tsx
 import { ActivityIndicator, Pressable, Share, Text, TextInput, View } from "react-native";
@@ -1199,8 +1205,10 @@ with:
         ) : null}
 ```
 
-`Surface3D` (line 29) and `radius` (line 37) are already imported in this file —
-no import changes are needed beyond Step 1.
+`Surface3D`, `radius` and `SectionLabel` are all already imported in this file —
+no import changes are needed beyond Step 1. (`SectionLabel` used to be a local
+function at the bottom of this file; an unrelated refactor moved it to
+`components/SectionLabel.tsx`. Its three call sites are unchanged.)
 
 - [ ] **Step 5: Verify the spinner is gone**
 
