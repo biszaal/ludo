@@ -133,10 +133,17 @@ The arithmetic lives in `loadPhase.ts` and is unit-tested. The timers live in
 - `SkeletonLine` — a block at text-line proportions, for name and caption rows.
 
 Each block reads its slice of the group's cycle through
-`arc(wave, index, span, stagger)` (`lib/motion.ts`) and translates a highlight
-band across itself, so a grid ripples rather than pulsing in unison — one
+`arc(wave, index, span, stagger)` (`lib/motion.ts`) and lifts a faint porcelain
+sheen over itself, so a grid ripples rather than pulsing in unison — one
 animation driving a cluster, exactly as `LoadingScreen`'s tile wave does.
-Transform and opacity only, per DESIGN §6.
+Opacity only, per DESIGN §6.
+
+The sheen is an opacity lift and not a band translated across the block. A real
+sweep needs the block's pixel width to know how far to travel, and several
+blocks are percentage-width — the cosmetic swatches are `22%` — so it would
+cost an `onLayout` measure per block to animate a highlight nobody parses at
+1.4s a cycle. The ripple that actually reads is the one *across* the blocks,
+and the stagger already carries it.
 
 On the `reduced` motion tier the group never starts the loop and blocks render
 flat `liftedSlate`. This makes skeletons the first consumer of `useMotion()`,
