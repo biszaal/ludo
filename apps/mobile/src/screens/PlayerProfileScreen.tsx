@@ -25,7 +25,9 @@ import { useOnlineStore } from "../store/onlineStore";
 import { useNav } from "../store/navStore";
 import { confirm, type ConfirmRequest } from "../store/confirmStore";
 import { formatRecord, isOnline, relationshipTo } from "../lib/friendship";
-import { font, palette, space } from "../theme";
+import { SkeletonBlock, SkeletonGroup, SkeletonLine } from "../components/Skeleton";
+import { useLoadPhase } from "../lib/useLoadPhase";
+import { font, palette, radius, space } from "../theme";
 
 export function PlayerProfileScreen() {
   const pop = useNav((s) => s.pop);
@@ -56,6 +58,9 @@ export function PlayerProfileScreen() {
   if (!userId) return null;
 
   const profile = profiles[userId];
+  // viewPlayer navigates first and fetches second, so a stranger reached by
+  // friend code has no cached card — and the fallback name is someone else's.
+  const view = useLoadPhase(!!profile, false);
   const name = profile?.display_name ?? "Ludo player";
   const record = stats[userId] ? formatRecord(stats[userId]!.games_played, stats[userId]!.games_won) : null;
   // Derived from the subscribed rows, not getState(): accepting a request has
@@ -92,18 +97,28 @@ export function PlayerProfileScreen() {
 
       <ScrollView contentContainerStyle={{ paddingHorizontal: space.xl, paddingTop: space.lg, paddingBottom: space.xxl, gap: space.xl }}>
         <Surface3D faceStyle={{ padding: space.xl, gap: space.md, alignItems: "center" }}>
-          <View>
-            <AvatarGlyph id={profile?.avatar_id ?? "orbit-moss"} size={88} />
-            {known ? <PresenceDot online={online} size={20} /> : null}
-          </View>
-          <Text style={{ fontFamily: font.display, fontSize: 22, color: palette.porcelain }} numberOfLines={1}>
-            {name}
-          </Text>
-          {known ? (
-            <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel }}>
-              {online ? "Online now" : "Offline"}
-            </Text>
-          ) : null}
+          {view === "skeleton" || view === "stalled" ? (
+            <SkeletonGroup label="Loading this player" style={{ alignItems: "center", gap: space.md }}>
+              <SkeletonBlock width={88} height={88} rad={radius.pill} index={0} />
+              <SkeletonLine width={140} size={22} index={1} />
+              <SkeletonLine width={72} size={13} index={2} />
+            </SkeletonGroup>
+          ) : (
+            <>
+              <View>
+                <AvatarGlyph id={profile?.avatar_id ?? "orbit-moss"} size={88} />
+                {known ? <PresenceDot online={online} size={20} /> : null}
+              </View>
+              <Text style={{ fontFamily: font.display, fontSize: 22, color: palette.porcelain }} numberOfLines={1}>
+                {name}
+              </Text>
+              {known ? (
+                <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel }}>
+                  {online ? "Online now" : "Offline"}
+                </Text>
+              ) : null}
+            </>
+          )}
         </Surface3D>
 
         {/* Record — hidden until there's enough of one to be worth showing. */}
