@@ -46,6 +46,19 @@ const TABS: { key: ShopTab; label: string }[] = [
 
 const COLS = 4;
 
+/**
+ * Skeleton geometry per category, matched to the swatch it stands in for —
+ * AvatarSwatch's 56pt glyph and no label, ThemeSwatch's 64pt board thumbnail
+ * over a label, DiceSwatch's 72pt die over a label. One shape for all three
+ * would make the grid jump the moment the catalog landed, which is the one
+ * thing a skeleton exists to prevent.
+ */
+const SWATCH_SKELETON: Record<CosmeticCategory, { thumb: number; rad: number; label: boolean; gap: number }> = {
+  avatar: { thumb: 56, rad: radius.md, label: false, gap: 0 },
+  board: { thumb: 64, rad: 8, label: true, gap: space.sm },
+  dice: { thumb: 72, rad: radius.md, label: true, gap: space.xs },
+};
+
 export function CosmeticsBrowser({ mode }: { mode: "locker" | "shop" }) {
   const category = useCosmeticsUI((s) => s.category);
   const tab = useCosmeticsUI((s) => s.tab);
@@ -135,6 +148,7 @@ export function CosmeticsBrowser({ mode }: { mode: "locker" | "shop" }) {
   // without it (isUnlocked fails closed on an unknown catalog, by design).
   const failed = useEntitlements((s) => s.failed);
   const view = useLoadPhase(catalogKnown(prices), failed);
+  const swatchSkeleton = SWATCH_SKELETON[category];
 
   const highlightItem = cosmeticItems(category).find((it) => it.id === highlightId);
   const highlightOwned = highlightItem ? isUnlocked(owned, prices, highlightItem.sku) : true;
@@ -221,8 +235,19 @@ export function CosmeticsBrowser({ mode }: { mode: "locker" | "shop" }) {
           style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", rowGap: space.lg }}
         >
           {Array.from({ length: 8 }).map((_, i) => (
-            <View key={`sk-${i}`} style={{ width: "22%", alignItems: "center", padding: space.xs }}>
-              <SkeletonBlock width={56} height={56} rad={radius.md} index={i} />
+            <View
+              key={`sk-${i}`}
+              style={{ width: "22%", alignItems: "center", padding: space.xs, gap: swatchSkeleton.gap }}
+            >
+              <SkeletonBlock
+                width={swatchSkeleton.thumb}
+                height={swatchSkeleton.thumb}
+                rad={swatchSkeleton.rad}
+                index={i}
+              />
+              {swatchSkeleton.label ? (
+                <SkeletonLine width={Math.round(swatchSkeleton.thumb * 0.6)} size={12} index={i} />
+              ) : null}
             </View>
           ))}
         </SkeletonGroup>
