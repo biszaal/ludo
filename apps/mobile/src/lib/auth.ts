@@ -20,6 +20,7 @@ import { getProfiles, deleteAccount as apiDeleteAccount } from "../net/api";
 import { useWallet } from "../store/walletStore";
 import { useEntitlements } from "../store/entitlementsStore";
 import { useProfile } from "../store/profileStore";
+import { nameAfterAuth } from "./profileCarry";
 
 export interface AuthIdentity {
   userId: string | null;
@@ -29,6 +30,18 @@ export interface AuthIdentity {
 }
 
 export type AuthResult = { ok: true; needsConfirm: boolean } | { ok: false; error: string };
+
+/**
+ * The signed-in user id right now, or null.
+ *
+ * Read BEFORE every auth operation and handed to rehydrateAfterAuth after it,
+ * because "did the account change?" is the question that decides whether the
+ * name on this device is still the player's to wear. See lib/profileCarry.
+ */
+async function currentUserId(): Promise<string | null> {
+  const { data } = await getSupabase().auth.getSession();
+  return data.session?.user.id ?? null;
+}
 
 /** Who the current session belongs to — a guest, or a saved account. */
 export async function getIdentity(): Promise<AuthIdentity> {
@@ -133,6 +146,9 @@ export async function signInWithProvider(provider: LinkProvider): Promise<AuthRe
  */
 async function runOAuth(provider: LinkProvider, intent: "link" | "signin"): Promise<AuthResult> {
   const supabase = getSupabase();
+  // Before the round trip: on the signin path this is the account we are about
+  // to leave, and its name must not follow us onto the one we land on.
+  const before = await currentUserId();
   const redirectTo = Linking.createURL(LINK_REDIRECT_PATH);
   const options = { redirectTo, skipBrowserRedirect: true };
   try {
@@ -175,7 +191,7 @@ async function runOAuth(provider: LinkProvider, intent: "link" | "signin"): Prom
     // migration — but it still has to run: the account now carries an email, and
     // the Account screen must stop calling them a guest. On the sign-in path it
     // is what pulls the restored account's wallet and cosmetics down.
-    await rehydrateAfterAuth();
+    await rehydrateAfterAuth(before);
     return { ok: true, needsConfirm: false };
   } catch {
     return { ok: false, error: "Couldn't reach the sign-in page. Check your connection." };
@@ -186,28 +202,33 @@ async function runOAuth(provider: LinkProvider, intent: "link" | "signin"): Prom
  *  then pull its wallet / entitlements / profile down. */
 export async function signIn(email: string, password: string): Promise<AuthResult> {
   const supabase = getSupabase();
+  const before = await currentUserId();
   const { error } = await supabase.auth.signInWithPassword({ email: email.trim().toLowerCase(), password });
   if (error) return { ok: false, error: friendly(error.message) };
-  await rehydrateAfterAuth();
+  await rehydrateAfterAuth(before);
   return { ok: true, needsConfirm: false };
 }
 
 /** Leave a saved account and return to a fresh guest session. */
 export async function signOutToGuest(): Promise<void> {
   const supabase = getSupabase();
+  const before = await currentUserId();
   await supabase.auth.signOut();
   // Drop the keychain lifeline first, or ensureSignedIn would helpfully restore
   // the account we were just asked to leave. Safe to lose: the account signed
   // out of here is a saved one, recoverable with its email and password.
   await forgetIdentity();
   await supabase.auth.signInAnonymously();
-  await rehydrateAfterAuth();
+  // The fresh anonymous user is a different account, so the name of the one
+  // just left behind goes with it rather than being worn by a new guest.
+  await rehydrateAfterAuth(before);
 }
 
 /** Permanently delete the account and all its server data, then drop the player
  *  back to a clean guest on this device. Required by the app stores for any app
  *  that lets you create an account. Irreversible — the caller confirms first. */
 export async function deleteAccount(): Promise<AuthResult> {
+  const before = await currentUserId();
   try {
     await apiDeleteAccount();
   } catch {
@@ -223,7 +244,7 @@ export async function deleteAccount(): Promise<AuthResult> {
   await forgetIdentity();
   resetLocalIdentity();
   await supabase.auth.signInAnonymously().catch(() => {});
-  await rehydrateAfterAuth();
+  await rehydrateAfterAuth(before);
   return { ok: true, needsConfirm: false };
 }
 
@@ -249,30 +270,51 @@ function resetLocalIdentity(): void {
 
 /** After the signed-in user changes, resync everything keyed to the user id.
  *  Best-effort and independent — one failure never blocks the others. */
-async function rehydrateAfterAuth(): Promise<void> {
+async function rehydrateAfterAuth(previousUserId: string | null): Promise<void> {
   const { data } = await getSupabase().auth.getSession();
   const uid = data.session?.user.id ?? null;
   await Promise.allSettled([
     useWallet.getState().refresh(),
     useEntitlements.getState().refresh(),
-    hydrateProfileFromServer(),
+    hydrateProfileFromServer(previousUserId),
     syncPurchasesUser(uid), // attach RevenueCat purchases to the now-current user
   ]);
 }
 
-/** Pull the account's saved name / avatar / dice skin into the local profile,
- *  so a restored account looks like itself and not this device's guest defaults. */
-async function hydrateProfileFromServer(): Promise<void> {
+/**
+ * Pull the account's saved name / avatar / dice skin into the local profile, so
+ * a restored account looks like itself and not this device's guest defaults.
+ *
+ * The absent-row case is the one with teeth. This used to `return` on it, which
+ * left the PREVIOUS account's name in the store — and since names are
+ * unique-indexed, that name was usually already registered to the account just
+ * signed out of, so every later sync was refused and silently swallowed. The
+ * account then had no name at all while displaying somebody else's. See
+ * lib/profileCarry for the full chain and the production case it came from.
+ */
+async function hydrateProfileFromServer(previousUserId: string | null): Promise<void> {
   const supabase = getSupabase();
   const { data } = await supabase.auth.getSession();
   const uid = data.session?.user.id;
   if (!uid) return;
   const [me] = await getProfiles([uid]);
-  if (!me) return;
   const p = useProfile.getState();
-  if (me.display_name) p.setName(me.display_name);
-  if (me.avatar_id) p.setAvatar(me.avatar_id);
-  if (me.dice_skin) p.setDiceSkin(me.dice_skin);
+
+  const carry = nameAfterAuth({
+    previousUserId,
+    currentUserId: uid,
+    serverName: me?.display_name ?? null,
+  });
+  // "keep" is the link path and the cold start — the local name is the
+  // player's own there, possibly not yet synced.
+  if (carry.action === "adopt") p.setName(carry.name);
+  // Empty falls back to this device's guest handle (profileStore.setName), which
+  // is exactly right: a nameless account should look nameless, and the player is
+  // then free to claim one that is actually available.
+  else if (carry.action === "reset") p.setName("");
+
+  if (me?.avatar_id) p.setAvatar(me.avatar_id);
+  if (me?.dice_skin) p.setDiceSkin(me.dice_skin);
 }
 
 /**
