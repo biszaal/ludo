@@ -69,3 +69,40 @@ export function pickSlot(slots: readonly Slot[], now: number): number {
 
   return earliest;
 }
+
+/**
+ * Whether a rewind that is fired and forgotten is guaranteed to have run by the
+ * time the `play()` issued straight after it does.
+ *
+ * The paragraph at the top of this file is true of Android and only Android.
+ * The two platforms implement the same two JS calls the opposite way round:
+ *
+ *   Android (AudioModule.kt) — `AsyncFunction("seekTo").runOnQueue(Queues.MAIN)`
+ *     and `Function("play") { runOnMain { … } }`, where `runOnMain` is
+ *     `runBlocking(mainQueue)`. The seek goes onto the main queue first and the
+ *     play cannot return until that queue has drained past it. Ordering is free,
+ *     and WAITING is the thing that costs: it puts a round trip back into JS on
+ *     the one thread a hop animation has already saturated, which is what made
+ *     Android silent.
+ *
+ *   iOS (AudioModule.swift) — `AsyncFunction("seekTo")` with no `runOnQueue`,
+ *     whose body awaits `AVPlayer.seek(to:completionHandler:)` off the JS
+ *     thread, and `Function("play")`, which is synchronous and runs inline the
+ *     instant JS calls it. So the play happens FIRST and the seek lands after
+ *     it, every time.
+ *
+ * That inversion is audible because a pooled player that finished its last clip
+ * is parked at the END of it, with `actionAtItemEnd = .pause` (AudioPlayer.swift).
+ * `playImmediately(atRate:)` does not rewind, so the play has nothing to play;
+ * the late seek then returns the playhead to 0 on a player that has already
+ * stopped. The slot sounds again on the play after that — hence iOS going
+ * patchy rather than silent, and hence a pool of one (dice, capture, tap)
+ * dropping every other press.
+ *
+ * Unknown platforms take the waiting branch: waiting when you did not have to
+ * costs a few milliseconds of lead-in, and not waiting when you did costs the
+ * sound.
+ */
+export function rewindLandsBeforePlay(platform: string): boolean {
+  return platform === "android";
+}

@@ -1,17 +1,24 @@
 /**
- * The pooling rule behind the Android hop/dice silence.
+ * The pooling rules behind the hop/dice silence — on both platforms.
  *
- * What is being tested shrank a great deal when the premise under the previous
- * three fixes turned out to be wrong (see lib/soundPool): expo-audio's `play()`
- * is `runBlocking` on the Android main queue, not a post-and-return, so a seek
- * dispatched before it has already run by the time it returns. With no ordering
- * hazard to defend against, there is no parked flag, no generation counter and
- * no quiet sweep — only "pick a player that is not sounding, and if they all
- * are, take the one with least left to lose".
+ * Two separate rules live here and they broke in opposite directions.
+ *
+ * `pickSlot` is the Android story. What was being tested shrank a great deal
+ * when the premise under three earlier fixes turned out to be wrong (see
+ * lib/soundPool): expo-audio's `play()` is `runBlocking` on the Android main
+ * queue, not a post-and-return, so a seek dispatched before it has already run
+ * by the time it returns. With no ordering hazard to defend against there is no
+ * parked flag, no generation counter and no quiet sweep — only "pick a player
+ * that is not sounding, and if they all are, take the one with least left to
+ * lose".
+ *
+ * `rewindLandsBeforePlay` is what that conclusion missed: it is true of Android
+ * and false of iOS, and the fix wrote it into the caller as if it were true of
+ * both. That is the iOS regression.
  */
 
 import { describe, expect, it } from "vitest";
-import { freshSlot, pickSlot, type Slot } from "../src/lib/soundPool";
+import { freshSlot, pickSlot, rewindLandsBeforePlay, type Slot } from "../src/lib/soundPool";
 
 const NOW = 10_000;
 
@@ -85,5 +92,56 @@ describe("pickSlot", () => {
     }
 
     expect(cutOff).toBe(0);
+  });
+});
+
+/**
+ * Whether a fired-and-forgotten rewind is guaranteed to have run by the time
+ * the `play()` issued after it does.
+ *
+ * A pooled player that has finished its previous clip is parked at the END of
+ * that clip, so the rewind is not an optimisation — it is the difference
+ * between the clip sounding and the player being told to resume from a
+ * playhead that has nowhere left to go. Every play in the pool therefore
+ * depends on this answer being right for the platform it is running on.
+ */
+describe("rewindLandsBeforePlay", () => {
+  /**
+   * Android: `AsyncFunction("seekTo").runOnQueue(Queues.MAIN)` and
+   * `Function("play") { runOnMain { … } }`, where `runOnMain` is
+   * `runBlocking(mainQueue)`. The seek is dispatched onto the main queue first
+   * and the play cannot return until that queue has drained past it, so the
+   * order is guaranteed by construction — and the caller must NOT wait, because
+   * waiting means a round trip back into JS across the one thread a hop
+   * animation has already saturated. That was the Android bug.
+   */
+  it("holds on Android, where play() blocks on the queue the seek was put on", () => {
+    expect(rewindLandsBeforePlay("android")).toBe(true);
+  });
+
+  /**
+   * iOS: the exact inverse. `seekTo` is an `AsyncFunction` with no
+   * `runOnQueue`, whose body awaits `AVPlayer.seek(to:completionHandler:)` off
+   * the JS thread; `play` is a synchronous `Function`, which runs inline on the
+   * JS thread the instant it is called. So a fired-and-forgotten seek lands
+   * AFTER its own play, every time — the play finds the playhead at the end of
+   * the last clip and `playImmediately(atRate:)` has nothing to play, then the
+   * late seek rewinds a player that is no longer going anywhere. The slot only
+   * sounds again on the play after that, which is why iOS went patchy rather
+   * than silent, and why a pool of one (dice, capture, tap) alternates.
+   */
+  it("does NOT hold on iOS, where the play runs inline and the seek does not", () => {
+    expect(rewindLandsBeforePlay("ios")).toBe(false);
+  });
+
+  /**
+   * Anything that is not Android gets the safe branch. Waiting for the rewind
+   * costs a few milliseconds of lead-in; not waiting when you needed to costs
+   * the sound outright, so an unknown runtime (web, tvOS, a future platform)
+   * pays the cheaper mistake.
+   */
+  it("assumes the waiting branch on any runtime it does not know", () => {
+    expect(rewindLandsBeforePlay("web")).toBe(false);
+    expect(rewindLandsBeforePlay("windows")).toBe(false);
   });
 });

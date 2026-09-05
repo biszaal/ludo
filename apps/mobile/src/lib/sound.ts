@@ -5,19 +5,25 @@
  * simulator quirks) are ignored. Effects respect settings.soundOn, music
  * respects settings.musicOn plus the app's foreground state.
  *
- * On the Android silence this file has been through three rounds of: see
- * lib/soundPool for what the earlier fixes got wrong about expo-audio's
- * threading. The short version is that `play()` blocks the JS thread on the
- * Android main queue rather than posting to it, so ordering was never in
- * danger — but the main thread is a genuinely scarce resource, and every player
- * created here costs an ExoPlayer pinned to `context.mainLooper`, a media3
- * `MediaSession` and a status-polling coroutine on `Dispatchers.Main`. So the
- * pools below are as small as the sound needs, and SOUND_DEBUG exists to settle
- * on a real device whether that was the whole story.
+ * The one thing to know before editing playSound: expo-audio's `seekTo` and
+ * `play()` are implemented with OPPOSITE threading on the two platforms, so
+ * there is no single correct way to order them. On Android `play()` blocks the
+ * JS thread on the main queue the seek was already dispatched onto, so the
+ * rewind is free and waiting for it is the mistake; on iOS `play()` runs inline
+ * while the seek does not, so the rewind arrives after its own play and NOT
+ * waiting is the mistake. Both mistakes sound the same from the sofa. See
+ * rewindLandsBeforePlay in lib/soundPool.
+ *
+ * The pool sizes are the Android half of the same story: the main thread is a
+ * genuinely scarce resource there, and every player created here costs an
+ * ExoPlayer pinned to `context.mainLooper`, a media3 `MediaSession` and a
+ * status-polling coroutine on `Dispatchers.Main`. So the pools below are as
+ * small as the sound needs, and SOUND_DEBUG logs every play on a real device.
  */
 
+import { Platform } from "react-native";
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from "expo-audio";
-import { freshSlot, pickSlot, type Slot } from "./soundPool";
+import { freshSlot, pickSlot, rewindLandsBeforePlay, type Slot } from "./soundPool";
 import { useSettings } from "../store/settingsStore";
 
 export type SoundName =
@@ -280,16 +286,32 @@ export function playSound(name: SoundName): void {
   const player = pool[index]!;
   mine[index]!.busyUntil = now + SPECS[name].ms;
   try {
-    // Seek unconditionally, and never await it. All three states a pooled
-    // player can be in want a rewind: a finished ExoPlayer still holds
-    // `playWhenReady`, so the seek alone restarts it; a never-played one is
-    // already at 0, so it costs nothing; and one stolen mid-clip is meant to
-    // restart. The play below cannot overtake it — `play()` is
-    // `runBlocking(mainQueue)` and the seek was dispatched onto that same queue
-    // first (see lib/soundPool), so the seek has already run by the time play
-    // returns.
-    void player.seekTo(0).catch(() => {});
-    player.play();
+    // Seek unconditionally. All three states a pooled player can be in want a
+    // rewind: one that has finished is parked at the END of its clip and will
+    // play nothing without it; a never-played one is already at 0, so the seek
+    // is free; and one stolen mid-clip is meant to restart.
+    //
+    // WHETHER TO WAIT FOR IT is a per-platform answer, and getting it wrong in
+    // either direction is a silence — see rewindLandsBeforePlay. On Android the
+    // play already blocks on the queue the seek was put on, so waiting only
+    // adds a JS round trip across a saturated main thread. On iOS the play runs
+    // inline and the seek does not, so a fired-and-forgotten seek lands after
+    // its own play and the sound is lost.
+    if (rewindLandsBeforePlay(Platform.OS)) {
+      void player.seekTo(0).catch(() => {});
+      player.play();
+    } else {
+      // A rewind that failed is not a reason to stay silent, so the play is
+      // chained past the failure rather than off the success.
+      void player
+        .seekTo(0)
+        .catch(() => {})
+        .then(() => player.play())
+        .catch((err: unknown) => {
+          // Player removed underneath us — a dev reload, or releaseAll.
+          if (SOUND_DEBUG) debugLog(`play ${name}#${index} LATE THREW ${String(err)}`);
+        });
+    }
   } catch (err) {
     if (SOUND_DEBUG) debugLog(`play ${name}#${index} THREW ${String(err)}`);
     return;
