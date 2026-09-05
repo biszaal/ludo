@@ -84,9 +84,10 @@ export async function opQuickMatch(
     const seated = Number(claimed.seated ?? size);
     // The seat was inserted inside quick_match_claim, so stamp it here rather
     // than adding a parameter to an RPC whose signature is kept stable across
-    // deploys on purpose (0018). Fire-and-forget: a lost stamp reads as "old
-    // client" downstream, which is the safe direction to fail.
-    afterResponse(admin.from("players").update({ app_version: appVersion }).eq("id", playerId));
+    // deploys on purpose (0018). A PostgREST builder does not run until
+    // something awaits it, so holding it costs nothing until we decide which
+    // way this request goes.
+    const stamp = admin.from("players").update({ app_version: appVersion }).eq("id", playerId);
     // Seat first, stake second: an overdraw hands the seat straight back.
     const debited = await walletApply(admin, userId, -stake, "stake", gameId);
     if (debited === null) {
@@ -94,9 +95,26 @@ export async function opQuickMatch(
       return json({ error: `Not enough coins — you need ${stake} to play.` });
     }
     if (seated < size) {
-      // Joined a part-filled 4-player room — keep waiting for the rest.
+      // Joined a part-filled 4-player room — keep waiting for the rest. No deal
+      // happens in this request, so the stamp has until somebody else fills the
+      // room to land, and deferring it keeps the searching UI's response quick.
+      afterResponse(stamp);
       return json({ gameId, playerId, waiting: true, size, stake });
     }
+    // This claim FILLED the room, so the deal is about to run in this very
+    // request — and the deal is what reads app_version to set the fold gate
+    // (deal.ts, foldAllowed). Deferring the stamp raced it: an unstamped seat
+    // reads as null, null reads as "old client", and one null switches the fold
+    // off for the whole match.
+    //
+    // Failing that way is safe, which is why it went unnoticed, but it is not
+    // cheap. Measured over 30 days of finished matches: a folded match bumps
+    // state_version 135 times, an unfolded one 765, and every bump is a ~2.1 KB
+    // document pushed to every seat. The fold was off for 37% of matches, and
+    // those matches carried roughly five times the realtime fan-out.
+    //
+    // One indexed UPDATE on a primary key is a small price for that.
+    await stamp;
     const started = await startGameNow(admin, gameId);
     if ("error" in started) return json({ error: started.error });
     return json({ gameId, playerId, state: started.state, v: started.v, size, stake });

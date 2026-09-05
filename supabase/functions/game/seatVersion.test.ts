@@ -126,9 +126,12 @@ function quickFake(claimed: Record<string, unknown> | null): {
   admin: SupabaseClient;
   seats: Array<Record<string, unknown>>;
   stamps: Array<{ patch: Record<string, unknown>; id: unknown }>;
+  /** "stamp" / "deal", in the order they actually happened. */
+  order: string[];
 } {
   const seats: Array<Record<string, unknown>> = [];
   const stamps: Array<{ patch: Record<string, unknown>; id: unknown }> = [];
+  const order: string[] = [];
 
   // deno-lint-ignore no-explicit-any
   const chain = (settle: () => { data?: unknown; error?: unknown }, filters: Record<string, unknown> = {}): any => {
@@ -156,10 +159,17 @@ function quickFake(claimed: Record<string, unknown> | null): {
     update: (patch: Record<string, unknown>) => {
       // deno-lint-ignore no-explicit-any
       const node: any = {
-        eq: (_col: string, val: unknown) => {
-          stamps.push({ patch, id: val });
-          return Promise.resolve({ data: null, error: null });
-        },
+        eq: (_col: string, val: unknown) => ({
+          // Lazy on purpose: a real PostgREST builder issues no request until
+          // it is awaited, so recording the stamp in `eq` would make a
+          // deferred write look identical to an awaited one.
+          // deno-lint-ignore no-explicit-any
+          then: (res: any, rej: any) => {
+            stamps.push({ patch, id: val });
+            order.push("stamp");
+            return Promise.resolve({ data: null, error: null }).then(res, rej);
+          },
+        }),
       };
       return node;
     },
@@ -170,7 +180,19 @@ function quickFake(claimed: Record<string, unknown> | null): {
     from: (table: string) => {
       if (table === "players") return players;
       if (table === "games") {
-        return { insert: () => chain(() => ({ data: { id: GAME, room_code: "WXYZ" }, error: null })) };
+        return {
+          insert: () => chain(() => ({ data: { id: GAME, room_code: "WXYZ" }, error: null })),
+          // startGameNow reads this first. Answering "already started" lets the
+          // deal announce itself and then stop, which is all the ordering test
+          // needs it to do.
+          select: () => {
+            order.push("deal");
+            return chain(() => ({
+              data: { id: GAME, status: "active", state: null, state_version: 1 },
+              error: null,
+            }));
+          },
+        };
       }
       return chain(() => ({ data: null, error: null }));
     },
@@ -182,7 +204,7 @@ function quickFake(claimed: Record<string, unknown> | null): {
     // deno-lint-ignore no-explicit-any
   } as any;
 
-  return { admin, seats, stamps };
+  return { admin, seats, stamps, order };
 }
 
 Deno.test("a quick seat claimed in SQL gets stamped with the build that claimed it", async () => {
@@ -202,4 +224,43 @@ Deno.test("opening a new quick room records the build on the seat directly", asy
 
   assertEquals(f.seats.length, 1);
   assertEquals(f.seats[0]!.app_version, "1.1.0");
+});
+
+/**
+ * The seat that FILLS a quick room must be stamped before the deal reads it.
+ *
+ * This is the one path where the stamp and the deal live in the same request:
+ * `quick_match_claim` takes the last chair, so `startGameNow` runs immediately
+ * afterwards — and the deal is what reads every seat's app_version to decide
+ * `fold_writes` (deal.ts, foldAllowed). Deferring the stamp to `afterResponse`
+ * raced that read. An unstamped seat is null, null reads as "cannot fold", and
+ * ONE null switches the fold off for the whole match.
+ *
+ * It fails safe, which is why it stayed hidden. It is not cheap: measured over
+ * 30 days of finished matches, a folded match bumped state_version 135 times
+ * and an unfolded one 765, each bump pushing a ~2.1 KB document to every seat.
+ * The fold was off for 37% of matches.
+ *
+ * The part-filled case below is the control: no deal runs in that request, so
+ * the stamp has until somebody else fills the room and deferring it is free.
+ */
+Deno.test("the seat that fills a quick room is stamped before the deal reads it", async () => {
+  const f = quickFake({ game_id: GAME, player_id: "player-9", seated: 2 });
+
+  await opQuickMatch(f.admin, USER, 2, null, "1.1.0");
+
+  assertEquals(f.stamps.length, 1);
+  assertEquals(f.stamps[0]!.patch.app_version, "1.1.0");
+  // The whole point: the write settles ahead of the deal, not after it.
+  assertEquals(f.order, ["stamp", "deal"]);
+});
+
+Deno.test("a seat that only part-fills a room does not wait on its stamp", async () => {
+  // Nothing reads app_version in this request, so the stamp stays deferred and
+  // the searching UI gets its answer without paying for a round trip.
+  const f = quickFake({ game_id: GAME, player_id: "player-7", seated: 1 });
+
+  await opQuickMatch(f.admin, USER, 4, null, "1.1.0");
+
+  assertEquals(f.order, ["stamp"]);
 });
