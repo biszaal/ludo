@@ -404,6 +404,17 @@ export function GameView({
   const selectTokenStable = useCallback((id: string) => selectTokenRef.current(id), []);
   const boardTappable = canAct && !paused;
 
+  // The same treatment for the die, and for the same reason — Dice is memoized
+  // on the premise that "every prop is a primitive or a module-constant
+  // object", which was true of every prop except this one. OnlineGameScreen
+  // passes `onRoll={() => void roll()}`, a fresh arrow on every store write, so
+  // the shallow compare failed on it alone and the die re-rendered for every
+  // chat message, presence heartbeat and lobby refresh in the match — rebuilding
+  // its Skia paint kit each time for a die that had not changed.
+  const rollRef = useRef(onRoll);
+  rollRef.current = onRoll;
+  const rollStable = useCallback(() => rollRef.current(), []);
+
   // Tokens each seat has brought home — the only thing PlayerChip read out of
   // the full GameState, counted once here instead of per chip.
   const finishedByPlayer = useMemo(() => {
@@ -479,7 +490,7 @@ export function GameView({
             idle={dieIdle}
             theme={theme}
             skin={resolveDiceSkin(diceSkinFor?.(p.id) ?? null)}
-            onRollPress={heldDie ? null : canRoll ? onRoll : pilot ? autoPilot?.onTakeControl ?? null : null}
+            onRollPress={heldDie ? null : canRoll ? rollStable : pilot ? autoPilot?.onTakeControl ?? null : null}
             pressLabel={canRoll ? "Roll the dice" : "Bot is playing for you — tap to take back control"}
           />
         ) : null}
@@ -610,7 +621,7 @@ export function GameView({
         idle={dieIdle}
         theme={theme}
         skin={resolveDiceSkin(diceSkinFor?.(dieSeat.id) ?? null)}
-        onRollPress={heldDie ? null : canRollNow ? onRoll : activeIsPilot ? autoPilot?.onTakeControl ?? null : null}
+        onRollPress={heldDie ? null : canRollNow ? rollStable : activeIsPilot ? autoPilot?.onTakeControl ?? null : null}
         pressLabel={canRollNow ? "Roll the dice" : "Bot is playing for you — tap to take back control"}
       />
     ) : null;

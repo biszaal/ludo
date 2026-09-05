@@ -9,7 +9,7 @@
  * when the run ends so stale bubbles never linger.
  */
 
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { Image, Text, View } from "react-native";
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { resolveEmoji } from "../lib/emoji";
@@ -28,7 +28,13 @@ interface ChatBubbleProps {
   vAlign: "above" | "below";
 }
 
-export function ChatBubble({ value, kind, seq, align, vAlign }: ChatBubbleProps) {
+/**
+ * Memoized. Every prop is a primitive, and the bubble is mounted beside all
+ * four corner chips for the whole match — so without this, one player's
+ * reaction re-ran the animation setup on every OTHER seat's bubble too, along
+ * with every unrelated store write the game screen already re-renders for.
+ */
+export const ChatBubble = memo(function ChatBubble({ value, kind, seq, align, vAlign }: ChatBubbleProps) {
   const progress = useSharedValue(0);
   const [visible, setVisible] = useState(false);
   const runMs = kind === "text" ? TEXT_MS : EMOJI_MS;
@@ -130,4 +136,4 @@ export function ChatBubble({ value, kind, seq, align, vAlign }: ChatBubbleProps)
       )}
     </Animated.View>
   );
-}
+});

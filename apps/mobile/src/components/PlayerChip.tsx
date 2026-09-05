@@ -20,6 +20,7 @@ import Animated, {
   withRepeat,
   withSequence,
   withTiming,
+  type SharedValue,
 } from "react-native-reanimated";
 import { useFullMotion } from "../lib/useMotion";
 import { Canvas, Path, Skia } from "@shopify/react-native-skia";
@@ -202,11 +203,18 @@ function BotBadge() {
 }
 
 /**
- * The countdown ring: a rounded-rect stroke tracing the avatar frame's edge.
- * The path is trimmed by an animated `end`, so the ring visibly recedes in one
- * direction (from the path start, clockwise) as the turn's time drains.
+ * The countdown ring: what the turn clock looks like, at the budget the device
+ * can afford.
+ *
+ * Both tiers share the driver below — one linear `withTiming` from 1 to 0 over
+ * the server's own clock for this turn — and differ only in what consumes it.
+ * The split exists because this is the single largest SUSTAINED cost in a
+ * match: a turn clock runs for up to thirty seconds of every turn, on the seat
+ * everyone is already looking at, and whatever draws it is asked for a frame
+ * the whole time.
  */
 function TurnRing({ seq, seconds, color }: { seq: number; seconds: number; color: string }) {
+  const fullMotion = useFullMotion();
   const progress = useSharedValue(1);
 
   useEffect(() => {
@@ -215,6 +223,23 @@ function TurnRing({ seq, seconds, color }: { seq: number; seconds: number; color
     return () => cancelAnimation(progress);
   }, [seq, seconds, progress]);
 
+  // Same clock, two presentations. Kept as sibling components rather than a
+  // branch inside one, so each tier's hooks belong to the tier that uses them.
+  return fullMotion ? <RingTrim progress={progress} color={color} /> : <DrainBar progress={progress} color={color} />;
+}
+
+/**
+ * Full tier: a rounded-rect stroke tracing the avatar frame's edge, trimmed by
+ * an animated `end` so the ring visibly recedes in one direction (from the path
+ * start, clockwise) as the turn's time drains.
+ *
+ * A Skia canvas re-rasterizes whenever a shared value inside it moves, and both
+ * values here move every frame — `ringColor` writes a string per frame even
+ * though it only ever holds two — so this asks for a repaint at display rate
+ * for the length of the turn clock. That is affordable on a device with the
+ * budget for it, and it is the shape the game is designed around.
+ */
+function RingTrim({ progress, color }: { progress: SharedValue<number>; color: string }) {
   const end = useDerivedValue(() => Math.max(0, Math.min(1, progress.value)));
   const ringColor = useDerivedValue(() => (progress.value > 0.3 ? color : teamColor.red));
 
@@ -235,6 +260,50 @@ function TurnRing({ seq, seconds, color }: { seq: number; seconds: number; color
     <Canvas pointerEvents="none" style={{ position: "absolute", left: 0, top: 0, width: RING_BOX, height: RING_BOX }}>
       <Path path={path} style="stroke" strokeWidth={RING_STROKE} strokeCap="round" color={ringColor} start={0} end={end} />
     </Canvas>
+  );
+}
+
+/**
+ * Reduced tier: the same clock as a bar draining along the bottom of the frame.
+ *
+ * No canvas. A `scaleX` on a plain View is applied to the native view and
+ * composited, so the thirty seconds cost the compositor a transform per frame
+ * and cost the rasterizer nothing at all — where the ring above re-rasters its
+ * whole surface every frame for the same information.
+ *
+ * The colour is deliberately a step and not a ramp. Reanimated only forwards
+ * style props that actually changed, so two constant colours either side of the
+ * 30% mark mean exactly one native colour update in a turn; interpolating the
+ * hue would put a fresh colour on the view every frame and hand back most of
+ * what leaving Skia just saved.
+ *
+ * It is absolutely positioned inside RING_BOX, so it occupies the bottom stroke
+ * of the ring it replaces and changes no layout.
+ */
+function DrainBar({ progress, color }: { progress: SharedValue<number>; color: string }) {
+  const style = useAnimatedStyle(() => ({
+    transform: [{ scaleX: Math.max(0, Math.min(1, progress.value)) }],
+    backgroundColor: progress.value > 0.3 ? color : teamColor.red,
+  }));
+
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={[
+        {
+          position: "absolute",
+          left: 0,
+          right: 0,
+          bottom: 0,
+          height: RING_STROKE,
+          borderRadius: RING_STROKE / 2,
+          // Drains toward the left rather than shrinking toward its middle,
+          // which is what makes it read as time running out.
+          transformOrigin: "left center",
+        },
+        style,
+      ]}
+    />
   );
 }
 
