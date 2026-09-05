@@ -13,6 +13,7 @@
 import { Text, View, useWindowDimensions } from "react-native";
 import Animated, { Easing, FadeIn, FadeInDown, withDelay, withRepeat, withSequence, withTiming, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
 import { useEffect } from "react";
+import { useFullMotion } from "../lib/useMotion";
 import type { Color } from "@ludo/engine";
 import { Button } from "./Button";
 import { Confetti } from "./Confetti";
@@ -106,8 +107,18 @@ export function WinnerCelebration({ winnerName, winnerColor, winnerAvatar, gameO
 
 /** The winner's avatar with a gently bobbing crown on top (drawn, no emoji). */
 function CrownedAvatar({ color, avatarId }: { color: Color; avatarId: string | null }) {
+  const fullMotion = useFullMotion();
   const bob = useSharedValue(0);
   useEffect(() => {
+    if (!fullMotion) {
+      // Settle the crown rather than bobbing it, the same way PlayerChip's
+      // Breathe holds at the bright end. This loop has no end and the sheet
+      // waits on a tap, so a player who sets it down and walks away leaves an
+      // unbounded animation asking a weak phone for frames indefinitely. The
+      // crown still sits on the winner's head, which is the whole point of it.
+      bob.value = withDelay(1100, withTiming(1, { duration: 900, easing: Easing.out(Easing.quad) }));
+      return;
+    }
     bob.value = withDelay(
       1100,
       withRepeat(
@@ -118,7 +129,7 @@ function CrownedAvatar({ color, avatarId }: { color: Color; avatarId: string | n
         -1,
       ),
     );
-  }, [bob]);
+  }, [bob, fullMotion]);
   const crownStyle = useAnimatedStyle(() => ({ transform: [{ translateY: -bob.value * 4 }] }));
 
   return (

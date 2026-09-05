@@ -171,7 +171,10 @@ export const Board = memo(function Board({ size, state, theme, isMovable, onSele
   const pad = Math.round(cell * 0.7);
 
   // Theme objects are module constants, so reference equality keeps this memo effective.
-  const staticBoard = useMemo(() => <BoardSurface size={size} theme={theme} />, [size, theme]);
+  const staticBoard = useMemo(
+    () => <BoardSurface size={size} theme={theme} ornament={fullMotion} />,
+    [size, theme, fullMotion],
+  );
   const layout = useMemo(() => computeLayout(state.tokens, cell), [state.tokens, cell]);
 
   // Where each pawn came from, read out of the state's own lastAction rather
@@ -338,7 +341,30 @@ export const Board = memo(function Board({ size, state, theme, isMovable, onSele
 // Exported so previews (theme swatches, how-to-play art) can draw a board with
 // no GameState. Pure Skia; safe inside any Canvas.
 
-export function BoardSurface({ size, theme }: { size: number; theme: BoardTheme }) {
+/**
+ * `ornament` is the motion tier reaching the plate, and it DEFAULTS TO ON.
+ *
+ * The default matters more than the flag. This surface is shared with the shop
+ * swatch, the customize locker, the hub's hero diorama and the how-to-play
+ * diagrams, and a preview of a board must never show less than what the player
+ * would be buying. Only the in-game Board passes the tier down; every other
+ * caller keeps the full treatment on any device.
+ *
+ * What it turns off is the three layers that have to be GENERATED — the plate
+ * texture, the frame band (with its yard flourish) and the four yard emblems.
+ * They are the ones that cost: each walks a seeded PRNG to build dots, strokes
+ * and motifs in JS before Skia ever sees them, and that work lands on the JS
+ * thread in the moment a game opens, ahead of the first board paint. The
+ * vignette and the centre crest stay — one node each, nothing generated, and
+ * the crest is the piece of a premium board you actually read.
+ *
+ * That is the same line Dice.tsx draws for the same reason: a player who paid
+ * for obsidian still gets obsidian — its colours, its gradient, its team
+ * palette, its cell fills, its glyph and its medallion. What goes is per-pixel
+ * ornament nobody can resolve on a phone that cannot afford to draw it.
+ */
+
+export function BoardSurface({ size, theme, ornament = true }: { size: number; theme: BoardTheme; ornament?: boolean }) {
   const cell = cellSize(size);
   const startIndices = new Set(Object.values(START_CELL_INDEX));
   const center = size / 2;
@@ -354,13 +380,13 @@ export function BoardSurface({ size, theme }: { size: number; theme: BoardTheme 
   // geometry generated from a per-theme seed, so they cost one pass through the
   // picture that Board already records once per (size, theme) — nothing here is
   // re-derived while the game is running.
-  const texture = theme.texture ? plateTexture(theme.texture.kind, artSeed(theme.id, theme.texture.kind), size) : null;
+  const texture = ornament && theme.texture ? plateTexture(theme.texture.kind, artSeed(theme.id, theme.texture.kind), size) : null;
   // The clear plate between the rim lip and the first yard tile is 3.78% of
   // the board (see boardThemes.ts), so the band gets 1.1%-3.5% of it and no
   // more — any wider and the ornament runs under the yards.
   const bandInset = size * 0.011;
   const bandWidth = size * 0.024;
-  const band = theme.band ? frameBand(theme.band.kind, size, bandInset, bandWidth) : null;
+  const band = ornament && theme.band ? frameBand(theme.band.kind, size, bandInset, bandWidth) : null;
   const cellR = theme.cellRadius ? cell * theme.cellRadius : 2;
   // Seeded per-cell tone. Drawn from one PRNG walked in track order, so a board
   // varies the same way on every device — and so two neighbouring cells are
@@ -437,7 +463,7 @@ export function BoardSurface({ size, theme }: { size: number; theme: BoardTheme 
                     positions={[0, 0.5, 1]}
                   />
                 </RoundedRect>
-                {theme.band
+                {band
                   ? ([
                       [-1, -1],
                       [1, -1],
@@ -516,7 +542,7 @@ export function BoardSurface({ size, theme }: { size: number; theme: BoardTheme 
                 surfaces on the board, and what belongs on a surface like that
                 is an emblem — a parterre, a medallion, a constellation — not a
                 sprinkling of texture. */}
-            {theme.emblem ? (
+            {ornament && theme.emblem ? (
               <Group
                 clip={
                   theme.yardStyle === "disc"
