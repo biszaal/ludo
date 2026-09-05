@@ -929,11 +929,29 @@ export async function getMyProfile(): Promise<MyProfile | null> {
  * this readback the strip is invisible: the owner keeps seeing their skin while
  * every opponent sees classic, and nothing anywhere reports a problem.
  */
+/**
+ * What the server did with the write.
+ *
+ * `conflict` is its own answer rather than another null, because null already
+ * means "offline, try again later" and the two want opposite handling. A
+ * conflict is the unique index (0006) refusing a name another account holds —
+ * retrying it changes nothing, and `profiles.display_name` is NOT NULL, so
+ * when no row exists yet the refusal takes the whole INSERT with it and the
+ * account is left with no profile at all. Read as "offline", that is invisible
+ * and permanent; see lib/profileCarry.
+ */
+export type ProfileUpsert =
+  | { diceSkin: string | null; displayName: string; nameChangedAt: string | null }
+  | { conflict: true };
+
+/** Postgres unique_violation — the display-name index said no. */
+const UNIQUE_VIOLATION = "23505";
+
 export async function upsertMyProfile(
   displayName: string,
   avatarId: string,
   diceSkinId: string,
-): Promise<{ diceSkin: string | null; displayName: string; nameChangedAt: string | null } | null> {
+): Promise<ProfileUpsert | null> {
   const supabase = getSupabase();
   const { data: sessionData } = await supabase.auth.getSession();
   const userId = sessionData.session?.user.id;
@@ -951,6 +969,7 @@ export async function upsertMyProfile(
     )
     .select("dice_skin, display_name, name_changed_at")
     .maybeSingle();
+  if (error?.code === UNIQUE_VIOLATION) return { conflict: true };
   if (error || !data) return null;
   return {
     diceSkin: (data.dice_skin as string | null) ?? null,

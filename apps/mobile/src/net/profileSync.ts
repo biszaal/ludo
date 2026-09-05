@@ -21,8 +21,27 @@ const DEBOUNCE_MS = 1200;
  * right forever on this device and nowhere else.
  */
 export async function pushProfile(displayName: string, avatarId: string, diceSkinId: string): Promise<void> {
-  const stored = await upsertMyProfile(displayName, avatarId, diceSkinId);
+  let stored = await upsertMyProfile(displayName, avatarId, diceSkinId);
   if (!stored) return; // offline or signed out — try again on the next edit
+
+  /**
+   * The name belongs to somebody else. Fall back to this device's guest handle
+   * rather than giving up, because giving up used to mean the row was never
+   * written AT ALL: display_name is NOT NULL, so a refused name takes the whole
+   * INSERT with it and leaves the account with no profile — invisible to
+   * opponents, unfindable by friends, and stuck that way for good.
+   *
+   * The guest handle is the right fallback and not a consolation prize: 0030's
+   * trigger treats claiming a real name off a guestNNNNNN handle as the initial
+   * pick rather than a rename, so the player's one allowed change is still
+   * theirs to spend afterwards.
+   */
+  if ("conflict" in stored) {
+    const guest = useProfile.getState().guestName;
+    if (guest === displayName) return; // already the handle; nothing left to try
+    stored = await upsertMyProfile(guest, avatarId, diceSkinId);
+    if (!stored || "conflict" in stored) return;
+  }
   const wanted = diceSkinId === "classic" ? null : diceSkinId;
   if (stored.diceSkin !== wanted) {
     useProfile.getState().setDiceSkin(stored.diceSkin ?? "classic");
@@ -79,6 +98,11 @@ export async function claimName(name: string): Promise<NameClaim> {
     () => null,
   );
   if (!stored) return "offline";
+  // The index refused it outright, which happens when there is no row yet: the
+  // NOT NULL display_name takes the whole INSERT down with the name. Reported
+  // as "offline" this told the player to check their connection about a name
+  // somebody else simply holds.
+  if ("conflict" in stored) return "taken";
   if (stored.displayName && stored.displayName.toLowerCase() !== name.toLowerCase()) {
     // Someone else holds it. Leave the local store alone so the field keeps
     // what was typed and the player can edit it rather than retype it.
