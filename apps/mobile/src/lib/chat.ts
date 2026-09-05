@@ -4,7 +4,7 @@
  * onlineStore applies these transitions to its own state.
  */
 
-export const CHAT_CAP = 50;
+const CHAT_CAP = 50;
 
 /** Longest message we will render, enforced on send AND on receive. */
 export const CHAT_MAX_LEN = 80;

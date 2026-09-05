@@ -28,10 +28,14 @@ export function formatCompact(n: number | null | undefined): string {
   return String(Math.floor(n));
 }
 
-/** Exact form with thousands separators (347,750) for sheet balance lines. */
+/**
+ * Exact form with thousands separators (347,750) for sheet balance lines.
+ *
+ * Grouping is `toLocaleString`'s job — Hermes ships Intl on both platforms at
+ * this RN version. Pinned to en-US so a phone set to a comma-decimal locale
+ * still renders the separator the rest of the UI is laid out for.
+ */
 export function formatExact(n: number | null | undefined): string {
   if (n == null || !Number.isFinite(n)) return "0";
-  const sign = n < 0 ? "-" : "";
-  const digits = String(Math.floor(Math.abs(n)));
-  return sign + digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return Math.trunc(n).toLocaleString("en-US");
 }

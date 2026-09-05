@@ -15,7 +15,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { colorOffset, seatColors } from "../src/lib/seating";
+import { colorOffset, seatColors } from "@ludo/engine";
 
 /** Board geometry: the pairs that sit opposite each other, not side by side. */
 const DIAGONALS = [

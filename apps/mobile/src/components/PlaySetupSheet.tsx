@@ -7,14 +7,13 @@
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import Animated, { FadeIn } from "react-native-reanimated";
-import { DEFAULT_RULES, type RuleConfig } from "@ludo/engine";
+import { DEFAULT_RULES, seatColors, type RuleConfig } from "@ludo/engine";
 import { Button } from "./Button";
 import { Sheet } from "./Sheet";
 import { SectionLabel } from "./SectionLabel";
 import { SelectTile } from "./SelectTile";
 import { SettingRow } from "./SettingRow";
 import { EXPOSED_RULES } from "../lib/exposedRules";
-import { seatColors } from "../lib/seating";
 import { font, palette, radius, space, teamColor } from "../theme";
 
 const COUNTS = [2, 3, 4] as const;

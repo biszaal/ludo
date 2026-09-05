@@ -12,7 +12,7 @@ import type { ScreenName } from "../store/navStore";
 /** The four doorways the dock offers. */
 export type TabName = "home" | "shop" | "friends" | "account";
 
-export const TAB_NAMES: readonly TabName[] = ["home", "shop", "friends", "account"];
+const TAB_NAMES: readonly TabName[] = ["home", "shop", "friends", "account"];
 
 /**
  * Should ScreenStack draw the dock over this screen?

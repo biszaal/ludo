@@ -18,7 +18,7 @@ import * as Clipboard from "expo-clipboard";
 import * as Linking from "expo-linking";
 import { useOnlineStore } from "../store/onlineStore";
 
-export function inviteUrl(code: string): string {
+function inviteUrl(code: string): string {
   return Linking.createURL(`join/${code}`);
 }
 
@@ -45,7 +45,7 @@ export async function copyCode(code: string): Promise<void> {
 
 /** Extract a room code from a <scheme>://join/CODE url (null if it isn't one).
  *  Scheme-agnostic on purpose — see the note on SCHEME above. */
-export function codeFromUrl(url: string | null): string | null {
+function codeFromUrl(url: string | null): string | null {
   if (!url) return null;
   const parsed = Linking.parse(url);
   // scheme://join/ABCD parses as hostname "join" + path "ABCD" (two slashes) or

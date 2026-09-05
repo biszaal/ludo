@@ -37,11 +37,6 @@ export const teamTint: Record<PlayerColor, string> = {
   blue: "rgba(62,99,221,0.16)",
 };
 
-/** Readable text color to place ON a filled team color (Marigold needs dark ink). */
-export function onTeamColor(color: PlayerColor): string {
-  return color === "yellow" ? palette.feltCharcoal : palette.porcelain;
-}
-
 export const font = {
   display: "Outfit_700Bold",
   semibold: "Outfit_600SemiBold",

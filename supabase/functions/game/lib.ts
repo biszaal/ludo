@@ -9,12 +9,10 @@
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { createRemoteJWKSet, jwtVerify } from "https://esm.sh/jose@5";
 // @deno-types="../_shared/engine/index.d.ts"
-import type { Color, GameState, Rng } from "../_shared/engine/index.js";
+import type { GameState, Rng } from "../_shared/engine/index.js";
 import { corsHeaders } from "../_shared/cors.ts";
 
 export type { SupabaseClient };
-
-export const FULL_ORDER: Color[] = ["red", "green", "yellow", "blue"];
 
 /** How long a player has to act before any peer may skip their turn. */
 export const TURN_SECONDS = 30;
@@ -29,16 +27,6 @@ export const TURN_SECONDS = 30;
  * the room spent more time watching a countdown than playing.
  */
 export const AWAY_TURN_SECONDS = 6;
-
-/**
- * How long a seat stays away before the server removes the player for good.
- *
- * Time, not turn count: away turns now resolve in seconds, so a strike counter
- * alone would drop someone who put their phone down for a moment. This is the
- * "they closed the app" threshold, and it has to stay comfortably longer than
- * the round trip of backgrounding, reading a message and coming back.
- */
-export const AWAY_KICK_SECONDS = 90;
 
 /** Quick-match default entry. */
 export const QUICK_STAKE = 100;
@@ -73,40 +61,14 @@ export function turnHolder(state: GameState): string | null {
 }
 
 /**
- * Where each seat sits, for a table of `count`.
- *
- * Two rules, and the game id decides between the rotations:
- *
- *   - Seats are consecutive on the board's clockwise cycle, so seat i and seat
- *     i+2 always face each other across the diagonal and turn order runs the
- *     way the board is drawn. A 2-player table takes the diagonal directly.
- *   - Which color a seat draws is rotated by the game id rather than fixed, so
- *     the host is not red in every game they ever open. The id is a v4 uuid, so
- *     its last hex digit is uniform; deriving the offset from it instead of
- *     storing one keeps the client able to predict the deal (the lobby previews
- *     these exact colors) without a column or a round trip.
- *
- * Mirrors apps/mobile/src/lib/seating.ts — keep the two in step.
+ * Seat → color assignment now lives in the engine, so the lobby's preview and
+ * the deal read the same code instead of two copies kept in step by hand.
+ * Re-exported here because the room, quick-match and deal paths already import
+ * everything else from this module.
  */
-export function colorOffset(gameId?: string): number {
-  if (!gameId) return 0;
-  const last = parseInt(gameId.replace(/[^0-9a-f]/gi, "").slice(-1), 16);
-  return Number.isFinite(last) ? last % FULL_ORDER.length : 0;
-}
+export { COLOR_ORDER, colorOffset, seatColor, seatColors } from "../_shared/engine/index.js";
 
-/** The color for one seat, independent of how many end up seated. Used while a
- *  room is still filling; the deal re-reads all of them through seatColors. */
-export function seatColor(seat: number, gameId?: string): Color {
-  return FULL_ORDER[(colorOffset(gameId) + seat) % FULL_ORDER.length]!;
-}
-
-export function seatColors(count: number, gameId?: string): Color[] {
-  const from = colorOffset(gameId);
-  const rotated = FULL_ORDER.map((_, i) => FULL_ORDER[(from + i) % FULL_ORDER.length]!);
-  return count === 2 ? [rotated[0]!, rotated[2]!] : rotated.slice(0, count);
-}
-
-export function genCode(): string {
+function genCode(): string {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let code = "";
   for (let i = 0; i < 4; i++) code += alphabet[Math.floor(Math.random() * alphabet.length)];

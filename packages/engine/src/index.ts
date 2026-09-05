@@ -22,6 +22,7 @@ export {
   absoluteTrackIndex,
 } from "./board.js";
 export { type Rng, createSeededRng, rollDie, mathRandomRng } from "./rng.js";
+export { colorOffset, seatColor, seatColors } from "./seating.js";
 
 export { createGame, type CreateGameOptions } from "./createGame.js";
 export { rollDice, type RollResult } from "./rollDice.js";

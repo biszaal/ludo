@@ -5,7 +5,7 @@
  * repeat here — Settings owns the device, not the account.
  */
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { TableBackground } from "../components/TableBackground";
@@ -13,10 +13,11 @@ import { ScreenHeader } from "../components/ScreenHeader";
 import { ContentColumn } from "../components/ContentColumn";
 import { SectionLabel } from "../components/SectionLabel";
 import { SettingRow } from "../components/SettingRow";
+import { FeedbackSheet } from "../components/FeedbackSheet";
 import { registerForPush, unregisterPush } from "../lib/push";
 import { cancelBonusReminder, scheduleBonusReminder } from "../lib/bonusReminder";
 import { Surface3D } from "../components/Surface3D";
-import { BookGlyph, ChevronGlyph, CycleGlyph, NoteGlyph, PeopleGlyph, PulseGlyph, SpeakerGlyph } from "../components/HomeGlyphs";
+import { BookGlyph, ChevronGlyph, CycleGlyph, NoteGlyph, PeopleGlyph, PulseGlyph, SpeakerGlyph, SpeechGlyph } from "../components/HomeGlyphs";
 import { CoinGlyph } from "../components/CoinsPill";
 import { useNav } from "../store/navStore";
 import { useFullMotion } from "../lib/useMotion";
@@ -30,6 +31,7 @@ export function SettingsScreen() {
   const settings = useSettings();
   const fullMotion = useFullMotion();
   const push = useNav((s) => s.push);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: palette.tableBlue }}>
@@ -117,12 +119,28 @@ export function SettingsScreen() {
         </Tray>
 
         <Tray title="About">
+          {/* Feedback sits here rather than under Learn because the report
+              carries the build with it — version and phone are attached by
+              net/api, and this is the tray that already names the version. */}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Send feedback"
+            onPress={() => setFeedbackOpen(true)}
+            style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", minHeight: 52, gap: space.md, opacity: pressed ? 0.85 : 1 })}
+          >
+            <SpeechGlyph size={20} />
+            <Text style={{ flex: 1, fontFamily: font.medium, fontSize: 16, color: palette.porcelain }}>Send feedback</Text>
+            <ChevronGlyph size={16} />
+          </Pressable>
+          <Hairline />
           <View style={{ minHeight: 44, justifyContent: "center" }}>
             <Text style={{ fontFamily: font.mono, fontSize: 12, color: palette.mutedSteel }}>Ludo · v{APP_VERSION}</Text>
           </View>
         </Tray>
       </ContentColumn>
       </ScrollView>
+
+      {feedbackOpen ? <FeedbackSheet onClose={() => setFeedbackOpen(false)} /> : null}
     </SafeAreaView>
   );
 }

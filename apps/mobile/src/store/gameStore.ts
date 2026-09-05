@@ -16,13 +16,13 @@ import {
   getValidMoves,
   mathRandomRng,
   rollDice,
+  seatColors,
   type Color as PlayerColor,
   type GameState,
   type Move,
   type RuleConfig,
 } from "@ludo/engine";
 import { chooseMove } from "@ludo/bot";
-import { seatColors } from "../lib/seating";
 import { BUST_HOLD_MS } from "../lib/projection";
 import { DICE_ROLL_MS } from "../lib/moveTiming";
 import { resetGameClock } from "../lib/gameClock";

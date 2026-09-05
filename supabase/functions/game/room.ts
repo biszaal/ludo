@@ -12,7 +12,7 @@ import {
 import {
   afterResponse,
   freshState,
-  FULL_ORDER,
+  COLOR_ORDER,
   insertGameWithCode,
   json,
   LIMITS,
@@ -207,8 +207,8 @@ export async function opStart(
     const { data: seated } = await admin.from("players").select("id").eq("game_id", gameId).order("seat");
     const taken = seated?.length ?? 0;
     // A lone host filling up gets a full table; otherwise top up to four.
-    if (taken < FULL_ORDER.length) {
-      const colors = seatColors(FULL_ORDER.length, gameId);
+    if (taken < COLOR_ORDER.length) {
+      const colors = seatColors(COLOR_ORDER.length, gameId);
       await seatBots(admin, gameId, await fillSeats(admin, seated ?? [], colors), colors, true);
     }
   }

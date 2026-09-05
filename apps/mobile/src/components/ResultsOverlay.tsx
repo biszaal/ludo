@@ -28,7 +28,7 @@ import { Confetti } from "./Confetti";
 import { AvatarGlyph } from "./Avatar";
 import { AddFriendButton } from "./AddFriendButton";
 import { Surface3D } from "./Surface3D";
-import { computeStandings } from "../lib/standings";
+import { computeStandings, ordinal } from "../lib/standings";
 import { eligibleSeats, type Proposal } from "../lib/rematch";
 import { payoutSplit } from "../lib/economy";
 import { useLayout } from "../lib/useLayout";
@@ -80,10 +80,6 @@ interface ResultsOverlayProps {
 }
 
 /** 2 → "2nd", 3 → "3rd", 4 → "4th" (ranks only ever run 1–4). */
-function ordinal(rank: number): string {
-  return rank === 1 ? "1st" : rank === 2 ? "2nd" : rank === 3 ? "3rd" : `${rank}th`;
-}
-
 export function ResultsOverlay({ state, nameFor, avatarFor, onRematch, rematch, footnote, canAddFriends = false, stake = 0, live = false, onBackToGame, enterDelayMs = 900, onHome }: ResultsOverlayProps) {
   const userIdOf = (playerId: string) => state.players.find((p) => p.id === playerId)?.userId ?? null;
   const { width, height } = useWindowDimensions();

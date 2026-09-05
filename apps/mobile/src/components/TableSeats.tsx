@@ -27,9 +27,8 @@ import Animated, {
 import { useFullMotion } from "../lib/useMotion";
 import { AvatarGlyph } from "./Avatar";
 import { arc } from "../lib/motion";
-import { seatColors } from "../lib/seating";
 import { palette, radius, teamColor, teamTint } from "../theme";
-import type { Color as PlayerColor } from "@ludo/engine";
+import { seatColors, type Color as PlayerColor } from "@ludo/engine";
 
 export interface SeatOccupant {
   /**

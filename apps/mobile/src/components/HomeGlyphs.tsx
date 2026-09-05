@@ -1,10 +1,9 @@
 /**
- * Drawn glyphs for the Home hub's dock, tiles and chest — pure Skia/View
- * shapes in the GearGlyph/CoinGlyph tradition. No icon fonts, no emojis.
+ * Drawn glyphs for the Home hub's dock, tiles and chest — pure Skia shapes
+ * in the GearGlyph/CoinGlyph tradition. No icon fonts, no emojis.
  * All default to Muted Steel and take a `size` in px.
  */
 
-import { View } from "react-native";
 import { Canvas, Circle, Group, Path, RoundedRect } from "@shopify/react-native-skia";
 import { palette } from "../theme";
 
@@ -57,27 +56,6 @@ export function UserGlyph({ size, color = palette.mutedSteel }: { size: number; 
         />
       </Group>
     </Canvas>
-  );
-}
-
-/** Stats: three bars at deliberately unequal heights. View-only. */
-export function BarChartGlyph({ size, color = palette.mutedSteel }: { size: number; color?: string }) {
-  const bar = (h: number) => (
-    <View
-      style={{
-        width: size * 0.2,
-        height: size * h,
-        borderRadius: size * 0.07,
-        backgroundColor: color,
-      }}
-    />
-  );
-  return (
-    <View style={{ width: size, height: size, flexDirection: "row", alignItems: "flex-end", justifyContent: "center", gap: size * 0.1 }}>
-      {bar(0.45)}
-      {bar(0.9)}
-      {bar(0.65)}
-    </View>
   );
 }
 
@@ -171,6 +149,17 @@ export function NoteGlyph({ size, color = palette.mutedSteel }: { size: number; 
       <RoundedRect x={s * 0.39} y={s * 0.18} width={s * 0.06} height={s * 0.56} r={s * 0.03} color={color} />
       <RoundedRect x={s * 0.81} y={s * 0.12} width={s * 0.06} height={s * 0.54} r={s * 0.03} color={color} />
       <Path path={`M ${s * 0.39} ${s * 0.18} L ${s * 0.87} ${s * 0.12} L ${s * 0.87} ${s * 0.26} L ${s * 0.39} ${s * 0.32} Z`} color={color} />
+    </Canvas>
+  );
+}
+
+/** Feedback: a speech bubble with a tail. */
+export function SpeechGlyph({ size, color = palette.mutedSteel }: { size: number; color?: string }) {
+  const s = size;
+  return (
+    <Canvas style={{ width: s, height: s }}>
+      <RoundedRect x={s * 0.12} y={s * 0.18} width={s * 0.76} height={s * 0.54} r={s * 0.14} color={color} />
+      <Path path={`M ${s * 0.3} ${s * 0.68} L ${s * 0.3} ${s * 0.9} L ${s * 0.5} ${s * 0.7} Z`} color={color} />
     </Canvas>
   );
 }

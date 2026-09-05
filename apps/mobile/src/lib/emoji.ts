@@ -29,7 +29,7 @@ export const EMOJIS: EmojiSpec[] = [
   { id: "gg", source: require("../../assets/images/emoji/gg.png"), sound: "gg", label: "Good game" },
 ];
 
-export const EMOJI_BY_ID: Record<string, EmojiSpec> = Object.fromEntries(EMOJIS.map((e) => [e.id, e]));
+const EMOJI_BY_ID: Record<string, EmojiSpec> = Object.fromEntries(EMOJIS.map((e) => [e.id, e]));
 
 /** Reactions sent by builds that predate the sprite set (raw unicode). */
 const LEGACY: Record<string, string> = {

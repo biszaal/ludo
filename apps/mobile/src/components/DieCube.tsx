@@ -63,7 +63,7 @@ const PIP_XY: Record<number, [number, number][]> = {
 };
 
 /** Records the cube for `skin` into a `size` x `size` picture. */
-export function dieCubePicture(skin: DiceSkin, size: number): SkPicture {
+function dieCubePicture(skin: DiceSkin, size: number): SkPicture {
   // Half-edge of the cube, and where it sits. Sized so the corner-on
   // silhouette clears the canvas with room for the contact shadow.
   const H = size * 0.3;

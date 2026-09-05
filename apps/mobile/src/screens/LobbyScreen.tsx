@@ -25,7 +25,7 @@ import { QuickMatchSearch } from "../components/QuickMatchSearch";
 import { useOnlineStore } from "../store/onlineStore";
 import { setBackInterceptor } from "../store/navStore";
 import { confirm } from "../store/confirmStore";
-import { seatColors } from "../lib/seating";
+import { seatColors } from "@ludo/engine";
 import { CoinGlyph } from "../components/CoinsPill";
 import { copyCode } from "../lib/invite";
 import { formatCompact } from "../lib/format";

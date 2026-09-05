@@ -8,6 +8,7 @@
 export * from "./types.js";
 export { MAIN_TRACK_SIZE, TRACK_PATH_LENGTH, HOME_COLUMN_SIZE, FINISH_REL_INDEX, START_OFFSET, SAFE_SQUARES, TOKENS_PER_PLAYER, isSafeSquare, nextColor, toRelativeIndex, fromRelativeIndex, absoluteTrackIndex, } from "./board.js";
 export { type Rng, createSeededRng, rollDie, mathRandomRng } from "./rng.js";
+export { colorOffset, seatColor, seatColors } from "./seating.js";
 export { createGame, type CreateGameOptions } from "./createGame.js";
 export { rollDice, type RollResult } from "./rollDice.js";
 export { getValidMoves } from "./getValidMoves.js";

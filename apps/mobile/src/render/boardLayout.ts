@@ -10,7 +10,7 @@
 
 import type { Color as PlayerColor, TokenPosition } from "@ludo/engine";
 
-export const GRID = 15;
+const GRID = 15;
 
 /** The 52 shared track cells, in absolute order (index 0 = red's start). */
 export const TRACK_CELLS: ReadonlyArray<readonly [number, number]> = [
@@ -82,18 +82,13 @@ export function cellSize(boardSize: number): number {
   return boardSize / GRID;
 }
 
-/** Top-left pixel of a cell. */
-export function cellRect(col: number, row: number, cell: number): Point {
-  return { x: col * cell, y: row * cell };
-}
-
 /** Pixel center of a cell. */
-export function cellCenterPx(col: number, row: number, cell: number): Point {
+function cellCenterPx(col: number, row: number, cell: number): Point {
   return { x: (col + 0.5) * cell, y: (row + 0.5) * cell };
 }
 
 /** Pixel position of a grid-unit point (e.g. a yard slot center). */
-export function gridPointPx(gx: number, gy: number, cell: number): Point {
+function gridPointPx(gx: number, gy: number, cell: number): Point {
   return { x: gx * cell, y: gy * cell };
 }
 

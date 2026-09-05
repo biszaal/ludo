@@ -28,7 +28,7 @@ type NotificationsModule = typeof import("expo-notifications");
 let cached: NotificationsModule | null | undefined;
 
 /** True where the module can be used at all. Cheap; safe to call anywhere. */
-export function notificationsAvailable(): boolean {
+function notificationsAvailable(): boolean {
   return canLoadNotifications({ platform: Platform.OS, inExpoGo: isRunningInExpoGo() });
 }
 

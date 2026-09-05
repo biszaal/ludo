@@ -18,7 +18,7 @@ import { CoinGlyph } from "./CoinsPill";
 import { PlayCta } from "./PlayCta";
 import { formatCompact } from "../lib/format";
 import { canAfford, potFor } from "../lib/economy";
-import { seatColors } from "../lib/seating";
+import { seatColors } from "@ludo/engine";
 import { watchForReward } from "../lib/ads/rewarded";
 import { useAdsReady } from "../lib/ads/useAdsReady";
 import { useWallet } from "../store/walletStore";

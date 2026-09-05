@@ -44,27 +44,6 @@ export async function listFriendships(): Promise<Friendship[]> {
   return (data ?? []) as Friendship[];
 }
 
-/** Send a friend request to a user you've met (e.g. an opponent). */
-export async function sendFriendRequest(toUserId: string): Promise<void> {
-  const me = await ensureSignedIn();
-  if (toUserId === me) return;
-  const supabase = getSupabase();
-  // If they already sent me one, accept it instead of creating a reverse dupe.
-  const { data: reverse } = await supabase
-    .from("friendships")
-    .select("id, status")
-    .eq("requester_user_id", toUserId)
-    .eq("addressee_user_id", me)
-    .maybeSingle();
-  if (reverse) {
-    if (reverse.status === "pending") await acceptFriendRequest(reverse.id);
-    return;
-  }
-  await supabase
-    .from("friendships")
-    .upsert({ requester_user_id: me, addressee_user_id: toUserId, status: "pending" }, { onConflict: "requester_user_id,addressee_user_id" });
-}
-
 export async function acceptFriendRequest(id: string): Promise<void> {
   const supabase = getSupabase();
   await supabase.from("friendships").update({ status: "accepted" }).eq("id", id);

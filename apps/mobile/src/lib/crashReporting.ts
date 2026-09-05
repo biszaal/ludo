@@ -66,19 +66,3 @@ export function setCrashUser(userId: string | null): void {
     // ignore
   }
 }
-
-/**
- * Report something that was handled but should not have happened.
- *
- * For the caught-and-recovered cases that would otherwise leave no trace: a
- * failed link, a rejected turn the client papered over. These are the bugs that
- * never crash and never get reported.
- */
-export function reportHandled(error: unknown, context?: Record<string, unknown>): void {
-  if (!isCrashReportingConfigured) return;
-  try {
-    Sentry.captureException(error, context ? { extra: context } : undefined);
-  } catch {
-    // ignore
-  }
-}

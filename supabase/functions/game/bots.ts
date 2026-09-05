@@ -169,7 +169,7 @@ function pickBotDiceSkin(rng: () => number): string | null {
  * profiles FK holds) with an ordinary profile row — indistinguishable from a
  * human to every client-readable surface.
  */
-export async function claimOrCreateBotIdentity(admin: SupabaseClient, gameId: string): Promise<string | null> {
+async function claimOrCreateBotIdentity(admin: SupabaseClient, gameId: string): Promise<string | null> {
   const { data: claimed } = await admin.rpc("claim_bot_identity", { p_game: gameId });
   if (claimed) return String(claimed);
 
