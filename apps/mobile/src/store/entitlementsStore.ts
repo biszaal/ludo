@@ -23,7 +23,12 @@ import { useWallet } from "./walletStore";
 export const themeSku = (id: string) => `theme.${id}`;
 export const avatarSku = (id: string) => `avatar.${id}`;
 export const diceSku = (id: string) => `dice.${id}`;
-/** Removes ads. Sold later (Phase 8 IAP); honoured by the ad gates already. */
+/**
+ * Removes ads. Sold later (Phase 8 IAP), and NOT yet honoured anywhere: both
+ * ad gates hardcode `entitled = false` behind a TODO(phase-8) (AdSlot.tsx,
+ * GameView.tsx). The name exists so those two have something to point at, and
+ * to match the catalog row shipped in migration 0013.
+ */
 export const NO_ADS_SKU = "noads";
 
 interface EntitlementsStore {
