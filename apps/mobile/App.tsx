@@ -28,6 +28,7 @@ import { initDeepLinks } from "./src/lib/invite";
 import { initConnection } from "./src/lib/connection";
 import { initPush } from "./src/lib/push";
 import { initBonusReminder } from "./src/lib/bonusReminder";
+import { initUpdates } from "./src/lib/updates";
 import { initFriends, initPresence } from "./src/store/friendsStore";
 import { useConfig } from "./src/store/configStore";
 import { useAds } from "./src/store/adsStore";
@@ -116,6 +117,10 @@ export default function App() {
     // Watches the wallet and keeps the local "daily bonus ready" reminder
     // pointed at the next unclaimed one.
     const stopBonusReminder = initBonusReminder();
+    // OTA updates. Last, because it is the only one here that can decide to
+    // restart the app, and everything above should have had its chance to
+    // start normally first.
+    const stopUpdates = initUpdates();
     return () => {
       stopConnection();
       stopFeedback();
@@ -125,6 +130,7 @@ export default function App() {
       stopPresence();
       stopPush();
       stopBonusReminder();
+      stopUpdates();
     };
   }, []);
 

@@ -3,6 +3,14 @@
     "name": "Ludo",
     "slug": "ludo",
     "version": "1.1.1",
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/aa506900-7563-476a-a26b-899cf733621a",
+      "fallbackToCacheTimeout": 0,
+      "checkAutomatically": "ON_LOAD"
+    },
     "orientation": "portrait",
     "icon": "./assets/images/app-icon/icon.png",
     "userInterfaceStyle": "light",

@@ -6,16 +6,21 @@
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal"
+      "distribution": "internal",
+      "channel": "development",
+      "env": { "SENTRY_DISABLE_AUTO_UPLOAD": "true" }
     },
     "development-simulator": {
       "developmentClient": true,
       "distribution": "internal",
+      "channel": "development",
+      "env": { "SENTRY_DISABLE_AUTO_UPLOAD": "true" },
       "ios": { "simulator": true }
     },
     "preview": {
       "distribution": "internal",
       "environment": "preview",
+      "channel": "preview",
       "env": { "SENTRY_DISABLE_AUTO_UPLOAD": "true" },
       "ios": { "simulator": true, "image": "macos-tahoe-26.4-xcode-26.4" },
       "android": { "buildType": "apk" }
@@ -29,7 +34,7 @@
     "production": {
       "autoIncrement": true,
       "environment": "production",
-      "env": { "SENTRY_DISABLE_AUTO_UPLOAD": "true" },
+      "channel": "production",
       "ios": { "image": "macos-tahoe-26.4-xcode-26.4" }
     }
   },

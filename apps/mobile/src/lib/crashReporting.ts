@@ -53,6 +53,29 @@ export function initCrashReporting(): void {
 }
 
 /**
+ * Report an error that was CAUGHT — a path that failed and was handled, not a
+ * crash.
+ *
+ * Most swallowed failures in this app genuinely deserve silence: a missed
+ * haptic, a chat message that did not send. The ones worth this are the ones
+ * where the swallow hides a feature not working at all, with nothing on screen
+ * to say so — an update that never applies, a purchase that never restores.
+ * Those look identical to "working fine" from the outside, and this is the only
+ * way we would ever hear about them.
+ *
+ * `where` is a short tag ("updates.check"), matching the convention the edge
+ * function's safeError uses, so a report can be traced to one call site.
+ */
+export function captureError(e: unknown, tags: { where: string }): void {
+  if (!isCrashReportingConfigured) return;
+  try {
+    Sentry.captureException(e, { tags });
+  } catch {
+    // Reporting a failure must never become one.
+  }
+}
+
+/**
  * Tell reports which player they came from — the anonymous auth id, nothing
  * more. Called when identity settles and again whenever it changes, because a
  * crash attributed to the previous account is worse than one attributed to

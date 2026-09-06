@@ -38,6 +38,7 @@ import { CycleGlyph, PeopleGlyph } from "../components/HomeGlyphs";
 import { ContentColumn } from "../components/ContentColumn";
 import { stillDieColors } from "../components/DieStill";
 import { useLayout } from "../lib/useLayout";
+import { applyPendingUpdate } from "../lib/updates";
 import { homeMetrics, HOME_GUEST_STRIP } from "../lib/layout";
 import { useWallet } from "../store/walletStore";
 import { useConfig } from "../store/configStore";
@@ -136,6 +137,14 @@ export function HomeScreen() {
 
   // Warm the presence map so the friends-online line is real, not stale.
   useEffect(() => pollPresence(), []);
+
+  // Landing on Home is the moment an unsafe app becomes a safe one: no game of
+  // either kind is alive and nothing is half-finished, which is the only state
+  // an OTA reload may interrupt. Home remounts on every popTo("home"), so a
+  // player who finishes a match and stays in the app picks up a waiting update
+  // here rather than at some cold launch days away. No-ops when nothing is
+  // pending, which is almost always.
+  useEffect(() => applyPendingUpdate(), []);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: palette.tableBlue }}>
