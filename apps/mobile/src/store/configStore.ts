@@ -50,6 +50,10 @@ export interface AppConfig {
     banner: { home: boolean; lobby: boolean };
     interstitial: InterstitialConfig;
     rewarded: RewardedConfig;
+    /** The Remove Ads product (0063). `enabled` hides the offer without
+     *  touching anyone's existing entitlement — a kill switch for the tile,
+     *  never for what a player already bought. */
+    removeAds: { enabled: boolean; productId: string };
   };
   economy: {
     quickStake: number;
@@ -95,6 +99,7 @@ export const DEFAULT_CONFIG: AppConfig = {
       suppressAfterStakedLoss: true,
     },
     rewarded: { freeEntry: true, coinGrant: true, doublePot: true, hintLocalOnly: true, gemGrant: true },
+    removeAds: { enabled: true, productId: "noads" },
   },
   economy: {
     quickStake: 100,

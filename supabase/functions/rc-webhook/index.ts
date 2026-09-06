@@ -1,10 +1,17 @@
 /**
- * RevenueCat webhook → gems credit (Supabase Edge / Deno).
+ * RevenueCat webhook → gems credit and entitlement grant (Supabase Edge / Deno).
  *
- * RevenueCat is the source of truth that a real-money gem pack was actually
+ * RevenueCat is the source of truth that a real-money purchase was actually
  * paid for (it validates the App Store / Play receipt). It then calls this
- * endpoint, and THIS is the only path that mints paid gems in production — the
- * client never credits itself.
+ * endpoint, and THIS is the only path that mints paid gems or grants a paid
+ * entitlement in production — the client never grants itself anything.
+ *
+ * Two products arrive here and they differ only in what they hand over:
+ *
+ *   gem packs   consumable. Credits a balance through gem_apply, idempotent on
+ *               the store transaction id.
+ *   noads       non-consumable (0063). Writes an entitlements row, idempotent
+ *               on that table's own primary key.
  *
  * Security + correctness:
  *  - Auth: the request's `Authorization` header must equal RC_WEBHOOK_AUTH (set
@@ -43,7 +50,22 @@ const GEM_PRODUCTS: Record<string, number> = {
   "gems.large": 750,
 };
 
-/** RC event types that represent a completed one-off (consumable) purchase. */
+/**
+ * The Remove Ads product, and the entitlement sku it grants.
+ *
+ * Overridable through server config (`ads.removeAds.productId`) for the same
+ * reason the gem products are: the store product id is a decision that can
+ * change after a build has shipped, and a hardcoded one would need a release
+ * to correct. The SKU it grants is not configurable — `noads` is written into
+ * the catalog seed (0013) and into the app's own gate, and a config typo that
+ * silently granted an entitlement nothing reads would be indistinguishable
+ * from a purchase that did not arrive.
+ */
+const REMOVE_ADS_PRODUCT = "noads";
+const REMOVE_ADS_SKU = "noads";
+
+/** RC event types that represent a completed one-off purchase — consumable
+ *  (gem packs) or non-consumable (Remove Ads) alike. */
 const PURCHASE_TYPES = new Set(["NON_RENEWING_PURCHASE", "INITIAL_PURCHASE"]);
 
 const STORE_PROVIDER: Record<string, string> = {
@@ -59,11 +81,24 @@ function json(body: Json, status = 200): Response {
   });
 }
 
-/** The `gems` block of the default app_config row. One read serves both the
- *  product map and the sandbox gate below. */
-async function gemsConfig(admin: SupabaseClient): Promise<Json> {
+/** The default app_config row. One read serves the gem product map, the
+ *  sandbox gate, and the Remove Ads product id. */
+async function appConfig(admin: SupabaseClient): Promise<Json> {
   const { data } = await admin.from("app_config").select("value").eq("key", "default").maybeSingle();
-  return (((data as { value?: Json } | null)?.value)?.gems ?? {}) as Json;
+  return (((data as { value?: Json } | null)?.value) ?? {}) as Json;
+}
+
+/** The `gems` block, which is where the product map and the sandbox flag live. */
+function gemsBlock(cfg: Json): Json {
+  return (cfg.gems ?? {}) as Json;
+}
+
+/** Which store product means Remove Ads. See REMOVE_ADS_PRODUCT. */
+export function removeAdsProduct(cfg: Json): string {
+  const ads = (cfg.ads ?? {}) as Json;
+  const removeAds = (ads.removeAds ?? {}) as Json;
+  const id = removeAds.productId;
+  return typeof id === "string" && id ? id : REMOVE_ADS_PRODUCT;
 }
 
 /** gems.products → { productId: gems }, over the built-in fallbacks. */
@@ -132,10 +167,18 @@ Deno.serve(async (req: Request) => {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
-  // 4) Resolve the gem amount for the purchased product.
-  const gemsCfg = await gemsConfig(admin);
-  const gems = productGems(gemsCfg)[productId];
-  if (!gems || gems <= 0) return json({ error: `Unknown product ${productId}.` }, 400);
+  // 4) Resolve what was bought.
+  //
+  // Two shapes of product now arrive here, and they differ in what they hand
+  // over rather than in how they are paid for: a gem pack credits a balance,
+  // Remove Ads writes an entitlement. Everything before this point — auth,
+  // idempotency key, the anonymous-id guard — is common to both, and
+  // everything after branches once, at the end.
+  const cfg = await appConfig(admin);
+  const gemsCfg = gemsBlock(cfg);
+  const isRemoveAds = productId === removeAdsProduct(cfg);
+  const gems = isRemoveAds ? 0 : (productGems(gemsCfg)[productId] ?? 0);
+  if (!isRemoveAds && gems <= 0) return json({ error: `Unknown product ${productId}.` }, 400);
 
   const provider = STORE_PROVIDER[store] ?? "stub";
 
@@ -158,7 +201,26 @@ Deno.serve(async (req: Request) => {
     .insert({ user_id: appUserId, product_id: productId, gems, provider, provider_txn_id: txnId, status: "credited", credited_at: new Date().toISOString() })
     .then(undefined, () => {}); // unique (provider, provider_txn_id) → duplicate webhook, fine
 
-  // 7) Credit — idempotent on rc:<txnId>. A DB failure returns 500 so RC retries.
+  // 7) Hand over what was bought.
+  //
+  // Remove Ads is an entitlement, and its idempotency is the table's own
+  // primary key (user_id, sku) rather than a ledger ext_id: owning it twice is
+  // not a thing that can be represented, so a retried webhook conflicts and
+  // that conflict IS the correct outcome. Postgres reports it as 23505, which
+  // is the one error here that must not become a 500 — a 500 asks RevenueCat
+  // to retry forever a delivery that already succeeded.
+  if (isRemoveAds) {
+    const { error: grantErr } = await admin
+      .from("entitlements")
+      .insert({ user_id: appUserId, sku: REMOVE_ADS_SKU, source: "iap" });
+    if (grantErr && (grantErr as { code?: string }).code !== "23505") {
+      console.error("rc: remove-ads grant failed", grantErr.message);
+      return json({ error: "Grant failed." }, 500);
+    }
+    return json({ ok: true, userId: appUserId, sku: REMOVE_ADS_SKU });
+  }
+
+  // Credit — idempotent on rc:<txnId>. A DB failure returns 500 so RC retries.
   const { data, error } = await admin.rpc("gem_apply", {
     p_user: appUserId,
     p_delta: gems,

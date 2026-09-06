@@ -23,6 +23,7 @@ import { ContentColumn } from "../components/ContentColumn";
 import { CoinsPill } from "../components/CoinsPill";
 import { GemsPill } from "../components/GemsPill";
 import { CosmeticsBrowser } from "../components/CosmeticsBrowser";
+import { RemoveAdsSection } from "../components/RemoveAdsSection";
 import { GetCoinsSheet } from "../components/GetCoinsSheet";
 import { palette, space } from "../theme";
 
@@ -48,6 +49,7 @@ export function ShopScreen() {
 
       <ScrollView contentContainerStyle={{ paddingTop: space.lg, paddingBottom: space.xxl + dockPad, alignItems: "center" }}>
         <ContentColumn style={{ paddingHorizontal: space.xl, gap: space.lg }}>
+          <RemoveAdsSection />
           <CosmeticsBrowser mode="shop" />
         </ContentColumn>
       </ScrollView>

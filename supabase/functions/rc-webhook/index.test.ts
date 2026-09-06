@@ -13,7 +13,7 @@
  */
 
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { creditable, productGems } from "./index.ts";
+import { creditable, productGems, removeAdsProduct } from "./index.ts";
 import { secretMatches } from "../_shared/secret.ts";
 
 Deno.test("a production purchase credits", () => {
@@ -64,4 +64,26 @@ Deno.test("the webhook secret compares in constant time", () => {
   assertEquals(secretMatches("hunter3", "hunter2"), false);
   assertEquals(secretMatches("", "hunter2"), false);
   assertEquals(secretMatches("hunter2extra", "hunter2"), false);
+});
+
+Deno.test("the Remove Ads product id falls back and can be overridden", () => {
+  // Absent config must still recognise the product, or a config row that has
+  // never been touched means nobody can buy Remove Ads at all.
+  assertEquals(removeAdsProduct({}), "noads");
+  assertEquals(removeAdsProduct({ ads: {} }), "noads");
+  assertEquals(removeAdsProduct({ ads: { removeAds: {} } }), "noads");
+  assertEquals(removeAdsProduct({ ads: { removeAds: { productId: "ludo.noads.v2" } } }), "ludo.noads.v2");
+});
+
+Deno.test("a malformed Remove Ads product id falls back rather than matching nothing", () => {
+  // An empty string is the dangerous one: it would match no product, so every
+  // Remove Ads purchase would 400 as unknown and RevenueCat would retry a
+  // delivery that can never succeed.
+  for (const bad of ["", 0, null, {}, []]) {
+    assertEquals(
+      removeAdsProduct({ ads: { removeAds: { productId: bad } } }),
+      "noads",
+      `${JSON.stringify(bad)} must fall back`,
+    );
+  }
 });

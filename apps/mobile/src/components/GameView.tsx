@@ -48,6 +48,7 @@ import { matchOverForSeat, seatFinish } from "../lib/seatFinish";
 import { useDieHandover } from "../lib/useDieHandover";
 import { useAds, canShowInterstitial } from "../store/adsStore";
 import { useConfig } from "../store/configStore";
+import { noAdsActive, useEntitlements } from "../store/entitlementsStore";
 import { preloadInterstitial, showInterstitial } from "../lib/ads/provider";
 
 /** Height the top bar ("Ludo" and its pills) occupies. Only the railed layout
@@ -346,8 +347,14 @@ export function GameView({
    * never right after losing a staked match) lives in canShowInterstitial.
    */
   const maybeShowEndOfMatchAd = useCallback(async () => {
-    // TODO(phase-8): real `noads` entitlement once coin packs ship.
-    if (!canShowInterstitial(useAds.getState(), useConfig.getState().config, false)) return;
+    // Read at the moment of the check, not captured in the callback's closure:
+    // a player can buy Remove Ads mid-match, and the interstitial this gates is
+    // the very next thing they would otherwise see.
+    const entitled = noAdsActive(
+      useEntitlements.getState().owned,
+      useEntitlements.getState().noAdsRestored,
+    );
+    if (!canShowInterstitial(useAds.getState(), useConfig.getState().config, entitled)) return;
     const shown = await showInterstitial();
     if (shown) useAds.getState().noteInterstitialShown();
   }, []);

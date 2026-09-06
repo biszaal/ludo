@@ -11,6 +11,7 @@ import { bannerUnitId, type BannerSlot } from "../lib/ads/units";
 import { useAdsReady } from "../lib/ads/useAdsReady";
 import { useConfig } from "../store/configStore";
 import { adsEnabled } from "../store/adsStore";
+import { useNoAds } from "../store/entitlementsStore";
 
 interface AdSlotProps {
   slot: BannerSlot;
@@ -51,9 +52,10 @@ export function AdSlot({ slot }: AdSlotProps) {
     return () => clearTimeout(t);
   }, [waiting, attempt]);
 
-  // TODO(phase-8): swap `false` for the real `noads` entitlement once coin
-  // packs ship. Wired through now so nothing has to be re-plumbed then.
-  const entitled = false;
+  // The real entitlement (0063). Subscribed rather than read once: a purchase
+  // made from the shop has to take the banner off this screen without a
+  // remount, and the sheet the player bought from is mounted over it.
+  const entitled = useNoAds();
 
   const givenUp = waiting && RETRY_DELAYS_MS[attempt] === undefined;
   const allowed =
