@@ -197,7 +197,11 @@ export function LobbyScreen() {
           </Text>
           {lobby.map((p, i) => {
             const color = previewColors[i] ?? p.color;
-            const profile = profiles[p.user_id];
+            // A filled bot seat is a colour and a tag, never a name and a face.
+            // Its identity comes from a pool kept apart from the hidden
+            // quick-match one (0062); showing a borrowed name here is how a
+            // player would learn to spot the same name in matchmaking.
+            const profile = p.is_bot ? undefined : profiles[p.user_id];
             return (
               <Surface3D
                 key={p.id}

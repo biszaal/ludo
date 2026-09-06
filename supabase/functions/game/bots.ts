@@ -1,10 +1,20 @@
 /**
- * Hidden fill-in seats for quick match.
+ * Server-driven fill-in seats.
  *
- * A bot is a real auth user with an ordinary profile row — nothing
- * client-readable marks the seat as anything else. Bot-ness lives in
- * `game_bots` / `bot_identities`, which have RLS on and no policies, so only
- * the service role can see them.
+ * A bot is a real auth user. Bot-ness lives in `game_bots` / `bot_identities`,
+ * which have RLS on and no policies, so only the service role can see them.
+ *
+ * There are two kinds, drawn from two pools that never mix (0062):
+ *
+ *   hidden   quick match, when nobody shows up. An ordinary profile row —
+ *            name, matching face, plausible dice skin — so nothing
+ *            client-readable marks the seat as anything but a player. It
+ *            reacts in chat, because silence is a tell too.
+ *   labelled friend rooms, when the host asks to fill the empty chairs.
+ *            Wears a BOT tag, carries NO profile row (so the client shows the
+ *            seat's colour), and never speaks. It has nothing to hide, and
+ *            anything it showed or said would be a lesson in spotting the
+ *            hidden ones.
  */
 
 // @deno-types="../_shared/engine/index.d.ts"
@@ -165,12 +175,24 @@ function pickBotDiceSkin(rng: () => number): string | null {
 }
 
 /**
- * Reuse a free identity from the pool, or mint one: a real auth user (so the
- * profiles FK holds) with an ordinary profile row — indistinguishable from a
- * human to every client-readable surface.
+ * Reuse a free identity from the pool, or mint one: a real auth user, so the
+ * players FK holds.
+ *
+ * `visible` picks the pool, and the two never mix (0062). A hidden fill-in
+ * needs the disguise — a name, a matching face, a plausible dice skin. A
+ * labelled friend-room seat needs the opposite: no profile row at all, so the
+ * client falls back to the seat's colour ("Red", "Blue") and there is nothing
+ * about it a player could ever recognise on a quick-match opponent.
  */
-async function claimOrCreateBotIdentity(admin: SupabaseClient, gameId: string): Promise<string | null> {
-  const { data: claimed } = await admin.rpc("claim_bot_identity", { p_game: gameId });
+async function claimOrCreateBotIdentity(
+  admin: SupabaseClient,
+  gameId: string,
+  visible: boolean,
+): Promise<string | null> {
+  const { data: claimed } = await admin.rpc(
+    visible ? "claim_visible_bot_identity" : "claim_bot_identity",
+    { p_game: gameId },
+  );
   if (claimed) return String(claimed);
 
   const { data: created, error } = await admin.auth.admin.createUser({
@@ -179,7 +201,9 @@ async function claimOrCreateBotIdentity(admin: SupabaseClient, gameId: string): 
   });
   if (error || !created?.user) return null;
   const uid = created.user.id;
-  await admin.from("bot_identities").insert({ user_id: uid, in_use_game_id: gameId });
+  await admin.from("bot_identities").insert({ user_id: uid, in_use_game_id: gameId, visible });
+  // A labelled seat is done here: no name, no face, nothing to leak.
+  if (visible) return uid;
 
   const diceSkin = pickBotDiceSkin(cryptoRng);
   // Name first, face second. The other order (which is what this used to do)
@@ -211,9 +235,18 @@ async function claimOrCreateBotIdentity(admin: SupabaseClient, gameId: string): 
  * Seat bots into the given chairs.
  *
  * Shared by quick match (hidden fill-in when nobody shows up) and friend rooms
- * (the host explicitly asked to fill). `visible` is the only difference: it
- * sets players.is_bot, which the client turns into a BOT tag. Quick match must
- * pass false or the camouflage is gone (0035).
+ * (the host explicitly asked to fill). `visible` decides three things at once,
+ * and they all follow from one rule — the disguise lives in matchmaking only,
+ * so nothing a player learns from a labelled seat can be turned on a
+ * quick-match opponent (0062):
+ *
+ *   players.is_bot      the client's BOT tag. Quick match must pass false or
+ *                       the camouflage is gone (0035).
+ *   which pool          labelled seats draw from the visible identities, which
+ *                       carry no profile row and so render as their colour.
+ *   game_bots.can_chat  only hidden seats talk. A tagged seat has nothing to
+ *                       hide, and its chatter would teach a player what a bot
+ *                       sounds like before they ever meet one in matchmaking.
  *
  * The chairs are a list rather than a range because a friend room does not
  * always fill left to right: two humans at a four-handed table take the
@@ -232,7 +265,7 @@ export async function seatBots(
 ): Promise<number> {
   let added = 0;
   for (const seat of seats) {
-    const botUserId = await claimOrCreateBotIdentity(admin, gameId);
+    const botUserId = await claimOrCreateBotIdentity(admin, gameId, visible);
     if (!botUserId) break;
     const { error: seatErr } = await admin
       .from("players")
@@ -247,7 +280,7 @@ export async function seatBots(
     }
     // Awaited: the insert's trigger is what sets games.has_bots (0022), and the
     // caller's startGameNow reads that flag to decide whether to drive a bot.
-    await admin.from("game_bots").insert({ game_id: gameId, user_id: botUserId });
+    await admin.from("game_bots").insert({ game_id: gameId, user_id: botUserId, can_chat: !visible });
     added++;
   }
   return added;
@@ -257,19 +290,25 @@ export async function seatBots(
 interface BotChatMeta {
   chatCount: number;
   lastChatAtMs: number | null;
+  /** False for a labelled friend-room seat: it plays, it never speaks (0062). */
+  canChat: boolean;
 }
 export type BotSeats = Map<string, BotChatMeta>;
 
 /** Read the game's bot seats and their chat budgets in one go. This select
- *  already ran on every write; the two extra columns ride along for free. */
+ *  already ran on every write; the chat columns ride along for free. */
 async function loadBotSeats(admin: SupabaseClient, gameId: string): Promise<BotSeats> {
-  const { data } = await admin.from("game_bots").select("user_id, chat_count, last_chat_at").eq("game_id", gameId);
+  const { data } = await admin
+    .from("game_bots")
+    .select("user_id, chat_count, last_chat_at, can_chat")
+    .eq("game_id", gameId);
   const seats: BotSeats = new Map();
   for (const row of data ?? []) {
     const lastAt = row.last_chat_at as string | null;
     seats.set(String(row.user_id), {
       chatCount: (row.chat_count as number | null) ?? 0,
       lastChatAtMs: lastAt ? Date.parse(lastAt) : null,
+      canChat: (row.can_chat as boolean | null) ?? true,
     });
   }
   return seats;
@@ -365,10 +404,18 @@ async function releaseAndDrive(
  * happened. When a moment belongs to nobody in particular (a game start, two
  * humans colliding) the speaker is drawn from the seats still holding budget.
  *
+ * Only seats allowed to speak are ever candidates. A labelled friend-room table
+ * has none, which is the early return below — but classification still runs
+ * over EVERY bot seat, because the bot set is what tells a bot's capture from
+ * two humans clashing. Handing classifyEvent the chatty subset instead would
+ * quietly relabel a silent bot as a human.
+ *
  * Failure is silence. Chat is decoration on top of a game that has to keep
  * working, so every path here swallows rather than throws.
  */
-async function maybeBotChat(
+/** Exported for tests: the mute rule for labelled seats is only observable by
+ *  calling this with a table of them. */
+export async function maybeBotChat(
   admin: SupabaseClient,
   gameId: string,
   seats: BotSeats,
@@ -376,12 +423,15 @@ async function maybeBotChat(
   next: GameState,
   opts: ClassifyOpts,
 ): Promise<void> {
+  const talkers = [...seats].filter(([, meta]) => meta.canChat).map(([id]) => id);
+  if (talkers.length === 0) return;
+
   const moment = classifyEvent(prev, next, new Set(seats.keys()), opts);
   if (!moment) return;
 
   const candidates = moment.speakerUserId
-    ? [moment.speakerUserId].filter((id) => seats.has(id))
-    : [...seats.keys()];
+    ? talkers.filter((id) => id === moment.speakerUserId)
+    : talkers;
   if (candidates.length === 0) return;
   const speaker = candidates[Math.floor(cryptoRng() * candidates.length)]!;
 

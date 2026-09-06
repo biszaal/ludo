@@ -29,8 +29,8 @@ Deno.env.set("DICE_SECRET", "test-dice-secret-for-server-driven-fold");
 /** Both seats are bots, so the driver never stands down for a human. */
 function botSeats(): BotSeats {
   return new Map([
-    [BOT_UID, { chatCount: 0, lastChatAtMs: null }],
-    [BOT_UID + "b", { chatCount: 0, lastChatAtMs: null }],
+    [BOT_UID, { chatCount: 0, lastChatAtMs: null, canChat: true }],
+    [BOT_UID + "b", { chatCount: 0, lastChatAtMs: null, canChat: true }],
   ]);
 }
 

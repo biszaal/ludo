@@ -176,7 +176,10 @@ async function fillSeats(
  *
  * Unlike quick match these bots are LABELLED (players.is_bot, 0035). In a
  * private room everyone knows who was invited, so an unexplained extra name
- * would read as a stranger walking in.
+ * would read as a stranger walking in. Being labelled, they are also drawn
+ * from their own identity pool, show as their seat's colour rather than a name
+ * and face, and never chat (0062) — a friend-room fill must teach a player
+ * nothing they could use to spot a hidden quick-match seat.
  *
  * FRIENDLY ROOMS ONLY. The pot is stake × every seat and the house stands the
  * bot seats' share (finish.ts), which is fine when nobody chose to be matched

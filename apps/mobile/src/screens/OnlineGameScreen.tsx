@@ -1,7 +1,8 @@
 /**
  * Online game screen — wires the shared GameView to the online store. Input is
  * enabled only on the local player's turn. Seats show profile names/avatars
- * when a profile row exists (color labels otherwise). A rematch is proposed
+ * when a profile row exists (color labels otherwise — which is what a labelled
+ * friend-room bot always gets). A rematch is proposed
  * from the results overlay and voted on by everyone still seated; the
  * accepters are dealt the new board.
  */
@@ -131,16 +132,24 @@ export function OnlineGameScreen() {
         onPropose: () => void proposeRematch(),
         onAnswer: (accept) => void answerRematch(accept),
       }}
-      nameFor={(playerId) => (isMe(playerId) ? myName : null) ?? profileOf(playerId)?.display_name ?? null}
+      // A labelled bot has no identity to show, on purpose: null here falls
+      // through to the seat's colour ("Red", "Blue") and a plain colour disc,
+      // which is all a friend-room fill-in should ever be. Its pooled identity
+      // carries no profile row either (0062) — this is the second lock on the
+      // same door, so the seat reads as a colour even if a row ever appears.
+      nameFor={(playerId) =>
+        botOf(playerId) ? null : ((isMe(playerId) ? myName : null) ?? profileOf(playerId)?.display_name ?? null)}
       // Local-first for my own seat (like nameFor / diceSkinFor): my profile row
       // may not be in the fetched cache yet, and I always know my own avatar.
-      avatarFor={(playerId) => (isMe(playerId) ? myAvatar : (profileOf(playerId)?.avatar_id ?? null))}
+      avatarFor={(playerId) =>
+        botOf(playerId) ? null : isMe(playerId) ? myAvatar : (profileOf(playerId)?.avatar_id ?? null)}
       // Local-first for my own seat: the profiles cache is fetched once per
       // user per session and skips users already cached (onlineStore's
       // fetchProfiles), so it can go stale if I re-equip a skin mid-session.
-      // Everyone else — bots included, they carry an ordinary profiles row —
-      // resolves the same way a name or avatar does.
-      diceSkinFor={(playerId) => (isMe(playerId) ? myDiceSkin : (profileOf(playerId)?.dice_skin ?? null))}
+      // Everyone else — hidden bots included, they carry an ordinary profiles
+      // row — resolves the same way a name or avatar does.
+      diceSkinFor={(playerId) =>
+        botOf(playerId) ? null : isMe(playerId) ? myDiceSkin : (profileOf(playerId)?.dice_skin ?? null)}
       offlineFor={offlineOf}
       leftFor={leftOf}
       botFor={botOf}
