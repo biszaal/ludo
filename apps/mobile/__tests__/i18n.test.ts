@@ -13,7 +13,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { LOCALES, LOCALE_NAMES, isRtl, resolveLocale, translate, type Locale } from "../src/i18n";
+import { LOCALES, LOCALE_NAMES, isRtl, resolveLocale, translate, useLocale, type Locale } from "../src/i18n";
 import { en } from "../src/i18n/locales/en";
 import { hi } from "../src/i18n/locales/hi";
 import { ne } from "../src/i18n/locales/ne";
@@ -21,6 +21,7 @@ import { bn } from "../src/i18n/locales/bn";
 import { ur } from "../src/i18n/locales/ur";
 import { es } from "../src/i18n/locales/es";
 import { ptBR } from "../src/i18n/locales/pt-BR";
+import { QUICK_MESSAGES, displayPhrase } from "../src/lib/chatPhrases";
 
 const TABLES: Record<Locale, Record<string, string>> = { en, hi, ne, bn, ur, es, "pt-BR": ptBR };
 
@@ -123,7 +124,7 @@ describe("catalogs", () => {
     // the right Portuguese word and would be a missing translation in Hindi.
     const PROPER_NOUNS = new Set(["account.google", "account.apple", "shop.avatar", "lobby.bot"]);
     const LOANWORDS: Partial<Record<Locale, string[]>> = {
-      "pt-BR": ["friends.online", "friends.offline"],
+      "pt-BR": ["friends.online", "friends.offline", "stats.modeOnline"],
       // "AI" is said and written as AI in all four — Spanish and Portuguese
       // are the ones that localise it (IA), and they are not listed here.
       hi: ["status.aiSeat"],
@@ -139,6 +140,38 @@ describe("catalogs", () => {
         (k) => !allowed.has(k) && TABLES[l][k] === (en as Record<string, string>)[k],
       );
       expect(untranslated, `${l} still has English in: ${untranslated.join(", ")}`).toEqual([]);
+    }
+  });
+});
+
+describe("chat phrases", () => {
+  it("translates a canned line for display", () => {
+    // The wire value is English; what a reader sees is their own language.
+    expect(displayPhrase("Good luck!")).toBe(translate("en", "chat.q.goodLuck"));
+  });
+
+  it("passes free text through untouched", () => {
+    // Somebody's typed message. We cannot translate it and must not try.
+    expect(displayPhrase("meet me in the friends room")).toBe("meet me in the friends room");
+    expect(displayPhrase("")).toBe("");
+  });
+
+  it("covers every canned line except GG", () => {
+    // Driven in Hindi on purpose: in English the wire value and the displayed
+    // value are the same string, so an English run would pass even with the
+    // whole lookup table missing.
+    const previous = useLocale.getState().chosen;
+    useLocale.getState().setLocale("hi");
+    try {
+      for (const wire of QUICK_MESSAGES) {
+        if (wire === "GG") continue;
+        expect(displayPhrase(wire), `${wire} has no catalog entry`).not.toBe(wire);
+      }
+      // GG is the same in every language this ships in, and giving it a catalog
+      // entry would invite someone to "translate" it into something nobody says.
+      expect(displayPhrase("GG")).toBe("GG");
+    } finally {
+      useLocale.getState().setLocale(previous);
     }
   });
 });

@@ -28,8 +28,14 @@ import { resolveBoardTheme, type BoardTheme } from "../render/boardThemes";
 import { useSettings } from "../store/settingsStore";
 import { useStats, type MatchMode, type MatchRecord } from "../store/statsStore";
 import { font, palette, radius, space } from "../theme";
+import { useT, type StringKey } from "../i18n";
 
-const MODE_LABEL: Record<MatchMode, string> = { ai: "vs AI", pass: "Pass & play", online: "Online" };
+/** Mode names, resolved per render so a language change reaches them. */
+const MODE_KEY: Record<MatchMode, StringKey> = {
+  ai: "stats.modeAi",
+  pass: "stats.modePass",
+  online: "stats.modeOnline",
+};
 
 /** Matches rendered per page — one screenful of history, no more. */
 const RECENT_PAGE = 6;
@@ -42,6 +48,7 @@ interface StatsContentProps {
 }
 
 export function StatsContent({ loadMoreSignal = 0 }: StatsContentProps) {
+  const t = useT();
   const totals = useStats((s) => s.totals);
   const recent = useStats((s) => s.recent);
   const boardTheme = resolveBoardTheme(useSettings((s) => s.boardThemeId));
@@ -63,7 +70,7 @@ export function StatsContent({ loadMoreSignal = 0 }: StatsContentProps) {
   if (played === 0) {
     return (
       <View style={{ gap: space.sm }}>
-        <SectionLabel>Stats</SectionLabel>
+        <SectionLabel>{t("stats.title")}</SectionLabel>
         <Surface3D rad={radius.lg} faceStyle={{ padding: space.lg, alignItems: "center", gap: space.sm }}>
           <Canvas style={{ width: 64, height: 64 }}>
             <BoardSurface size={64} theme={boardTheme} />
@@ -81,13 +88,13 @@ export function StatsContent({ loadMoreSignal = 0 }: StatsContentProps) {
 
   const shown = recent.slice(0, visible);
   const hidden = recent.length - shown.length;
-  const modes = (Object.keys(MODE_LABEL) as MatchMode[]).filter((m) => totals[m].played > 0);
+  const modes = (Object.keys(MODE_KEY) as MatchMode[]).filter((m) => totals[m].played > 0);
 
   return (
     <>
       {/* Totals per mode */}
       <View style={{ gap: space.sm }}>
-        <SectionLabel>Totals</SectionLabel>
+        <SectionLabel>{t("stats.totals")}</SectionLabel>
         <Surface3D rad={radius.lg} faceStyle={{ paddingHorizontal: space.lg }}>
           {modes.map((m, i) => (
             <View key={m}>
@@ -105,7 +112,7 @@ export function StatsContent({ loadMoreSignal = 0 }: StatsContentProps) {
 
       {/* Recent matches — a page at a time */}
       <View style={{ gap: space.sm }}>
-        <SectionLabel>Recent</SectionLabel>
+        <SectionLabel>{t("stats.recent")}</SectionLabel>
         <Surface3D rad={radius.lg} faceStyle={{ paddingHorizontal: space.lg }}>
           {shown.map((r, i) => (
             <View key={r.id}>
@@ -127,7 +134,7 @@ export function StatsContent({ loadMoreSignal = 0 }: StatsContentProps) {
             <>
               <Hairline />
               <MoreRow
-                label="Show less"
+                label={t("common.showLess")}
                 count={`${recent.length}/${recent.length}`}
                 onPress={() => setVisible(RECENT_PAGE)}
               />
@@ -161,12 +168,13 @@ function modeGlyph(m: MatchMode, theme: BoardTheme): ReactNode {
 }
 
 function ModeRow({ mode, glyph, played, won }: { mode: MatchMode; glyph: ReactNode; played: number; won: number | null }) {
+  const t = useT();
   const rate = won === null ? null : Math.round((won / played) * 100);
   return (
     <View style={{ paddingVertical: space.md, gap: space.sm }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
         <View style={{ width: 28, alignItems: "center" }}>{glyph}</View>
-        <Text style={{ flex: 1, fontFamily: font.semibold, fontSize: 15, color: palette.porcelain }}>{MODE_LABEL[mode]}</Text>
+        <Text style={{ flex: 1, fontFamily: font.semibold, fontSize: 15, color: palette.porcelain }}>{t(MODE_KEY[mode])}</Text>
         <Stat label="played" value={`${played}`} />
         {won !== null ? <Stat label="won" value={`${won}`} /> : null}
         {rate !== null ? <Stat label="win rate" value={`${rate}%`} /> : null}
@@ -190,6 +198,7 @@ function Stat({ label, value }: { label: string; value: string }) {
 }
 
 function MatchRow({ r }: { r: MatchRecord }) {
+  const t = useT();
   const won = r.didWin === true;
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: space.md, minHeight: 56, paddingVertical: space.sm }}>
@@ -213,7 +222,7 @@ function MatchRow({ r }: { r: MatchRecord }) {
           {r.winnerLabel} won{won ? " — you!" : ""}
         </Text>
         <Text style={{ fontFamily: font.regular, fontSize: 12, color: palette.mutedSteel }}>
-          {MODE_LABEL[r.mode]} · {r.players} players
+          {t(MODE_KEY[r.mode])} · {r.players} {t("game.players")}
         </Text>
       </View>
       <Text style={{ fontFamily: font.mono, fontSize: 12, color: palette.mutedSteel }}>{when(r.finishedAt)}</Text>

@@ -14,8 +14,10 @@ import { CoinGlyph } from "./CoinsPill";
 import { useFriends } from "../store/friendsStore";
 import { formatCompact } from "../lib/format";
 import { depth, font, palette, radius, space } from "../theme";
+import { useT } from "../i18n";
 
 export function InviteBanner() {
+  const t = useT();
   const invites = useFriends((s) => s.invites);
   const profiles = useFriends((s) => s.profiles);
   const acceptInvite = useFriends((s) => s.acceptInvite);
@@ -69,7 +71,7 @@ export function InviteBanner() {
                   </Text>
                 </>
               ) : (
-                <Text style={{ fontFamily: font.regular, fontSize: 12, color: palette.mutedSteel }}>Friendly</Text>
+                <Text style={{ fontFamily: font.regular, fontSize: 12, color: palette.mutedSteel }}>{t("lobby.friendly")}</Text>
               )}
             </View>
           </View>
@@ -78,7 +80,7 @@ export function InviteBanner() {
           </View>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Dismiss invite"
+            accessibilityLabel={t("error.dismissInvite")}
             onPress={() => void dismissInvite(invite.id)}
             hitSlop={8}
             style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1, paddingHorizontal: 4 })}

@@ -23,6 +23,7 @@ import { Component, type ReactNode } from "react";
 import { Pressable, Text, View } from "react-native";
 import { TableBackground } from "./TableBackground";
 import { font, palette, radius, space } from "../theme";
+import { t } from "../i18n";
 
 interface Props {
   children: ReactNode;
@@ -81,7 +82,7 @@ export class ErrorBoundary extends Component<Props, State> {
           </Text>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Back to the home screen"
+            accessibilityLabel={t("results.backToHome")}
             onPress={this.retry}
             style={({ pressed }) => ({
               marginTop: space.md,

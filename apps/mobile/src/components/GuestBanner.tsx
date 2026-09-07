@@ -27,6 +27,7 @@ import Animated, { FadeInDown } from "react-native-reanimated";
 import { getIdentity } from "../lib/auth";
 import { useProfile } from "../store/profileStore";
 import { depth, font, palette, radius, space } from "../theme";
+import { useT } from "../i18n";
 
 /**
  * Dismissal is module-level, not component state, because Home remounts on
@@ -81,6 +82,7 @@ interface GuestBannerProps {
 }
 
 export function GuestBanner({ scale = 1, onSave, onDismiss }: GuestBannerProps) {
+  const t = useT();
   const s = (n: number) => Math.round(n * scale);
   return (
     // Entering only: the strip's block leaves the column the moment it is
@@ -111,7 +113,7 @@ export function GuestBanner({ scale = 1, onSave, onDismiss }: GuestBannerProps) 
       </Pressable>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="Dismiss"
+        accessibilityLabel={t("common.dismiss")}
         onPress={onDismiss}
         hitSlop={10}
       >

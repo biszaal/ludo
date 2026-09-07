@@ -14,10 +14,11 @@ import { resolveEmoji } from "../lib/emoji";
 import { playSound } from "../lib/sound";
 import { useGameStore } from "../store/gameStore";
 import { useProfile } from "../store/profileStore";
-import { colorLabel } from "../i18n";
+import { colorLabel, useT } from "../i18n";
 
 
 export function GameScreen() {
+  const t = useT();
   const state = useGameStore((s) => s.state);
   const validMoves = useGameStore((s) => s.validMoves);
   const lastRoll = useGameStore((s) => s.lastRoll);
@@ -43,7 +44,7 @@ export function GameScreen() {
   const botTurn = isCurrentBot();
   const vsAI = botIds.length > 0;
   const active = state.players.find((p) => p.id === state.currentTurnPlayerId)!;
-  const botLabel = `${colorLabel(active.color)} is thinking…`;
+  const botLabel = t("status.thinking", { color: colorLabel(active.color) });
 
   // vs AI: rotate the board so the human's seat is bottom-left. Pass & play keeps
   // the fixed orientation (the device is shared, so there's no single "you").
@@ -75,7 +76,7 @@ export function GameScreen() {
     if (!vsAI) return null;
     if (botIds.includes(playerId)) {
       const bot = state.players.find((p) => p.id === playerId)!;
-      return `${colorLabel(bot.color)} · AI`;
+      return t("status.aiSeat", { color: colorLabel(bot.color) });
     }
     return displayName;
   };

@@ -37,8 +37,10 @@ import { font, palette, radius, space } from "../theme";
 import { SkeletonBlock, SkeletonGroup, SkeletonLine } from "../components/Skeleton";
 import { LoadFailed } from "../components/LoadFailed";
 import { useLoadPhase } from "../lib/useLoadPhase";
+import { useT } from "../i18n";
 
 export function FriendsScreen() {
+  const t = useT();
   const push = useNav((s) => s.push);
   const userId = useFriends((s) => s.userId);
   const friendships = useFriends((s) => s.friendships);
@@ -79,7 +81,7 @@ export function FriendsScreen() {
   const sent = outgoingRequests(friendships, userId);
   const friendIds = sortFriendsByPresence(acceptedFriendIds(friendships, userId), presence, now);
 
-  const nameOf = (uid: string) => profiles[uid]?.display_name ?? "Ludo player";
+  const nameOf = (uid: string) => profiles[uid]?.display_name ?? t("friends.ludoPlayer");
   const avatarOf = (uid: string) => profiles[uid]?.avatar_id ?? "orbit-moss";
 
   // Map an accepted friend's uid back to its friendship row id (for remove).
@@ -102,7 +104,7 @@ export function FriendsScreen() {
   return (
     <SafeAreaView edges={["top", "left", "right"]} style={{ flex: 1, backgroundColor: palette.tableBlue }}>
       <TableBackground />
-      <ScreenHeader title="Friends" />
+      <ScreenHeader title={t("friends.title")} />
 
       <ScrollView contentContainerStyle={{ paddingTop: space.lg, paddingBottom: space.xxl + dockPad, alignItems: "center" }}>
         <ContentColumn style={{ paddingHorizontal: space.xl, gap: space.xl }}>
@@ -112,7 +114,7 @@ export function FriendsScreen() {
           </Text>
         ) : null}
 
-        <Button label="Add a friend" onPress={() => push("addFriend")} />
+        <Button label={t("friends.addFriend")} onPress={() => push("addFriend")} />
 
         {/* Incoming requests */}
         {requests.length > 0 ? (
@@ -125,18 +127,18 @@ export function FriendsScreen() {
                 avatar={avatarOf(r.requester_user_id)}
                 onPress={() => void viewPlayer(r.requester_user_id)}
               >
-                <Button compact label="Accept" onPress={() => void accept(r.id)} />
+                <Button compact label={t("common.accept")} onPress={() => void accept(r.id)} />
                 <Button
                   compact
-                  label="Ignore"
+                  label={t("common.ignore")}
                   variant="ghost"
                   onPress={() =>
                     void (async () => {
                       const name = nameOf(r.requester_user_id);
                       const ok = await confirm({
                         title: `Ignore ${name}?`,
-                        message: "Their request disappears. They can send another one later.",
-                        confirmLabel: "Ignore",
+                        message: t("friends.cancelRequestBody"),
+                        confirmLabel: t("common.ignore"),
                         destructive: true,
                       });
                       if (ok) await remove(r.id);
@@ -159,16 +161,16 @@ export function FriendsScreen() {
                 avatar={avatarOf(r.addressee_user_id)}
                 onPress={() => void viewPlayer(r.addressee_user_id)}
               >
-                <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel }}>Pending</Text>
+                <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel }}>{t("friends.pending")}</Text>
                 <TextLink
-                  label="Cancel"
+                  label={t("common.cancel")}
                   onPress={() =>
                     void (async () => {
                       const ok = await confirm({
-                        title: "Cancel this request?",
+                        title: t("friends.cancelRequestTitle"),
                         message: `${nameOf(r.addressee_user_id)} won't see it. You can send it again any time.`,
-                        confirmLabel: "Cancel request",
-                        cancelLabel: "Keep it",
+                        confirmLabel: t("friends.cancelRequest"),
+                        cancelLabel: t("common.keepIt"),
                       });
                       if (ok) await remove(r.id);
                     })()
@@ -184,10 +186,10 @@ export function FriendsScreen() {
           {/* No count until the list is actually in hand. "(0)" over a shimmer
               is the last fragment of the original defect — and to a screen
               reader it may be the only part of this section that gets read. */}
-          <SectionLabel>{view === "content" ? `Your friends (${friendIds.length})` : "Your friends"}</SectionLabel>
+          <SectionLabel>{view === "content" ? t("friends.yourFriendsCount", { count: friendIds.length }) : t("friends.yourFriends")}</SectionLabel>
           {view === "hidden" ? null : view === "stalled" ? (
             <LoadFailed
-              message="Your friends list didn't load. Check your connection and try again."
+              message={t("friends.loadFailed")}
               // init(), not refresh(): the likeliest way to reach this card is
               // ensureSignedIn() throwing, which leaves init returning before
               // it ever calls refresh — retrying refresh alone would fail the
@@ -196,7 +198,7 @@ export function FriendsScreen() {
               onRetry={() => void useFriends.getState().init()}
             />
           ) : view === "skeleton" ? (
-            <SkeletonGroup label="Loading your friends" style={{ gap: space.sm }}>
+            <SkeletonGroup label={t("friends.loadingFriends")} style={{ gap: space.sm }}>
               {[0, 1, 2].map((i) => (
                 // Geometry copied from <Row> below: edge={2}, padding space.md,
                 // space.sm between the identity half and the actions, space.md
@@ -227,7 +229,7 @@ export function FriendsScreen() {
           ) : friendIds.length === 0 ? (
             <Surface3D faceStyle={{ padding: space.lg, gap: space.sm, alignItems: "center" }}>
               <PeopleGlyph size={36} />
-              <Text style={{ fontFamily: font.semibold, fontSize: 15, color: palette.porcelain }}>No friends yet</Text>
+              <Text style={{ fontFamily: font.semibold, fontSize: 15, color: palette.porcelain }}>{t("friends.noFriendsYet")}</Text>
               <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel, textAlign: "center" }}>
                 Share your friend code, or add someone you've played with — tap “Add a friend” above.
               </Text>
@@ -242,10 +244,10 @@ export function FriendsScreen() {
                 onPress={() => void viewPlayer(uid)}
               >
                 {canInvite ? (
-                  <Button compact label="Invite" onPress={() => void inviteToRoom(uid, roomCode!, stake)} />
+                  <Button compact label={t("common.invite")} onPress={() => void inviteToRoom(uid, roomCode!, stake)} />
                 ) : (
                   <TextLink
-                    label="Remove"
+                    label={t("common.remove")}
                     onPress={() =>
                       void (async () => {
                         const id = rowIdForFriend(uid);
@@ -253,8 +255,8 @@ export function FriendsScreen() {
                         const ok = await confirm({
                           title: `Remove ${nameOf(uid)}?`,
                           message:
-                            "You'll both drop off each other's friends list, and you'll need their friend code to add them back.",
-                          confirmLabel: "Remove",
+                            t("friends.removeBody"),
+                          confirmLabel: t("common.remove"),
                           destructive: true,
                         });
                         if (ok) await remove(id);

@@ -14,6 +14,7 @@ import { BagGlyph, HouseGlyph, PeopleGlyph, UserGlyph } from "./HomeGlyphs";
 import { useLayout } from "../lib/useLayout";
 import type { TabName } from "../lib/tabs";
 import { font, palette, radius, space, teamColor } from "../theme";
+import { useT } from "../i18n";
 
 interface HomeDockProps {
   onHome: () => void;
@@ -46,6 +47,7 @@ export function HomeDock({
   height: budget,
   active = null,
 }: HomeDockProps) {
+  const t = useT();
   const { scale } = useLayout();
   const natural = Math.round(64 * scale);
   const height = budget ?? natural;
@@ -56,11 +58,11 @@ export function HomeDock({
   const lbl = Math.round(Math.max(9, Math.min(14, 11 * scale * k)));
   return (
     <Surface3D rad={radius.lg} faceStyle={{ height: height - 3, flexDirection: "row", alignItems: "stretch" }}>
-      <DockItem label="Home" onPress={onHome} labelSize={lbl} active={active === "home"}>
+      <DockItem label={t("home.home")} onPress={onHome} labelSize={lbl} active={active === "home"}>
         <HouseGlyph size={g} />
       </DockItem>
 
-      <DockItem label="Shop" onPress={onShop} labelSize={lbl} active={active === "shop"}>
+      <DockItem label={t("shop.title")} onPress={onShop} labelSize={lbl} active={active === "shop"}>
         <BagGlyph size={g} />
         {/* The equipped look leaks into the dock: a chip in your dice colors. */}
         <View
@@ -82,7 +84,7 @@ export function HomeDock({
         </View>
       </DockItem>
 
-      <DockItem label="Friends" onPress={onFriends} badge={requestCount} labelSize={lbl} active={active === "friends"}>
+      <DockItem label={t("friends.title")} onPress={onFriends} badge={requestCount} labelSize={lbl} active={active === "friends"}>
         <PeopleGlyph size={g} />
         {onlineCount > 0 ? (
           <View
@@ -101,7 +103,7 @@ export function HomeDock({
         ) : null}
       </DockItem>
 
-      <DockItem label="Account" onPress={onAccount} labelSize={lbl} active={active === "account"}>
+      <DockItem label={t("account.title")} onPress={onAccount} labelSize={lbl} active={active === "account"}>
         <UserGlyph size={g} />
       </DockItem>
     </Surface3D>

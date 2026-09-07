@@ -6,32 +6,14 @@
 
 import { useState } from "react";
 import { Alert, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { QUICK_MESSAGES, displayPhrase } from "../lib/chatPhrases";
+import { useT } from "../i18n";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import Animated, { Easing, FadeIn, FadeOut, SlideInDown, SlideOutDown } from "react-native-reanimated";
 import { Button } from "./Button";
 import type { ChatEvent } from "../store/onlineStore";
 import { depth, font, palette, radius, space } from "../theme";
 
-/** Tap-to-send lines, one per moment a game actually produces (opening, a
- *  capture either way, a near miss, the finish). Mirrored server-side in
- *  supabase/functions/game/botChat.ts — a hidden seat only ever says something
- *  a human could have tapped, so keep the two lists in step. */
-export const QUICK_MESSAGES = [
-  "Good luck!",
-  "Nice move!",
-  "Well played",
-  "Hurry up!",
-  "Ouch!",
-  "Nooo",
-  "So close!",
-  "Wow!",
-  "Lucky!",
-  "Almost there",
-  "My turn!",
-  "Sorry!",
-  "GG",
-  "One more?",
-] as const;
 
 interface ChatSheetProps {
   events: ChatEvent[];
@@ -45,6 +27,7 @@ interface ChatSheetProps {
 }
 
 export function ChatSheet({ events, nameForUser, myUserId, onSend, onReport, onClose }: ChatSheetProps) {
+  const t = useT();
   const [draft, setDraft] = useState("");
   const messages = events.filter((e) => e.kind === "text");
 
@@ -67,7 +50,7 @@ export function ChatSheet({ events, nameForUser, myUserId, onSend, onReport, onC
   const confirmReport = (userId: string, name: string, message: string) => {
     Alert.alert(
       `Block ${name}?`,
-      "You won't see anything else from them, in this game or the next. We'll pass the message on for review.",
+      t("chat.blockBody"),
       [
         { text: "Cancel", style: "cancel" },
         { text: "Block and report", style: "destructive", onPress: () => onReport(userId, message) },
@@ -140,7 +123,7 @@ export function ChatSheet({ events, nameForUser, myUserId, onSend, onReport, onC
                     <Text style={{ fontFamily: font.semibold, fontSize: 13, color: own ? palette.porcelain : palette.mutedSteel }}>
                       {name}
                     </Text>
-                    <Text style={{ flex: 1, fontFamily: font.regular, fontSize: 15, color: palette.porcelain }}>{m.value}</Text>
+                    <Text style={{ flex: 1, fontFamily: font.regular, fontSize: 15, color: palette.porcelain }}>{displayPhrase(m.value)}</Text>
                   </Pressable>
                 );
               })}
@@ -164,7 +147,7 @@ export function ChatSheet({ events, nameForUser, myUserId, onSend, onReport, onC
               <Pressable
                 key={q}
                 accessibilityRole="button"
-                accessibilityLabel={`Send ${q}`}
+                accessibilityLabel={displayPhrase(q)}
                 onPress={() => send(q)}
                 style={({ pressed }) => ({
                   paddingHorizontal: space.md,
@@ -176,17 +159,17 @@ export function ChatSheet({ events, nameForUser, myUserId, onSend, onReport, onC
                   opacity: pressed ? 0.8 : 1,
                 })}
               >
-                <Text style={{ fontFamily: font.medium, fontSize: 14, color: palette.porcelain }}>{q}</Text>
+                <Text style={{ fontFamily: font.medium, fontSize: 14, color: palette.porcelain }}>{displayPhrase(q)}</Text>
               </Pressable>
             ))}
           </View>
 
           <View style={{ flexDirection: "row", gap: space.sm, alignItems: "center" }}>
             <TextInput
-              accessibilityLabel="Message"
+              accessibilityLabel={t("chat.message")}
               value={draft}
               onChangeText={setDraft}
-              placeholder="Message…"
+              placeholder={t("chat.messagePlaceholder")}
               placeholderTextColor={palette.mutedSteel}
               maxLength={80}
               returnKeyType="send"

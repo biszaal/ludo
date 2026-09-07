@@ -29,8 +29,10 @@ import { SkeletonBlock, SkeletonGroup, SkeletonLine } from "../components/Skelet
 import { LoadFailed } from "../components/LoadFailed";
 import { useLoadPhase } from "../lib/useLoadPhase";
 import { font, palette, radius, space } from "../theme";
+import { useT } from "../i18n";
 
 export function PlayerProfileScreen() {
+  const t = useT();
   const pop = useNav((s) => s.pop);
   const userId = useFriends((s) => s.viewingUserId);
   const profiles = useFriends((s) => s.profiles);
@@ -66,7 +68,7 @@ export function PlayerProfileScreen() {
 
   if (!userId) return null;
 
-  const name = profile?.display_name ?? "Ludo player";
+  const name = profile?.display_name ?? t("friends.ludoPlayer");
   const record = stats[userId] ? formatRecord(stats[userId]!.games_played, stats[userId]!.games_won) : null;
   // Derived from the subscribed rows, not getState(): accepting a request has
   // to flip these buttons without needing a remount.
@@ -80,7 +82,7 @@ export function PlayerProfileScreen() {
     try {
       await fn();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "That didn't work. Try again.");
+      setError(e instanceof Error ? e.message : t("common.somethingWentWrong"));
     } finally {
       setBusy(false);
     }
@@ -96,7 +98,7 @@ export function PlayerProfileScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: palette.tableBlue }}>
       <TableBackground />
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: space.xl, paddingTop: space.sm }}>
-        <Text style={{ fontFamily: font.display, fontSize: 22, color: palette.porcelain }}>Profile</Text>
+        <Text style={{ fontFamily: font.display, fontSize: 22, color: palette.porcelain }}>{t("friends.profile")}</Text>
         <Button label="Back" onPress={pop} variant="ghost" />
       </View>
 
@@ -110,13 +112,13 @@ export function PlayerProfileScreen() {
             is the loader that did not land, so it is the one to retry. */}
         {view === "hidden" ? null : view === "stalled" ? (
           <LoadFailed
-            message="We couldn't load this player. Check your connection and try again."
+            message={t("friends.playerLoadFailed")}
             onRetry={() => void viewPlayer(userId)}
           />
         ) : (
           <Surface3D faceStyle={{ padding: space.xl, gap: space.md, alignItems: "center" }}>
             {view === "skeleton" ? (
-              <SkeletonGroup label="Loading this player" style={{ alignItems: "center", gap: space.md }}>
+              <SkeletonGroup label={t("friends.loadingPlayer")} style={{ alignItems: "center", gap: space.md }}>
                 <SkeletonBlock width={88} height={88} rad={radius.pill} index={0} />
                 <SkeletonLine width={140} size={22} index={1} />
                 <SkeletonLine width={72} size={13} index={2} />
@@ -132,7 +134,7 @@ export function PlayerProfileScreen() {
                 </Text>
                 {known ? (
                   <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel }}>
-                    {online ? "Online now" : "Offline"}
+                    {online ? t("friends.onlineNow") : t("friends.offline")}
                   </Text>
                 ) : null}
               </>
@@ -158,22 +160,22 @@ export function PlayerProfileScreen() {
         {/* Actions */}
         <View style={{ gap: space.md }}>
           {rel.kind === "none" ? (
-            <Button label="Add friend" disabled={busy} onPress={() => void run(() => sendRequest(userId))} />
+            <Button label={t("friends.addFriendShort")} disabled={busy} onPress={() => void run(() => sendRequest(userId))} />
           ) : null}
           {rel.kind === "outgoing" ? (
             <>
-              <Button label="Request sent" disabled onPress={() => {}} />
+              <Button label={t("friends.requestSent")} disabled onPress={() => {}} />
               <Button
-                label="Cancel request"
+                label={t("friends.cancelRequest")}
                 variant="ghost"
                 disabled={busy}
                 onPress={() =>
                   void confirmThen(
                     {
-                      title: "Cancel this request?",
+                      title: t("friends.cancelRequestTitle"),
                       message: `${name} won't see it. You can send it again any time.`,
-                      confirmLabel: "Cancel request",
-                      cancelLabel: "Keep it",
+                      confirmLabel: t("friends.cancelRequest"),
+                      cancelLabel: t("common.keepIt"),
                     },
                     async () => { await remove(rel.id); pop(); },
                   )
@@ -183,17 +185,17 @@ export function PlayerProfileScreen() {
           ) : null}
           {rel.kind === "incoming" ? (
             <>
-              <Button label="Accept request" disabled={busy} onPress={() => void run(() => accept(rel.id))} />
+              <Button label={t("friends.acceptRequest")} disabled={busy} onPress={() => void run(() => accept(rel.id))} />
               <Button
-                label="Ignore"
+                label={t("common.ignore")}
                 variant="ghost"
                 disabled={busy}
                 onPress={() =>
                   void confirmThen(
                     {
                       title: `Ignore ${name}?`,
-                      message: "Their request disappears. They can send another one later.",
-                      confirmLabel: "Ignore",
+                      message: t("friends.cancelRequestBody"),
+                      confirmLabel: t("common.ignore"),
                       destructive: true,
                     },
                     async () => { await remove(rel.id); pop(); },
@@ -205,10 +207,10 @@ export function PlayerProfileScreen() {
           {rel.kind === "friends" ? (
             <>
               {canInvite ? (
-                <Button label="Invite to room" disabled={busy} onPress={() => void run(() => inviteToRoom(userId, roomCode!, stake))} />
+                <Button label={t("friends.inviteToRoom")} disabled={busy} onPress={() => void run(() => inviteToRoom(userId, roomCode!, stake))} />
               ) : null}
               <Button
-                label="Remove friend"
+                label={t("friends.removeFriend")}
                 variant="ghost"
                 disabled={busy}
                 onPress={() =>
@@ -216,8 +218,8 @@ export function PlayerProfileScreen() {
                     {
                       title: `Remove ${name}?`,
                       message:
-                        "You'll both drop off each other's friends list, and you'll need their friend code to add them back.",
-                      confirmLabel: "Remove",
+                        t("friends.removeBody"),
+                      confirmLabel: t("common.remove"),
                       destructive: true,
                     },
                     async () => { await remove(rel.id); pop(); },
@@ -232,7 +234,7 @@ export function PlayerProfileScreen() {
               be a bespoke "tap again to block" button — the same question the
               rest of the app now asks through one dialog. */}
           <Button
-            label="Block"
+            label={t("friends.block")}
             variant="ghost"
             disabled={busy}
             onPress={() =>
@@ -240,8 +242,8 @@ export function PlayerProfileScreen() {
                 {
                   title: `Block ${name}?`,
                   message:
-                    "They can't invite you, message you or send you a friend request. If you're friends, that ends too.",
-                  confirmLabel: "Block",
+                    t("friends.blockBody"),
+                  confirmLabel: t("friends.block"),
                   destructive: true,
                 },
                 async () => { await block(userId); pop(); },

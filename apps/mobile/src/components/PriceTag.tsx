@@ -12,11 +12,13 @@ import { Button } from "./Button";
 import { Sheet } from "./Sheet";
 import { formatCompact } from "../lib/format";
 import { font, palette, radius } from "../theme";
+import { useT } from "../i18n";
 
 export type PriceCurrency = "coins" | "gems";
 
 /** Small price chip overlaid on a locked cosmetic tile. */
 export function PriceTag({ price, currency = "coins" }: { price: number; currency?: PriceCurrency }) {
+  const t = useT();
   return (
     <View
       style={{
@@ -64,6 +66,7 @@ export function BuySheet({
   onClose,
   onGetCurrency,
 }: BuySheetProps) {
+  const t = useT();
   const have = balance ?? 0;
   const affordable = have >= price;
   const after = have - price;
@@ -90,14 +93,14 @@ export function BuySheet({
       )}
 
       <Button
-        label={busy ? "Unlocking…" : affordable ? "Unlock" : `Not enough ${unit}`}
+        label={busy ? t("shop.unlocking") : affordable ? t("shop.unlock") : t("shop.notEnough", { unit })}
         onPress={onConfirm}
         disabled={busy || !affordable}
       />
       {!affordable && onGetCurrency ? (
-        <Button label={currency === "gems" ? "Get gems" : "Get coins"} variant="ghost" onPress={onGetCurrency} />
+        <Button label={currency === "gems" ? t("gems.getGems") : t("coins.getCoins")} variant="ghost" onPress={onGetCurrency} />
       ) : (
-        <Button label="Cancel" onPress={onClose} variant="ghost" />
+        <Button label={t("common.cancel")} onPress={onClose} variant="ghost" />
       )}
     </Sheet>
   );

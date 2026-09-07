@@ -38,6 +38,7 @@ import { lookupFriendCode, searchPlayerByName, type Profile } from "../net/api";
 import { tapLight } from "../lib/haptics";
 import { playSound } from "../lib/sound";
 import { font, palette, radius, space } from "../theme";
+import { useT } from "../i18n";
 
 const MAX_NAME_LENGTH = 20;
 /** The friend-code alphabet (0015): no O/0/I/1. Input matching this exactly is
@@ -45,6 +46,7 @@ const MAX_NAME_LENGTH = 20;
 const CODE_SHAPE = /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$/;
 
 export function AddFriendScreen() {
+  const t = useT();
   const pop = useNav((s) => s.pop);
   const myCode = useFriends((s) => s.myCode);
   const recentPlayers = useFriends((s) => s.recentPlayers);
@@ -107,7 +109,7 @@ export function AddFriendScreen() {
       setFound(user);
       playSound("pop");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't look that up.");
+      setError(e instanceof Error ? e.message : t("friends.lookupFailed"));
     } finally {
       setLooking(false);
     }
@@ -119,7 +121,7 @@ export function AddFriendScreen() {
       await sendRequest(userId);
     } catch (e) {
       setSentTo((prev) => prev.filter((id) => id !== userId));
-      setError(e instanceof Error ? e.message : "Couldn't send that request.");
+      setError(e instanceof Error ? e.message : t("friends.requestFailed"));
     }
   };
 
@@ -133,8 +135,8 @@ export function AddFriendScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: palette.tableBlue }}>
       <TableBackground />
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: space.xl, paddingTop: space.sm }}>
-        <Text style={{ fontFamily: font.display, fontSize: 22, color: palette.porcelain }}>Add a friend</Text>
-        <Button label="Back" onPress={pop} variant="ghost" />
+        <Text style={{ fontFamily: font.display, fontSize: 22, color: palette.porcelain }}>{t("friends.addFriend")}</Text>
+        <Button label={t("common.back")} onPress={pop} variant="ghost" />
       </View>
 
       {/* Keyboard-aware because Android stopped resizing the window for the
@@ -148,7 +150,7 @@ export function AddFriendScreen() {
       >
         {/* Your code */}
         <View style={{ gap: space.sm }}>
-          <SectionLabel>HOW FRIENDS FIND YOU</SectionLabel>
+          <SectionLabel>{t("friends.howFriendsFindYou")}</SectionLabel>
           <Surface3D faceStyle={{ padding: space.lg, gap: space.md, alignItems: "center" }}>
             {/* The username leads: it's what people actually remember, and the
                 code is the fallback for anyone still on a guest handle. */}
@@ -163,27 +165,27 @@ export function AddFriendScreen() {
                 no loader here to retry against; and a block that shimmers
                 forever is worse than one that is simply not there. */}
             {myCode ? (
-              <Pressable accessibilityRole="button" accessibilityLabel="Copy your friend code" onPress={() => void onCopy()}>
+              <Pressable accessibilityRole="button" accessibilityLabel={t("friends.copyFriendCode")} onPress={() => void onCopy()}>
                 <Text style={{ fontFamily: font.mono, fontSize: 20, color: palette.mutedSteel, letterSpacing: 5 }}>
                   {myCode}
                 </Text>
               </Pressable>
             ) : codeView === "skeleton" ? (
-              <SkeletonGroup label="Loading your friend code">
+              <SkeletonGroup label={t("friends.loadingFriendCode")}>
                 {/* Six mono glyphs at 20pt plus five 5pt gaps — the width the
                     real code occupies, so nothing shifts when it lands. */}
                 <SkeletonBlock width={97} height={20} rad={4} />
               </SkeletonGroup>
             ) : null}
             <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel, textAlign: "center" }}>
-              {copied ? "Copied!" : "Friends can search your username, or use the code."}
+              {copied ? t("common.copied") : t("friends.searchHint")}
             </Text>
             <View style={{ flexDirection: "row", gap: space.md, alignSelf: "stretch" }}>
               <View style={{ flex: 1 }}>
-                <Button label="Copy" variant="ghost" onPress={() => void onCopy()} />
+                <Button label={t("common.copy")} variant="ghost" onPress={() => void onCopy()} />
               </View>
               <View style={{ flex: 1 }}>
-                <Button label="Share" onPress={() => void onShare()} />
+                <Button label={t("common.share")} onPress={() => void onShare()} />
               </View>
             </View>
           </Surface3D>
@@ -191,7 +193,7 @@ export function AddFriendScreen() {
 
         {/* Find a player: username or code, one field */}
         <View style={{ gap: space.sm }}>
-          <SectionLabel>FIND A PLAYER</SectionLabel>
+          <SectionLabel>{t("friends.findAPlayer")}</SectionLabel>
           <Surface3D faceStyle={{ padding: space.lg, gap: space.md }}>
             <TextInput
               value={entry}
@@ -204,14 +206,14 @@ export function AddFriendScreen() {
                 setError(null);
                 setFound(null);
               }}
-              placeholder="Username or code"
+              placeholder={t("friends.usernameOrCode")}
               placeholderTextColor={palette.mutedSteel}
               autoCapitalize="none"
               autoCorrect={false}
               maxLength={MAX_NAME_LENGTH}
               returnKeyType="search"
               onSubmitEditing={() => void onLookup()}
-              accessibilityLabel="Username or friend code"
+              accessibilityLabel={t("friends.usernameOrFriendCode")}
               style={{
                 fontFamily: font.regular,
                 fontSize: 17,
@@ -225,7 +227,7 @@ export function AddFriendScreen() {
               }}
             />
             <Button
-              label={looking ? "Looking…" : "Find player"}
+              label={looking ? t("friends.looking") : t("friends.findPlayer")}
               onPress={() => void onLookup()}
               disabled={looking || entry.trim().length === 0}
             />
@@ -248,8 +250,8 @@ export function AddFriendScreen() {
         {/* Recently played with */}
         {recentView === "skeleton" ? (
           <View style={{ gap: space.sm }}>
-            <SectionLabel>RECENTLY PLAYED WITH</SectionLabel>
-            <SkeletonGroup label="Loading players you've played with" style={{ gap: space.sm }}>
+            <SectionLabel>{t("friends.recentlyPlayedWith")}</SectionLabel>
+            <SkeletonGroup label={t("friends.loadingRecent")} style={{ gap: space.sm }}>
               {[0, 1].map((i) => (
                 // Geometry copied from <PlayerRow> at the bottom of this file:
                 // edge={2}, padding space.md, a 36pt avatar, ONE 15pt name
@@ -272,7 +274,7 @@ export function AddFriendScreen() {
           </View>
         ) : recentPlayers.length > 0 ? (
           <View style={{ gap: space.sm }}>
-            <SectionLabel>RECENTLY PLAYED WITH</SectionLabel>
+            <SectionLabel>{t("friends.recentlyPlayedWith")}</SectionLabel>
             {recentPlayers.map((p) => (
               <PlayerRow
                 key={p.user_id}
@@ -300,11 +302,12 @@ function PlayerRow({
   onAdd: () => void;
   onOpen: () => void;
 }) {
+  const t = useT();
   return (
     <Surface3D edge={2} faceStyle={{ flexDirection: "row", alignItems: "center", gap: space.md, padding: space.md }}>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`View ${profile.display_name}'s profile`}
+        accessibilityLabel={t("friends.viewProfileOf", { name: profile.display_name })}
         onPress={onOpen}
         style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: space.md, flex: 1, opacity: pressed ? 0.85 : 1 })}
       >
@@ -315,12 +318,12 @@ function PlayerRow({
       </Pressable>
       {sent ? (
         <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel, paddingHorizontal: space.sm }}>
-          Sent
+          {t("friends.sent")}
         </Text>
       ) : (
         // Row scale, sized to its own label: a page-scale button boxed to a
         // fixed width wraps "Add" mid-word as soon as text scaling kicks in.
-        <Button compact label="Add" onPress={onAdd} />
+        <Button compact label={t("friends.addFriendShort")} onPress={onAdd} />
       )}
     </Surface3D>
   );

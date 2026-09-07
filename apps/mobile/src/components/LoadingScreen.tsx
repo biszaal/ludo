@@ -29,6 +29,7 @@ import { TableBackground } from "./TableBackground";
 import { arc } from "../lib/motion";
 import { palette, radius, teamColor } from "../theme";
 import type { Color as PlayerColor } from "@ludo/engine";
+import { useT } from "../i18n";
 
 /** Wordmark order and rest tilts, matched to <Logo> so the handoff to Home
  *  reads as the same four objects settling rather than a different screen. */
@@ -63,6 +64,7 @@ interface LoadingScreenProps {
 }
 
 export function LoadingScreen({ done, onHidden }: LoadingScreenProps) {
+  const t = useT();
   const wave = useSharedValue(0);
   const sweep = useSharedValue(0);
   const fade = useSharedValue(1);
@@ -97,7 +99,7 @@ export function LoadingScreen({ done, onHidden }: LoadingScreenProps) {
     <Animated.View
       style={[StyleSheet.absoluteFill, styles.root, fadeStyle]}
       accessibilityRole="progressbar"
-      accessibilityLabel="Loading Ludo"
+      accessibilityLabel={t("error.loadingLudo")}
       // The app mounts underneath mid-fade; swallow taps until we're gone.
       pointerEvents="auto"
     >

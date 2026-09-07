@@ -26,8 +26,10 @@ import { tapLight } from "../lib/haptics";
 import { playSound } from "../lib/sound";
 import { font, palette, space, teamColor } from "../theme";
 import type { Color as PlayerColor } from "@ludo/engine";
+import { useT } from "../i18n";
 
 export function QuickMatchSearch() {
+  const t = useT();
   const lobby = useOnlineStore((s) => s.lobby);
   const profiles = useOnlineStore((s) => s.profiles);
   const userId = useOnlineStore((s) => s.userId);
@@ -70,15 +72,15 @@ export function QuickMatchSearch() {
     };
   }
 
-  const headline = size === 4 ? `Finding players… ${seated}/4` : "Finding an opponent…";
+  const headline = size === 4 ? t("match.findingPlayers", { seated }) : t("match.findingOpponent");
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: palette.tableBlue }}>
       <TableBackground />
       <View style={{ flex: 1, paddingHorizontal: space.xl, paddingTop: space.sm }}>
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-          <Text style={{ fontFamily: font.display, fontSize: 22, color: palette.porcelain }}>Quick match</Text>
-          <Button label="Cancel" onPress={leave} variant="ghost" />
+          <Text style={{ fontFamily: font.display, fontSize: 22, color: palette.porcelain }}>{t("home.quickMatch")}</Text>
+          <Button label={t("common.cancel")} onPress={leave} variant="ghost" />
         </View>
 
         <View
@@ -91,7 +93,7 @@ export function QuickMatchSearch() {
           <View style={{ alignItems: "center", gap: space.sm }}>
             <Text style={{ fontFamily: font.semibold, fontSize: 18, color: palette.porcelain }}>{headline}</Text>
             <Text style={{ fontFamily: font.regular, fontSize: 14, color: palette.mutedSteel, textAlign: "center" }}>
-              {size === 4 ? "Filling a 4-player table." : "Matching you with another player."}
+              {size === 4 ? t("lobby.filling4") : t("match.matchingYou")}
               {"\n"}This usually takes a few seconds.
             </Text>
             {error ? (

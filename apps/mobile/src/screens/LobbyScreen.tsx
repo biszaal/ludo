@@ -31,10 +31,11 @@ import { copyCode } from "../lib/invite";
 import { formatCompact } from "../lib/format";
 import { potFor } from "../lib/economy";
 import { font, palette, radius, space, teamColor } from "../theme";
-import { colorLabel } from "../i18n";
+import { colorLabel, useT } from "../i18n";
 
 
 export function LobbyScreen() {
+  const t = useT();
   const roomCode = useOnlineStore((s) => s.roomCode);
   const gameId = useOnlineStore((s) => s.gameId);
   const lobby = useOnlineStore((s) => s.lobby);
@@ -74,11 +75,11 @@ export function LobbyScreen() {
     }
     void (async () => {
       const ok = await confirm({
-        title: isHost ? "Close this room?" : "Leave this room?",
+        title: isHost ? t("lobby.closeRoomTitle") : t("lobby.leaveRoomTitle"),
         message: isHost
-          ? "Everyone waiting will be sent back to the home screen."
-          : "You can rejoin with the same code while the room is open.",
-        confirmLabel: isHost ? "Close room" : "Leave",
+          ? t("lobby.closeRoomBody")
+          : t("lobby.leaveRoomBody"),
+        confirmLabel: isHost ? t("lobby.closeRoom") : t("lobby.leave"),
         cancelLabel: "Stay",
         destructive: true,
       });
@@ -133,16 +134,16 @@ export function LobbyScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-          <Text style={{ fontFamily: font.display, fontSize: 22, color: palette.porcelain }}>Lobby</Text>
-          <Button label="Leave" onPress={confirmLeave} variant="ghost" />
+          <Text style={{ fontFamily: font.display, fontSize: 22, color: palette.porcelain }}>{t("lobby.title")}</Text>
+          <Button label={t("lobby.leave")} onPress={confirmLeave} variant="ghost" />
         </View>
 
         {/* Share code */}
         <View style={{ alignItems: "center", gap: space.sm, marginTop: space.lg }}>
-          <Text style={{ fontFamily: font.medium, fontSize: 13, color: palette.mutedSteel }}>SHARE THIS CODE</Text>
+          <Text style={{ fontFamily: font.medium, fontSize: 13, color: palette.mutedSteel }}>{t("lobby.shareThisCode")}</Text>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Copy room code"
+            accessibilityLabel={t("lobby.copyRoomCode")}
             disabled={!roomCode}
             onPress={() => {
               if (roomCode) void handleCopy(roomCode);
@@ -155,14 +156,14 @@ export function LobbyScreen() {
             )}
           </Pressable>
           <Text style={{ fontFamily: font.regular, fontSize: 14, color: copied ? palette.porcelain : palette.mutedSteel }}>
-            {copied ? "Copied to clipboard" : "Tap the code to copy it."}
+            {copied ? t("common.copiedToClipboard") : t("lobby.tapCodeToCopy")}
           </Text>
           {roomCode ? (
             <View style={{ alignSelf: "stretch" }}>
               {/* Opens the friends list in place. It used to go straight to the
                   OS share sheet, so inviting an in-app friend meant leaving the
                   lobby for the Friends screen to invite them back to it. */}
-              <Button label="Invite friends" onPress={() => setInviting(true)} />
+              <Button label={t("lobby.inviteFriends")} onPress={() => setInviting(true)} />
             </View>
           ) : null}
         </View>
@@ -236,7 +237,7 @@ export function LobbyScreen() {
               style={{ flexDirection: "row", alignItems: "center", gap: space.md, padding: space.md, borderRadius: radius.md, borderWidth: 1, borderColor: palette.hairline, borderStyle: "dashed" }}
             >
               <View style={{ width: 18, height: 18, borderRadius: radius.pill, backgroundColor: palette.liftedSlate }} />
-              <Text style={{ fontFamily: font.regular, fontSize: 15, color: palette.mutedSteel }}>Waiting for a player…</Text>
+              <Text style={{ fontFamily: font.regular, fontSize: 15, color: palette.mutedSteel }}>{t("lobby.waitingForPlayer")}</Text>
             </View>
           ))}
         </View>
@@ -255,7 +256,7 @@ export function LobbyScreen() {
               {canFill ? (
                 <SettingRow
                   label={`Fill ${emptySlots === 1 ? "the empty seat" : `${emptySlots} empty seats`} with bots`}
-                  hint="Everyone sees which players are bots"
+                  hint={t("lobby.botsVisibleHint")}
                   value={fillWithBots}
                   onChange={setFillWithBots}
                 />
@@ -263,11 +264,11 @@ export function LobbyScreen() {
               <Button
                 label={
                   starting || full
-                    ? "Starting…"
+                    ? t("common.starting")
                     : fill
                       ? `Start with ${lobby.length} + ${emptySlots} ${emptySlots === 1 ? "bot" : "bots"}`
                       : lobby.length < 2
-                        ? "Need 2+ players"
+                        ? t("lobby.needTwoPlayers")
                         : `Start with ${lobby.length}`
                 }
                 onPress={() => void start(fill)}
@@ -275,10 +276,10 @@ export function LobbyScreen() {
               />
               <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel, textAlign: "center" }}>
                 {fill
-                  ? "Bots take the empty seats."
+                  ? t("lobby.botsFillSeats")
                   : stake > 0 && !full
-                    ? "Coin games need real players — bots can only fill a friendly room."
-                    : "Starts automatically when the room is full."}
+                    ? t("lobby.botsFriendlyOnly")
+                    : t("lobby.startsWhenFull")}
               </Text>
             </>
           ) : (

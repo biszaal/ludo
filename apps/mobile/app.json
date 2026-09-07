@@ -250,7 +250,8 @@
           "organization": "biszaal-tech-ltd-09",
           "project": "react-native"
         }
-      ]
+      ],
+      "expo-localization"
     ],
     "scheme": [
       "ludobiszaal",

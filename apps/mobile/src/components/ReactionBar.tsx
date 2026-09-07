@@ -14,6 +14,7 @@ import { EMOJIS } from "../lib/emoji";
 import { playSound } from "../lib/sound";
 import { tapLight } from "../lib/haptics";
 import { radius, space } from "../theme";
+import { useT } from "../i18n";
 
 interface ReactionBarProps {
   onSend: (value: string) => void;
@@ -21,6 +22,7 @@ interface ReactionBarProps {
 }
 
 export function ReactionBar({ onSend, onClose }: ReactionBarProps) {
+  const t = useT();
   // Build the reaction voices now rather than at launch — they are ~2MB of
   // native players that most sessions never touch. Mount is early enough that
   // they are loaded well before anyone can tap one. See warmReactionSounds.
@@ -30,7 +32,7 @@ export function ReactionBar({ onSend, onClose }: ReactionBarProps) {
 
   return (
     <View style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0, zIndex: 20 }}>
-      <Pressable accessibilityLabel="Close reactions" style={{ flex: 1 }} onPress={onClose} />
+      <Pressable accessibilityLabel={t("react.close")} style={{ flex: 1 }} onPress={onClose} />
       <Animated.View
         entering={FadeIn.duration(140).easing(Easing.out(Easing.cubic))}
         exiting={FadeOut.duration(120)}

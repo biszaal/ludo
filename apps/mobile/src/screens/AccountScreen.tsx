@@ -65,6 +65,7 @@ import { SkeletonBlock, SkeletonGroup, SkeletonLine } from "../components/Skelet
 import { LoadFailed } from "../components/LoadFailed";
 import { useLoadPhase } from "../lib/useLoadPhase";
 import { font, palette, radius, space, teamColor } from "../theme";
+import { useT } from "../i18n";
 
 const NAME_CHECK_DEBOUNCE_MS = 600;
 
@@ -77,6 +78,7 @@ const END_REACH_SLOP = 96;
 const GUEST_NAME = /^guest[0-9]{6}$/;
 
 export function AccountScreen() {
+  const t = useT();
   const displayName = useProfile((s) => s.displayName);
   const guestName = useProfile((s) => s.guestName);
   const avatarId = useProfile((s) => s.avatarId);
@@ -155,9 +157,9 @@ export function AccountScreen() {
     if (next.length === 0 || taken) return;
     void (async () => {
       const ok = await confirm({
-        title: "Change your username?",
+        title: t("account.changeUsernameTitle"),
         message: `"${currentName}" becomes "${next}". You can only do this once, so this is your last change.`,
-        confirmLabel: "Change it",
+        confirmLabel: t("account.changeIt"),
         destructive: true,
       });
       if (!ok) return;
@@ -172,11 +174,11 @@ export function AccountScreen() {
   const onDeleteAccount = useCallback(() => {
     void (async () => {
       const ok = await confirm({
-        title: "Delete account?",
+        title: t("account.deleteAccountTitle"),
         message:
-          "This permanently deletes your account and all data — coins, gems, purchases, cosmetics and friends. This can't be undone.",
-        confirmLabel: "Delete",
-        cancelLabel: "Keep it",
+          t("account.deleteAccountBody"),
+        confirmLabel: t("common.delete"),
+        cancelLabel: t("common.keepIt"),
         destructive: true,
       });
       if (ok) await deleteAccount().then(refreshIdentity);
@@ -235,7 +237,7 @@ export function AccountScreen() {
     <SafeAreaView edges={["top", "left", "right"]} style={{ flex: 1, backgroundColor: palette.tableBlue }}>
       <TableBackground />
       <ScreenHeader
-        title="Account"
+        title={t("account.title")}
         right={
           <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
             <GemsPill compact />
@@ -275,7 +277,7 @@ export function AccountScreen() {
 
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Change your look"
+              accessibilityLabel={t("account.changeYourLook")}
               onPress={() => push("profile")}
               style={({ pressed }) => ({
                 flexDirection: "row",
@@ -286,7 +288,7 @@ export function AccountScreen() {
               })}
             >
               <View style={{ flex: 1, gap: 2 }}>
-                <Text style={{ fontFamily: font.medium, fontSize: 16, color: palette.porcelain }}>Change your look</Text>
+                <Text style={{ fontFamily: font.medium, fontSize: 16, color: palette.porcelain }}>{t("account.changeYourLook")}</Text>
                 <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel }}>
                   Avatar, board and dice
                 </Text>
@@ -300,10 +302,10 @@ export function AccountScreen() {
               read-only field would have, without pretending to be editable. */}
           {nameLocked ? null : (
             <View style={{ gap: space.sm }}>
-              <SectionLabel>Username</SectionLabel>
+              <SectionLabel>{t("account.username")}</SectionLabel>
               <Surface3D rad={radius.lg} faceStyle={{ padding: space.lg, gap: space.md }}>
                 <Field
-                  accessibilityLabel="Display name"
+                  accessibilityLabel={t("account.displayName")}
                   value={draft}
                   onChangeText={(t) => {
                     setEdited(true);
@@ -332,14 +334,14 @@ export function AccountScreen() {
                     <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel }}>
                       Pick your username — friends find you by it. You can change it once after this.
                     </Text>
-                    {claiming ? <Button label="Save username" onPress={onClaimName} /> : null}
+                    {claiming ? <Button label={t("account.saveUsername")} onPress={onClaimName} /> : null}
                   </>
                 ) : spendsAllowance ? (
                   <>
                     <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel }}>
                       You can only change your username once. This is your one change.
                     </Text>
-                    <Button label="Save username" onPress={onCommitName} />
+                    <Button label={t("account.saveUsername")} onPress={onCommitName} />
                   </>
                 ) : (
                   <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel }}>
@@ -352,7 +354,7 @@ export function AccountScreen() {
 
           {/* Account: optional — guests keep playing without it. */}
           <View style={{ gap: space.sm }}>
-            <SectionLabel>Account</SectionLabel>
+            <SectionLabel>{t("account.title")}</SectionLabel>
             {/* Only the last two arms reach the real tray. `hidden` is blank,
                 not the guest pitch: getIdentity() resolves out of a local
                 session read, so it usually beats SHOW_AFTER_MS and the
@@ -362,13 +364,13 @@ export function AccountScreen() {
                 frames is free; wrong for two frames is the defect. */}
             {identityView === "hidden" ? null : identityView === "stalled" ? (
               <LoadFailed
-                message="We couldn't check your account. Check your connection and try again."
+                message={t("account.loadFailed")}
                 onRetry={refreshIdentity}
               />
             ) : (
               <Surface3D rad={radius.lg} faceStyle={{ padding: space.lg, gap: space.md }}>
                 {identityView === "skeleton" ? (
-                  <SkeletonGroup label="Loading your account" style={{ gap: space.md }}>
+                  <SkeletonGroup label={t("account.loadingAccount")} style={{ gap: space.md }}>
                     <SkeletonLine width="70%" size={15} index={0} />
                     <SkeletonLine width="90%" size={13} index={1} />
                     {/* 56, not 52: a Button's total height is its 52pt face plus
@@ -381,13 +383,13 @@ export function AccountScreen() {
                     {/* The email can be null — an Apple link makes an account
                         recoverable without ever handing us an address. */}
                     <Text style={{ fontFamily: font.medium, fontSize: 15, color: palette.porcelain }}>
-                      {identity?.email ? `Signed in as ${identity.email}` : "Signed in"}
+                      {identity?.email ? t("account.signedInAs", { email: identity.email }) : t("account.signedIn")}
                     </Text>
                     <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel }}>
-                      Your coins, gems and looks are backed up to this account.
+                      {t("account.backedUp")}
                     </Text>
                     <Button
-                      label="Sign out"
+                      label={t("account.signOut")}
                       variant="ghost"
                       onPress={() => void signOutToGuest().then(refreshIdentity)}
                     />
@@ -400,10 +402,10 @@ export function AccountScreen() {
                     </Text>
                     <View style={{ flexDirection: "row", gap: space.sm }}>
                       <View style={{ flex: 1 }}>
-                        <Button label="Save account" onPress={() => setAccountSheet("save")} />
+                        <Button label={t("account.saveAccount")} onPress={() => setAccountSheet("save")} />
                       </View>
                       <View style={{ flex: 1 }}>
-                        <Button label="Sign in" variant="ghost" onPress={() => setAccountSheet("signin")} />
+                        <Button label={t("account.signIn")} variant="ghost" onPress={() => setAccountSheet("signin")} />
                       </View>
                     </View>
                   </>
@@ -420,7 +422,7 @@ export function AccountScreen() {
           <Surface3D rad={radius.lg} faceStyle={{ paddingHorizontal: space.lg }}>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Delete account and data"
+              accessibilityLabel={t("account.deleteAccountA11y")}
               onPress={onDeleteAccount}
               style={({ pressed }) => ({
                 flexDirection: "row",
@@ -431,7 +433,7 @@ export function AccountScreen() {
               })}
             >
               <View style={{ flex: 1, gap: 2 }}>
-                <Text style={{ fontFamily: font.medium, fontSize: 16, color: teamColor.red }}>Delete account</Text>
+                <Text style={{ fontFamily: font.medium, fontSize: 16, color: teamColor.red }}>{t("account.deleteAccount")}</Text>
                 <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel }}>
                   Removes your coins, gems, cosmetics and friends for good.
                 </Text>

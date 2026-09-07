@@ -13,10 +13,11 @@ import { DealingOverlay } from "../components/DealingOverlay";
 import { GameView } from "../components/GameView";
 import { useOnlineStore } from "../store/onlineStore";
 import { useProfile } from "../store/profileStore";
-import { colorLabel } from "../i18n";
+import { colorLabel, useT } from "../i18n";
 
 
 export function OnlineGameScreen() {
+  const t = useT();
   const state = useOnlineStore((s) => s.state);
   const lobby = useOnlineStore((s) => s.lobby);
   const validMoves = useOnlineStore((s) => s.validMoves);
@@ -118,8 +119,8 @@ export function OnlineGameScreen() {
       bustHold={bustHold}
       waitingLabel={
         autoPilot && myTurn
-          ? "Bot is playing for you — tap your avatar to take control"
-          : `Waiting for ${profileOf(active.id)?.display_name ?? colorLabel(active.color)}…`
+          ? t("game.autopilot")
+          : t("status.waitingFor", { name: profileOf(active.id)?.display_name ?? colorLabel(active.color) })
       }
       onRoll={() => void roll()}
       onSelectToken={(id) => void selectToken(id)}

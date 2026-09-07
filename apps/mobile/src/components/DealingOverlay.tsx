@@ -31,11 +31,13 @@ import Animated, {
 } from "react-native-reanimated";
 import { useFullMotion } from "../lib/useMotion";
 import { font, palette, radius, space } from "../theme";
+import { useT } from "../i18n";
 
 const TRACK_W = 132;
 const SWEEP_W = 46;
 
 export function DealingOverlay() {
+  const t = useT();
   const fullMotion = useFullMotion();
   const x = useSharedValue(-SWEEP_W);
 
@@ -52,8 +54,8 @@ export function DealingOverlay() {
   const sweepStyle = useAnimatedStyle(() => ({ transform: [{ translateX: x.value }] }));
 
   return (
-    <View style={styles.fill} pointerEvents="auto" accessibilityLabel="Dealing the table">
-      <Text style={styles.label}>Dealing…</Text>
+    <View style={styles.fill} pointerEvents="auto" accessibilityLabel={t("match.dealingTable")}>
+      <Text style={styles.label}>{t("match.dealing")}</Text>
       {fullMotion ? (
         <View style={styles.track}>
           <Animated.View style={[styles.sweep, sweepStyle]} />

@@ -12,6 +12,7 @@ import { Surface3D } from "./Surface3D";
 import { Button } from "./Button";
 import { Text } from "react-native";
 import { font, palette, radius, space } from "../theme";
+import { useT } from "../i18n";
 
 interface LoadFailedProps {
   /** Names what did not arrive: "The shop didn't load." */
@@ -20,6 +21,7 @@ interface LoadFailedProps {
 }
 
 export function LoadFailed({ message, onRetry }: LoadFailedProps) {
+  const t = useT();
   return (
     <Surface3D rad={radius.lg} faceStyle={{ padding: space.lg, gap: space.md, alignItems: "center" }}>
       <Text
@@ -32,7 +34,7 @@ export function LoadFailed({ message, onRetry }: LoadFailedProps) {
       >
         {message}
       </Text>
-      <Button label="Try again" variant="ghost" onPress={onRetry} />
+      <Button label={t("common.retry")} variant="ghost" onPress={onRetry} />
     </Surface3D>
   );
 }

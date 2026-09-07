@@ -20,8 +20,10 @@ import { GemsPill } from "../components/GemsPill";
 import { CosmeticsBrowser } from "../components/CosmeticsBrowser";
 import { useProfile } from "../store/profileStore";
 import { font, palette, radius, space } from "../theme";
+import { useT } from "../i18n";
 
 export function ProfileScreen() {
+  const t = useT();
   const displayName = useProfile((s) => s.displayName);
   const avatarId = useProfile((s) => s.avatarId);
 
@@ -29,7 +31,7 @@ export function ProfileScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: palette.tableBlue }}>
       <TableBackground />
       <ScreenHeader
-        title="Profile"
+        title={t("friends.profile")}
         right={
           <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
             <GemsPill compact />
@@ -55,7 +57,7 @@ export function ProfileScreen() {
 
           {/* Customize: equip the avatars, boards and dice you own. */}
           <View style={{ gap: space.sm }}>
-            <SectionLabel>Customize</SectionLabel>
+            <SectionLabel>{t("account.customize")}</SectionLabel>
             <Text style={{ fontFamily: font.regular, fontSize: 12, color: palette.mutedSteel, marginTop: -4 }}>
               Your collection. Dice show to everyone at the table when you roll.
             </Text>

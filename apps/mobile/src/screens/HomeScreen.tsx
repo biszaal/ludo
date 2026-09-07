@@ -54,8 +54,10 @@ import { incomingRequests, onlineFriendCount } from "../lib/friendship";
 import { nextDailyBonus, utcDay } from "../lib/economy";
 import { shouldAutoShow, useDailyBonus } from "../store/dailyBonusStore";
 import { font, palette, space } from "../theme";
+import { useT } from "../i18n";
 
 export function HomeScreen() {
+  const t = useT();
   const [sheetMode, setSheetMode] = useState<PlayMode | null>(null);
   const [coinsSheet, setCoinsSheet] = useState(false);
   const [roomSheet, setRoomSheet] = useState(false);
@@ -207,19 +209,19 @@ export function HomeScreen() {
       {/* Mode tiles — three across, deliberately equal (hub-only allowance). */}
       <View style={{ flexDirection: "row", gap: space.sm, paddingHorizontal: space.lg, paddingTop: metrics.gap }}>
         <ModeTile
-          label="Vs AI"
+          label={t("home.playVsAi")}
           glyph={<VsAiGlyph theme={boardTheme} scale={scale * tileK} />}
           onPress={() => setSheetMode("ai")}
           height={metrics.tile}
         />
         <ModeTile
-          label="Pass & play"
+          label={t("home.passAndPlay")}
           glyph={<CycleGlyph size={Math.round(28 * scale * tileK)} />}
           onPress={() => setSheetMode("pass")}
           height={metrics.tile}
         />
         <ModeTile
-          label="Friends room"
+          label={t("home.friendsRoom")}
           glyph={<PeopleGlyph size={Math.round(28 * scale * tileK)} />}
           onPress={() => setRoomSheet(true)}
           height={metrics.tile}

@@ -27,6 +27,7 @@ import { getIdentity } from "../lib/auth";
 import { isTimeout, sendFeedback } from "../net/api";
 import { deviceReport } from "../lib/deviceInfo";
 import { font, palette, space } from "../theme";
+import { useT } from "../i18n";
 
 /** Matches the server clamp and the column check (0060). */
 const MESSAGE_MAX = 2000;
@@ -35,6 +36,7 @@ const MESSAGE_MAX = 2000;
 const COUNTER_FROM = 1700;
 
 export function FeedbackSheet({ onClose }: { onClose: () => void }) {
+  const t = useT();
   const [message, setMessage] = useState("");
   const [email, setEmail] = useState("");
   const [focused, setFocused] = useState<"message" | "email" | null>(null);
@@ -60,7 +62,7 @@ export function FeedbackSheet({ onClose }: { onClose: () => void }) {
     if (busy) return;
     const text = message.trim();
     if (!text) {
-      setError("Write a little about what happened first.");
+      setError(t("feedback.needText"));
       return;
     }
     setError(null);
@@ -73,10 +75,10 @@ export function FeedbackSheet({ onClose }: { onClose: () => void }) {
       // a failure that invites a second copy of the same report.
       setError(
         isTimeout(e)
-          ? "Still waiting on the network. If it doesn't arrive we'd rather have it twice than not at all."
+          ? t("feedback.stillWaiting")
           : e instanceof Error && e.message
             ? e.message
-            : "Couldn't send that. Try again in a moment.",
+            : t("chat.sendFailed"),
       );
     } finally {
       setBusy(false);
@@ -85,30 +87,30 @@ export function FeedbackSheet({ onClose }: { onClose: () => void }) {
 
   if (sent) {
     return (
-      <Sheet onClose={onClose} title="Thank you">
+      <Sheet onClose={onClose} title={t("feedback.thanks")}>
         <Text style={{ fontFamily: font.regular, fontSize: 14, color: palette.porcelain }}>
           That's with us. A person reads every one of these
           {email.trim() ? ", and we'll reply to " + email.trim() + " if there's anything to say" : ""}.
         </Text>
-        <Button label="Done" onPress={onClose} />
+        <Button label={t("common.done")} onPress={onClose} />
       </Sheet>
     );
   }
 
   return (
-    <Sheet onClose={onClose} title="Send feedback" keyboardAvoiding>
+    <Sheet onClose={onClose} title={t("settings.sendFeedback")} keyboardAvoiding>
       <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel }}>
         A bug, an idea, or a game that went wrong — tell us what happened and we'll read it.
       </Text>
 
       <Field
-        accessibilityLabel="Your feedback"
+        accessibilityLabel={t("feedback.title")}
         value={message}
         onChangeText={(t) => setMessage(t.slice(0, MESSAGE_MAX))}
         focused={focused === "message"}
         onFocus={() => setFocused("message")}
         onBlur={() => setFocused(null)}
-        placeholder="What happened?"
+        placeholder={t("feedback.whatHappened")}
         multiline
         // Room for a paragraph without the sheet swallowing the screen; it
         // keeps growing from here as they type.
@@ -122,13 +124,13 @@ export function FeedbackSheet({ onClose }: { onClose: () => void }) {
       ) : null}
 
       <Field
-        accessibilityLabel="Email for a reply (optional)"
+        accessibilityLabel={t("feedback.emailOptional")}
         value={email}
         onChangeText={setEmail}
         focused={focused === "email"}
         onFocus={() => setFocused("email")}
         onBlur={() => setFocused(null)}
-        placeholder="Email, if you'd like a reply (optional)"
+        placeholder={t("feedback.emailOptionalLong")}
         keyboardType="email-address"
         autoCapitalize="none"
         autoCorrect={false}
@@ -137,7 +139,7 @@ export function FeedbackSheet({ onClose }: { onClose: () => void }) {
 
       {error ? <Text style={{ fontFamily: font.regular, fontSize: 13, color: "#E8705F" }}>{error}</Text> : null}
 
-      <Button label={busy ? "Sending…" : "Send feedback"} onPress={() => void submit()} disabled={busy} />
+      <Button label={busy ? t("common.sending") : t("settings.sendFeedback")} onPress={() => void submit()} disabled={busy} />
 
       <View style={{ paddingTop: space.xs }}>
         <Text style={{ fontFamily: font.regular, fontSize: 11, color: palette.mutedSteel }}>
