@@ -16,6 +16,7 @@ import {
   type Move,
 } from "@ludo/engine";
 import { chooseMove } from "@ludo/bot";
+import { TimerSet } from "../lib/timerSet";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import * as api from "../net/api";
 import { pushProfile } from "../net/profileSync";
@@ -398,13 +399,10 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
       ) {
         const moves = getValidMoves(next, myPlayerId);
         if (moves.length === 0)
-          autoTimer = setTimeout(() => void get().pass(), AUTO_PASS_DELAY);
+          timers.set("auto", () => void get().pass(), AUTO_PASS_DELAY);
         else if (moves.length === 1) {
           const only = moves[0]!.tokenId;
-          autoTimer = setTimeout(
-            () => void get().selectToken(only),
-            AUTO_MOVE_DELAY,
-          );
+          timers.set("auto", () => void get().selectToken(only), AUTO_MOVE_DELAY);
         }
       }
     } catch (e) {
@@ -497,20 +495,8 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
   },
 
   leave: () => {
-    clearAuto();
-    clearTimeoutTimer();
-    clearPilotTimer();
-    clearRowQueue();
-    clearResync();
-    clearLobbyTimer();
-    clearQuickFill();
-    clearRematchTimer();
-    resetSyncState();
     const { gameId } = get();
-    if (channel) {
-      api.unsubscribe(channel);
-      channel = null;
-    }
+    disposeSession();
     // Tell the server we're gone for good: active game → our tokens come off
     // the board and turns skip us; waiting lobby → the seat frees up.
     if (gameId) void api.leaveAction(gameId).catch(() => {});
@@ -600,8 +586,29 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
 // --- Realtime + helpers -----------------------------------------------------
 
 let channel: RealtimeChannel | null = null;
-let autoTimer: ReturnType<typeof setTimeout> | null = null;
-let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Every timer this screen owns, named.
+ *
+ * A closed union rather than free strings, so a typo is a build error instead
+ * of a second, invisible timer nobody clears. lib/timerSet.ts holds the
+ * mechanism and the guarantee that clearAll is exhaustive.
+ */
+type TimerName =
+  | "auto"
+  | "timeout"
+  | "quickFill"
+  | "deal"
+  | "warm"
+  | "rowHold"
+  | "pilot"
+  | "lobby"
+  | "rematchClose"
+  | "bust"
+  | "resync";
+
+const timers = new TimerSet<TimerName>();
+
 
 // --- Quick-match fill --------------------------------------------------------
 // If nobody claims the seat while we wait, ask the server to fill it. The
@@ -611,18 +618,15 @@ let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
 
 const QUICK_FILL_MIN_MS = 8000;
 const QUICK_FILL_JITTER_MS = 6000;
-let quickFillTimer: ReturnType<typeof setTimeout> | null = null;
-
 function clearQuickFill(): void {
-  if (quickFillTimer) clearTimeout(quickFillTimer);
-  quickFillTimer = null;
+  timers.clear("quickFill");
 }
 
 function armQuickFill(gameId: string): void {
-  clearQuickFill();
-  quickFillTimer = setTimeout(() => {
-    quickFillTimer = null;
-    void (async () => {
+  timers.set(
+    "quickFill",
+    () =>
+      void (async () => {
       const st = useOnlineStore.getState();
       if (st.gameId !== gameId || st.status !== "lobby") return;
       try {
@@ -640,8 +644,9 @@ function armQuickFill(gameId: string): void {
         // a resync will surface the truth.
         scheduleResync(gameId);
       }
-    })();
-  }, QUICK_FILL_MIN_MS + Math.random() * QUICK_FILL_JITTER_MS);
+      })(),
+    QUICK_FILL_MIN_MS + Math.random() * QUICK_FILL_JITTER_MS,
+  );
 }
 
 // --- Optimistic action state ---------------------------------------------------
@@ -740,15 +745,11 @@ function enqueueSend<T>(fn: () => Promise<T>): Promise<T> {
  * at a loading screen because an optimisation did not arrive.
  */
 const DEAL_READY_MS = 2_000;
-let dealTimer: ReturnType<typeof setTimeout> | null = null;
 
 /** The board is playable: uncover it. Idempotent, and called from every path
  *  that ends the wait — including the ones that end it by failing. */
 function dealReady(): void {
-  if (dealTimer) {
-    clearTimeout(dealTimer);
-    dealTimer = null;
-  }
+  timers.clear("deal");
   if (useOnlineStore.getState().dealing) useOnlineStore.setState({ dealing: false });
 }
 
@@ -766,9 +767,8 @@ function dealReady(): void {
  * optimisation and optimisations are allowed to fail.
  */
 function dealPending(): void {
-  if (dealTimer) clearTimeout(dealTimer);
   useOnlineStore.setState({ dealing: true });
-  dealTimer = setTimeout(dealReady, DEAL_READY_MS);
+  timers.set("deal", dealReady, DEAL_READY_MS);
 }
 
 function primeRoll(): void {
@@ -965,6 +965,31 @@ function onActionFailed(e: unknown, gameId: string): void {
 }
 
 /** Forget all per-game optimistic/sync bookkeeping (leave, new subscribe). */
+/**
+ * Tear the whole session down: every timer, every queue, every latch, the
+ * socket.
+ *
+ * ONE call, and the timer half of it is exhaustive by construction —
+ * TimerSet.clearAll walks whatever has been armed rather than naming eleven
+ * handles, so a timer added later is torn down here without anybody editing
+ * this function. That was the actual risk: a stray timer on this screen fires
+ * into a game the player has already left, which means a write against a stale
+ * gameId or a board reload with nothing behind it.
+ *
+ * The rest is plain data whose staleness is merely wrong rather than dangerous,
+ * and it is grouped here so there is one place to add to rather than four.
+ */
+function disposeSession(): void {
+  timers.clearAll();
+  resetRowQueue();
+  resetResync();
+  resetSyncState();
+  if (channel) {
+    api.unsubscribe(channel);
+    channel = null;
+  }
+}
+
 function resetSyncState(): void {
   stopKeepWarm();
   clearBustHold();
@@ -978,16 +1003,19 @@ function resetSyncState(): void {
   rollCache = null;
   prepareSeq++;
   sendChain = Promise.resolve();
+  // Per-game, and it was not being reset: the chat throttle carried across a
+  // leave, so joining a new room inside CHAT_MIN_INTERVAL_MS silently swallowed
+  // the first message sent in it. Harmless-looking, and exactly the class of
+  // thing that hides in a pile of loose module state.
+  lastChatSentAt = 0;
 }
 
 function clearAuto(): void {
-  if (autoTimer) clearTimeout(autoTimer);
-  autoTimer = null;
+  timers.clear("auto");
 }
 
 function clearTimeoutTimer(): void {
-  if (timeoutTimer) clearTimeout(timeoutTimer);
-  timeoutTimer = null;
+  timers.clear("timeout");
 }
 
 /**
@@ -1010,7 +1038,7 @@ function scheduleTimeout(active: boolean, deadlineAt: number | null = null): voi
   if (!active) return;
   const remaining = deadlineAt != null ? Math.max(0, deadlineAt - Date.now()) : TURN_SECONDS * 1000;
   const delay = remaining + TIMEOUT_GRACE_MS + Math.random() * 2000;
-  timeoutTimer = setTimeout(() => void requestTimeout(), delay);
+  timers.set("timeout", () => void requestTimeout(), delay);
 }
 
 async function requestTimeout(): Promise<void> {
@@ -1052,12 +1080,10 @@ async function requestTimeout(): Promise<void> {
  * match's own traffic keeps the isolate hot, and this stops.
  */
 const WARM_INTERVAL_MS = 45_000;
-let warmTimer: ReturnType<typeof setInterval> | null = null;
 
 function startKeepWarm(): void {
-  if (warmTimer) return;
   api.warmUp();
-  warmTimer = setInterval(() => {
+  timers.setInterval("warm", () => {
     // Dealt, finished, or gone: the room no longer needs propping up.
     if (useOnlineStore.getState().status !== "lobby") {
       stopKeepWarm();
@@ -1068,13 +1094,12 @@ function startKeepWarm(): void {
 }
 
 function stopKeepWarm(): void {
-  if (warmTimer) clearInterval(warmTimer);
-  warmTimer = null;
+  timers.clear("warm");
 }
 
 function subscribe(gameId: string): void {
   if (channel) api.unsubscribe(channel);
-  clearRowQueue();
+  resetRowQueue();
   clearRematchTimer();
   resetSyncState();
   startKeepWarm();
@@ -1175,7 +1200,7 @@ function startPendingRoll(): boolean {
   // again the instant it is. Deliberately NOT gated on the queue being empty:
   // the roll at version v happened before the write at v+1, so once the board is
   // standing at v the tumble goes first and the queued row waits behind it.
-  if (rowHoldTimer) return false;
+  if (timers.has("rowHold")) return false;
   // The state this roll was derived against has not arrived yet. Wait: it is
   // the very next thing the queue will hand us.
   if (payload.v > lastAppliedV) return false;
@@ -1195,7 +1220,7 @@ function startPendingRoll(): boolean {
   rollBumped = true;
   useOnlineStore.setState({ lastRoll: payload.die, rollSeq: st.rollSeq + 1 });
   // The same budget stateAnimationMs charges a written roll — see ROLL_PACING_MS.
-  rowHoldTimer = setTimeout(drainRowQueue, ROLL_PACING_MS);
+  timers.set("rowHold", drainRowQueue, ROLL_PACING_MS);
   return true;
 }
 
@@ -1213,22 +1238,21 @@ type GameSnapshot = Pick<api.GameRow, "state" | "status" | "state_version" | "st
 /** Small buffer after each animation before the next state lands. */
 const ROW_HOLD_PAD_MS = 80;
 let rowQueue: GameSnapshot[] = [];
-let rowHoldTimer: ReturnType<typeof setTimeout> | null = null;
 
-function clearRowQueue(): void {
+/** Drop the queued rows and the die waiting on them. The hold timer itself is
+ *  the TimerSet's business — this is the state beside it. */
+function resetRowQueue(): void {
   rowQueue = [];
   pendingRolls = [];
-  if (rowHoldTimer) clearTimeout(rowHoldTimer);
-  rowHoldTimer = null;
+  timers.clear("rowHold");
 }
 
 function enqueueGameRow(row: GameSnapshot): void {
   rowQueue.push(row);
-  if (!rowHoldTimer) drainRowQueue();
+  if (!timers.has("rowHold")) drainRowQueue();
 }
 
 function drainRowQueue(): void {
-  rowHoldTimer = null;
   // A die waiting on the board to catch up goes first: it belongs to the version
   // now on screen, and anything queued is a write that came after it. Firing it
   // arms the hold timer, so this returns and the timer re-enters here.
@@ -1274,7 +1298,7 @@ function drainRowQueue(): void {
   // Straight off the realtime stream — a window that opens here opens NOW.
   applyGameRow(row, true);
   const hold = prev && row.state ? stateAnimationMs(prev, row.state, heldRoll) + ROW_HOLD_PAD_MS : 0;
-  rowHoldTimer = setTimeout(drainRowQueue, hold);
+  timers.set("rowHold", drainRowQueue, hold);
 }
 
 // --- Local-seat autopilot -----------------------------------------------------
@@ -1284,11 +1308,8 @@ function drainRowQueue(): void {
 // stall bot (TURN_SECONDS + grace), which stays armed as the safety net for
 // when this device is asleep or the app is closed.
 
-let pilotTimer: ReturnType<typeof setTimeout> | null = null;
-
 function clearPilotTimer(): void {
-  if (pilotTimer) clearTimeout(pilotTimer);
-  pilotTimer = null;
+  timers.clear("pilot");
 }
 
 /** Re-armed on every authoritative write (the server refreshes the deadline
@@ -1302,22 +1323,26 @@ function armAutoPilot(active: boolean): void {
   }
   if (st.state?.currentTurnPlayerId !== st.myPlayerId) return;
   if (st.autoPilot) {
-    pilotTimer = setTimeout(autoPilotStep, PILOT_DELAY);
+    timers.set("pilot", autoPilotStep, PILOT_DELAY);
   } else {
-    pilotTimer = setTimeout(() => {
-      // An action of our own still on the wire is the opposite of an idle
-      // player: they acted, and a slow link is retrying it for them. Handing
-      // the seat to the bot here takes the turn away mid-flight and drops
-      // canAct, which is the very "my roll got cancelled" this whole path
-      // exists to stop. Wait it out instead — a landing write re-arms this
-      // timer, and the retries give up well inside one more idle clock.
-      if (rollInFlight || pending) {
-        armAutoPilot(true);
-        return;
-      }
-      useOnlineStore.setState({ autoPilot: true });
-      autoPilotStep();
-    }, TURN_SECONDS * 1000);
+    timers.set(
+      "pilot",
+      () => {
+        // An action of our own still on the wire is the opposite of an idle
+        // player: they acted, and a slow link is retrying it for them. Handing
+        // the seat to the bot here takes the turn away mid-flight and drops
+        // canAct, which is the very "my roll got cancelled" this whole path
+        // exists to stop. Wait it out instead — a landing write re-arms this
+        // timer, and the retries give up well inside one more idle clock.
+        if (rollInFlight || pending) {
+          armAutoPilot(true);
+          return;
+        }
+        useOnlineStore.setState({ autoPilot: true });
+        autoPilotStep();
+      },
+      TURN_SECONDS * 1000,
+    );
   }
 }
 
@@ -1346,7 +1371,7 @@ function autoPilotStep(): void {
   // — which also holds canAct false, so the player can't roll for themselves
   // either. A real state supersedes this timer through armAutoPilot.
   clearPilotTimer();
-  pilotTimer = setTimeout(autoPilotStep, PILOT_RETRY_MS);
+  timers.set("pilot", autoPilotStep, PILOT_RETRY_MS);
 }
 
 // --- Chat (ephemeral broadcast) ----------------------------------------------
@@ -1387,11 +1412,8 @@ function appendChat(p: Omit<ChatEvent, "id" | "at">): void {
  *  fallback path debounces now; an event that carries its own row is applied on
  *  the spot, because there is nothing to coalesce. */
 const LOBBY_DEBOUNCE_MS = 150;
-let lobbyTimer: ReturnType<typeof setTimeout> | null = null;
-
 function clearLobbyTimer(): void {
-  if (lobbyTimer) clearTimeout(lobbyTimer);
-  lobbyTimer = null;
+  timers.clear("lobby");
 }
 
 /**
@@ -1427,11 +1449,8 @@ function refreshLobby(event?: api.LobbyEvent): void {
       return;
     }
   }
-  if (lobbyTimer) return;
-  lobbyTimer = setTimeout(() => {
-    lobbyTimer = null;
-    void doRefreshLobby();
-  }, LOBBY_DEBOUNCE_MS);
+  if (timers.has("lobby")) return;
+  timers.set("lobby", () => void doRefreshLobby(), LOBBY_DEBOUNCE_MS);
 }
 
 async function doRefreshLobby(): Promise<void> {
@@ -1492,11 +1511,8 @@ async function fetchProfiles(lobby: api.LobbyPlayer[]): Promise<void> {
  *  so four devices watching the same clock don't all ask at once. */
 const REMATCH_CLOSE_GRACE_MS = 2000;
 const REMATCH_CLOSE_JITTER_MS = 1500;
-let rematchCloseTimer: ReturnType<typeof setTimeout> | null = null;
-
 function clearRematchTimer(): void {
-  if (rematchCloseTimer) clearTimeout(rematchCloseTimer);
-  rematchCloseTimer = null;
+  timers.clear("rematchClose");
 }
 
 /**
@@ -1534,10 +1550,7 @@ function readRematchVotes(gameId: string, lobby: api.LobbyPlayer[]): void {
   if (!proposal) return;
 
   const wait = proposal.endsAt - Date.now() + REMATCH_CLOSE_GRACE_MS + Math.random() * REMATCH_CLOSE_JITTER_MS;
-  rematchCloseTimer = setTimeout(() => {
-    rematchCloseTimer = null;
-    void closeRematch(gameId);
-  }, Math.max(0, wait));
+  timers.set("rematchClose", () => void closeRematch(gameId), Math.max(0, wait));
 }
 
 /**
@@ -1598,11 +1611,8 @@ function syncMyProfile(): Promise<void> {
 }
 
 /** Runs while a busted third six is held on screen before the seat changes. */
-let bustTimer: ReturnType<typeof setTimeout> | null = null;
-
 function clearBustHold(): void {
-  if (bustTimer) clearTimeout(bustTimer);
-  bustTimer = null;
+  timers.clear("bust");
 }
 
 /**
@@ -1635,12 +1645,15 @@ function applyState(
       rollSeq: st.rollSeq + (rolled && !rollBumped ? 1 : 0),
     });
     if (rolled) rollBumped = false;
-    bustTimer = setTimeout(() => {
-      bustTimer = null;
-      // The room may have moved on (resync, leave) during the hold.
-      if (useOnlineStore.getState().state?.gameId !== state.gameId) return;
-      applyStateNow(state, false, deadlineAt, watched);
-    }, BUST_HOLD_MS);
+    timers.set(
+      "bust",
+      () => {
+        // The room may have moved on (resync, leave) during the hold.
+        if (useOnlineStore.getState().state?.gameId !== state.gameId) return;
+        applyStateNow(state, false, deadlineAt, watched);
+      },
+      BUST_HOLD_MS,
+    );
     return;
   }
   clearBustHold(); // any newer authoritative state wins over a pending hold
@@ -1834,15 +1847,14 @@ const RESYNC_BACKOFF_MAX_MS = 4000;
 /** Grace given to a request that timed out but is still travelling, before we
  *  refetch and risk reading a state it hasn't been written into yet. */
 const RESYNC_AFTER_TIMEOUT_MS = 6000;
-let resyncTimer: ReturnType<typeof setTimeout> | null = null;
 let resyncRunning = false;
 let resyncAgain = false;
 let resyncWantsLobby = false;
 let resyncBackoffMs = 0;
 
-function clearResync(): void {
-  if (resyncTimer) clearTimeout(resyncTimer);
-  resyncTimer = null;
+/** Forget the resync latches and backoff. As above: the timer is the set's. */
+function resetResync(): void {
+  timers.clear("resync");
   resyncRunning = false;
   resyncAgain = false;
   resyncWantsLobby = false;
@@ -1858,14 +1870,8 @@ function scheduleResync(gameId: string, withLobby = false): void {
     resyncAgain = true;
     return;
   }
-  if (resyncTimer) return;
-  resyncTimer = setTimeout(
-    () => {
-      resyncTimer = null;
-      void runResync(gameId);
-    },
-    Math.max(RESYNC_COALESCE_MS, resyncBackoffMs),
-  );
+  if (timers.has("resync")) return;
+  timers.set("resync", () => void runResync(gameId), Math.max(RESYNC_COALESCE_MS, resyncBackoffMs));
 }
 
 /**
@@ -1874,20 +1880,23 @@ function scheduleResync(gameId: string, withLobby = false): void {
  * very write) cancels it — there is nothing left to reconcile.
  */
 function slowResync(gameId: string): void {
-  if (resyncTimer || resyncRunning) return;
+  if (timers.has("resync") || resyncRunning) return;
   // What "already reconciled" means is that a NEWER authoritative state landed
   // while we waited — not that `pending` is empty. Only moves and passes set
   // pending; a roll never does, so keying off it meant a timed-out roll got no
   // reconciliation whatsoever. On our own turn that is terminal: nobody else
   // writes the game, so nothing would ever arrive to correct us.
   const armedAtV = lastAppliedV;
-  resyncTimer = setTimeout(() => {
-    resyncTimer = null;
-    const st = useOnlineStore.getState();
-    if (st.gameId !== gameId) return;
-    if (lastAppliedV > armedAtV) return; // a newer state got here first
-    void runResync(gameId);
-  }, RESYNC_AFTER_TIMEOUT_MS);
+  timers.set(
+    "resync",
+    () => {
+      const st = useOnlineStore.getState();
+      if (st.gameId !== gameId) return;
+      if (lastAppliedV > armedAtV) return; // a newer state got here first
+      void runResync(gameId);
+    },
+    RESYNC_AFTER_TIMEOUT_MS,
+  );
 }
 
 async function runResync(gameId: string): Promise<void> {
@@ -1912,7 +1921,7 @@ async function runResync(gameId: string): Promise<void> {
     syncInFlight();
     rollCache = null;
     prepareSeq++;
-    clearRowQueue();
+    resetRowQueue();
     // A refetch, so treat it as an arrival rather than a window we watched.
     applyGameRow(row, false);
     resyncBackoffMs = 0;
