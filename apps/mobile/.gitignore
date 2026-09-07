@@ -33,6 +33,10 @@ yarn-error.*
 
 # macOS
 .DS_Store
+
+# Certificates and keys, blanket-ignored. The code-signing certificate is an
+# exception and is un-ignored below — it is public by construction and the EAS
+# build needs it in the tree.
 *.pem
 
 # local env files
@@ -53,3 +57,21 @@ _to_delete/
 # these originals are large and re-fetchable from the URLs in
 # assets/source/REACTION-SOUNDS.md. Run scripts/process-reaction-sfx.mjs to rebuild.
 assets/source/raw-reactions/
+
+# expo-updates code signing.
+#
+# The CERTIFICATE is committed on purpose — it is embedded in the app by
+# app.json and is public by construction. The PRIVATE KEY is what makes a
+# stolen EAS publish token insufficient on its own, so it must never be here.
+#
+# Losing this key means no further OTA updates can be signed for builds already
+# in the stores; recovering needs a new store build with a new certificate.
+# Back it up somewhere durable and private.
+#
+# The key sits BESIDE the certificate rather than in its own folder because
+# that is where `eas update` looks by default (--private-key-path defaults to
+# private-key.pem in the certificate's directory). Splitting them would mean
+# passing a flag on every publish, and a forgotten flag is a failed release.
+code-signing/private-key.pem
+!code-signing/certificate.pem
+!code-signing/public-key.pem

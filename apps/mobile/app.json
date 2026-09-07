@@ -9,7 +9,12 @@
     "updates": {
       "url": "https://u.expo.dev/aa506900-7563-476a-a26b-899cf733621a",
       "fallbackToCacheTimeout": 0,
-      "checkAutomatically": "ON_LOAD"
+      "checkAutomatically": "ON_LOAD",
+      "codeSigningCertificate": "./code-signing/certificate.pem",
+      "codeSigningMetadata": {
+        "keyid": "main",
+        "alg": "rsa-v1_5-sha256"
+      }
     },
     "orientation": "portrait",
     "icon": "./assets/images/app-icon/icon.png",
@@ -184,7 +189,8 @@
       "predictiveBackGestureEnabled": false,
       "permissions": [
         "android.permission.MODIFY_AUDIO_SETTINGS",
-        "com.android.vending.BILLING"
+        "com.android.vending.BILLING",
+        "com.google.android.gms.permission.AD_ID"
       ]
     },
     "web": {

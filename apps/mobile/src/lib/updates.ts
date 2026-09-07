@@ -11,19 +11,21 @@
  * runtime that lacks a module it calls.
  *
  * WHAT THIS TRUSTS, because turning it on moved the trust boundary. An OTA
- * channel means the EAS publish token can put arbitrary JavaScript on every
- * install, with no store review in the way. That token is now as sensitive as
- * the signing keys, and it is not currently backed by anything else: updates
- * here are unsigned, so possession of the token is the whole of the authority.
+ * channel means whoever can publish can put arbitrary JavaScript on every
+ * install, with no store review in the way — so the publish path is now as
+ * sensitive as the signing keys.
  *
- * expo-updates supports code signing, which fixes exactly this — the app
- * embeds a certificate and refuses any bundle not signed by the matching
- * private key, so a stolen publish token is no longer sufficient on its own.
- * It is worth doing and is deliberately NOT done here, because it turns on a
- * key-custody decision (who holds the private key, where, and how it is
- * rotated) that belongs to whoever owns the release process rather than to
- * this file. Until then: treat the EAS token accordingly, and keep production
- * publish rights narrow.
+ * That is why updates here are CODE SIGNED. The app embeds a certificate
+ * (app.json: `updates.codeSigningCertificate`) and refuses any bundle not
+ * signed by the matching private key, which means a stolen EAS publish token
+ * is not sufficient on its own — an attacker needs the key as well, and the
+ * key lives outside EAS entirely.
+ *
+ * The cost is custody, and it is real: `apps/mobile/code-signing/keys/` is
+ * gitignored and is the only copy. Lose it and no further update can be signed
+ * for builds already in the stores; recovering means a new store build
+ * carrying a new certificate. Back it up somewhere durable and private, and
+ * keep production publish rights narrow regardless.
  *
  * WHEN AN UPDATE IS APPLIED is the whole design here.
  *
