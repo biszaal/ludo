@@ -28,13 +28,7 @@ import { TOKENS_PER_PLAYER, type PlayerState } from "@ludo/engine";
 import { AvatarGlyph } from "./Avatar";
 import { depth, font, palette, radius, teamColor } from "../theme";
 import { CHIP_COLUMN } from "../lib/layout";
-
-const COLOR_LABEL: Record<PlayerState["color"], string> = {
-  red: "Red",
-  green: "Green",
-  yellow: "Yellow",
-  blue: "Blue",
-};
+import { colorLabel } from "../i18n";
 
 const AVATAR = 48;
 const RING_BOX = AVATAR + 14; // outer container; the ring hugs the frame inside it
@@ -163,10 +157,10 @@ export const PlayerChip = memo(function PlayerChip({
         }}
       >
         {left
-          ? `${label ?? COLOR_LABEL[seatColor]} · Left`
+          ? `${label ?? colorLabel(seatColor)} · Left`
           : offline
-            ? `${label ?? COLOR_LABEL[seatColor]} · Away`
-            : label ?? COLOR_LABEL[seatColor]}
+            ? `${label ?? colorLabel(seatColor)} · Away`
+            : label ?? colorLabel(seatColor)}
       </Text>
       <Text
         style={{

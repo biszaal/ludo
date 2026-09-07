@@ -33,8 +33,8 @@ import { eligibleSeats, type Proposal } from "../lib/rematch";
 import { payoutSplit } from "../lib/economy";
 import { useLayout } from "../lib/useLayout";
 import { font, palette, radius, space, teamColor, teamTint } from "../theme";
+import { colorLabel } from "../i18n";
 
-const COLOR_LABEL = { red: "Red", green: "Green", yellow: "Yellow", blue: "Blue" } as const;
 
 /** Online rematch voting. Omitted in local play, where Rematch just restarts. */
 export interface RematchVoting {
@@ -95,7 +95,7 @@ export function ResultsOverlay({ state, nameFor, avatarFor, onRematch, rematch, 
   // winner, so a row at rank N reads shares[N - 1].
   const shares = payoutSplit(stake, state.players.length);
   const winner = standings[0]!;
-  const winnerName = nameFor?.(winner.playerId) ?? COLOR_LABEL[winner.color];
+  const winnerName = nameFor?.(winner.playerId) ?? colorLabel(winner.color);
   const winnerAvatar = avatarFor?.(winner.playerId) ?? null;
 
   return (
@@ -195,7 +195,7 @@ export function ResultsOverlay({ state, nameFor, avatarFor, onRematch, rematch, 
               </Text>
               <View style={{ width: 12, height: 12, borderRadius: radius.pill, backgroundColor: teamColor[s.color] }} />
               <Text style={{ flex: 1, fontFamily: font.semibold, fontSize: 15, color: palette.porcelain }}>
-                {nameFor?.(s.playerId) ?? COLOR_LABEL[s.color]}
+                {nameFor?.(s.playerId) ?? colorLabel(s.color)}
               </Text>
               {!gone && canAddFriends && userIdOf(s.playerId) ? <AddFriendButton userId={userIdOf(s.playerId)!} /> : null}
               <Text
@@ -293,7 +293,7 @@ function RematchBallot({
   const seconds = useSecondsLeft(proposal?.endsAt ?? null);
   const seats = eligibleSeats(state);
   const colorOf = (playerId: string) => state.players.find((p) => p.id === playerId)!.color;
-  const labelOf = (playerId: string) => nameFor?.(playerId) ?? COLOR_LABEL[colorOf(playerId)];
+  const labelOf = (playerId: string) => nameFor?.(playerId) ?? colorLabel(colorOf(playerId));
 
   if (!proposal) {
     return (

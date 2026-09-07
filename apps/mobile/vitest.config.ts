@@ -12,6 +12,8 @@ export default defineConfig({
       ),
       // Native module — the wallet store imports lib/purchases transitively.
       "react-native-purchases": fileURLToPath(new URL("./__tests__/mocks/purchases.ts", import.meta.url)),
+      // Native module — the i18n store reads the device's language list.
+      "expo-localization": fileURLToPath(new URL("./__tests__/mocks/expoLocalization.ts", import.meta.url)),
     },
   },
   test: {

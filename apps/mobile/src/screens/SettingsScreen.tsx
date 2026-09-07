@@ -19,6 +19,9 @@ import { cancelBonusReminder, scheduleBonusReminder } from "../lib/bonusReminder
 import { Surface3D } from "../components/Surface3D";
 import { BookGlyph, ChevronGlyph, CycleGlyph, NoteGlyph, PeopleGlyph, PulseGlyph, SpeakerGlyph, SpeechGlyph } from "../components/HomeGlyphs";
 import { CoinGlyph } from "../components/CoinsPill";
+import { LanguageSheet } from "../components/LanguageSheet";
+import { GlobeGlyph } from "../components/HomeGlyphs";
+import { LOCALE_NAMES, useLocale, useT } from "../i18n";
 import { useNav } from "../store/navStore";
 import { useFullMotion } from "../lib/useMotion";
 import { useSettings } from "../store/settingsStore";
@@ -31,26 +34,29 @@ export function SettingsScreen() {
   const settings = useSettings();
   const fullMotion = useFullMotion();
   const push = useNav((s) => s.push);
+  const t = useT();
+  const activeLocale = useLocale((s) => s.locale);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [languageOpen, setLanguageOpen] = useState(false);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: palette.tableBlue }}>
       <TableBackground />
-      <ScreenHeader title="Settings" />
+      <ScreenHeader title={t("settings.title")} />
 
       <ScrollView contentContainerStyle={{ paddingTop: space.lg, paddingBottom: space.xxl, alignItems: "center" }}>
         <ContentColumn style={{ paddingHorizontal: space.xl, gap: space.xl }}>
-        <Tray title="Sound & feel">
+        <Tray title={t("settings.soundAndFeel")}>
           <Row glyph={<SpeakerGlyph size={20} />}>
-            <SettingRow label="Sound effects" hint="Dice, hops and captures" value={settings.soundOn} onChange={settings.setSound} />
+            <SettingRow label={t("settings.soundEffects")} hint={t("settings.soundEffectsHint")} value={settings.soundOn} onChange={settings.setSound} />
           </Row>
           <Hairline />
           <Row glyph={<NoteGlyph size={20} />}>
-            <SettingRow label="Music" hint="Ambient table loop" value={settings.musicOn} onChange={settings.setMusic} />
+            <SettingRow label={t("settings.music")} hint={t("settings.musicHint")} value={settings.musicOn} onChange={settings.setMusic} />
           </Row>
           <Hairline />
           <Row glyph={<PulseGlyph size={20} />}>
-            <SettingRow label="Haptics" hint="Gentle taps on rolls and moves" value={settings.hapticsOn} onChange={settings.setHaptics} />
+            <SettingRow label={t("settings.haptics")} hint={t("settings.hapticsHint")} value={settings.hapticsOn} onChange={settings.setHaptics} />
           </Row>
           <Hairline />
           <Row glyph={<CycleGlyph size={20} />}>
@@ -61,11 +67,11 @@ export function SettingsScreen() {
                 "auto" from here, and that is fine: once someone has an opinion,
                 it should be the one that counts. */}
             <SettingRow
-              label="Animations"
+              label={t("settings.animations")}
               hint={
                 fullMotion
-                  ? "Bouncing pawns, confetti and dice detail"
-                  : "Reduced — smoother on slower phones and easier on battery"
+                  ? t("settings.animationsFull")
+                  : t("settings.animationsReduced")
               }
               value={fullMotion}
               onChange={(v) => settings.setMotionPref(v ? "full" : "reduced")}
@@ -73,11 +79,11 @@ export function SettingsScreen() {
           </Row>
         </Tray>
 
-        <Tray title="Notifications">
+        <Tray title={t("settings.notifications")}>
           <Row glyph={<PeopleGlyph size={20} />}>
             <SettingRow
-              label="Friends"
-              hint="Invites, requests, and when a friend comes online"
+              label={t("settings.notificationsInvites")}
+              hint={t("settings.notificationsHint")}
               value={settings.pushOn}
               onChange={(v) => {
                 settings.setPush(v);
@@ -90,8 +96,8 @@ export function SettingsScreen() {
           <Hairline />
           <Row glyph={<CoinGlyph size={20} />}>
             <SettingRow
-              label="Daily bonus"
-              hint="A nudge when your free coins are ready"
+              label={t("settings.bonusReminder")}
+              hint={t("settings.bonusReminderHint")}
               value={settings.bonusRemindersOn}
               onChange={(v) => {
                 settings.setBonusReminders(v);
@@ -105,31 +111,51 @@ export function SettingsScreen() {
           </Row>
         </Tray>
 
-        <Tray title="Learn">
+        <Tray title={t("settings.language")}>
+          {/* A row rather than a switch: seven options, and the value worth
+              showing is the language's own name in its own script. */}
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="How to play"
-            onPress={() => push("howToPlay")}
+            accessibilityLabel={t("settings.language")}
+            onPress={() => setLanguageOpen(true)}
             style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", minHeight: 52, gap: space.md, opacity: pressed ? 0.85 : 1 })}
           >
-            <BookGlyph size={20} />
-            <Text style={{ flex: 1, fontFamily: font.medium, fontSize: 16, color: palette.porcelain }}>How to play</Text>
+            <GlobeGlyph size={20} />
+            <Text style={{ flex: 1, fontFamily: font.medium, fontSize: 16, color: palette.porcelain }}>
+              {t("settings.language")}
+            </Text>
+            <Text style={{ fontFamily: font.medium, fontSize: 15, color: palette.mutedSteel }}>
+              {LOCALE_NAMES[activeLocale]}
+            </Text>
             <ChevronGlyph size={16} />
           </Pressable>
         </Tray>
 
-        <Tray title="About">
+        <Tray title={t("rules.learn")}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={t("settings.howToPlay")}
+            onPress={() => push("howToPlay")}
+            style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", minHeight: 52, gap: space.md, opacity: pressed ? 0.85 : 1 })}
+          >
+            <BookGlyph size={20} />
+            <Text style={{ flex: 1, fontFamily: font.medium, fontSize: 16, color: palette.porcelain }}>{t("settings.howToPlay")}</Text>
+            <ChevronGlyph size={16} />
+          </Pressable>
+        </Tray>
+
+        <Tray title={t("settings.about")}>
           {/* Feedback sits here rather than under Learn because the report
               carries the build with it — version and phone are attached by
               net/api, and this is the tray that already names the version. */}
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Send feedback"
+            accessibilityLabel={t("settings.sendFeedback")}
             onPress={() => setFeedbackOpen(true)}
             style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", minHeight: 52, gap: space.md, opacity: pressed ? 0.85 : 1 })}
           >
             <SpeechGlyph size={20} />
-            <Text style={{ flex: 1, fontFamily: font.medium, fontSize: 16, color: palette.porcelain }}>Send feedback</Text>
+            <Text style={{ flex: 1, fontFamily: font.medium, fontSize: 16, color: palette.porcelain }}>{t("settings.sendFeedback")}</Text>
             <ChevronGlyph size={16} />
           </Pressable>
           <Hairline />
@@ -141,6 +167,7 @@ export function SettingsScreen() {
       </ScrollView>
 
       {feedbackOpen ? <FeedbackSheet onClose={() => setFeedbackOpen(false)} /> : null}
+      {languageOpen ? <LanguageSheet onClose={() => setLanguageOpen(false)} /> : null}
     </SafeAreaView>
   );
 }

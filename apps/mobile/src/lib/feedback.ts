@@ -23,8 +23,8 @@ import { SFX_LEAD_MS, moveDurationMs } from "./moveTiming";
 import { resolveEmoji } from "./emoji";
 import { playSound } from "./sound";
 import * as haptics from "./haptics";
+import { colorLabel } from "../i18n";
 
-const COLOR_LABEL: Record<Color, string> = { red: "Red", green: "Green", yellow: "Yellow", blue: "Blue" };
 
 // Only the four STARRED cells chime. The four start cells are also in the
 // engine's SAFE_SQUARES (capture-proof), but the board draws no star there and
@@ -127,7 +127,7 @@ function recordLocal(state: GameState, botIds: string[]): void {
     mode: vsAI ? "ai" : "pass",
     finishedAt: Date.now(),
     players: state.players.length,
-    winnerLabel: humanWon ? useProfile.getState().displayName : COLOR_LABEL[winner.color],
+    winnerLabel: humanWon ? useProfile.getState().displayName : colorLabel(winner.color),
     winnerColor: winner.color,
     didWin: vsAI ? humanWon : null,
   });
@@ -141,7 +141,7 @@ function recordOnline(state: GameState, myPlayerId: string | null): void {
     mode: "online",
     finishedAt: Date.now(),
     players: state.players.length,
-    winnerLabel: didWin ? useProfile.getState().displayName : COLOR_LABEL[winner.color],
+    winnerLabel: didWin ? useProfile.getState().displayName : colorLabel(winner.color),
     winnerColor: winner.color,
     didWin,
   });

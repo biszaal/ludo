@@ -50,6 +50,7 @@ import { useAds, canShowInterstitial } from "../store/adsStore";
 import { useConfig } from "../store/configStore";
 import { noAdsActive, useEntitlements } from "../store/entitlementsStore";
 import { preloadInterstitial, showInterstitial } from "../lib/ads/provider";
+import { colorLabel } from "../i18n";
 
 /** Height the top bar ("Ludo" and its pills) occupies. Only the railed layout
  *  needs it: that one budgets the board's height by hand, where the stacked one
@@ -135,7 +136,6 @@ export interface GameChat {
   reactionsOnly?: boolean;
 }
 
-const COLOR_LABEL = { red: "Red", green: "Green", yellow: "Yellow", blue: "Blue" } as const;
 
 type TeamColor = "red" | "green" | "yellow" | "blue";
 /** Color whose yard sits at each screen corner (CW: 0=TL,1=TR,2=BR,3=BL) with no rotation. */
@@ -436,7 +436,7 @@ export function GameView({
     if (chat && userId === chat.myUserId) return "You";
     const pl = state.players.find((p) => p.userId === userId);
     if (!pl) return "Player";
-    return nameFor?.(pl.id) ?? COLOR_LABEL[pl.color];
+    return nameFor?.(pl.id) ?? colorLabel(pl.color);
   };
 
   // A corner profile for the player whose (rotated) yard sits at this screen
@@ -696,7 +696,7 @@ export function GameView({
 
       {celebrating && champion && (
         <WinnerCelebration
-          winnerName={nameFor?.(champion.id) ?? COLOR_LABEL[champion.color]}
+          winnerName={nameFor?.(champion.id) ?? colorLabel(champion.color)}
           winnerColor={champion.color}
           winnerAvatar={avatarFor?.(champion.id) ?? null}
           gameOver={finished}

@@ -12,13 +12,8 @@ import {
   type Move,
 } from "@ludo/engine";
 import { ordinal } from "./standings";
+import { colorLabel, t } from "../i18n";
 
-const COLOR_LABEL: Record<PlayerColor, string> = {
-  red: "Red",
-  green: "Green",
-  yellow: "Yellow",
-  blue: "Blue",
-};
 
 export interface Projection {
   validMoves: Move[];
@@ -87,7 +82,7 @@ export function project(state: GameState, myPlayerId: string | null): Projection
   if (win.finished && win.winnerPlayerId) {
     return {
       validMoves: [],
-      message: `${COLOR_LABEL[colorOf(state, win.winnerPlayerId)]} wins!`,
+      message: t("status.wins", { color: colorLabel(colorOf(state, win.winnerPlayerId)) }),
       status: "finished",
       lastRoll,
     };
@@ -99,7 +94,7 @@ export function project(state: GameState, myPlayerId: string | null): Projection
   if (myPlace !== -1) {
     return {
       validMoves: [],
-      message: `You finished ${ordinal(myPlace + 1)}! Watching the rest…`,
+      message: t("status.youFinished", { place: ordinal(myPlace + 1) }),
       status: "active",
       lastRoll,
     };
@@ -109,21 +104,21 @@ export function project(state: GameState, myPlayerId: string | null): Projection
     myTurn && state.phase === "awaiting-move"
       ? getValidMoves(state, myPlayerId!)
       : [];
-  const turnColor = COLOR_LABEL[colorOf(state, state.currentTurnPlayerId)];
+  const turnColor = colorLabel(colorOf(state, state.currentTurnPlayerId));
   let message: string;
   if (!myTurn) {
     message =
       bustedDice !== null
-        ? `Three 6s — turn forfeited. Waiting for ${turnColor}…`
-        : `Waiting for ${turnColor}…`;
+        ? t("status.bustedWaitingFor", { name: turnColor })
+        : t("status.waitingFor", { name: turnColor });
   } else if (state.phase === "awaiting-roll") {
     message =
       bustedDice !== null
-        ? "Three 6s forfeited their turn — your turn, roll"
-        : "Your turn — roll";
+        ? t("game.threeSixesForfeit")
+        : t("game.yourTurnRoll");
   } else {
     message =
-      validMoves.length === 0 ? "No moves — passing…" : "Choose a token";
+      validMoves.length === 0 ? t("game.noMovesPassing") : t("game.chooseToken");
   }
   return { validMoves, message, status: "active", lastRoll };
 }

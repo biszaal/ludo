@@ -31,8 +31,8 @@ import { copyCode } from "../lib/invite";
 import { formatCompact } from "../lib/format";
 import { potFor } from "../lib/economy";
 import { font, palette, radius, space, teamColor } from "../theme";
+import { colorLabel } from "../i18n";
 
-const COLOR_LABEL = { red: "Red", green: "Green", yellow: "Yellow", blue: "Blue" } as const;
 
 export function LobbyScreen() {
   const roomCode = useOnlineStore((s) => s.roomCode);
@@ -215,10 +215,10 @@ export function LobbyScreen() {
                 )}
                 <View style={{ flex: 1, gap: 1 }}>
                   <Text numberOfLines={1} style={{ fontFamily: font.semibold, fontSize: 16, color: palette.porcelain }}>
-                    {profile?.display_name ?? COLOR_LABEL[color]}
+                    {profile?.display_name ?? colorLabel(color)}
                   </Text>
                   {profile ? (
-                    <Text style={{ fontFamily: font.regular, fontSize: 12, color: palette.mutedSteel }}>{COLOR_LABEL[color]}</Text>
+                    <Text style={{ fontFamily: font.regular, fontSize: 12, color: palette.mutedSteel }}>{colorLabel(color)}</Text>
                   ) : null}
                 </View>
                 {p.is_bot ? <Tag label="Bot" /> : null}

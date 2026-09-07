@@ -19,47 +19,25 @@ import {
   WinDiagram,
 } from "../components/HowToPlayDiagrams";
 import { resolveBoardTheme } from "../render/boardThemes";
+import { useT } from "../i18n";
 import { useNav } from "../store/navStore";
 import { useSettings } from "../store/settingsStore";
 import { font, palette, radius, space } from "../theme";
 
+/**
+ * The six sections, as KEYS rather than text.
+ *
+ * The strings move to the catalog; what stays here is the order and which
+ * diagram goes with which rule, which is the part that is actually about this
+ * screen. `as const` keeps the keys literal so the catalog's type checks them.
+ */
 const SECTIONS = [
-  {
-    key: "objective",
-    title: "The goal",
-    body: "Race all four of your pawns around the board and into the center before anyone else. Everyone moves clockwise around the same track.",
-    Diagram: ObjectiveDiagram,
-  },
-  {
-    key: "roll",
-    title: "Rolling & sixes",
-    body: "Roll a six to move a pawn out of your yard onto your start square. A six also earns another roll — but three sixes in a row forfeits the turn.",
-    Diagram: RollSixDiagram,
-  },
-  {
-    key: "capture",
-    title: "Captures",
-    body: "Land exactly on a lone opponent pawn and it is sent back to its yard to start over — that earns you a bonus roll. A square holding two or more pawns is immune: nobody there can be captured, and anyone may land and join the pile. It opens up again once a single pawn is left.",
-    Diagram: CaptureDiagram,
-  },
-  {
-    key: "safe",
-    title: "Safe squares",
-    body: "Squares marked with a star are safe ground. Pawns there can't be captured, and opponents may share the square with you.",
-    Diagram: SafeSquareDiagram,
-  },
-  {
-    key: "home",
-    title: "The home stretch",
-    body: "After a full lap, your pawns turn up your colored column. Only your pawns may enter it, and a pawn needs an exact roll to reach the center.",
-    Diagram: HomeColumnDiagram,
-  },
-  {
-    key: "win",
-    title: "Winning",
-    body: "The first player to bring all four pawns to the center wins the game. Finishing a pawn also earns a bonus roll.",
-    Diagram: WinDiagram,
-  },
+  { key: "objective", title: "rules.goal", body: "rules.goalBody", Diagram: ObjectiveDiagram },
+  { key: "roll", title: "rules.rolling", body: "rules.rollingBody", Diagram: RollSixDiagram },
+  { key: "capture", title: "rules.captures", body: "rules.capturesBody", Diagram: CaptureDiagram },
+  { key: "safe", title: "rules.safeSquares", body: "rules.safeSquaresBody", Diagram: SafeSquareDiagram },
+  { key: "home", title: "rules.homeStretch", body: "rules.homeStretchBody", Diagram: HomeColumnDiagram },
+  { key: "win", title: "rules.winning", body: "rules.winningBody", Diagram: WinDiagram },
 ] as const;
 
 export function HowToPlayScreen() {
@@ -67,6 +45,7 @@ export function HowToPlayScreen() {
   const { maxWidth } = useLayout();
   const theme = resolveBoardTheme(useSettings((s) => s.boardThemeId));
   const pop = useNav((s) => s.pop);
+  const t = useT();
   // Diagrams size to the (capped) column, not the full iPad width.
   const diagramWidth = Math.min(width, maxWidth ?? width) - space.xl * 2 - space.lg * 2;
 
@@ -74,8 +53,8 @@ export function HowToPlayScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: palette.tableBlue }}>
       <TableBackground />
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: space.xl, paddingTop: space.sm }}>
-        <Text style={{ fontFamily: font.display, fontSize: 22, color: palette.porcelain }}>How to play</Text>
-        <Button label="Back" onPress={pop} variant="ghost" />
+        <Text style={{ fontFamily: font.display, fontSize: 22, color: palette.porcelain }}>{t("rules.title")}</Text>
+        <Button label={t("common.back")} onPress={pop} variant="ghost" />
       </View>
 
       <ScrollView contentContainerStyle={{ paddingTop: space.lg, paddingBottom: space.xxl, alignItems: "center" }}>
@@ -93,8 +72,8 @@ export function HowToPlayScreen() {
             }}
           >
             <Diagram width={diagramWidth} theme={theme} />
-            <Text style={{ fontFamily: font.semibold, fontSize: 17, color: palette.porcelain }}>{title}</Text>
-            <Text style={{ fontFamily: font.regular, fontSize: 15, lineHeight: 22, color: palette.mutedSteel }}>{body}</Text>
+            <Text style={{ fontFamily: font.semibold, fontSize: 17, color: palette.porcelain }}>{t(title)}</Text>
+            <Text style={{ fontFamily: font.regular, fontSize: 15, lineHeight: 22, color: palette.mutedSteel }}>{t(body)}</Text>
           </View>
         ))}
         </ContentColumn>

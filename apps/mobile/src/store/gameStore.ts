@@ -28,13 +28,7 @@ import { DICE_ROLL_MS } from "../lib/moveTiming";
 import { resetGameClock } from "../lib/gameClock";
 import { ordinal } from "../lib/standings";
 import { useNav } from "./navStore";
-
-const COLOR_LABEL: Record<PlayerColor, string> = {
-  red: "Red",
-  green: "Green",
-  yellow: "Yellow",
-  blue: "Blue",
-};
+import { colorLabel, t } from "../i18n";
 
 /**
  * Delay between a bot's actions, so a human can follow what it's doing.
@@ -121,7 +115,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       bustHold: false,
       botIds,
       lastConfig: config,
-      message: `${COLOR_LABEL[colors[0]!]} to roll`,
+      message: t("status.toRoll", { color: colorLabel(colors[0]!) }),
     });
     useNav.getState().push("localGame");
     kickBots();
@@ -152,7 +146,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         lastRoll: diceValue,
         rollSeq,
         bustHold: true,
-        message: `${COLOR_LABEL[color]} rolled three 6s — turn forfeited`,
+        message: t("status.forfeited", { color: colorLabel(color) }),
       });
       clearBustTimer();
       bustTimer = setTimeout(() => {
@@ -163,7 +157,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
           state: newState,
           validMoves: [],
           bustHold: false,
-          message: `${COLOR_LABEL[playerColor(newState, newState.currentTurnPlayerId)]} to roll`,
+          message: t("status.toRoll", { color: colorLabel(playerColor(newState, newState.currentTurnPlayerId)) }),
         });
         kickBots();
       }, BUST_HOLD_MS);
@@ -178,8 +172,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
       rollSeq,
       message:
         moves.length === 0
-          ? `${COLOR_LABEL[color]} rolled ${diceValue} — no moves`
-          : `${COLOR_LABEL[color]} rolled ${diceValue} — choose a token`,
+          ? t("status.rolledNoMoves", { color: colorLabel(color), dice: diceValue })
+          : t("status.rolledChoose", { color: colorLabel(color), dice: diceValue }),
     });
 
     scheduleHumanAuto(); // auto-pass (no moves) or auto-play a lone move, for humans
@@ -196,7 +190,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set({
       state: next,
       validMoves: [],
-      message: `${COLOR_LABEL[playerColor(next, next.currentTurnPlayerId)]} to roll`,
+      message: t("status.toRoll", { color: colorLabel(playerColor(next, next.currentTurnPlayerId)) }),
     });
     kickBots();
   },
@@ -216,7 +210,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       set({
         state: next,
         validMoves: [],
-        message: `${COLOR_LABEL[playerColor(next, win.winnerPlayerId)]} wins!`,
+        message: t("status.wins", { color: colorLabel(playerColor(next, win.winnerPlayerId)) }),
       });
       return; // game over — no bot kick
     }
@@ -224,7 +218,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
     // Play-to-completion: announce a player locking in a podium place.
     const placed =
       next.finishedOrder.length > (state.finishedOrder?.length ?? 0)
-        ? `${COLOR_LABEL[playerColor(next, before)]} finished ${ordinal(next.finishedOrder.length)}! `
+        ? t("status.finishedPlace", {
+            color: colorLabel(playerColor(next, before)),
+            place: ordinal(next.finishedOrder.length),
+          })
         : "";
     const nowColor = playerColor(next, next.currentTurnPlayerId);
     set({
@@ -232,8 +229,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
       validMoves: [],
       message:
         next.currentTurnPlayerId === before
-          ? `${placed}${COLOR_LABEL[nowColor]} rolls again`
-          : `${placed}${COLOR_LABEL[nowColor]} to roll`,
+          ? placed + t("status.rollsAgain", { color: colorLabel(nowColor) })
+          : placed + t("status.toRoll", { color: colorLabel(nowColor) }),
     });
     kickBots();
   },

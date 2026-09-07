@@ -107,6 +107,36 @@ export function CycleGlyph({ size, color = palette.mutedSteel }: { size: number;
   );
 }
 
+/** Language: a globe — outline, one equator, two meridians. */
+export function GlobeGlyph({ size, color = palette.mutedSteel }: { size: number; color?: string }) {
+  const s = size;
+  const c = s / 2;
+  const r = s * 0.36;
+  const sw = s * 0.09;
+  return (
+    <Canvas style={{ width: s, height: s }}>
+      <Circle cx={c} cy={c} r={r} color={color} style="stroke" strokeWidth={sw} />
+      {/* Equator: a straight line, because at this size an ellipse's flat arcs
+          land inside one stroke width of it and just look like a thick blur. */}
+      <Path path={`M ${c - r} ${c} L ${c + r} ${c}`} color={color} style="stroke" strokeWidth={sw} strokeCap="round" />
+      {/* Meridians: two arcs bowing opposite ways through the poles, which is
+          what stops the circle reading as a clock face. */}
+      <Path
+        path={`M ${c} ${c - r} A ${r * 0.5} ${r} 0 0 1 ${c} ${c + r}`}
+        color={color}
+        style="stroke"
+        strokeWidth={sw * 0.85}
+      />
+      <Path
+        path={`M ${c} ${c - r} A ${r * 0.5} ${r} 0 0 0 ${c} ${c + r}`}
+        color={color}
+        style="stroke"
+        strokeWidth={sw * 0.85}
+      />
+    </Canvas>
+  );
+}
+
 /** Row chevron: a drawn ›  (never the text glyph). */
 export function ChevronGlyph({ size, color = palette.mutedSteel }: { size: number; color?: string }) {
   const s = size;

@@ -13,8 +13,8 @@ import { DealingOverlay } from "../components/DealingOverlay";
 import { GameView } from "../components/GameView";
 import { useOnlineStore } from "../store/onlineStore";
 import { useProfile } from "../store/profileStore";
+import { colorLabel } from "../i18n";
 
-const COLOR_LABEL = { red: "Red", green: "Green", yellow: "Yellow", blue: "Blue" } as const;
 
 export function OnlineGameScreen() {
   const state = useOnlineStore((s) => s.state);
@@ -119,7 +119,7 @@ export function OnlineGameScreen() {
       waitingLabel={
         autoPilot && myTurn
           ? "Bot is playing for you — tap your avatar to take control"
-          : `Waiting for ${profileOf(active.id)?.display_name ?? COLOR_LABEL[active.color]}…`
+          : `Waiting for ${profileOf(active.id)?.display_name ?? colorLabel(active.color)}…`
       }
       onRoll={() => void roll()}
       onSelectToken={(id) => void selectToken(id)}

@@ -20,6 +20,7 @@
     "expo-font": "~56.0.7",
     "expo-haptics": "~56.0.3",
     "expo-linking": "~56.0.17",
+    "expo-localization": "~56.0.6",
     "expo-network": "~56.0.5",
     "expo-notifications": "~56.0.25",
     "expo-secure-store": "~56.0.4",
