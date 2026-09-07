@@ -18,6 +18,7 @@ import { resolveBoardTheme, type BoardTheme } from "../render/boardThemes";
 import { resolveDiceSkin } from "../render/diceSkins";
 import type { CosmeticCategory } from "../lib/cosmetics";
 import { depth, font, palette, radius, space } from "../theme";
+import { useT } from "../i18n";
 
 const PREVIEW_H = 224;
 const BOARD_SIZE = 176;
@@ -63,6 +64,7 @@ function BoardPreview({ themeId }: { themeId: string }) {
 }
 
 function DicePreview({ skinId, boardTheme }: { skinId: string; boardTheme: BoardTheme }) {
+  const t = useT();
   const [seq, setSeq] = useState(0);
   const [value, setValue] = useState<number | null>(null);
   const skin = resolveDiceSkin(skinId);
@@ -88,9 +90,9 @@ function DicePreview({ skinId, boardTheme }: { skinId: string; boardTheme: Board
         theme={boardTheme}
         skin={skin}
         onRollPress={roll}
-        pressLabel="Roll the dice"
+        pressLabel={t("game.rollTheDice")}
       />
-      <Text style={{ fontFamily: font.medium, fontSize: 12, color: palette.mutedSteel }}>Tap to roll</Text>
+      <Text style={{ fontFamily: font.medium, fontSize: 12, color: palette.mutedSteel }}>{t("game.tapToRoll")}</Text>
     </View>
   );
 }

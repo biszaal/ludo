@@ -41,6 +41,7 @@ import { appendGlyph } from "../render/boardGlyphs";
 import { artSeed, frameBand, plateTexture, yardEmblem, type Art } from "../render/boardArt";
 import { mulberry32 } from "../render/pipShapes";
 import { appendMotif, motifStyle } from "../render/faceMotifs";
+import { useT } from "../i18n";
 import {
   HOME_CELLS,
   START_CELL_INDEX,
@@ -132,6 +133,7 @@ interface Spot {
  * to bite (GameView does).
  */
 export const Board = memo(function Board({ size, state, theme, isMovable, onSelectToken, viewColor }: BoardProps) {
+  const t = useT();
   // Read once here, not per pawn. The movable-pawn bob is the single largest
   // sustained cost in normal play: a Skia canvas rasterizes in FULL whenever any
   // shared value inside it moves, so one repeating loop keeps all sixteen pawns
@@ -313,7 +315,7 @@ export const Board = memo(function Board({ size, state, theme, isMovable, onSele
           boxes stealing the touch). */}
       {renderData.some(({ token }) => isMovable(token.id)) && (
         <Pressable
-          accessibilityLabel="Board — tap a highlighted token to move it"
+          accessibilityLabel={t("game.boardA11y")}
           style={{ position: "absolute", left: 0, top: 0, width: size, height: size }}
           onPress={(e) => {
             const { locationX, locationY } = e.nativeEvent;

@@ -23,6 +23,7 @@ import { notifications, PERMISSION_REQUEST } from "./notifications";
 import { useSettings } from "../store/settingsStore";
 import { useWallet } from "../store/walletStore";
 import { nextResetAfter, reminderTime } from "./bonusSchedule";
+import { t } from "../i18n";
 
 /** Stable id, so rescheduling REPLACES the pending reminder rather than
  *  stacking a second one behind it. Every path here cancels this first. */
@@ -38,7 +39,7 @@ const CHANNEL_ID = "daily-bonus";
  *  to lose. Day 1 has nothing at stake yet, so it doesn't pretend otherwise. */
 function body(streakDay: number): string {
   if (streakDay >= 2) return `Day ${streakDay + 1} of your streak is waiting. Miss a day and it starts over.`;
-  return "Your free coins are waiting. Tap to claim them.";
+  return t("notify.bonusBody");
 }
 
 /**
@@ -69,7 +70,7 @@ export async function scheduleBonusReminder(claimable: boolean, streakDay: numbe
 
     if (Platform.OS === "android") {
       await N.setNotificationChannelAsync(CHANNEL_ID, {
-        name: "Daily bonus",
+        name: t("home.dailyBonus"),
         importance: N.AndroidImportance.DEFAULT,
       });
     }
@@ -79,7 +80,7 @@ export async function scheduleBonusReminder(claimable: boolean, streakDay: numbe
     await N.scheduleNotificationAsync({
       identifier: REMINDER_ID,
       content: {
-        title: "Daily bonus ready",
+        title: t("notify.bonusTitle"),
         body: body(streakDay),
         data: { type: "daily-bonus" },
       },

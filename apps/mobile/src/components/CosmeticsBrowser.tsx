@@ -37,11 +37,13 @@ import { font, palette, radius, space } from "../theme";
 import { SkeletonBlock, SkeletonGroup, SkeletonLine } from "./Skeleton";
 import { LoadFailed } from "./LoadFailed";
 import { useLoadPhase } from "../lib/useLoadPhase";
+import { useT, type StringKey } from "../i18n";
 
-const TABS: { key: ShopTab; label: string }[] = [
-  { key: "avatar", label: "Avatar" },
-  { key: "board", label: "Board" },
-  { key: "dice", label: "Dice" },
+/** Tab labels as catalog KEYS, resolved per render. */
+const TABS: { key: ShopTab; label: StringKey }[] = [
+  { key: "avatar", label: "shop.avatar" },
+  { key: "board", label: "shop.board" },
+  { key: "dice", label: "shop.dice" },
 ];
 
 const COLS = 4;
@@ -60,12 +62,13 @@ const SWATCH_SKELETON: Record<CosmeticCategory, { thumb: number; rad: number; la
 };
 
 export function CosmeticsBrowser({ mode }: { mode: "locker" | "shop" }) {
+  const t = useT();
   const category = useCosmeticsUI((s) => s.category);
   const tab = useCosmeticsUI((s) => s.tab);
   const setTab = useCosmeticsUI((s) => s.setTab);
   // Gems are not a cosmetic and the locker has no business selling them, so
   // the fourth tab exists in the Shop only.
-  const tabs = mode === "shop" ? [...TABS, { key: "gems" as const, label: "Gems" }] : TABS;
+  const tabs = mode === "shop" ? [...TABS, { key: "gems" as const, label: "gems.title" as StringKey }] : TABS;
   const showingGems = mode === "shop" && tab === "gems";
   const setCategory = useCosmeticsUI((s) => s.setCategory);
 
@@ -153,7 +156,7 @@ export function CosmeticsBrowser({ mode }: { mode: "locker" | "shop" }) {
   const highlightItem = cosmeticItems(category).find((it) => it.id === highlightId);
   const highlightOwned = highlightItem ? isUnlocked(owned, prices, highlightItem.sku) : true;
   const status =
-    highlightId === equippedId ? "Equipped" : highlightOwned ? "In your collection" : "Not yet unlocked";
+    highlightId === equippedId ? t("shop.equipped") : highlightOwned ? t("shop.inYourCollection") : t("shop.notYetUnlocked");
 
   return (
     <View style={{ gap: space.lg }}>
@@ -168,14 +171,14 @@ export function CosmeticsBrowser({ mode }: { mode: "locker" | "shop" }) {
           borderColor: palette.hairline,
         }}
       >
-        {tabs.map((t) => {
-          const active = t.key === (mode === "shop" ? tab : category);
+        {tabs.map((tabDef) => {
+          const active = tabDef.key === (mode === "shop" ? tab : category);
           return (
             <Pressable
-              key={t.key}
+              key={tabDef.key}
               accessibilityRole="tab"
               accessibilityState={{ selected: active }}
-              onPress={() => (mode === "shop" ? setTab(t.key) : setCategory(t.key as CosmeticCategory))}
+              onPress={() => (mode === "shop" ? setTab(tabDef.key) : setCategory(tabDef.key as CosmeticCategory))}
               style={{
                 flex: 1,
                 paddingVertical: space.sm,
@@ -191,7 +194,7 @@ export function CosmeticsBrowser({ mode }: { mode: "locker" | "shop" }) {
                   color: active ? palette.porcelain : palette.mutedSteel,
                 }}
               >
-                {t.label}
+                {t(tabDef.label)}
               </Text>
             </Pressable>
           );
@@ -204,7 +207,7 @@ export function CosmeticsBrowser({ mode }: { mode: "locker" | "shop" }) {
         <CosmeticPreview category={category} itemId={highlightId} boardTheme={boardTheme} />
         <View style={{ alignItems: "center", gap: 2 }}>
           {view === "skeleton" ? (
-            <SkeletonGroup label="Loading item details" style={{ alignItems: "center", gap: 6 }}>
+            <SkeletonGroup label={t("shop.loadingItem")} style={{ alignItems: "center", gap: 6 }}>
               <SkeletonLine width={96} size={17} index={0} />
               <SkeletonLine width={64} size={12} index={1} />
             </SkeletonGroup>
@@ -224,14 +227,14 @@ export function CosmeticsBrowser({ mode }: { mode: "locker" | "shop" }) {
         <LoadFailed
           message={
             mode === "shop"
-              ? "The shop didn't load. Check your connection and try again."
-              : "Your collection didn't load. Check your connection and try again."
+              ? t("shop.loadFailedLong")
+              : t("shop.collectionLoadFailed")
           }
           onRetry={() => void refresh()}
         />
       ) : view === "skeleton" ? (
         <SkeletonGroup
-          label={mode === "shop" ? "Loading the shop" : "Loading your collection"}
+          label={mode === "shop" ? t("shop.loadingShop") : t("shop.loadingCollection")}
           style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", rowGap: space.lg }}
         >
           {Array.from({ length: 8 }).map((_, i) => (
@@ -305,7 +308,7 @@ export function CosmeticsBrowser({ mode }: { mode: "locker" | "shop" }) {
       )}
 
       {mode === "locker" ? (
-        <Button label="Shop for more" variant="ghost" onPress={() => push("shop")} />
+        <Button label={t("shop.shopForMore")} variant="ghost" onPress={() => push("shop")} />
       ) : null}
       </>}
 

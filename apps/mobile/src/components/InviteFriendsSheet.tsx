@@ -23,6 +23,7 @@ import { useFriends } from "../store/friendsStore";
 import { acceptedFriendIds, isOnline, sortFriendsByPresence } from "../lib/friendship";
 import { shareInvite } from "../lib/invite";
 import { font, palette, radius, space, teamColor } from "../theme";
+import { useT } from "../i18n";
 
 interface InviteFriendsSheetProps {
   roomCode: string;
@@ -35,6 +36,7 @@ interface InviteFriendsSheetProps {
 type SendState = "idle" | "sending" | "sent" | "failed";
 
 export function InviteFriendsSheet({ roomCode, stake, seatedUserIds, onClose }: InviteFriendsSheetProps) {
+  const t = useT();
   const userId = useFriends((s) => s.userId);
   const friendships = useFriends((s) => s.friendships);
   const profiles = useFriends((s) => s.profiles);
@@ -75,12 +77,12 @@ export function InviteFriendsSheet({ roomCode, stake, seatedUserIds, onClose }: 
   };
 
   return (
-    <Sheet onClose={onClose} title="Invite to your room">
+    <Sheet onClose={onClose} title={t("friends.inviteToYourRoom")}>
       <View style={{ gap: space.md }}>
         <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel }}>
           {stake > 0
             ? `They'll see the room code and that ${stake} coins are on the line.`
-            : "They'll get a notification with your room code."}
+            : t("friends.notifyOnRoom")}
         </Text>
 
         <SectionLabel>{`Your friends (${friendIds.length})`}</SectionLabel>
@@ -88,7 +90,7 @@ export function InviteFriendsSheet({ roomCode, stake, seatedUserIds, onClose }: 
         {friendIds.length === 0 ? (
           <View style={{ alignItems: "center", gap: space.sm, paddingVertical: space.lg }}>
             <PeopleGlyph size={36} />
-            <Text style={{ fontFamily: font.semibold, fontSize: 15, color: palette.porcelain }}>No friends yet</Text>
+            <Text style={{ fontFamily: font.semibold, fontSize: 15, color: palette.porcelain }}>{t("friends.noFriendsYet")}</Text>
             <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel, textAlign: "center" }}>
               Share the link below instead — you can add each other after the game.
             </Text>
@@ -115,12 +117,12 @@ export function InviteFriendsSheet({ roomCode, stake, seatedUserIds, onClose }: 
                     numberOfLines={1}
                     style={{ fontFamily: font.semibold, fontSize: 15, color: palette.porcelain, opacity: inRoom ? 0.5 : 1 }}
                   >
-                    {profiles[uid]?.display_name ?? "Ludo player"}
+                    {profiles[uid]?.display_name ?? t("friends.ludoPlayer")}
                   </Text>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                     <PresenceDot online={isOnline(presence[uid], now)} />
                     <Text style={{ fontFamily: font.regular, fontSize: 12, color: palette.mutedSteel }}>
-                      {inRoom ? "Already here" : isOnline(presence[uid], now) ? "Online" : "Offline"}
+                      {inRoom ? t("match.alreadyHere") : isOnline(presence[uid], now) ? t("friends.online") : t("friends.offline")}
                     </Text>
                   </View>
                 </View>
@@ -137,7 +139,7 @@ export function InviteFriendsSheet({ roomCode, stake, seatedUserIds, onClose }: 
         <View style={{ height: 1, backgroundColor: palette.hairline, marginVertical: space.xs }} />
 
         <Button
-          label="Share a link instead"
+          label={t("friends.shareLinkInstead")}
           variant="ghost"
           onPress={() => void shareInvite(roomCode, stake)}
         />
@@ -149,6 +151,7 @@ export function InviteFriendsSheet({ roomCode, stake, seatedUserIds, onClose }: 
 /** Invite / Sending… / Sent / Retry, in one 96px-wide slot so the rows don't
  *  reflow as their state changes. */
 function InviteAction({ state, onPress }: { state: SendState; onPress: () => void }) {
+  const t = useT();
   if (state === "sent") {
     return (
       <View style={{ alignItems: "center", paddingVertical: space.sm }}>
@@ -159,7 +162,7 @@ function InviteAction({ state, onPress }: { state: SendState; onPress: () => voi
   if (state === "sending") {
     return (
       <View style={{ alignItems: "center", paddingVertical: space.sm }}>
-        <Text style={{ fontFamily: font.regular, fontSize: 14, color: palette.mutedSteel }}>Sending…</Text>
+        <Text style={{ fontFamily: font.regular, fontSize: 14, color: palette.mutedSteel }}>{t("common.sending")}</Text>
       </View>
     );
   }
@@ -167,18 +170,18 @@ function InviteAction({ state, onPress }: { state: SendState; onPress: () => voi
     return (
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="Retry invite"
+        accessibilityLabel={t("friends.retryInvite")}
         onPress={onPress}
         style={({ pressed }) => ({ alignItems: "center", paddingVertical: space.sm, opacity: pressed ? 0.8 : 1 })}
       >
-        <Text style={{ fontFamily: font.semibold, fontSize: 14, color: teamColor.red }}>Retry</Text>
+        <Text style={{ fontFamily: font.semibold, fontSize: 14, color: teamColor.red }}>{t("common.retry")}</Text>
       </Pressable>
     );
   }
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel="Invite to room"
+      accessibilityLabel={t("friends.inviteToRoom")}
       onPress={onPress}
       style={({ pressed }) => ({
         alignItems: "center",
@@ -188,7 +191,7 @@ function InviteAction({ state, onPress }: { state: SendState; onPress: () => voi
         opacity: pressed ? 0.8 : 1,
       })}
     >
-      <Text style={{ fontFamily: font.semibold, fontSize: 14, color: palette.porcelain }}>Invite</Text>
+      <Text style={{ fontFamily: font.semibold, fontSize: 14, color: palette.porcelain }}>{t("common.invite")}</Text>
     </Pressable>
   );
 }

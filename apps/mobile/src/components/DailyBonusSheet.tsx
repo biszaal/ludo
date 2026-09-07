@@ -32,11 +32,13 @@ import { formatExact } from "../lib/format";
 import { playSound } from "../lib/sound";
 import { win as winHaptic } from "../lib/haptics";
 import { depth, font, palette, radius, space } from "../theme";
+import { useT } from "../i18n";
 
 const GOLD = "#F5C542";
 const COIN_CONFETTI = ["#F5C542", "#FFE08A", "#C8951B"];
 
 export function DailyBonusSheet({ onClose }: { onClose: () => void }) {
+  const t = useT();
   const { width } = useWindowDimensions();
   const economy = useConfig((s) => s.config.economy);
   const streakDay = useWallet((s) => s.streakDay);
@@ -70,7 +72,7 @@ export function DailyBonusSheet({ onClose }: { onClose: () => void }) {
         void offerBonusReminder(useWallet.getState().streakDay);
       } else {
         // Already taken today — another device, or a retry that raced the claim.
-        setNote("Today's bonus is already claimed. Come back tomorrow.");
+        setNote(t("home.alreadyClaimed"));
       }
       await useWallet.getState().refresh();
     } catch (e) {
@@ -95,7 +97,7 @@ export function DailyBonusSheet({ onClose }: { onClose: () => void }) {
             setCelebrating(true);
             setNote(null);
           } else {
-            setNote("Today's bonus is already claimed. Come back tomorrow.");
+            setNote(t("home.alreadyClaimed"));
           }
           settled = true;
         } catch {
@@ -110,7 +112,7 @@ export function DailyBonusSheet({ onClose }: { onClose: () => void }) {
         // the connection wording now.
         setNote(
           isTimeout(e)
-            ? "Couldn't reach the server. Check your connection and try again."
+            ? t("home.bonusServerFailed")
             : `Couldn't claim the bonus: ${e instanceof Error ? e.message : String(e)}`,
         );
       }
@@ -126,7 +128,7 @@ export function DailyBonusSheet({ onClose }: { onClose: () => void }) {
   const finaleIndex = ladder.length - 1;
 
   return (
-    <Sheet onClose={onClose} title="Daily bonus">
+    <Sheet onClose={onClose} title={t("home.dailyBonus")}>
       <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel }}>
         Play any day to keep the streak going. Miss one and it starts over.
       </Text>
@@ -150,7 +152,7 @@ export function DailyBonusSheet({ onClose }: { onClose: () => void }) {
       ) : null}
 
       {claimable ? (
-        <Button label={busy ? "Claiming…" : "Claim now"} onPress={() => void onClaim()} disabled={busy} />
+        <Button label={busy ? t("home.claiming") : t("home.claimNow")} onPress={() => void onClaim()} disabled={busy} />
       ) : (
         <Text style={{ fontFamily: font.medium, fontSize: 14, color: palette.mutedSteel, textAlign: "center" }}>
           Claimed today — the next one unlocks tomorrow.

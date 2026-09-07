@@ -36,14 +36,16 @@ import { buyGemsPrompt, exchangeGemsPrompt } from "../lib/gemPrompts";
 import { useWallet } from "../store/walletStore";
 import { useConfig } from "../store/configStore";
 import { font, palette, radius, space, teamColor } from "../theme";
+import { useT } from "../i18n";
 
 const EXCHANGE_PRESETS = [10, 50, 100];
 
 /** Mirrors economy.ts CAP_REACHED, so a player who taps the spent row is never
  *  told a different story than the server would tell them. */
-const CAP_MESSAGE = "No more ads left for today — come back tomorrow.";
+
 
 export function GemsSection() {
+  const t = useT();
   const have = useWallet((s) => s.gems) ?? 0;
   const buyGems = useWallet((s) => s.buyGems);
   const exchangeGems = useWallet((s) => s.exchangeGems);
@@ -131,7 +133,7 @@ export function GemsSection() {
         <Text style={{ fontFamily: font.medium, fontSize: 13, color: palette.mutedSteel }}>{note}</Text>
       ) : null}
 
-      {ways.visible ? <SectionLabel>Get gems</SectionLabel> : null}
+      {ways.visible ? <SectionLabel>{t("gems.getGems")}</SectionLabel> : null}
 
       {ways.showPacks ? (
         <View style={{ flexDirection: "row", gap: space.sm }}>
@@ -167,13 +169,13 @@ export function GemsSection() {
             // explains nothing and these are the two a player pokes twice.
             if (ad.unavailable) {
               void notice({
-                title: "Ads aren't ready",
-                message: "This build can't show an ad right now. Gem packs still work.",
+                title: t("coins.adsNotReady"),
+                message: t("coins.adsNotReadyBody"),
               });
               return;
             }
             if (ad.spent) {
-              void notice({ title: "That's all for today", message: CAP_MESSAGE });
+              void notice({ title: t("coins.thatsAllToday"), message: t("coins.capReached") });
               return;
             }
             void run(
@@ -182,10 +184,10 @@ export function GemsSection() {
                 loadQuota();
                 if (res.status === "granted") return res.coins; // the amount, in gems
                 if (res.status === "pending") {
-                  setNote("Reward on its way — it'll appear shortly");
+                  setNote(t("coins.rewardOnWay"));
                   return 0;
                 }
-                if (res.status === "unavailable") setNote(res.message ?? "No ad available right now");
+                if (res.status === "unavailable") setNote(res.message ?? t("coins.noAdAvailable"));
                 return 0;
               },
               (n) => `+${n} gem${n === 1 ? "" : "s"}`,
@@ -226,7 +228,7 @@ export function GemsSection() {
         </Pressable>
       ) : null}
 
-      <SectionLabel>Exchange for coins</SectionLabel>
+      <SectionLabel>{t("gems.exchangeForCoins")}</SectionLabel>
       <Text style={{ fontFamily: font.regular, fontSize: 12, color: palette.mutedSteel, marginTop: -4 }}>
         1 gem = {cfg.exchangeRate} coins. One-way — coins never turn back into gems.
       </Text>
@@ -242,7 +244,7 @@ export function GemsSection() {
             // dialog stands behind it to ask on our behalf.
             if (busy) return;
             if (!(await confirm(exchangeGemsPrompt(n, n * cfg.exchangeRate)))) return;
-            await run(() => exchangeGems(n), (c) => `+${formatCompact(c)} coins`, "Exchange failed");
+            await run(() => exchangeGems(n), (c) => t("gems.gainedCoins", { coins: formatCompact(c) }), t("gems.exchangeFailed"));
           }}
         />
       ))}

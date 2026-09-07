@@ -24,6 +24,7 @@ import { nextDailyBonus } from "../lib/economy";
 import { formatExact } from "../lib/format";
 import { playSound } from "../lib/sound";
 import { depth, font, palette, radius, space } from "../theme";
+import { useT } from "../i18n";
 
 interface GetCoinsSheetProps {
   onClose: () => void;
@@ -32,6 +33,7 @@ interface GetCoinsSheetProps {
 }
 
 export function GetCoinsSheet({ onClose, onDailyBonus }: GetCoinsSheetProps) {
+  const t = useT();
   const balance = useWallet((s) => s.balance);
   const streakDay = useWallet((s) => s.streakDay);
   const bonusClaimable = useWallet((s) => s.bonusClaimable);
@@ -67,7 +69,7 @@ export function GetCoinsSheet({ onClose, onDailyBonus }: GetCoinsSheetProps) {
   };
 
   return (
-    <Sheet onClose={onClose} title="Get coins">
+    <Sheet onClose={onClose} title={t("coins.getCoins")}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
         <CoinGlyph size={16} />
         {/* Exact here — this is where the compact pill's tap-to-reveal lands. */}
@@ -80,13 +82,13 @@ export function GetCoinsSheet({ onClose, onDailyBonus }: GetCoinsSheetProps) {
       </View>
 
       <CoinRow
-        title="Daily bonus"
+        title={t("home.dailyBonus")}
         subtitle={
           bonusClaimable
             ? streakDay > 0
               ? `Day ${Math.min(streakDay + 1, economy.streakMaxDay)} streak — open to claim`
-              : "Open to claim your first day"
-            : "Come back tomorrow to keep the streak"
+              : t("home.openToClaim")
+            : t("home.keepStreak")
         }
         amount={bonusClaimable ? nextBonus : null}
         disabled={!onDailyBonus}
@@ -97,8 +99,8 @@ export function GetCoinsSheet({ onClose, onDailyBonus }: GetCoinsSheetProps) {
           never an in-game advantage. */}
       {rewarded.coinGrant && adsAvailable ? (
         <CoinRow
-          title="Watch an ad"
-          subtitle={busy ? "Loading…" : "A short video for coins"}
+          title={t("coins.watchAd")}
+          subtitle={busy ? t("common.loading") : t("coins.adSubtitle")}
           amount={null}
           disabled={busy}
           onPress={() =>
@@ -106,10 +108,10 @@ export function GetCoinsSheet({ onClose, onDailyBonus }: GetCoinsSheetProps) {
               const res = await watchForReward("coins");
               if (res.status === "granted") return res.coins;
               if (res.status === "pending") {
-                setNote("Reward on its way — it'll appear shortly");
+                setNote(t("coins.rewardOnWay"));
                 return 0;
               }
-              if (res.status === "unavailable") setNote(res.message ?? "No ad available right now");
+              if (res.status === "unavailable") setNote(res.message ?? t("coins.noAdAvailable"));
               return 0;
             })
           }
@@ -119,11 +121,11 @@ export function GetCoinsSheet({ onClose, onDailyBonus }: GetCoinsSheetProps) {
       {/* Only surfaces at zero — a safety net, not an income stream. */}
       {pityAvailable ? (
         <CoinRow
-          title="Out of coins"
-          subtitle="Here's enough for one more game"
+          title={t("coins.outOfCoins")}
+          subtitle={t("coins.enoughForOneGame")}
           amount={economy.quickStake}
           disabled={busy}
-          onPress={() => void run(claimPity, "Not available right now")}
+          onPress={() => void run(claimPity, t("coins.notAvailable"))}
         />
       ) : null}
 

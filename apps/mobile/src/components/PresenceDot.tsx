@@ -10,13 +10,15 @@
 
 import { View } from "react-native";
 import { palette } from "../theme";
+import { useT } from "../i18n";
 
 const ONLINE_GREEN = "#4ADE80";
 
 export function PresenceDot({ online, size = 12 }: { online: boolean; size?: number }) {
+  const t = useT();
   return (
     <View
-      accessibilityLabel={online ? "Online" : "Offline"}
+      accessibilityLabel={online ? t("friends.online") : t("friends.offline")}
       style={{
         position: "absolute",
         right: -1,

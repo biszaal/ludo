@@ -32,6 +32,7 @@ import { ContentColumn } from "./ContentColumn";
 import { claimName } from "../net/profileSync";
 import { MAX_NAME_LENGTH, useProfile } from "../store/profileStore";
 import { font, palette, space, teamColor } from "../theme";
+import { useT } from "../i18n";
 
 /** Names must be typeable back by a friend searching for them, so the same
  *  character set the rest of the app uses for handles: letters, digits, and a
@@ -39,6 +40,7 @@ import { font, palette, space, teamColor } from "../theme";
 const clean = (raw: string): string => raw.replace(/[^A-Za-z0-9 _-]/g, "").slice(0, MAX_NAME_LENGTH);
 
 export function ChooseNameScreen() {
+  const t = useT();
   const guestName = useProfile((s) => s.guestName);
   const setName = useProfile((s) => s.setName);
   const markSeen = useProfile((s) => s.markNamePromptSeen);
@@ -59,7 +61,7 @@ export function ChooseNameScreen() {
     const result = await claimName(trimmed);
     if (result === "taken") {
       setBusy(false);
-      setError("Someone already has that name. Try another.");
+      setError(t("account.nameTaken"));
       return;
     }
     // "offline" counts as done: the name is set locally and profileSync pushes
@@ -93,7 +95,7 @@ export function ChooseNameScreen() {
 
             <View style={{ gap: space.sm }}>
               <Field
-                accessibilityLabel="Your name"
+                accessibilityLabel={t("account.yourName")}
                 value={value}
                 onChangeText={(t) => {
                   setValue(clean(t));
@@ -114,16 +116,16 @@ export function ChooseNameScreen() {
               )}
             </View>
 
-            <Button label={busy ? "Saving…" : "Continue"} disabled={!usable} onPress={() => void confirm()} />
+            <Button label={busy ? t("common.saving") : t("common.continue")} disabled={!usable} onPress={() => void confirm()} />
 
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Choose a name later"
+              accessibilityLabel={t("guest.chooseNameLater")}
               onPress={skip}
               disabled={busy}
               style={({ pressed }) => ({ alignSelf: "center", opacity: pressed ? 0.7 : 1, paddingVertical: space.sm })}
             >
-              <Text style={{ fontFamily: font.semibold, fontSize: 14, color: palette.mutedSteel }}>Maybe later</Text>
+              <Text style={{ fontFamily: font.semibold, fontSize: 14, color: palette.mutedSteel }}>{t("common.maybeLater")}</Text>
             </Pressable>
           </ContentColumn>
         </SafeAreaView>

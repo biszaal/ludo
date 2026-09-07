@@ -20,8 +20,10 @@ import { Button } from "./Button";
 import { useLayout } from "../lib/useLayout";
 import { useConfirm } from "../store/confirmStore";
 import { depth, font, palette, radius, space, teamColor } from "../theme";
+import { useT } from "../i18n";
 
 export function ConfirmDialog() {
+  const t = useT();
   const request = useConfirm((s) => s.request);
   const answer = useConfirm((s) => s.answer);
 
@@ -39,7 +41,7 @@ export function ConfirmDialog() {
   const { maxWidth } = useLayout();
   if (!request) return null;
 
-  const { title, message, confirmLabel = "Confirm", cancelLabel = "Cancel", destructive = false, notice = false } = request;
+  const { title, message, confirmLabel = t("common.confirm"), cancelLabel = t("common.cancel"), destructive = false, notice = false } = request;
 
   return (
     <View style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0, alignItems: "center", justifyContent: "center" }}>

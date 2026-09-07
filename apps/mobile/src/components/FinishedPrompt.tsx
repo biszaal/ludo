@@ -26,6 +26,7 @@ import { CoinGlyph } from "./CoinsPill";
 import { useLayout } from "../lib/useLayout";
 import { ordinal } from "../lib/standings";
 import { font, palette, radius, space, teamColor } from "../theme";
+import { useT } from "../i18n";
 
 interface FinishedPromptProps {
   /** 1-based finishing place the local seat just took. */
@@ -41,6 +42,7 @@ interface FinishedPromptProps {
 }
 
 export function FinishedPrompt({ place, color, avatarId, reward, onSeeResults, onWatch, onLeave }: FinishedPromptProps) {
+  const t = useT();
   const { maxWidth } = useLayout();
 
   return (
@@ -101,8 +103,8 @@ export function FinishedPrompt({ place, color, avatarId, reward, onSeeResults, o
           }}
         >
           {reward > 0
-            ? "Your place is locked in. The coins land when the match ends — you don't have to stay for them."
-            : "Your place is locked in. Stay and watch the rest, or head home."}
+            ? t("game.placeLockedCoins")
+            : t("game.placeLocked")}
         </Text>
       </Animated.View>
 
@@ -110,9 +112,9 @@ export function FinishedPrompt({ place, color, avatarId, reward, onSeeResults, o
         entering={FadeIn.delay(900).duration(280)}
         style={{ gap: space.sm, width: "100%", maxWidth, alignSelf: "center" }}
       >
-        <Button label="See standings" onPress={onSeeResults} />
-        <Button label="Watch the rest" onPress={onWatch} variant="ghost" />
-        <Button label="Leave" onPress={onLeave} variant="ghost" />
+        <Button label={t("game.seeStandings")} onPress={onSeeResults} />
+        <Button label={t("game.watchTheRest")} onPress={onWatch} variant="ghost" />
+        <Button label={t("lobby.leave")} onPress={onLeave} variant="ghost" />
       </Animated.View>
     </Animated.View>
   );

@@ -24,8 +24,10 @@ import { useConfig } from "../store/configStore";
 import { useEntitlements, useNoAds } from "../store/entitlementsStore";
 import { playSound } from "../lib/sound";
 import { font, palette, space } from "../theme";
+import { useT } from "../i18n";
 
 export function RemoveAdsSection() {
+  const t = useT();
   const cfg = useConfig((s) => s.config.ads.removeAds);
   const owned = useNoAds();
   const buyNoAds = useEntitlements((s) => s.buyNoAds);
@@ -86,7 +88,7 @@ export function RemoveAdsSection() {
       const restored = await restore();
       // Both outcomes need saying. Silence after a restore that found nothing
       // is the same screen as a restore that never ran.
-      setNote(restored ? "Purchases restored." : "Nothing to restore on this account.");
+      setNote(restored ? t("noads.restored") : t("noads.nothingToRestore"));
       if (restored) playSound("ding");
     } finally {
       setBusy(false);
@@ -95,7 +97,7 @@ export function RemoveAdsSection() {
 
   return (
     <View style={{ gap: space.sm, width: "100%" }}>
-      <SectionLabel>{view.kind === "owned" ? "Ad-free" : "Remove ads"}</SectionLabel>
+      <SectionLabel>{view.kind === "owned" ? t("noads.sectionOwned") : t("noads.sectionOffer")}</SectionLabel>
 
       <Surface3D
         faceStyle={{
@@ -109,12 +111,12 @@ export function RemoveAdsSection() {
       >
         <View style={{ flex: 1, gap: 2 }}>
           <Text style={{ fontFamily: font.semibold, fontSize: 15, color: palette.porcelain }}>
-            {view.kind === "owned" ? "Ads are off" : "Play without ads"}
+            {view.kind === "owned" ? t("noads.ownedTitle") : t("noads.offerTitle")}
           </Text>
           <Text style={{ fontFamily: font.medium, fontSize: 13, color: palette.mutedSteel }}>
             {view.kind === "owned"
-              ? "Thanks — banners and between-match ads stay off."
-              : "One purchase. Removes banners and between-match ads for good."}
+              ? t("noads.ownedBody")
+              : t("noads.offerBody")}
           </Text>
         </View>
 
@@ -135,7 +137,7 @@ export function RemoveAdsSection() {
           device has the purchase but not the entitlement, and that is exactly
           who needs this button. */}
       <Button
-        label="Restore purchases"
+        label={t("noads.restore")}
         variant="ghost"
         compact
         disabled={working}

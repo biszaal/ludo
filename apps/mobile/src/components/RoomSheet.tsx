@@ -42,8 +42,10 @@ import { useWallet } from "../store/walletStore";
 import { formatCompact } from "../lib/format";
 import { useNav } from "../store/navStore";
 import { font, palette, space, teamColor } from "../theme";
+import { useT } from "../i18n";
 
 export function RoomSheet({ onClose }: { onClose: () => void }) {
+  const t = useT();
   const [code, setCode] = useState("");
   const create = useOnlineStore((s) => s.create);
   const join = useOnlineStore((s) => s.join);
@@ -60,11 +62,11 @@ export function RoomSheet({ onClose }: { onClose: () => void }) {
   const [stake, setStake] = useState(0);
 
   return (
-    <Sheet onClose={onClose} title="Play with friends" keyboardAvoiding variant="popup">
-      <SectionLabel>Got a code from a friend?</SectionLabel>
+    <Sheet onClose={onClose} title={t("home.playWithFriends")} keyboardAvoiding variant="popup">
+      <SectionLabel>{t("home.gotCode")}</SectionLabel>
       <View style={{ flexDirection: "row", gap: space.sm, alignItems: "center" }}>
         <Field
-          accessibilityLabel="Room code"
+          accessibilityLabel={t("lobby.roomCode")}
           value={code}
           onChangeText={(t) => setCode(t.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4))}
           placeholder="CODE"
@@ -76,7 +78,7 @@ export function RoomSheet({ onClose }: { onClose: () => void }) {
         />
         <View style={{ width: 130 }}>
           <Button
-            label={connecting ? "Joining…" : "Join"}
+            label={connecting ? t("common.joining") : t("lobby.join")}
             // Filled, not ghost: this is the reason most people open this
             // sheet, and a ghost button beside an empty field read as decoration.
             disabled={!canJoin}
@@ -98,7 +100,7 @@ export function RoomSheet({ onClose }: { onClose: () => void }) {
         <View style={{ flex: 1, height: 1, backgroundColor: palette.hairline }} />
       </View>
 
-      <SectionLabel>Play for</SectionLabel>
+      <SectionLabel>{t("home.playFor")}</SectionLabel>
       <View style={{ flexDirection: "row", gap: space.sm }}>
         <SelectTile label="Free" selected={stake === 0} onPress={() => setStake(0)} />
         {tiers.map((t) => (
@@ -126,21 +128,21 @@ export function RoomSheet({ onClose }: { onClose: () => void }) {
       ) : null}
 
       <Button
-        label={connecting ? "Creating…" : "Create a room"}
+        label={connecting ? t("common.creating") : t("lobby.createRoom")}
         variant="ghost"
         onPress={() => void create(stake)}
       />
 
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="Manage friends"
+        accessibilityLabel={t("home.manageFriends")}
         onPress={() => {
           onClose();
           push("friends");
         }}
         style={({ pressed }) => ({ alignSelf: "center", opacity: pressed ? 0.7 : 1, paddingVertical: space.xs })}
       >
-        <Text style={{ fontFamily: font.semibold, fontSize: 13, color: palette.mutedSteel }}>Manage friends</Text>
+        <Text style={{ fontFamily: font.semibold, fontSize: 13, color: palette.mutedSteel }}>{t("home.manageFriends")}</Text>
       </Pressable>
     </Sheet>
   );

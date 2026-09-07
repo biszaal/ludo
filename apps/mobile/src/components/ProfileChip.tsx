@@ -11,8 +11,10 @@ import { AvatarGlyph } from "./Avatar";
 import { useNav } from "../store/navStore";
 import { useProfile } from "../store/profileStore";
 import { palette, radius, space } from "../theme";
+import { useT } from "../i18n";
 
 export function ProfileChip() {
+  const t = useT();
   const displayName = useProfile((s) => s.displayName);
   const avatarId = useProfile((s) => s.avatarId);
   const push = useNav((s) => s.push);
@@ -40,7 +42,7 @@ export function ProfileChip() {
 
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="Settings"
+        accessibilityLabel={t("settings.title")}
         onPress={() => push("settings")}
         style={({ pressed }) => ({
           width: 44,

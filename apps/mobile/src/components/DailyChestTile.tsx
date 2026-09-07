@@ -9,6 +9,7 @@ import { Surface3D } from "./Surface3D";
 import { ChestGlyph } from "./HomeGlyphs";
 import { CoinGlyph } from "./CoinsPill";
 import { font, palette, radius, space } from "../theme";
+import { useT } from "../i18n";
 
 interface DailyChestTileProps {
   onPress: () => void;
@@ -22,6 +23,7 @@ interface DailyChestTileProps {
 }
 
 export function DailyChestTile({ onPress, claimable, streakDay, nextBonus, height = 48 }: DailyChestTileProps) {
+  const t = useT();
   // The chest keeps its share of the pill as the pill resizes; the two text
   // lines are already at their floor, so only the glyph moves.
   const glyph = Math.max(18, Math.min(30, Math.round(24 * (height / 48))));
@@ -46,7 +48,7 @@ export function DailyChestTile({ onPress, claimable, streakDay, nextBonus, heigh
         >
           <ChestGlyph size={glyph} open={claimable} color={claimable ? "#C8951B" : palette.mutedSteel} />
           <View style={{ gap: 1 }}>
-            <Text style={{ fontFamily: font.semibold, fontSize: 12, color: palette.porcelain }}>Daily bonus</Text>
+            <Text style={{ fontFamily: font.semibold, fontSize: 12, color: palette.porcelain }}>{t("home.dailyBonus")}</Text>
             {claimable ? (
               <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
                 <CoinGlyph size={10} />
@@ -54,7 +56,7 @@ export function DailyChestTile({ onPress, claimable, streakDay, nextBonus, heigh
               </View>
             ) : (
               <Text style={{ fontFamily: font.mono, fontSize: 11, color: palette.mutedSteel }}>
-                {streakDay > 0 ? `Day ${streakDay}` : "Back tomorrow"}
+                {streakDay > 0 ? t("home.dayN", { day: streakDay }) : t("home.backTomorrow")}
               </Text>
             )}
           </View>

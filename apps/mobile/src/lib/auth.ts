@@ -21,6 +21,7 @@ import { useWallet } from "../store/walletStore";
 import { useEntitlements } from "../store/entitlementsStore";
 import { useProfile } from "../store/profileStore";
 import { nameAfterAuth } from "./profileCarry";
+import { t } from "../i18n";
 
 export interface AuthIdentity {
   userId: string | null;
@@ -157,7 +158,7 @@ async function runOAuth(provider: LinkProvider, intent: "link" | "signin"): Prom
         ? await supabase.auth.linkIdentity({ provider, options })
         : await supabase.auth.signInWithOAuth({ provider, options });
     if (error) return { ok: false, error: friendlyLink(error.message) };
-    if (!data?.url) return { ok: false, error: "Couldn't start sign-in. Try again." };
+    if (!data?.url) return { ok: false, error: t("account.signInStartFailed") };
 
     const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
     // "cancel" and "dismiss" are the player closing the sheet. Not an error, and
@@ -182,7 +183,7 @@ async function runOAuth(provider: LinkProvider, intent: "link" | "signin"): Prom
           "[auth] provider returned a fragment, not a code — supabase client is not on flowType 'pkce'",
         );
       }
-      return { ok: false, error: "Sign-in didn't complete. Try again." };
+      return { ok: false, error: t("account.signInIncomplete") };
     }
     const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
     if (exchangeError) return { ok: false, error: friendlyLink(exchangeError.message) };
@@ -194,7 +195,7 @@ async function runOAuth(provider: LinkProvider, intent: "link" | "signin"): Prom
     await rehydrateAfterAuth(before);
     return { ok: true, needsConfirm: false };
   } catch {
-    return { ok: false, error: "Couldn't reach the sign-in page. Check your connection." };
+    return { ok: false, error: t("account.signInPageFailed") };
   }
 }
 
@@ -232,7 +233,7 @@ export async function deleteAccount(): Promise<AuthResult> {
   try {
     await apiDeleteAccount();
   } catch {
-    return { ok: false, error: "Could not delete your account. Please try again." };
+    return { ok: false, error: t("account.deleteFailed") };
   }
   // Server data is gone (auth user + cascade). Reset this device to a fresh
   // guest so nothing from the deleted account lingers locally.
@@ -328,21 +329,21 @@ async function hydrateProfileFromServer(previousUserId: string | null): Promise<
 function friendlyLink(msg: string): string {
   const m = msg.toLowerCase();
   if (/manual linking|not enabled|disabled/.test(m))
-    return "Account linking isn't switched on yet. Try again later.";
+    return t("account.linkingOff");
   if (/already.*linked|identity.*already|already.*exists/.test(m))
-    return "That account is already linked to another Ludo profile. Sign in to it instead.";
-  if (/rate|too many/.test(m)) return "Too many tries — wait a moment and try again.";
-  return "Couldn't link that account. Try again.";
+    return t("account.alreadyLinked");
+  if (/rate|too many/.test(m)) return t("account.tooManyTries");
+  return t("account.linkFailed");
 }
 
 /** Turn Supabase's raw auth messages into something a player can act on. */
 function friendly(msg: string): string {
   const m = msg.toLowerCase();
   if (/already registered|already been registered|already exists|user already/.test(m))
-    return "That email already has an account — use Sign in instead.";
-  if (/invalid login|invalid credentials/.test(m)) return "Wrong email or password.";
-  if (/email not confirmed|not confirmed/.test(m)) return "Confirm your email first — check your inbox.";
-  if (/password/.test(m) && /6|short|weak|length/.test(m)) return "Password must be at least 6 characters.";
-  if (/rate|too many/.test(m)) return "Too many tries — wait a moment and try again.";
+    return t("account.emailTaken");
+  if (/invalid login|invalid credentials/.test(m)) return t("account.wrongCredentials");
+  if (/email not confirmed|not confirmed/.test(m)) return t("account.confirmEmailFirst");
+  if (/password/.test(m) && /6|short|weak|length/.test(m)) return t("account.passwordTooShort");
+  if (/rate|too many/.test(m)) return t("account.tooManyTries");
   return msg;
 }

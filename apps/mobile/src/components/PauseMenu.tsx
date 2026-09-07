@@ -127,11 +127,11 @@ export function PauseMenu({ onResume, onLeave, confirmLeave = false, forfeitCoin
         ) : (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Leave game"
+            accessibilityLabel={t("game.leaveGame")}
             onPress={() => (confirmLeave ? setConfirming(true) : onLeave())}
             style={({ pressed }) => ({ minHeight: 48, justifyContent: "center", opacity: pressed ? 0.85 : 1 })}
           >
-            <Text style={{ fontFamily: font.semibold, fontSize: 16, color: teamColor.red }}>Leave game</Text>
+            <Text style={{ fontFamily: font.semibold, fontSize: 16, color: teamColor.red }}>{t("game.leaveGame")}</Text>
           </Pressable>
         )}
       </Animated.View>

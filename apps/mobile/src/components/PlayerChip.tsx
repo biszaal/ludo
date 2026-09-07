@@ -29,6 +29,7 @@ import { AvatarGlyph } from "./Avatar";
 import { depth, font, palette, radius, teamColor } from "../theme";
 import { CHIP_COLUMN } from "../lib/layout";
 import { colorLabel } from "../i18n";
+import { useT } from "../i18n";
 
 const AVATAR = 48;
 const RING_BOX = AVATAR + 14; // outer container; the ring hugs the frame inside it
@@ -88,6 +89,7 @@ export const PlayerChip = memo(function PlayerChip({
   botMode = false,
   onPress = null,
 }: PlayerChipProps) {
+  const t = useT();
   const color = teamColor[seatColor];
 
   // Turn hand-off pop: the chip that just became active scales up and settles,
@@ -106,7 +108,7 @@ export const PlayerChip = memo(function PlayerChip({
   return (
     <Pressable
       accessibilityRole={onPress ? "button" : undefined}
-      accessibilityLabel={onPress ? "Bot is playing for you — tap to take back control" : undefined}
+      accessibilityLabel={onPress ? t("game.autopilotShort") : undefined}
       disabled={!onPress}
       onPress={onPress ?? undefined}
       style={({ pressed }) => ({

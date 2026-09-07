@@ -36,6 +36,7 @@ import Animated, {
 import { useLayout } from "../lib/useLayout";
 import { useSheetHost } from "../store/sheetHost";
 import { depth, font, palette, radius, space } from "../theme";
+import { useT } from "../i18n";
 
 interface SheetProps {
   onClose: () => void;
@@ -66,6 +67,7 @@ export function Sheet({
   variant = "bottom",
   children,
 }: SheetProps) {
+  const t = useT();
   const { isTablet, maxWidth, height, insets } = useLayout();
   const id = useId();
   const present = useSheetHost((s) => s.present);
@@ -126,7 +128,7 @@ export function Sheet({
       {title !== undefined && (
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
           <Text style={{ fontFamily: font.display, fontSize: 20, color: palette.porcelain }}>{title}</Text>
-          <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={onClose} hitSlop={8}>
+          <Pressable accessibilityRole="button" accessibilityLabel={t("common.close")} onPress={onClose} hitSlop={8}>
             <CloseGlyph size={16} />
           </Pressable>
         </View>
@@ -176,7 +178,7 @@ export function Sheet({
         exiting={FadeOut.duration(160)}
         style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0, backgroundColor: "rgba(20,23,28,0.6)" }}
       >
-        <Pressable accessibilityLabel="Close" style={{ flex: 1 }} onPress={onClose} />
+        <Pressable accessibilityLabel={t("common.close")} style={{ flex: 1 }} onPress={onClose} />
       </Animated.View>
 
       {/* The keyboard-controller KeyboardAvoidingView, with `behavior="padding"`

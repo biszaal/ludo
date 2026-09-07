@@ -9,8 +9,10 @@ import { Text, Pressable } from "react-native";
 import { useFriends } from "../store/friendsStore";
 import { relationshipTo } from "../lib/friendship";
 import { font, palette, radius, space } from "../theme";
+import { useT } from "../i18n";
 
 export function AddFriendButton({ userId }: { userId: string }) {
+  const t = useT();
   const myUserId = useFriends((s) => s.userId);
   const friendships = useFriends((s) => s.friendships);
   const sendRequest = useFriends((s) => s.sendRequest);
@@ -19,7 +21,7 @@ export function AddFriendButton({ userId }: { userId: string }) {
 
   if (!myUserId || userId === myUserId || rel.kind === "friends") return null;
 
-  const label = rel.kind === "incoming" ? "Accept" : rel.kind === "outgoing" ? "Requested" : "Add friend";
+  const label = rel.kind === "incoming" ? t("common.accept") : rel.kind === "outgoing" ? t("friends.requested") : t("friends.addFriendShort");
   const disabled = rel.kind === "outgoing";
   const onPress = () => {
     if (rel.kind === "incoming") void accept(rel.id);

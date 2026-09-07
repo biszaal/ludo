@@ -12,6 +12,7 @@ import { Button } from "./Button";
 import { Platform } from "react-native";
 import { saveAccount, signIn, linkProvider, signInWithProvider, type LinkProvider } from "../lib/auth";
 import { font, palette, space } from "../theme";
+import { useT } from "../i18n";
 
 type Mode = "save" | "signin";
 
@@ -42,6 +43,7 @@ export function AccountSheet({
   onClose: () => void;
   heading?: { title: string; message: string };
 }) {
+  const t = useT();
   const [mode, setMode] = useState<Mode>(initialMode);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -75,7 +77,7 @@ export function AccountSheet({
         if (res.error) setError(res.error);
         return;
       }
-      if (saving) setDone("Saved. Your coins, gems and looks now follow this account to any phone.");
+      if (saving) setDone(t("account.savedFollows"));
       else onClose(); // restored + rehydrated
     } finally {
       setBusy(false);
@@ -88,7 +90,7 @@ export function AccountSheet({
     setDone(null);
     const em = email.trim();
     if (!em || !password) {
-      setError("Enter your email and password.");
+      setError(t("account.enterEmailAndPassword"));
       return;
     }
     // Only gate NEW passwords on length. Applying this to sign-in too would
@@ -109,8 +111,8 @@ export function AccountSheet({
       if (saving) {
         setDone(
           res.needsConfirm
-            ? "Almost there — tap the link in your email to confirm, then you can sign in on any device."
-            : "Saved. Your coins, gems and looks are backed up to this account.",
+            ? t("account.confirmLinkEmail")
+            : t("account.backedUp"),
         );
       } else {
         onClose(); // restored + rehydrated
@@ -127,12 +129,12 @@ export function AccountSheet({
   };
 
   return (
-    <Sheet onClose={onClose} title={heading?.title ?? (saving ? "Save your account" : "Sign in")} keyboardAvoiding>
+    <Sheet onClose={onClose} title={heading?.title ?? (saving ? t("guest.saveYourAccount") : t("account.signIn"))} keyboardAvoiding>
       <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel }}>
         {heading?.message ??
           (saving
-            ? "Back up your coins, gems and looks so they survive a reinstall or a new phone. You'll keep playing exactly as you are."
-            : "Restore an account you saved earlier — its coins, gems and cosmetics come with it.")}
+            ? t("account.saveBlurb")
+            : t("account.signInBlurb"))}
       </Text>
 
       {/* Everything that ASKS for something disappears once the account is
@@ -147,7 +149,10 @@ export function AccountSheet({
           {providers.map((provider) => (
             <Button
               key={provider}
-              label={`${saving ? "Continue" : "Sign in"} with ${provider === "apple" ? "Apple" : "Google"}`}
+              label={t("account.continueWith", {
+                action: saving ? t("common.continue") : t("account.signIn"),
+                provider: provider === "apple" ? t("account.apple") : t("account.google"),
+              })}
               variant={provider === providers[0] ? undefined : "ghost"}
               onPress={() => void runProvider(provider)}
               disabled={busy}
@@ -160,7 +165,7 @@ export function AccountSheet({
           </View>
 
           <Field
-            accessibilityLabel="Email"
+            accessibilityLabel={t("account.email")}
             value={email}
             onChangeText={setEmail}
             focused={focused === "email"}
@@ -173,13 +178,13 @@ export function AccountSheet({
             autoComplete="email"
           />
           <Field
-            accessibilityLabel="Password"
+            accessibilityLabel={t("account.password")}
             value={password}
             onChangeText={setPassword}
             focused={focused === "password"}
             onFocus={() => setFocused("password")}
             onBlur={() => setFocused(null)}
-            placeholder="At least 6 characters"
+            placeholder={t("account.passwordHint")}
             secureTextEntry
             autoCapitalize="none"
             autoComplete={saving ? "new-password" : "current-password"}
@@ -196,21 +201,21 @@ export function AccountSheet({
       {done ? (
         <Button label="Done" onPress={onClose} />
       ) : (
-        <Button label={busy ? (saving ? "Saving…" : "Signing in…") : saving ? "Save account" : "Sign in"} onPress={() => void submit()} disabled={busy} />
+        <Button label={busy ? (saving ? t("common.saving") : t("account.signingIn")) : saving ? t("account.saveAccount") : t("account.signIn")} onPress={() => void submit()} disabled={busy} />
       )}
 
       {/* Same reason: swapping to the other mode is only noise once it worked. */}
       {done ? null : (
         <View style={{ flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 6, paddingTop: space.xs }}>
           <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel }}>
-            {saving ? "Already have an account?" : "New here?"}
+            {saving ? t("guest.alreadyHaveAccount") : t("guest.newHere")}
           </Text>
           <Text
             accessibilityRole="button"
             onPress={() => swap(saving ? "signin" : "save")}
             style={{ fontFamily: font.semibold, fontSize: 13, color: palette.porcelain }}
           >
-            {saving ? "Sign in" : "Save an account"}
+            {saving ? t("account.signIn") : t("guest.saveAccount")}
           </Text>
         </View>
       )}

@@ -25,6 +25,7 @@ import { useWallet } from "../store/walletStore";
 import { useConfig } from "../store/configStore";
 import { useOnlineStore } from "../store/onlineStore";
 import { font, palette, radius, space, teamColor } from "../theme";
+import { useT } from "../i18n";
 
 interface QuickSetupSheetProps {
   onClose: () => void;
@@ -33,6 +34,7 @@ interface QuickSetupSheetProps {
 }
 
 export function QuickSetupSheet({ onClose, onNeedCoins }: QuickSetupSheetProps) {
+  const t = useT();
   const balance = useWallet((s) => s.balance);
   const tiers = useConfig((s) => s.config.economy.stakeTiers);
   const freeEntryOn = useConfig((s) => s.config.ads.rewarded.freeEntry);
@@ -57,23 +59,23 @@ export function QuickSetupSheet({ onClose, onNeedCoins }: QuickSetupSheetProps) 
     setNote(null);
     try {
       const res = await watchForReward("free-entry");
-      if (res.status === "granted") setNote("Entry covered — press play");
-      else if (res.status === "pending") setNote("Reward on its way — try again in a moment");
-      else if (res.status === "unavailable") setNote(res.message ?? "No ad available right now");
+      if (res.status === "granted") setNote(t("coins.entryCovered"));
+      else if (res.status === "pending") setNote(t("coins.rewardTryAgain"));
+      else if (res.status === "unavailable") setNote(res.message ?? t("coins.noAdAvailable"));
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <Sheet onClose={onClose} title="Quick match" variant="popup">
-      <SectionLabel>Table</SectionLabel>
+    <Sheet onClose={onClose} title={t("home.quickMatch")} variant="popup">
+      <SectionLabel>{t("stats.table")}</SectionLabel>
       <View style={{ flexDirection: "row", gap: space.sm }}>
         <TableTile size={2} title="1 vs 1" selected={size === 2} onPress={() => setSize(2)} />
         <TableTile size={4} title="4 players" selected={size === 4} onPress={() => setSize(4)} />
       </View>
 
-      <SectionLabel>Entry</SectionLabel>
+      <SectionLabel>{t("home.entry")}</SectionLabel>
       <View style={{ flexDirection: "row", gap: space.sm }}>
         {tiers.map((t) => (
           <StakeTile
@@ -93,7 +95,7 @@ export function QuickSetupSheet({ onClose, onNeedCoins }: QuickSetupSheetProps) 
       {broke ? (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Watch an ad to cover the entry fee"
+          accessibilityLabel={t("coins.watchAdForEntry")}
           disabled={!canWatchIn || busy}
           onPress={() => void watchForEntry()}
           style={{
@@ -108,10 +110,10 @@ export function QuickSetupSheet({ onClose, onNeedCoins }: QuickSetupSheetProps) 
           }}
         >
           <Text style={{ fontFamily: font.semibold, fontSize: 15, color: palette.porcelain }}>
-            {canWatchIn ? "Watch an ad to play free" : `You need ${lowest} coins to enter`}
+            {canWatchIn ? t("coins.watchAdToPlayFree") : t("coins.needToEnter", { coins: lowest })}
           </Text>
           <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel }}>
-            {note ?? (busy ? "Loading…" : "Covers your entry — the game itself plays exactly the same")}
+            {note ?? (busy ? t("common.loading") : t("coins.coversEntry"))}
           </Text>
         </Pressable>
       ) : null}
@@ -181,6 +183,7 @@ function StakeTile({
   affordable: boolean;
   onPress: () => void;
 }) {
+  const t = useT();
   return (
     <Pressable
       accessibilityRole="button"
@@ -210,7 +213,7 @@ function StakeTile({
             <Text style={{ fontFamily: font.mono, fontSize: 15, color: palette.porcelain }}>{formatCompact(stake)}</Text>
           </View>
           <Text style={{ fontFamily: font.regular, fontSize: 11, color: palette.mutedSteel }}>
-            {affordable ? `Pot ${formatCompact(pot)}` : "Need coins"}
+            {affordable ? t("coins.pot", { pot: formatCompact(pot) }) : t("coins.needCoins")}
           </Text>
         </Surface3D>
       )}

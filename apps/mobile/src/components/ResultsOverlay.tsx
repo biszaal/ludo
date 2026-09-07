@@ -34,6 +34,7 @@ import { payoutSplit } from "../lib/economy";
 import { useLayout } from "../lib/useLayout";
 import { font, palette, radius, space, teamColor, teamTint } from "../theme";
 import { colorLabel } from "../i18n";
+import { useT } from "../i18n";
 
 
 /** Online rematch voting. Omitted in local play, where Rematch just restarts. */
@@ -81,6 +82,7 @@ interface ResultsOverlayProps {
 
 /** 2 → "2nd", 3 → "3rd", 4 → "4th" (ranks only ever run 1–4). */
 export function ResultsOverlay({ state, nameFor, avatarFor, onRematch, rematch, footnote, canAddFriends = false, stake = 0, live = false, onBackToGame, enterDelayMs = 900, onHome }: ResultsOverlayProps) {
+  const t = useT();
   const userIdOf = (playerId: string) => state.players.find((p) => p.id === playerId)?.userId ?? null;
   const { width, height } = useWindowDimensions();
   const { maxWidth } = useLayout();
@@ -160,7 +162,7 @@ export function ResultsOverlay({ state, nameFor, avatarFor, onRematch, rematch, 
         </View>
         <Text style={{ fontFamily: font.display, fontSize: 26, color: palette.porcelain }}>{winnerName}</Text>
         <Text style={{ fontFamily: font.medium, fontSize: 15, color: palette.mutedSteel }}>
-          {stake > 0 ? `takes the top share — +${shares[0] ?? 0} coins` : "wins the game"}
+          {stake > 0 ? t("results.takesTopShare", { coins: shares[0] ?? 0 }) : t("results.winsGame")}
         </Text>
         {live ? (
           <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel, textAlign: "center" }}>
@@ -228,11 +230,11 @@ export function ResultsOverlay({ state, nameFor, avatarFor, onRematch, rematch, 
           have already earned and go. */}
       <View style={{ gap: space.sm, marginBottom: space.xxl, ...col }}>
         {live ? (
-          onBackToGame ? <Button label="Watch the rest" onPress={onBackToGame} /> : null
+          onBackToGame ? <Button label={t("game.watchTheRest")} onPress={onBackToGame} /> : null
         ) : rematch ? (
           <RematchBallot state={state} rematch={rematch} nameFor={nameFor} avatarFor={avatarFor} />
         ) : onRematch ? (
-          <Button label="Rematch" onPress={onRematch} />
+          <Button label={t("game.rematch")} onPress={onRematch} />
         ) : null}
         <Button label="Home" onPress={onHome} variant="ghost" />
         {footnote ? (
@@ -289,6 +291,7 @@ function RematchBallot({
   nameFor?: (playerId: string) => string | null;
   avatarFor?: (playerId: string) => string | null;
 }) {
+  const t = useT();
   const { proposal, myUserId, notice, onPropose, onAnswer } = rematch;
   const seconds = useSecondsLeft(proposal?.endsAt ?? null);
   const seats = eligibleSeats(state);
@@ -298,7 +301,7 @@ function RematchBallot({
   if (!proposal) {
     return (
       <>
-        <Button label="Rematch" onPress={onPropose} />
+        <Button label={t("game.rematch")} onPress={onPropose} />
         {notice ? (
           <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel, textAlign: "center" }}>
             {notice}
@@ -316,8 +319,8 @@ function RematchBallot({
     <>
       <Text style={{ fontFamily: font.semibold, fontSize: 15, color: palette.porcelain, textAlign: "center" }}>
         {proposal.byUserId === myUserId
-          ? "You asked for a rematch"
-          : `${proposer ? labelOf(proposer.playerId) : "Someone"} wants a rematch`}
+          ? t("game.rematchAsked")
+          : t("game.wantsRematch", { name: proposer ? labelOf(proposer.playerId) : t("game.someone") })}
       </Text>
 
       <View style={{ flexDirection: "row", justifyContent: "center", gap: space.lg, paddingVertical: space.xs }}>
@@ -388,7 +391,7 @@ function RematchBallot({
             <Button label={`Rematch · ${seconds}s`} onPress={() => onAnswer(true)} />
           </View>
           <View style={{ flex: 1 }}>
-            <Button label="No thanks" variant="ghost" onPress={() => onAnswer(false)} />
+            <Button label={t("common.noThanks")} variant="ghost" onPress={() => onAnswer(false)} />
           </View>
         </View>
       )}

@@ -11,6 +11,7 @@ import { useLayout } from "../lib/useLayout";
 import { playSound } from "../lib/sound";
 import { tapLight } from "../lib/haptics";
 import { depth, font, palette, radius, shade, space } from "../theme";
+import { useT } from "../i18n";
 
 interface PlayCtaProps {
   onPress: () => void;
@@ -24,6 +25,7 @@ interface PlayCtaProps {
 }
 
 export function PlayCta({ onPress, stake, busy = false, height }: PlayCtaProps) {
+  const t = useT();
   const { scale } = useLayout();
   const face = palette.porcelain;
   const edge = shade(face, -0.45);
@@ -36,7 +38,7 @@ export function PlayCta({ onPress, stake, busy = false, height }: PlayCtaProps) 
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={busy ? "Finding a match" : `Play, quick match, entry ${stake} coins`}
+      accessibilityLabel={busy ? t("match.finding") : t("home.playA11y", { coins: stake })}
       onPress={() => {
         if (!busy) onPress();
       }}
@@ -79,7 +81,7 @@ export function PlayCta({ onPress, stake, busy = false, height }: PlayCtaProps) 
               </Text>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
                 <Text style={{ fontFamily: font.medium, fontSize: sub, color: shade(palette.feltCharcoal, 0.35) }}>
-                  {busy ? "Looking for opponents" : "Quick match ·"}
+                  {busy ? t("match.lookingForOpponents") : `${t("home.quickMatch")} ·`}
                 </Text>
                 {!busy && (
                   <>

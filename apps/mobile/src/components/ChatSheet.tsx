@@ -52,8 +52,8 @@ export function ChatSheet({ events, nameForUser, myUserId, onSend, onReport, onC
       `Block ${name}?`,
       t("chat.blockBody"),
       [
-        { text: "Cancel", style: "cancel" },
-        { text: "Block and report", style: "destructive", onPress: () => onReport(userId, message) },
+        { text: t("common.cancel"), style: "cancel" },
+        { text: t("friends.blockAndReport"), style: "destructive", onPress: () => onReport(userId, message) },
       ],
     );
   };
@@ -65,7 +65,7 @@ export function ChatSheet({ events, nameForUser, myUserId, onSend, onReport, onC
         exiting={FadeOut.duration(160)}
         style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0, backgroundColor: "rgba(20,23,28,0.6)" }}
       >
-        <Pressable accessibilityLabel="Close chat" style={{ flex: 1 }} onPress={onClose} />
+        <Pressable accessibilityLabel={t("chat.close")} style={{ flex: 1 }} onPress={onClose} />
       </Animated.View>
 
       {/* Same reasoning as Sheet.tsx: RN's implementation is a no-op on Android
@@ -95,7 +95,7 @@ export function ChatSheet({ events, nameForUser, myUserId, onSend, onReport, onC
         >
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
             <Text style={{ fontFamily: font.display, fontSize: 20, color: palette.porcelain }}>Chat</Text>
-            <Pressable accessibilityRole="button" accessibilityLabel="Close chat" onPress={onClose} hitSlop={8}>
+            <Pressable accessibilityRole="button" accessibilityLabel={t("chat.close")} onPress={onClose} hitSlop={8}>
               <Text style={{ fontFamily: font.semibold, fontSize: 22, color: palette.mutedSteel }}>×</Text>
             </Pressable>
           </View>

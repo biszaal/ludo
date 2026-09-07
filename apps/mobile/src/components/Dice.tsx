@@ -78,6 +78,7 @@ import { cubeFaces, faceMatrix, lambert, rotateScaleAbout, rotateVec, swirlPoint
 import { appendMotif, motifStyle } from "../render/faceMotifs";
 import { appendPip, overlayArt } from "../render/pipShapes";
 import { appendNumeral, NUMERAL_FACE_R, NUMERAL_KEYLINE, NUMERAL_STROKE, type Numeral } from "../render/dieNumerals";
+import { useT } from "../i18n";
 
 /** Pip centers on a unit face (x, y in 0..1), per die value. */
 const PIP_XY: Record<number, [number, number][]> = {
@@ -150,7 +151,8 @@ interface DiceProps {
  * and timer traffic, and each of those used to re-run the derived value below
  * — which is a full picture re-record — for a die that had not changed.
  */
-export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = false, theme, skin, onRollPress = null, pressLabel = "Roll the dice" }: DiceProps) {
+export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = false, theme, skin, onRollPress = null, pressLabel }: DiceProps) {
+  const t = useT();
   /**
    * The roll, as one number.
    *
@@ -953,7 +955,10 @@ export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = f
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={onRollPress ? pressLabel : label}
+      // Default here rather than in the signature: the fallback is a
+      // translated string, and a default parameter would freeze it at module
+      // load, before any language is known.
+      accessibilityLabel={onRollPress ? (pressLabel ?? t("game.rollTheDice")) : label}
       onPress={onRollPress ?? undefined}
       disabled={!onRollPress}
       hitSlop={10}

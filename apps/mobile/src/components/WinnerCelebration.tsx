@@ -20,6 +20,7 @@ import { Confetti } from "./Confetti";
 import { AvatarGlyph } from "./Avatar";
 import { useLayout } from "../lib/useLayout";
 import { font, palette, radius, space, teamColor, teamTint } from "../theme";
+import { useT } from "../i18n";
 
 interface WinnerCelebrationProps {
   winnerName: string;
@@ -38,6 +39,7 @@ interface WinnerCelebrationProps {
 }
 
 export function WinnerCelebration({ winnerName, winnerColor, winnerAvatar, gameOver, onSeeResults, pot, onStay, onLeave }: WinnerCelebrationProps) {
+  const t = useT();
   const { width, height } = useWindowDimensions();
   const { maxWidth } = useLayout();
 
@@ -92,12 +94,12 @@ export function WinnerCelebration({ winnerName, winnerColor, winnerAvatar, gameO
       {/* The choice: stay for the rest, or head home. */}
       <Animated.View entering={FadeIn.delay(1400).duration(300)} style={{ gap: space.sm, marginBottom: space.xxl, width: "100%", maxWidth, alignSelf: "center" }}>
         {gameOver ? (
-          <Button label="See results" onPress={onStay} />
+          <Button label={t("game.seeResults")} onPress={onStay} />
         ) : (
           <>
-            {onSeeResults ? <Button label="See standings" onPress={onSeeResults} /> : null}
-            <Button label="Watch the rest" onPress={onStay} variant={onSeeResults ? "ghost" : "fill"} />
-            <Button label="Leave" onPress={onLeave} variant="ghost" />
+            {onSeeResults ? <Button label={t("game.seeStandings")} onPress={onSeeResults} /> : null}
+            <Button label={t("game.watchTheRest")} onPress={onStay} variant={onSeeResults ? "ghost" : "fill"} />
+            <Button label={t("lobby.leave")} onPress={onLeave} variant="ghost" />
           </>
         )}
       </Animated.View>

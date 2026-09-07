@@ -50,7 +50,7 @@ import { useAds, canShowInterstitial } from "../store/adsStore";
 import { useConfig } from "../store/configStore";
 import { noAdsActive, useEntitlements } from "../store/entitlementsStore";
 import { preloadInterstitial, showInterstitial } from "../lib/ads/provider";
-import { colorLabel } from "../i18n";
+import { colorLabel, useT } from "../i18n";
 
 /** Height the top bar ("Ludo" and its pills) occupies. Only the railed layout
  *  needs it: that one budgets the board's height by hand, where the stacked one
@@ -176,6 +176,7 @@ export function GameView({
   viewColor,
   chat,
 }: GameViewProps) {
+  const t = useT();
   const { width, height } = useWindowDimensions();
   const { tier, scale, insets } = useLayout();
   const theme = resolveBoardTheme(useSettings((s) => s.boardThemeId));
@@ -386,7 +387,7 @@ export function GameView({
     const wasHome = new Set(prev.filter((t) => t.position === "home").map((t) => t.id));
     const captured = state.tokens.some((t) => t.position === "home" && !wasHome.has(t.id));
     if (!captured) return;
-    const lines = ["Gotcha!", "Sent home!", "Boom!"];
+    const lines = [t("react.gotcha"), t("react.sentHome"), t("react.boom")];
     setToast((s) => ({ text: lines[Math.floor(Math.random() * lines.length)]!, seq: (s?.seq ?? 0) + 1 }));
   }, [state.tokens, state.status]);
   useEffect(() => {
@@ -435,7 +436,7 @@ export function GameView({
   const nameForUser = (userId: string): string => {
     if (chat && userId === chat.myUserId) return "You";
     const pl = state.players.find((p) => p.userId === userId);
-    if (!pl) return "Player";
+    if (!pl) return t("game.player");
     return nameFor?.(pl.id) ?? colorLabel(pl.color);
   };
 
@@ -498,7 +499,7 @@ export function GameView({
             theme={theme}
             skin={resolveDiceSkin(diceSkinFor?.(p.id) ?? null)}
             onRollPress={heldDie ? null : canRoll ? rollStable : pilot ? autoPilot?.onTakeControl ?? null : null}
-            pressLabel={canRoll ? "Roll the dice" : "Bot is playing for you — tap to take back control"}
+            pressLabel={canRoll ? t("game.rollTheDice") : t("game.autopilotShort")}
           />
         ) : null}
       </View>
@@ -574,12 +575,12 @@ export function GameView({
         {finished
           ? " "
           : !canAct
-            ? waitingLabel ?? "Waiting…"
+            ? waitingLabel ?? t("common.waiting")
             : state.phase === "awaiting-roll"
-              ? "Tap the die to roll"
+              ? t("game.tapDieToRoll")
               : validMoves.length === 0
-                ? "No moves — passing…"
-                : "Tap a glowing token to move"}
+                ? t("game.noMovesPassing")
+                : t("game.tapGlowingToken")}
       </Text>
     </View>
   );
@@ -591,7 +592,7 @@ export function GameView({
     <View style={{ flexDirection: "row", gap: space.sm, marginBottom: space.sm }}>
       {chat ? (
         <>
-          <IconButton label="Reactions" glyph="🙂" onPress={() => setReactionsOpen((v) => !v)} />
+          <IconButton label={t("game.reactions")} glyph="🙂" onPress={() => setReactionsOpen((v) => !v)} />
           {!chat.reactionsOnly ? (
             <IconButton
               label="Chat"
@@ -629,7 +630,7 @@ export function GameView({
         theme={theme}
         skin={resolveDiceSkin(diceSkinFor?.(dieSeat.id) ?? null)}
         onRollPress={heldDie ? null : canRollNow ? rollStable : activeIsPilot ? autoPilot?.onTakeControl ?? null : null}
-        pressLabel={canRollNow ? "Roll the dice" : "Bot is playing for you — tap to take back control"}
+        pressLabel={canRollNow ? t("game.rollTheDice") : t("game.autopilotShort")}
       />
     ) : null;
 
@@ -891,10 +892,11 @@ function IconButton({ label, glyph, onPress, showDot = false }: { label: string;
 
 /** Drawn ≡ menu glyph — 44px target, no icon fonts. */
 function MenuButton({ onPress }: { onPress: () => void }) {
+  const t = useT();
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel="Game menu"
+      accessibilityLabel={t("game.gameMenu")}
       onPress={onPress}
       style={({ pressed }) => ({
         width: 44,

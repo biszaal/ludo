@@ -15,6 +15,7 @@ import { SelectTile } from "./SelectTile";
 import { SettingRow } from "./SettingRow";
 import { EXPOSED_RULES } from "../lib/exposedRules";
 import { font, palette, radius, space, teamColor } from "../theme";
+import { useT } from "../i18n";
 
 const COUNTS = [2, 3, 4] as const;
 
@@ -27,6 +28,7 @@ interface PlaySetupSheetProps {
 }
 
 export function PlaySetupSheet({ mode, onStart, onClose }: PlaySetupSheetProps) {
+  const t = useT();
   const [count, setCount] = useState<number>(2);
   const [rules, setRules] = useState<Partial<RuleConfig>>({});
   const [showRules, setShowRules] = useState(false);
@@ -34,8 +36,8 @@ export function PlaySetupSheet({ mode, onStart, onClose }: PlaySetupSheetProps) 
   const ruleValue = (key: keyof RuleConfig) => rules[key] ?? DEFAULT_RULES[key];
 
   return (
-    <Sheet onClose={onClose} title={mode === "ai" ? "Play vs AI" : "Pass & play"}>
-      <SectionLabel>{mode === "ai" ? "Players (you + AI)" : "Players"}</SectionLabel>
+    <Sheet onClose={onClose} title={mode === "ai" ? t("home.playVsAiLong") : t("home.passAndPlay")}>
+      <SectionLabel>{mode === "ai" ? t("game.playersYouPlusAi") : t("game.players")}</SectionLabel>
       <View style={{ flexDirection: "row", gap: space.sm }}>
         {COUNTS.map((n) => (
           <SelectTile key={n} label={`${n}`} mono selected={n === count} onPress={() => setCount(n)} />
@@ -49,11 +51,11 @@ export function PlaySetupSheet({ mode, onStart, onClose }: PlaySetupSheetProps) 
 
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="House rules"
+        accessibilityLabel={t("game.houseRules")}
         onPress={() => setShowRules((v) => !v)}
         style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", minHeight: 44, opacity: pressed ? 0.85 : 1 })}
       >
-        <Text style={{ flex: 1, fontFamily: font.medium, fontSize: 15, color: palette.porcelain }}>House rules</Text>
+        <Text style={{ flex: 1, fontFamily: font.medium, fontSize: 15, color: palette.porcelain }}>{t("game.houseRules")}</Text>
         <Text style={{ fontFamily: font.semibold, fontSize: 17, color: palette.mutedSteel }}>{showRules ? "−" : "+"}</Text>
       </Pressable>
 
@@ -71,7 +73,7 @@ export function PlaySetupSheet({ mode, onStart, onClose }: PlaySetupSheetProps) 
         </Animated.View>
       )}
 
-      <Button label="Start game" onPress={() => onStart(count, mode === "ai" ? count - 1 : 0, rules)} />
+      <Button label={t("lobby.startGame")} onPress={() => onStart(count, mode === "ai" ? count - 1 : 0, rules)} />
     </Sheet>
   );
 }

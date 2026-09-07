@@ -15,6 +15,7 @@ import Animated, { Easing, FadeIn, FadeOut } from "react-native-reanimated";
 import { useConnection } from "../store/connectionStore";
 import { useOnlineStore } from "../store/onlineStore";
 import { font, palette, radius, space, teamColor } from "../theme";
+import { useT } from "../i18n";
 
 /**
  * How long an unanswered action may sit before the strip mentions it.
@@ -57,6 +58,7 @@ interface ConnectionStripProps {
 }
 
 export function ConnectionStrip({ showErrors = true }: ConnectionStripProps = {}) {
+  const t = useT();
   const link = useConnection((s) => s.link);
   const error = useOnlineStore((s) => s.error);
   const clearError = useOnlineStore((s) => s.clearError);
@@ -79,12 +81,12 @@ export function ConnectionStrip({ showErrors = true }: ConnectionStripProps = {}
   } else if (link === "offline") {
     // The honest word. The app cannot send the turn, and saying "reconnecting"
     // would imply something is being attempted that is not.
-    note = { text: "You're offline — waiting for a connection", tone: "bad" };
+    note = { text: t("common.offline"), tone: "bad" };
   } else if (atRisk) {
     // Online but unanswered: the request is out there and the clock is running.
-    note = { text: "Still sending — your turn may time out", tone: "warn" };
+    note = { text: t("game.stillSending"), tone: "warn" };
   } else if (link === "slow") {
-    note = { text: "Slow connection", tone: "warn" };
+    note = { text: t("match.slowConnection"), tone: "warn" };
   }
 
   if (!note) return null;
