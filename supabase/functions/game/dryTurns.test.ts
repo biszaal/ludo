@@ -10,7 +10,7 @@
  */
 
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { deriveDie, dryBoost, dryTurnsFor, nextDryTurns, DRY_TURNS_THRESHOLD } from "./lib.ts";
+import { deriveDie, dryBoost, dryTurnsFor, nextDryTurns, dryTurnsPatch, DRY_TURNS_THRESHOLD } from "./lib.ts";
 // @deno-types="../_shared/engine/index.d.ts"
 import { createGame, applyMove, getValidMoves, rollDice } from "../_shared/engine/index.js";
 import { rngForDie } from "./lib.ts";
@@ -160,4 +160,63 @@ Deno.test("a busted third six clears the die it rolled", () => {
   assertEquals(third.newState.diceValue !== 6, true);
   // Reading the roll says what actually happened.
   assertEquals(third.diceValue !== 6, false);
+});
+
+/**
+ * FOLDING MUST NOT CHANGE THE BOOKKEEPING.
+ *
+ * The counter is fed by turn writes, and folding changed which write a roll
+ * arrives in — not whether one happened. A roll that writes on its own and the
+ * same roll folded into the move or pass behind it have to leave the map in the
+ * identical state, or the rescue quietly stops existing for whichever protocol
+ * loses. It lost: gated on the action name, a folded roll moved nothing, and
+ * since every modern client folds, the streak never climbed for a human at all.
+ */
+const SEAT2 = "55555555-5555-5555-5555-555555555555";
+
+/** The map after a roll that WRITES, then the move or pass behind it. */
+function written(raw: unknown, face: number, movesAfterRoll: number): unknown {
+  const afterRoll = dryTurnsPatch(raw, SEAT2, face, movesAfterRoll);
+  const carried = "dry_turns" in afterRoll ? afterRoll.dry_turns : raw;
+  // The second write carries no roll of its own.
+  const afterAction = dryTurnsPatch(carried, SEAT2, null, 0);
+  return "dry_turns" in afterAction ? afterAction.dry_turns : carried;
+}
+
+/** The map after the SAME roll folded into that move or pass — one write. */
+function folded(raw: unknown, face: number, movesAfterRoll: number): unknown {
+  const only = dryTurnsPatch(raw, SEAT2, face, movesAfterRoll);
+  return "dry_turns" in only ? only.dry_turns : raw;
+}
+
+Deno.test("a folded roll moves the streak exactly as a written one does", () => {
+  for (const start of [{}, { [SEAT2]: 1 }, { [SEAT2]: 5 }, { other: 3 }]) {
+    for (let face = 1; face <= 6; face++) {
+      for (const moves of [0, 1, 3]) {
+        assertEquals(folded(start, face, moves), written(start, face, moves));
+      }
+    }
+  }
+});
+
+Deno.test("a dead turn climbs the streak whichever protocol wrote it", () => {
+  // The case the rescue exists for: no six, no legal move, over and over.
+  let raw: unknown = {};
+  for (let n = 1; n <= DRY_TURNS_THRESHOLD + 2; n++) {
+    raw = folded(raw, 3, 0);
+    assertEquals(dryTurnsFor(raw, SEAT2), n);
+  }
+  // And far enough for the guarantee to be reachable at all.
+  assertEquals(dryBoost(dryTurnsFor(raw, SEAT2)), 1);
+});
+
+Deno.test("a write carrying no roll leaves every streak untouched", () => {
+  const start = { [SEAT2]: 4 };
+  assertEquals(dryTurnsPatch(start, SEAT2, null, 0), {});
+  assertEquals(dryTurnsFor(start, SEAT2), 4);
+});
+
+Deno.test("a roll with a move, or a six, still resets the seat", () => {
+  assertEquals(dryTurnsFor(folded({ [SEAT2]: 5 }, 3, 2), SEAT2), 0);
+  assertEquals(dryTurnsFor(folded({ [SEAT2]: 5 }, 6, 0), SEAT2), 0);
 });

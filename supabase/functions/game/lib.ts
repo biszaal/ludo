@@ -716,3 +716,38 @@ export function createTouchGate(ttlMs = 30 * 60_000, max = 5_000) {
 
 /** The router's gate. One per isolate, by design — see createTouchGate. */
 export const touchGate = createTouchGate();
+
+/**
+ * The `dry_turns` patch for ONE turn write: the fragment to merge into the
+ * games update, and empty when this write carries no roll.
+ *
+ * THE GATE IS "DOES THIS WRITE CARRY A ROLL", NOT "WAS THE ACTION A ROLL", and
+ * the difference between those two is a bug that silently switched the whole
+ * rescue off.
+ *
+ * They were the same thing until folding. A folding table writes nothing for
+ * the roll itself — the move or pass that follows carries both transitions in
+ * one write (see rollCanFold) — so the write that lands says `move` or `pass`,
+ * and gating the counter on the action meant a folded roll never moved it. That
+ * is every roll a modern client makes: in a fortnight of production, human
+ * `roll` writes numbered 2 against 551 moves and 97 passes. The counter only
+ * ever advanced for bot seats and stalled seats, which write their rolls the
+ * old way, so the streak the rescue reads could not climb and the guarantee at
+ * eight dry turns had never once fired for a human player.
+ *
+ * `face` is the roll this write is carrying, from wherever it came, and null
+ * when it carries none. `movesAfterRoll` is how many legal moves that roll left
+ * the seat — counted on the state THE ROLL produced, before any move or pass
+ * was applied to it, because that is the only state where the question means
+ * what it says.
+ */
+export function dryTurnsPatch(
+  raw: unknown,
+  playerId: string,
+  face: number | null,
+  movesAfterRoll: number,
+): { dry_turns: DryTurns } | Record<never, never> {
+  if (face === null) return {};
+  // A six is never stuck by definition — it always opens the yard.
+  return { dry_turns: nextDryTurns(raw, playerId, face !== 6 && movesAfterRoll === 0) };
+}

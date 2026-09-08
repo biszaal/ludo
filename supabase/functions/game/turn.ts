@@ -22,6 +22,7 @@ import {
   cryptoRng,
   deriveDie,
   dryTurnsFor,
+  dryTurnsPatch,
   nextDryTurns,
   freshState,
   isAwaySeat,
@@ -202,6 +203,18 @@ export async function opTurn(
    * sequence stays byte-identical to what it has always been.
    */
   let working = state;
+  /**
+   * The die a folded roll put on `working`, or null when this write carries no
+   * roll of its own.
+   *
+   * It has to be remembered, not just used. A folded roll is still a roll that
+   * happened, and everything downstream that asks "did this write carry one" —
+   * the action log, and the dry-turn streak the rescue reads — was answered by
+   * the ACTION NAME until this existed. That made a folded roll invisible to
+   * the counter, and since every modern client folds, the rescue could never
+   * fire for a human seat. See dryTurnsPatch.
+   */
+  let foldedFace: number | null = null;
   if (
     game.fold_writes &&
     state.phase === "awaiting-roll" &&
@@ -213,19 +226,26 @@ export async function opTurn(
     const die = await deriveDie(gameId, v, me.id, myDry);
     // Same precondition as the roll: an underivable die cannot be reproduced,
     // so there is nothing to fold and the client must be on the writing path.
-    if (die !== null) working = rollDice(state, rngForDie(die)).newState;
+    if (die !== null) {
+      working = rollDice(state, rngForDie(die)).newState;
+      foldedFace = die;
+    }
   }
 
   let next: GameState;
   /**
-   * The face this roll produced, or null when the action was not a roll.
+   * The face of the roll THIS WRITE CARRIES, from whichever protocol produced
+   * it, and null when it carries none.
    *
    * Read from the roll's own result rather than from the state it produced,
    * because a busted third six has ALREADY cleared diceValue — rollDice calls
    * advanceTurn inside itself. Judging by the state made three sixes look like a
    * roll of nothing.
+   *
+   * Seeded from the fold above, because "a roll happened" and "the action was
+   * called roll" stopped being the same question when folding shipped.
    */
-  let rolledFace: number | null = null;
+  let rolledFace: number | null = foldedFace;
   if (action === "roll") {
     if (state.phase !== "awaiting-roll") return await reject("You already rolled.");
     const outcome = rollDice(state, await rollRng(gameId, v, me.id, myDry));
@@ -243,18 +263,23 @@ export async function opTurn(
   }
 
   /**
-   * Did this roll leave the seat with nothing it could do?
+   * Did the roll this write carries leave the seat with nothing it could do?
    *
-   * Only a ROLL is judged: a move or a pass is the tail of a turn whose roll
-   * was already counted, and counting it again would advance the streak twice
-   * for one dead turn. A six is never stuck by definition — it always opens the
-   * yard — and `getValidMoves` settles the rest.
+   * Judged on the state THE ROLL produced, never on the one the move or pass
+   * left behind. For a written roll those are the same state; for a folded one
+   * they are not, and `next` there is already past the pass that ended the turn
+   * — a state where the seat is no longer current, so the question stops meaning
+   * what it says. `working` is the post-roll state on both paths.
+   *
+   * A six is never stuck by definition — it always opens the yard — and
+   * `getValidMoves` settles the rest. Each dead turn is counted exactly once:
+   * one write carries one roll.
    *
    * Written after the game row lands, not before: a roll whose write loses the
    * version race did not happen, and must not move the counter.
    */
-  const rolledStuck =
-    rolledFace !== null && rolledFace !== 6 && getValidMoves(next, me.id).length === 0;
+  const afterRoll = action === "roll" ? next : working;
+  const movesAfterRoll = rolledFace === null ? 0 : getValidMoves(afterRoll, me.id).length;
 
   const logged = {
     game_id: gameId,
@@ -293,8 +318,10 @@ export async function opTurn(
       turn_deadline: away ? turnDeadline(next, AWAY_TURN_SECONDS) : turnDeadline(next),
       state_version: v + 1,
       // Rides the same version-guarded write as the state, so a roll that loses
-      // the race cannot move the streak either. Only a roll touches it.
-      ...(action === "roll" ? { dry_turns: nextDryTurns(game.dry_turns, me.id, rolledStuck) } : {}),
+      // the race cannot move the streak either. Only a write carrying a roll
+      // touches it — which is not the same as an action named "roll". See
+      // dryTurnsPatch.
+      ...dryTurnsPatch(game.dry_turns, me.id, rolledFace, movesAfterRoll),
     })
     .eq("id", gameId)
     .eq("state_version", v)
