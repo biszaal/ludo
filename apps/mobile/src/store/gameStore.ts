@@ -57,6 +57,21 @@ export interface LocalGameConfig {
 interface GameStore {
   state: GameState | null;
   validMoves: Move[];
+  /**
+   * The number the die is showing, which is the die the CURRENT `state` carries
+   * — `state.diceValue` — for every state this store applies.
+   *
+   * It has to be cleared, not just set. GameView falls back to it once the
+   * hand-over hold expires (`state.diceValue ?? lastRoll`) and reads a non-null
+   * one as a roll still in flight, so a number left behind by the turn that has
+   * just ended is painted as a LANDED FACE on the next player's un-rolled die,
+   * instead of the tap-me swirl. The online store gets this for free by
+   * re-projecting every state (`proj.lastRoll`); here each applied state has to
+   * carry its own die across.
+   *
+   * The one deliberate exception is the busted third six, which is a display
+   * held over a state that is NOT applied — see roll().
+   */
   lastRoll: number | null;
   /** Increments on every roll — drives the dice tumble animation. */
   rollSeq: number;
@@ -156,6 +171,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         set({
           state: newState,
           validMoves: [],
+          lastRoll: newState.diceValue,
           bustHold: false,
           message: t("status.toRoll", { color: colorLabel(playerColor(newState, newState.currentTurnPlayerId)) }),
         });
@@ -190,6 +206,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set({
       state: next,
       validMoves: [],
+      lastRoll: next.diceValue,
       message: t("status.toRoll", { color: colorLabel(playerColor(next, next.currentTurnPlayerId)) }),
     });
     kickBots();
@@ -210,6 +227,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       set({
         state: next,
         validMoves: [],
+        lastRoll: next.diceValue,
         message: t("status.wins", { color: colorLabel(playerColor(next, win.winnerPlayerId)) }),
       });
       return; // game over — no bot kick
@@ -227,6 +245,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set({
       state: next,
       validMoves: [],
+      lastRoll: next.diceValue,
       message:
         next.currentTurnPlayerId === before
           ? placed + t("status.rollsAgain", { color: colorLabel(nowColor) })

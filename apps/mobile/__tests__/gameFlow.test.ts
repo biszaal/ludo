@@ -84,6 +84,39 @@ describe("client store — full hot-seat game", () => {
     expect(s.lastConfig).toEqual({ players: 2, rules: { leaveYardOnSix: false } });
   });
 
+  /**
+   * The die must be blank when it reaches the next player.
+   *
+   * `lastRoll` is what GameView falls back to once the hand-over hold expires
+   * (`state.diceValue ?? lastRoll`), and a non-null one also makes the view
+   * treat the roll as still in flight — so a number left behind by the previous
+   * turn is painted, as a landed face, on the next player's un-rolled die.
+   */
+  it("clears the die when the turn hands over on a pass", () => {
+    vi.spyOn(Math, "random").mockReturnValue(0); // die = 1: no yard token may leave
+    store.getState().newLocalGame({ players: 2 });
+    store.getState().roll();
+    expect(store.getState().lastRoll).toBe(1);
+    const roller = store.getState().state!.currentTurnPlayerId;
+
+    store.getState().pass();
+
+    expect(store.getState().state!.currentTurnPlayerId).not.toBe(roller);
+    expect(store.getState().state!.diceValue).toBeNull();
+    expect(store.getState().lastRoll).toBeNull();
+  });
+
+  it("clears the die when a move hands the turn over", () => {
+    vi.spyOn(Math, "random").mockReturnValue(0); // die = 1
+    store.getState().newLocalGame({ players: 2, rules: { leaveYardOnSix: false } });
+    store.getState().roll();
+    const roller = store.getState().state!.currentTurnPlayerId;
+    store.getState().selectToken(store.getState().validMoves[0]!.tokenId);
+
+    expect(store.getState().state!.currentTurnPlayerId).not.toBe(roller);
+    expect(store.getState().lastRoll).toBeNull();
+  });
+
   it.each([1, 7, 42])("plays a 2-player game to a winner via store intents (seed %i)", (seed) => {
     const final = playFullGame(seed, 2);
     expect(final.state?.status).toBe("finished");
