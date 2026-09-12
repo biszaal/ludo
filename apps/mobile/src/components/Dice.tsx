@@ -477,6 +477,18 @@ export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = f
       numeralPaint,
       swirlPath,
       swirlPaint,
+      // The two rounded-rects the tumble draws, in face-local units. They are
+      // COMPILE-TIME CONSTANTS — the same nine literals on every frame — so
+      // building them here rather than in the picture worklet takes ~18 native
+      // allocations per frame off the UI thread during a roll. They live here
+      // rather than at module scope because Skia has to be up to make them.
+      //
+      // The warning further down about Reanimated freezing captured objects
+      // does not reach these: it is about the PLAIN objects the visible-face
+      // loop pushes and mutates. These are host objects, only ever read, and
+      // `kit` already carries paints and paths across that same boundary.
+      coreRRect: Skia.RRectXY(Skia.XYWHRect(-1.04, -1.04, 2.08, 2.08), 0.5, 0.5),
+      faceRRect: Skia.RRectXY(Skia.XYWHRect(-1, -1, 2, 2), 0.48, 0.48),
       faceShader,
       glossShader,
       facesFor,
@@ -617,11 +629,22 @@ export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = f
       // faces before throwing half of them away. (A scratch array reused
       // between frames would be better still, but Reanimated freezes the plain
       // objects a worklet captures, so the allocation has to live in here.)
-      const visible: { face: (typeof kit.facesFor)[number][number]; n: Vec3; u: Vec3; v: Vec3 }[] = [];
+      // `lam` and `m` are computed HERE, once per face, rather than at each use
+      // site. Both passes below project through the identical matrix, and the
+      // three lighting terms in pass 2 all read the same normal — so the old
+      // shape ran faceMatrix twice and lambert three times per face, per frame,
+      // every time producing the number it had just produced.
+      const visible: {
+        face: (typeof kit.facesFor)[number][number];
+        lam: number;
+        m: ReturnType<typeof Skia.Matrix>;
+      }[] = [];
       for (const face of kit.facesFor[shownValue - 1]!) {
         const n = rotateVec(face.n, ax, ay, az);
         if (n.z >= -0.06) continue;
-        visible.push({ face, n, u: rotateVec(face.u, ax, ay, az), v: rotateVec(face.v, ax, ay, az) });
+        const u = rotateVec(face.u, ax, ay, az);
+        const v = rotateVec(face.v, ax, ay, az);
+        visible.push({ face, lam: lambert(n), m: Skia.Matrix(faceMatrix(u, v, n, h, c, c)) });
       }
       const visibleCount = visible.length;
 
@@ -634,10 +657,9 @@ export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = f
       // the core would show as a rim around the landing face.
       if (visibleCount > 1) {
         for (let i = 0; i < visibleCount; i++) {
-          const { n, u, v } = visible[i]!;
           canvas.save();
-          canvas.concat(Skia.Matrix(faceMatrix(u, v, n, h, c, c)));
-          canvas.drawRRect(Skia.RRectXY(Skia.XYWHRect(-1.04, -1.04, 2.08, 2.08), 0.5, 0.5), core);
+          canvas.concat(visible[i]!.m);
+          canvas.drawRRect(kit.coreRRect, core);
           canvas.restore();
         }
       }
@@ -650,28 +672,28 @@ export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = f
       // overlay texture and the pip glow stay landed-only: those cost a lot
       // more per draw, and at tumbling speed neither would read anyway.
       for (let i = 0; i < visibleCount; i++) {
-        const { face, n, u, v } = visible[i]!;
+        const { face, lam, m } = visible[i]!;
         canvas.save();
-        canvas.concat(Skia.Matrix(faceMatrix(u, v, n, h, c, c)));
+        canvas.concat(m);
         if (kit.faceShader) {
           facePaint.setShader(kit.faceShader);
           // The shader replaces per-face lambert shading, so fake back a hint
           // of it via alpha (modulates the shader's own output) — otherwise a
           // gradient skin's cube looks flat next to a solid-color one's.
-          facePaint.setAlphaf(0.72 + 0.28 * lambert(n));
+          facePaint.setAlphaf(0.72 + 0.28 * lam);
         } else {
           facePaint.setShader(null);
-          facePaint.setColor(mix(sp.faceRGB, -0.46 + 0.62 * lambert(n)));
+          facePaint.setColor(mix(sp.faceRGB, -0.46 + 0.62 * lam));
         }
-        canvas.drawRRect(Skia.RRectXY(Skia.XYWHRect(-1, -1, 2, 2), 0.48, 0.48), facePaint);
+        canvas.drawRRect(kit.faceRRect, facePaint);
         if (kit.glossShader) {
           // Scaled by the face's own lambert term so the cube's polish turns
           // with it, instead of every side glinting equally. The gradient runs
           // full white to clear, so this alpha reproduces exactly what baking
           // it into the gradient's colors used to.
           glossPaint.setShader(kit.glossShader);
-          glossPaint.setAlphaf(sp.sheen * (0.35 + 0.65 * lambert(n)));
-          canvas.drawRRect(Skia.RRectXY(Skia.XYWHRect(-1, -1, 2, 2), 0.48, 0.48), glossPaint);
+          glossPaint.setAlphaf(sp.sheen * (0.35 + 0.65 * lam));
+          canvas.drawRRect(kit.faceRRect, glossPaint);
         }
         // INK ONLY WHAT IS TRUE. Blank while the roll is still waiting on its
         // number, so the only face the player can ever read is a real one.
