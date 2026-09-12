@@ -31,6 +31,11 @@ export interface MotionSignals {
   deviceYear: number | null;
   /** The OS-wide "reduce motion" accessibility setting. */
   osReduceMotion: boolean;
+  /**
+   * Frames per second the display actually delivers, as measured at startup.
+   * Null when the probe could not get a clean read, which is not "slow".
+   */
+  refreshHz: number | null;
   override: MotionPref;
 }
 
@@ -40,6 +45,39 @@ export interface MotionSignals {
  * sit above and most pre-2018 ones sit below.
  */
 export const LOW_MEMORY_BYTES = 3 * 1024 ** 3;
+
+/**
+ * At or above this many frames per second, a display counts as high-refresh.
+ *
+ * 90 rather than 120 because the panels in between are real: 90Hz and 144Hz are
+ * both common on Android, and an LTPO panel settles wherever it likes. What the
+ * number has to separate is "roughly 60" from "meaningfully more than 60", and
+ * 90 is the gap in that distribution.
+ */
+export const HIGH_REFRESH_HZ = 90;
+
+/**
+ * The memory floor on a high-refresh display.
+ *
+ * Every `useFullMotion()` gate in the app guards an infinite `withRepeat` loop,
+ * and those loops repaint at DISPLAY rate — so the identical loop costs twice
+ * as much on a 120Hz panel as on a 60Hz one. LOW_MEMORY_BYTES was drawn when
+ * every phone was effectively 60Hz, and that left a gap: a budget Android with
+ * a 120Hz panel and 4GB of RAM clears the 3GB line, earns the full budget, and
+ * then pays double for it. That phone is exactly the one the tier exists to
+ * protect, and today it gets the most expensive treatment in the app.
+ *
+ * 6GB is the line because the 120Hz phones that struggle are the 3-4GB budget
+ * models that ship a high-refresh panel as a spec-sheet feature without the
+ * silicon to drive it; at 6GB and up a 120Hz Android is a genuine mid-range or
+ * better and can afford the loops.
+ *
+ * Note where this lands. `totalMemory` is null on iOS, so the rule cannot fire
+ * there and every ProMotion iPhone keeps the full budget — which is right, they
+ * are all flagships. It bites only on Android, which is where cheap 120Hz
+ * panels live.
+ */
+export const HIGH_REFRESH_MEMORY_BYTES = 6 * 1024 ** 3;
 
 /**
  * Device-year-class score at or above which the full budget is affordable.
@@ -83,11 +121,18 @@ const YEAR_CLASS_UNKNOWN = -1;
  * in the fleet. A device we cannot measure gets the good experience; the
  * override is there for anyone we guess wrong about. Android spells that same
  * unknown -1 rather than null, and -1 is a sentinel, not an ancient phone.
+ * `refreshHz` obeys the same rule from the other direction: an unmeasured
+ * display is treated as ordinary, so a failed probe leaves the decision exactly
+ * where it sat before the signal existed.
  */
 export function motionTier(s: MotionSignals): MotionTier {
   if (s.override !== "auto") return s.override;
   if (s.osReduceMotion) return "reduced";
-  if (s.totalMemoryBytes !== null && s.totalMemoryBytes < LOW_MEMORY_BYTES) return "reduced";
+  // The memory floor is not one number: it rises on a display that repaints the
+  // animation loops twice as often. See HIGH_REFRESH_MEMORY_BYTES.
+  const memoryFloor =
+    s.refreshHz !== null && s.refreshHz >= HIGH_REFRESH_HZ ? HIGH_REFRESH_MEMORY_BYTES : LOW_MEMORY_BYTES;
+  if (s.totalMemoryBytes !== null && s.totalMemoryBytes < memoryFloor) return "reduced";
   if (s.deviceYear !== null && s.deviceYear !== YEAR_CLASS_UNKNOWN && s.deviceYear < LOW_DEVICE_YEAR) {
     return "reduced";
   }

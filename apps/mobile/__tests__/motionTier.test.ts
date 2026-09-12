@@ -8,7 +8,14 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { LOW_DEVICE_YEAR, LOW_MEMORY_BYTES, motionTier, type MotionSignals } from "../src/lib/motionTier";
+import {
+  HIGH_REFRESH_HZ,
+  HIGH_REFRESH_MEMORY_BYTES,
+  LOW_DEVICE_YEAR,
+  LOW_MEMORY_BYTES,
+  motionTier,
+  type MotionSignals,
+} from "../src/lib/motionTier";
 
 /**
  * A capable, modern phone with no accessibility preference set.
@@ -22,6 +29,7 @@ const CAPABLE: MotionSignals = {
   totalMemoryBytes: 8 * 1024 ** 3,
   deviceYear: 2014,
   osReduceMotion: false,
+  refreshHz: 60,
   override: "auto",
 };
 
@@ -98,7 +106,13 @@ describe("motionTier overrides", () => {
 
   it("honours an explicit request for full motion on a weak device", () => {
     expect(
-      motionTier({ totalMemoryBytes: 1 * 1024 ** 3, deviceYear: 2014, osReduceMotion: false, override: "full" }),
+      motionTier({
+        totalMemoryBytes: 1 * 1024 ** 3,
+        deviceYear: 2014,
+        osReduceMotion: false,
+        refreshHz: 120,
+        override: "full",
+      }),
     ).toBe("full");
   });
 
@@ -107,5 +121,73 @@ describe("motionTier overrides", () => {
     // opened OUR settings and asked for animation has made a specific,
     // informed choice about this app. It is theirs to make.
     expect(motionTier({ ...CAPABLE, osReduceMotion: true, override: "full" })).toBe("full");
+  });
+});
+
+/**
+ * High-refresh displays.
+ *
+ * Every `useFullMotion()` gate in the app guards an infinite `withRepeat` loop
+ * — the pawn bob, the dice wiggle, the seat wave, the skeleton shimmer. Those
+ * loops repaint at DISPLAY rate, so the same loop on a 120Hz panel costs twice
+ * what it costs on a 60Hz one. The memory floor below was drawn when every
+ * phone was effectively 60Hz, which left a gap: a budget Android with a 120Hz
+ * panel and 4GB of RAM clears the 3GB line, earns `full`, and then pays double
+ * for it. That phone is precisely the one the tier exists to protect.
+ *
+ * So the bar to earn `full` rises with the refresh rate. Note where this lands:
+ * `totalMemory` is null on iOS, so the rule cannot fire there and every
+ * ProMotion iPhone keeps the full budget — which is right, they are all
+ * flagships. It bites only on Android, which is where cheap 120Hz panels live.
+ */
+describe("motionTier on a high-refresh display", () => {
+  const HIGH_REFRESH: MotionSignals = { ...CAPABLE, refreshHz: 120 };
+
+  it("holds a capable high-refresh device on the full budget", () => {
+    expect(motionTier(HIGH_REFRESH)).toBe("full");
+  });
+
+  it("reduces a mid-memory device that would keep full motion at 60Hz", () => {
+    // The case this rule exists for: 4GB clears the 3GB floor, so at 60Hz this
+    // phone animates. At 120Hz the same loops cost twice as much and it can't.
+    const fourGB = 4 * 1024 ** 3;
+    expect(motionTier({ ...CAPABLE, totalMemoryBytes: fourGB })).toBe("full");
+    expect(motionTier({ ...HIGH_REFRESH, totalMemoryBytes: fourGB })).toBe("reduced");
+  });
+
+  it("puts the high-refresh floor exactly where the constant says", () => {
+    expect(motionTier({ ...HIGH_REFRESH, totalMemoryBytes: HIGH_REFRESH_MEMORY_BYTES })).toBe("full");
+    expect(motionTier({ ...HIGH_REFRESH, totalMemoryBytes: HIGH_REFRESH_MEMORY_BYTES - 1 })).toBe("reduced");
+  });
+
+  it("applies the raised floor only at or above the high-refresh line", () => {
+    const belowFloor = HIGH_REFRESH_MEMORY_BYTES - 1;
+    expect(motionTier({ ...CAPABLE, totalMemoryBytes: belowFloor, refreshHz: HIGH_REFRESH_HZ })).toBe("reduced");
+    expect(motionTier({ ...CAPABLE, totalMemoryBytes: belowFloor, refreshHz: HIGH_REFRESH_HZ - 1 })).toBe("full");
+  });
+
+  it("keeps the raised floor above the ordinary one", () => {
+    // A rule that did not actually raise the bar would be dead code that reads
+    // like protection.
+    expect(HIGH_REFRESH_MEMORY_BYTES).toBeGreaterThan(LOW_MEMORY_BYTES);
+  });
+
+  it("leaves ProMotion iPhones on the full budget", () => {
+    // iOS reports no memory at all, so the raised floor has nothing to test
+    // against and must not invent a failure. Every ProMotion iPhone is a
+    // flagship; downgrading the whole lot of them would be the 2019-year-class
+    // bug all over again.
+    expect(motionTier({ ...HIGH_REFRESH, totalMemoryBytes: null, deviceYear: null })).toBe("full");
+  });
+
+  it("treats an unmeasured refresh rate as ordinary, not as high", () => {
+    // The probe can fail or be starved at boot. An unknown signal must leave
+    // the decision exactly where it was before the signal existed.
+    const fourGB = 4 * 1024 ** 3;
+    expect(motionTier({ ...CAPABLE, totalMemoryBytes: fourGB, refreshHz: null })).toBe("full");
+  });
+
+  it("still lets an explicit override beat the refresh rule", () => {
+    expect(motionTier({ ...HIGH_REFRESH, totalMemoryBytes: 4 * 1024 ** 3, override: "full" })).toBe("full");
   });
 });
