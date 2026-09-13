@@ -269,7 +269,15 @@ export function composeMessage(
   return { kind: wantsText ? "text" : "reaction", value };
 }
 
-/** Beat between the move landing and the reaction arriving. Instant is a tell;
- *  this is roughly how long it takes to notice something and tap. */
-export const REACT_DELAY_MIN_MS = 600;
-export const REACT_DELAY_MAX_MS = 1800;
+/**
+ * Beat between the write and the reaction arriving. Instant is a tell.
+ *
+ * Counted from the server WRITE, not from when anyone sees the move: clients
+ * show that write only after the die settles (1.2s on a bot's folded roll) and
+ * the pawn hops its cells (150ms each). At 0.6–1.8s a bot's "Sorry!" regularly
+ * arrived before the capture it was apologising for had landed. 2–3s puts it
+ * roughly 0.3–2s after the pawn lands — about how long a person takes to
+ * notice and tap.
+ */
+export const REACT_DELAY_MIN_MS = 2000;
+export const REACT_DELAY_MAX_MS = 3000;
