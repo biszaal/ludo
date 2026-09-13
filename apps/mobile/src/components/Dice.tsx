@@ -558,11 +558,185 @@ export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = f
           strokePaint.setStyle(PaintStyle.Stroke);
           strokePaint.setStrokeCap(StrokeCap.Round);
           strokePaint.setColor(mix(sp.pipRGB, 0));
-          return { art: overlayArt(sp.overlay, sp.overlaySeed), dotPaint, strokePaint };
+          const art = overlayArt(sp.overlay, sp.overlaySeed);
+          // Built here, once per skin: the worklet used to Path.Make one of
+          // these per stroke on every frame of the settle squash.
+          const strokePaths = art.strokes.map((st) => {
+            const path = Skia.Path.Make();
+            st.pts.forEach(([px, py], i) => {
+              if (i === 0) path.moveTo(x + px * size, y + py * faceH);
+              else path.lineTo(x + px * size, y + py * faceH);
+            });
+            return path;
+          });
+          return { art, strokePaths, dotPaint, strokePaint };
         })()
       : null;
 
-    return { edge, facePaint, overlay };
+    // Everything below used to be constructed inside the picture worklet, on
+    // every frame of the ~140ms settle squash — ~17 frames at 120Hz, each
+    // rebuilding the same paints, paths, a gradient shader and blur filters.
+    // None of it depends on anything but the skin and the size, so it is built
+    // here once and the worklet only draws it. dicePictureAllocations.test
+    // pins that the worklet stays that way.
+    const rounded = size * 0.24;
+    const edgeRRect = Skia.RRectXY(Skia.XYWHRect(x, y, size, size), rounded, rounded);
+    const faceRRect = Skia.RRectXY(Skia.XYWHRect(x, y, size, faceH), rounded, rounded);
+
+    const motif = sp.motif
+      ? (() => {
+          const path = Skia.Path.Make();
+          const mr = size * sp.motif.scale;
+          appendMotif(path, sp.motif.kind, c, c - 1.5, mr);
+          const style = motifStyle(sp.motif.kind);
+          const paint = Skia.Paint();
+          paint.setAntiAlias(true);
+          paint.setColor(Skia.Color(sp.motif.color));
+          paint.setAlphaf(sp.motif.alpha);
+          if (style.style === "stroke") {
+            paint.setStyle(PaintStyle.Stroke);
+            paint.setStrokeWidth(style.width * mr);
+          }
+          return { path, paint };
+        })()
+      : null;
+
+    const sheen =
+      sp.sheen > 0
+        ? (() => {
+            const gloss = Skia.Paint();
+            gloss.setAntiAlias(true);
+            gloss.setShader(
+              Skia.Shader.MakeLinearGradient(
+                { x, y },
+                { x: x + size * 0.15, y: y + faceH * 0.72 },
+                [
+                  Skia.Color(`rgba(255,255,255,${sp.sheen})`),
+                  Skia.Color(`rgba(255,255,255,${sp.sheen * 0.45})`),
+                  Skia.Color("rgba(255,255,255,0)"),
+                ],
+                [0, 0.38, 0.62],
+                TileMode.Clamp,
+              ),
+            );
+            const rim = Skia.Paint();
+            rim.setAntiAlias(true);
+            rim.setStyle(PaintStyle.Stroke);
+            rim.setStrokeWidth(size * 0.028);
+            rim.setColor(Skia.Color(`rgba(255,255,255,${sp.sheen * 0.42})`));
+            const inset = size * 0.018;
+            const rimRRect = Skia.RRectXY(
+              Skia.XYWHRect(x + inset, y + inset, size - inset * 2, faceH - inset * 2),
+              rounded * 0.92,
+              rounded * 0.92,
+            );
+            return { gloss, rim, rimRRect };
+          })()
+        : null;
+
+    const framePaint = sp.frame
+      ? (() => {
+          const frame = Skia.Paint();
+          frame.setAntiAlias(true);
+          frame.setStyle(PaintStyle.Stroke);
+          frame.setStrokeWidth(size * 0.045);
+          frame.setColor(Skia.Color(sp.frame));
+          return frame;
+        })()
+      : null;
+
+    const ink = Skia.Paint();
+    ink.setAntiAlias(true);
+    ink.setColor(mix(sp.pipRGB, 0));
+
+    // The "not rolled yet" swirl: an outward spiral stroke.
+    const swirlInk = Skia.Paint();
+    swirlInk.setAntiAlias(true);
+    swirlInk.setColor(mix(sp.pipRGB, 0));
+    swirlInk.setStyle(PaintStyle.Stroke);
+    swirlInk.setStrokeWidth(size * 0.085);
+    swirlInk.setStrokeCap(StrokeCap.Round);
+    swirlInk.setStrokeJoin(StrokeJoin.Round);
+    const swirl = Skia.Path.Make();
+    const steps = 44;
+    for (let i = 0; i <= steps; i++) {
+      const st = i / steps;
+      const angle = st * 2.25 * 2 * Math.PI - Math.PI / 2;
+      const radius = size * 0.3 * Math.pow(st, 0.85);
+      const sx = c + Math.cos(angle) * radius;
+      const sy = c - 1.5 + Math.sin(angle) * radius;
+      if (i === 0) swirl.moveTo(sx, sy);
+      else swirl.lineTo(sx, sy);
+    }
+
+    // One path per face value, so a landing only picks the right one.
+    type SkPath = ReturnType<typeof Skia.Path.Make>;
+    const shape = sp.pipShape;
+    let numeralPaths: SkPath[] = [];
+    let pipPaths: SkPath[] = [];
+    if (shape === "numeral") {
+      const nr = size * (NUMERAL_FACE_R / 2); // face-local -> px: a face spans `size`
+      numeralPaths = [1, 2, 3, 4, 5, 6].map((v) => {
+        const path = Skia.Path.Make();
+        appendNumeral(path, v as Numeral, c, c - 1.5, nr);
+        return path;
+      });
+    } else if (shape !== "dot") {
+      const r = size * 0.12;
+      pipPaths = [1, 2, 3, 4, 5, 6].map((v) => {
+        const path = Skia.Path.Make();
+        for (const [px, py] of PIP_XY[v]!) {
+          appendPip(path, shape, x + px * size, y + py * faceH, r);
+        }
+        return path;
+      });
+    }
+
+    const numeralStroke = Skia.Paint();
+    numeralStroke.setAntiAlias(true);
+    numeralStroke.setStyle(PaintStyle.Stroke);
+    numeralStroke.setStrokeCap(StrokeCap.Round);
+    numeralStroke.setStrokeJoin(StrokeJoin.Round);
+    const numeralGlow = sp.glow ? Skia.MaskFilter.MakeBlur(BlurStyle.Normal, size * 0.06, true) : null;
+
+    const pipGlow = sp.glow
+      ? (() => {
+          const glow = Skia.Paint();
+          glow.setAntiAlias(true);
+          glow.setColor(Skia.Color(sp.glow));
+          glow.setMaskFilter(Skia.MaskFilter.MakeBlur(BlurStyle.Normal, size * 0.08, true));
+          return glow;
+        })()
+      : null;
+    const pipOutline = Skia.Paint();
+    pipOutline.setAntiAlias(true);
+    pipOutline.setStyle(PaintStyle.Stroke);
+    pipOutline.setStrokeWidth(size * 0.034);
+    pipOutline.setStrokeJoin(StrokeJoin.Round);
+    pipOutline.setColor(mix(sp.pipRGB, -0.45));
+
+    return {
+      edge,
+      facePaint,
+      overlay,
+      x,
+      y,
+      faceH,
+      edgeRRect,
+      faceRRect,
+      motif,
+      sheen,
+      framePaint,
+      ink,
+      swirlInk,
+      swirl,
+      numeralPaths,
+      numeralStroke,
+      numeralGlow,
+      pipPaths,
+      pipGlow,
+      pipOutline,
+    };
   }, [sp, size]);
 
   // Canvas is padded beyond the die so the mid-flight scale-up and the ground
@@ -743,36 +917,28 @@ export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = f
       const squash = Math.sin(Math.PI * Math.min(q, 1));
       canvas.concat(Skia.Matrix(rotateScaleAbout(0, 1 + 0.07 * squash, 1 - 0.11 * squash, c, c + size / 2)));
 
-      const x = c - size / 2;
-      const y = c - size / 2;
-      const rounded = size * 0.24;
-      const faceH = size - 3;
+      // Everything drawn from here on comes out of `landedKit`, built once per
+      // skin. Only the squash matrix above and a few colors are per-frame work.
+      const { x, y, faceH, faceRRect } = landedKit;
 
-      canvas.drawRRect(Skia.RRectXY(Skia.XYWHRect(x, y, size, size), rounded, rounded), landedKit.edge);
-
-      const faceRRect = Skia.RRectXY(Skia.XYWHRect(x, y, size, faceH), rounded, rounded);
+      canvas.drawRRect(landedKit.edgeRRect, landedKit.edge);
       canvas.drawRRect(faceRRect, landedKit.facePaint);
 
       // Overlay: a cheap deterministic texture pass (grain/veins/stars/facets),
-      // clipped to the face. Recorded once per landing along with everything
-      // else in this branch — the tumble never touches it.
+      // clipped to the face. The tumble never touches it.
       if (landedKit.overlay) {
-        const { art, dotPaint, strokePaint } = landedKit.overlay;
+        const { art, strokePaths, dotPaint, strokePaint } = landedKit.overlay;
         canvas.save();
         canvas.clipRRect(faceRRect, ClipOp.Intersect, true);
         for (const d of art.dots) {
           dotPaint.setAlphaf(d.a);
           canvas.drawCircle(x + d.x * size, y + d.y * faceH, d.r * size, dotPaint);
         }
-        for (const st of art.strokes) {
+        for (let i = 0; i < art.strokes.length; i++) {
+          const st = art.strokes[i]!;
           strokePaint.setAlphaf(st.a);
           strokePaint.setStrokeWidth(st.w * size);
-          const strokePath = Skia.Path.Make();
-          st.pts.forEach(([px, py], i) => {
-            if (i === 0) strokePath.moveTo(x + px * size, y + py * faceH);
-            else strokePath.lineTo(x + px * size, y + py * faceH);
-          });
-          canvas.drawPath(strokePath, strokePaint);
+          canvas.drawPath(strokePaths[i]!, strokePaint);
         }
         canvas.restore();
       }
@@ -781,128 +947,44 @@ export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = f
       // Drawn after the overlay texture (which says what the face is made of)
       // and before the gloss, so the polish sits over the decoration the way
       // a lacquer coat sits over an inlay.
-      if (sp.motif) {
-        const art = Skia.Path.Make();
-        const mr = size * sp.motif.scale;
-        appendMotif(art, sp.motif.kind, c, c - 1.5, mr);
-        const style = motifStyle(sp.motif.kind);
-        const paint = Skia.Paint();
-        paint.setAntiAlias(true);
-        paint.setColor(Skia.Color(sp.motif.color));
-        paint.setAlphaf(sp.motif.alpha);
-        if (style.style === "stroke") {
-          paint.setStyle(PaintStyle.Stroke);
-          paint.setStrokeWidth(style.width * mr);
-        }
+      if (landedKit.motif) {
         canvas.save();
         canvas.clipRRect(faceRRect, ClipOp.Intersect, true);
-        canvas.drawPath(art, paint);
+        canvas.drawPath(landedKit.motif.path, landedKit.motif.paint);
         canvas.restore();
       }
 
-      // Polished finish: a light sweep off the top-left of the face, fading out
-      // by mid-face. This is what makes a bought die look bought — a flat
-      // gradient reads as a printed color, the same face under a highlight
-      // reads as lacquer, stone or metal with something over it. Matte skins
-      // pass sheen 0 and skip the pass entirely, so the free die is untouched.
-      if (sp.sheen > 0) {
-        const gloss = Skia.Paint();
-        gloss.setAntiAlias(true);
-        gloss.setShader(
-          Skia.Shader.MakeLinearGradient(
-            { x, y },
-            { x: x + size * 0.15, y: y + faceH * 0.72 },
-            [
-              Skia.Color(`rgba(255,255,255,${sp.sheen})`),
-              Skia.Color(`rgba(255,255,255,${sp.sheen * 0.45})`),
-              Skia.Color("rgba(255,255,255,0)"),
-            ],
-            [0, 0.38, 0.62],
-            TileMode.Clamp,
-          ),
-        );
+      // Polished finish: a light sweep off the top-left of the face, then a lit
+      // rim just inside the edge. Matte skins (sheen 0) skip it entirely.
+      if (landedKit.sheen) {
         canvas.save();
         canvas.clipRRect(faceRRect, ClipOp.Intersect, true);
-        canvas.drawRRect(faceRRect, gloss);
+        canvas.drawRRect(faceRRect, landedKit.sheen.gloss);
         canvas.restore();
-
-        // A lit rim just inside the face edge — the highlight a polished
-        // surface catches all the way round, which is what stops the gloss
-        // above reading as a smudge on a flat panel.
-        const rim = Skia.Paint();
-        rim.setAntiAlias(true);
-        rim.setStyle(PaintStyle.Stroke);
-        rim.setStrokeWidth(size * 0.028);
-        rim.setColor(Skia.Color(`rgba(255,255,255,${sp.sheen * 0.42})`));
-        const inset = size * 0.018;
-        canvas.drawRRect(
-          Skia.RRectXY(
-            Skia.XYWHRect(x + inset, y + inset, size - inset * 2, faceH - inset * 2),
-            rounded * 0.92,
-            rounded * 0.92,
-          ),
-          rim,
-        );
+        canvas.drawRRect(landedKit.sheen.rimRRect, landedKit.sheen.rim);
       }
 
       // Frame: a rim stroke reserved for the top prestige skins.
-      if (sp.frame) {
-        const frame = Skia.Paint();
-        frame.setAntiAlias(true);
-        frame.setStyle(PaintStyle.Stroke);
-        frame.setStrokeWidth(size * 0.045);
-        frame.setColor(Skia.Color(sp.frame));
-        canvas.drawRRect(faceRRect, frame);
+      if (landedKit.framePaint) {
+        canvas.drawRRect(faceRRect, landedKit.framePaint);
       }
 
-      const ink = Skia.Paint();
-      ink.setAntiAlias(true);
-      ink.setColor(mix(sp.pipRGB, 0));
       if (idle || value === null) {
-        // Swirl pattern: an outward spiral stroke — "not rolled yet".
-        ink.setStyle(PaintStyle.Stroke);
-        ink.setStrokeWidth(size * 0.085);
-        ink.setStrokeCap(StrokeCap.Round);
-        ink.setStrokeJoin(StrokeJoin.Round);
-        const spiral = Skia.Path.Make();
-        const steps = 44;
-        for (let i = 0; i <= steps; i++) {
-          const st = i / steps;
-          const angle = st * 2.25 * 2 * Math.PI - Math.PI / 2;
-          const radius = size * 0.3 * Math.pow(st, 0.85);
-          const sx = c + Math.cos(angle) * radius;
-          const sy = c - 1.5 + Math.sin(angle) * radius;
-          if (i === 0) spiral.moveTo(sx, sy);
-          else spiral.lineTo(sx, sy);
-        }
-        canvas.drawPath(spiral, ink);
+        // Swirl pattern: "not rolled yet".
+        canvas.drawPath(landedKit.swirl, landedKit.swirlInk);
       } else if (sp.pipShape === "dot") {
         const pip = size * 0.17;
         for (const [px, py] of PIP_XY[shownValue]!) {
-          canvas.drawCircle(x + px * size, y + py * faceH, pip / 2, ink);
+          canvas.drawCircle(x + px * size, y + py * faceH, pip / 2, landedKit.ink);
         }
       } else if (sp.pipShape === "numeral") {
-        // A single figure at the face's optical center (the same 1.5px lift
-        // the swirl uses, since faceH is the die minus its edge lip). Three
-        // passes over one path: the optional glow, a wider keyline in a darker
-        // shade of the ink, then the ink itself — the stroked-centerline
-        // equivalent of the outline-then-fill the shaped pips use below, and
-        // it's what keeps a numeral crisp against its own face at ~48pt.
-        const nr = size * (NUMERAL_FACE_R / 2); // face-local -> px: a face spans `size`
-        const numeral = Skia.Path.Make();
-        appendNumeral(numeral, shownValue as Numeral, c, c - 1.5, nr);
-        const w = nr * NUMERAL_STROKE;
-
-        const stroke = Skia.Paint();
-        stroke.setAntiAlias(true);
-        stroke.setStyle(PaintStyle.Stroke);
-        stroke.setStrokeCap(StrokeCap.Round);
-        stroke.setStrokeJoin(StrokeJoin.Round);
-
         // One path, stroked repeatedly from widest to narrowest, so each pass
-        // survives only as a rim around the next. Nothing is clipped: a clip
-        // would take the path's FILL, and an open centerline has no useful
-        // fill — the ordering IS the containment.
+        // survives only as a rim around the next: the optional glow, a darker
+        // keyline, the bevel on polished skins, then the ink itself.
+        const nr = size * (NUMERAL_FACE_R / 2);
+        const numeral = landedKit.numeralPaths[shownValue - 1]!;
+        const w = nr * NUMERAL_STROKE;
+        const stroke = landedKit.numeralStroke;
         const pass = (width: number, color: ReturnType<typeof Skia.Color>, alpha: number, dy: number) => {
           stroke.setStrokeWidth(width);
           stroke.setColor(color);
@@ -913,52 +995,24 @@ export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = f
           canvas.restore();
         };
 
-        if (sp.glow) {
-          stroke.setMaskFilter(Skia.MaskFilter.MakeBlur(BlurStyle.Normal, size * 0.06, true));
+        if (sp.glow && landedKit.numeralGlow) {
+          stroke.setMaskFilter(landedKit.numeralGlow);
           pass(w, Skia.Color(sp.glow), 1, 0);
           stroke.setMaskFilter(null);
         }
-        // Keyline under everything: without it a gold figure on graphite or an
-        // ivory one on jade loses its edge the moment the die is small.
         pass(w * NUMERAL_KEYLINE, mix(sp.pipRGB, -0.45), 1, 0);
-        // Polished skins get a bevel — shaded below, lit above. This is the
-        // difference between a numeral printed on the face and one struck into
-        // it, and it is the tier's tell at arm's length (see DiceSkin.sheen).
         if (sp.sheen > 0) {
           pass(w * 1.22, mix(sp.pipRGB, -0.55), Math.min(1, sp.sheen * 1.3), nr * 0.055);
           pass(w * 1.22, mix(sp.pipRGB, 0.6), Math.min(1, sp.sheen * 1.5), -nr * 0.055);
         }
         pass(w, mix(sp.pipRGB, 0), 1, 0);
       } else {
-        // Shaped pips (skins above the starter tier). At the die's actual
-        // in-game size (~48px) a heart/star/diamond/crown/flame silhouette is
-        // only a few pixels across — too small for its outline alone to read
-        // as anything but a round dot. A soft glow pass underneath plus a
-        // darker outline stroke around the glyph (classic small-icon
-        // technique: the rim, not the fill color, is what actually carries
-        // the shape at this scale) fix that; the solid fill goes on top. One
-        // shared path, drawn up to three times, so every pip on the face
-        // still costs a single path build per landing.
-        const r = size * 0.12;
-        const pipPath = Skia.Path.Make();
-        for (const [px, py] of PIP_XY[shownValue]!) {
-          appendPip(pipPath, sp.pipShape, x + px * size, y + py * faceH, r);
-        }
-        if (sp.glow) {
-          const glow = Skia.Paint();
-          glow.setAntiAlias(true);
-          glow.setColor(Skia.Color(sp.glow));
-          glow.setMaskFilter(Skia.MaskFilter.MakeBlur(BlurStyle.Normal, size * 0.08, true));
-          canvas.drawPath(pipPath, glow);
-        }
-        const outline = Skia.Paint();
-        outline.setAntiAlias(true);
-        outline.setStyle(PaintStyle.Stroke);
-        outline.setStrokeWidth(size * 0.034);
-        outline.setStrokeJoin(StrokeJoin.Round);
-        outline.setColor(mix(sp.pipRGB, -0.45));
-        canvas.drawPath(pipPath, outline);
-        canvas.drawPath(pipPath, ink);
+        // Shaped pips: a soft glow underneath, a darker outline that carries
+        // the silhouette at ~48px, then the solid fill on top.
+        const pipPath = landedKit.pipPaths[shownValue - 1]!;
+        if (landedKit.pipGlow) canvas.drawPath(pipPath, landedKit.pipGlow);
+        canvas.drawPath(pipPath, landedKit.pipOutline);
+        canvas.drawPath(pipPath, landedKit.ink);
       }
     }
 
