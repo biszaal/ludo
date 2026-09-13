@@ -3,13 +3,19 @@
  * Run: node scripts/gen-hop-sound.mjs
  *
  * A downward pitch glide (≈900→520 Hz) with a fast decay reads as a bouncy hop.
+ *
+ * Short, and faded to silence. At 130ms with a hard stop the clip filled all but
+ * 20ms of the 150ms hop step, so any start-up lag on the device ran one hop into
+ * the next, and the cut end clicked. If DUR changes, change `ms` for "hop" in
+ * src/lib/sound.ts to match — the pool tracks finished players by it.
  */
 import { writeFileSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const SR = 44100;
-const DUR = 0.13; // seconds
+const DUR = 0.07; // seconds
+const FADE = 0.012; // seconds of linear fade-out, landing on an exact zero
 const N = Math.floor(SR * DUR);
 
 const data = Buffer.alloc(N * 2); // 16-bit mono
@@ -19,7 +25,8 @@ for (let n = 0; n < N; n++) {
   const freq = 900 * Math.pow(520 / 900, t / DUR); // glide down
   phase += (2 * Math.PI * freq) / SR;
   const attack = Math.min(1, t / 0.004);
-  const env = Math.exp(-t * 24) * attack;
+  const release = Math.min(1, (N - 1 - n) / (SR * FADE));
+  const env = Math.exp(-t * 45) * attack * release;
   const sample = (Math.sin(phase) + 0.18 * Math.sin(2 * phase)) * 0.5 * env;
   const int16 = Math.max(-1, Math.min(1, sample)) * 32767;
   data.writeInt16LE(int16 | 0, n * 2);

@@ -37,14 +37,15 @@ export type SoundName =
  * JS thread on the main thread to learn something we already know.
  *
  * `pool` is how many of a sound can overlap. Read it as a cost, not a safety
- * margin: the fourth hop player is a fourth ExoPlayer + MediaSession + main-loop
- * coroutine, all competing for the one thread every `play()` has to cross. Three
- * covers a 130ms clip even at Board's 70ms landing throttle (see
- * __tests__/soundPool), and nothing else in the game overlaps with itself at
- * all.
+ * margin: the third hop player is a third ExoPlayer + MediaSession + main-loop
+ * coroutine, all competing for the one thread every `play()` has to cross. Two
+ * cover a 70ms clip even at Board's 70ms landing throttle — one sounding, one
+ * resting — and pickSlot alternates them, so a rewind never lands on the hop
+ * before it (see __tests__/soundPool). Nothing else in the game overlaps with
+ * itself at all.
  */
 const SPECS: Record<SoundName, { source: number; pool: number; volume: number; ms: number }> = {
-  hop: { source: require("../../assets/audio/sfx/hop.wav"), pool: 3, volume: 0.5, ms: 130 },
+  hop: { source: require("../../assets/audio/sfx/hop.wav"), pool: 2, volume: 0.5, ms: 70 },
   dice: { source: require("../../assets/audio/sfx/dice.wav"), pool: 1, volume: 0.6, ms: 360 },
   capture: { source: require("../../assets/audio/sfx/capture.wav"), pool: 1, volume: 0.55, ms: 320 },
   finish: { source: require("../../assets/audio/sfx/finish.wav"), pool: 1, volume: 0.5, ms: 450 },
@@ -282,7 +283,7 @@ export function playSound(name: SoundName): void {
   }
 
   const now = Date.now();
-  const index = pickSlot(mine, now);
+  const index = pickSlot(mine);
   const player = pool[index]!;
   mine[index]!.busyUntil = now + SPECS[name].ms;
   try {

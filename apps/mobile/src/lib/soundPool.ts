@@ -46,8 +46,17 @@ export function freshSlot(): Slot {
 }
 
 /**
- * Choose a slot, preferring a finished one and otherwise the slot that finishes
- * soonest — the least audible interruption when a burst outruns its pool.
+ * Choose a slot: the one whose clip ended longest ago, or, when the whole pool
+ * is sounding, the one that finishes soonest — the least audible interruption
+ * when a burst outruns its pool. Both are simply the smallest `busyUntil`.
+ *
+ * Longest-idle rather than first-free is the point. `busyUntil` is when JS
+ * THINKS a clip ended, and the device starts every clip some tens of ms after it
+ * was asked to, by an amount JS never sees. First-free handed every hop to
+ * player 0 — its clip had "ended" 20ms before the next hop was due — so the next
+ * rewind often landed on a clip still ringing and chopped it off mid-wave, which
+ * is what the overlapping hops were. Rotating gives each player a whole step of
+ * slack.
  *
  * There is no "needs a rewind" answer any more. The caller seeks every slot to 0
  * before playing it, because all three states a pooled player can be in want
@@ -55,19 +64,13 @@ export function freshSlot(): Slot {
  * alone restarts it; a never-played one is already at 0, so the seek is free;
  * and one being stolen mid-clip is meant to restart. One rule, no bookkeeping
  * that can drift out of step with the native player.
- *
- * `now` is passed in rather than read so the rule stays pure.
  */
-export function pickSlot(slots: readonly Slot[], now: number): number {
-  let earliest = 0;
-
-  for (let i = 0; i < slots.length; i++) {
-    const slot = slots[i]!;
-    if (slot.busyUntil <= now) return i;
-    if (slots[earliest]!.busyUntil > slot.busyUntil) earliest = i;
+export function pickSlot(slots: readonly Slot[]): number {
+  let best = 0;
+  for (let i = 1; i < slots.length; i++) {
+    if (slots[i]!.busyUntil < slots[best]!.busyUntil) best = i;
   }
-
-  return earliest;
+  return best;
 }
 
 /**
