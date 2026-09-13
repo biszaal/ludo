@@ -10,7 +10,7 @@ import { describe, it, expect, vi } from "vitest";
 // store test here stubs the api module for the same reason.
 vi.mock("../src/net/api", () => ({ getConfig: vi.fn() }));
 
-import { canShowInterstitial, adsEnabled, useAds } from "../src/store/adsStore";
+import { canShowInterstitial, adsEnabled, anchoredBannerHeight, useAds } from "../src/store/adsStore";
 import { DEFAULT_CONFIG, type AppConfig } from "../src/store/configStore";
 
 const NOW = 1_000_000_000;
@@ -104,6 +104,18 @@ describe("adsEnabled", () => {
   it("is off for entitled players and on otherwise", () => {
     expect(adsEnabled(DEFAULT_CONFIG, true)).toBe(false);
     expect(adsEnabled(DEFAULT_CONFIG, false)).toBe(true);
+  });
+});
+
+describe("anchoredBannerHeight", () => {
+  // One width per band of the SDK's arithmetic: its 50dp floor, two phones, the
+  // flat 68dp band past 432dp, and a tablet held at the 90dp cap.
+  it("matches the height AdMob gives the banner", () => {
+    expect(anchoredBannerHeight(320)).toBe(50);
+    expect(anchoredBannerHeight(375)).toBe(59);
+    expect(anchoredBannerHeight(402)).toBe(63);
+    expect(anchoredBannerHeight(440)).toBe(68);
+    expect(anchoredBannerHeight(820)).toBe(90);
   });
 });
 

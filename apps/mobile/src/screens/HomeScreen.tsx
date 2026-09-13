@@ -255,8 +255,9 @@ export function HomeScreen() {
       </View>
       </ContentColumn>
 
-      {/* Anchored to the bottom edge: never rides over the hub, collapses to
-          nothing unfilled (the diorama flex absorbs the difference). */}
+      {/* Anchored to the bottom edge: never rides over the hub. It holds the
+          banner's height from the first frame (and nothing at all for a player
+          with Remove Ads), so the hub's budget never re-runs when one lands. */}
       <AdSlot slot="home" />
 
       {sheetMode && (

@@ -1,17 +1,26 @@
 /**
- * Declarative banner. Renders nothing whenever an ad can't or shouldn't show —
- * no config, no consent, no fill, or a "remove ads" entitlement — so an empty
- * slot costs no layout at all.
+ * Declarative banner. Renders nothing when no ad is expected here — no SDK, ads
+ * off in config, this slot switched off, or a "remove ads" entitlement. When one
+ * IS expected it holds the banner's full height from the first frame, with a
+ * skeleton while a request is out, so the screen never moves when an ad lands or
+ * fails to.
+ *
+ * The entitlement only reaches that first check, so whatever turns ads off for a
+ * player — the one-off purchase today, a subscription later — takes the reserved
+ * space and the skeleton away with the banner.
  */
 
 import { useEffect, useState } from "react";
-import { View } from "react-native";
+import { StyleSheet, View, useWindowDimensions } from "react-native";
 import { adsSdk } from "../lib/ads/native";
 import { bannerUnitId, type BannerSlot } from "../lib/ads/units";
 import { useAdsReady } from "../lib/ads/useAdsReady";
+import { useT } from "../i18n";
+import { radius } from "../theme";
 import { useConfig } from "../store/configStore";
-import { adsEnabled } from "../store/adsStore";
+import { adsEnabled, anchoredBannerHeight } from "../store/adsStore";
 import { useNoAds } from "../store/entitlementsStore";
+import { SkeletonBlock, SkeletonGroup } from "./Skeleton";
 
 interface AdSlotProps {
   slot: BannerSlot;
@@ -30,26 +39,35 @@ interface AdSlotProps {
  */
 const RETRY_DELAYS_MS = [20_000, 45_000, 90_000];
 
+/** The lobby's fixed format: Google's medium rectangle. */
+const RECT = { width: 300, height: 250 };
+
 export function AdSlot({ slot }: AdSlotProps) {
+  const t = useT();
   const config = useConfig((s) => s.config);
   // Subscribed, not just read: this mounts well before initAds() resolves, and
   // a plain adsReady() call left the slot stuck on its first `false`.
   const ready = useAdsReady();
+  const { width: screenWidth } = useWindowDimensions();
 
   // Bumped per retry; also the BannerAd's key, so each attempt is a fresh
   // request rather than a re-render of the failed one.
   const [attempt, setAttempt] = useState(0);
+  // True from a failure until the next attempt — and for good once the retries
+  // run out, since the effect below then never clears it.
   const [waiting, setWaiting] = useState(false);
+  // The current request filled: the skeleton's cue to step aside.
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     if (!waiting) return;
     const delay = RETRY_DELAYS_MS[attempt];
-    if (delay === undefined) return; // out of retries — stay hidden
-    const t = setTimeout(() => {
+    if (delay === undefined) return; // out of retries — stay empty
+    const timer = setTimeout(() => {
       setAttempt((a) => a + 1);
       setWaiting(false);
     }, delay);
-    return () => clearTimeout(t);
+    return () => clearTimeout(timer);
   }, [waiting, attempt]);
 
   // The real entitlement (0063). Subscribed rather than read once: a purchase
@@ -57,24 +75,44 @@ export function AdSlot({ slot }: AdSlotProps) {
   // remount, and the sheet the player bought from is mounted over it.
   const entitled = useNoAds();
 
-  const givenUp = waiting && RETRY_DELAYS_MS[attempt] === undefined;
-  const allowed =
-    adsSdk !== null && adsEnabled(config, entitled) && config.ads.banner[slot] && ready && !waiting && !givenUp;
-
-  if (!allowed || !adsSdk) return null;
+  const expected = adsSdk !== null && adsEnabled(config, entitled) && config.ads.banner[slot];
+  if (!expected || !adsSdk) return null;
   const { BannerAd, BannerAdSize } = adsSdk;
 
+  const rect = slot === "lobby";
+  const height = rect ? RECT.height : anchoredBannerHeight(screenWidth);
+
   return (
-    <View style={{ alignItems: "center", justifyContent: "center" }}>
-      <BannerAd
-        key={attempt}
-        unitId={bannerUnitId(slot)}
-        // Lobby has a guaranteed 8-14s dwell on an otherwise empty screen, so
-        // it earns the far higher-eCPM medium rectangle. Home is a thin anchor
-        // that has to share space with the play cards.
-        size={slot === "lobby" ? BannerAdSize.MEDIUM_RECTANGLE : BannerAdSize.ANCHORED_ADAPTIVE_BANNER}
-        onAdFailedToLoad={() => setWaiting(true)}
-      />
+    // minHeight, not height: if the SDK ever hands back a taller banner than
+    // anchoredBannerHeight predicts, the box grows a few pt instead of clipping
+    // the ad.
+    <View style={{ minHeight: height, alignItems: "center", justifyContent: "center" }}>
+      {/* Only while a request is out. Before the SDK is ready (consent can hold
+          it back indefinitely) and after a failure the box stays, empty: a slot
+          that never fills must not shimmer at the player forever. */}
+      {ready && !loaded && !waiting && (
+        <SkeletonGroup
+          label={t("common.loading")}
+          style={[StyleSheet.absoluteFill, { alignItems: "center", justifyContent: "center" }]}
+        >
+          <SkeletonBlock width={rect ? RECT.width : "100%"} height={height} rad={rect ? radius.sm : 0} />
+        </SkeletonGroup>
+      )}
+      {ready && !waiting && (
+        <BannerAd
+          key={attempt}
+          unitId={bannerUnitId(slot)}
+          // Lobby has a guaranteed 8-14s dwell on an otherwise empty screen, so
+          // it earns the far higher-eCPM medium rectangle. Home is a thin anchor
+          // that has to share space with the play cards.
+          size={rect ? BannerAdSize.MEDIUM_RECTANGLE : BannerAdSize.ANCHORED_ADAPTIVE_BANNER}
+          onAdLoaded={() => setLoaded(true)}
+          onAdFailedToLoad={() => {
+            setLoaded(false);
+            setWaiting(true);
+          }}
+        />
+      )}
     </View>
   );
 }

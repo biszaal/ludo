@@ -99,6 +99,32 @@ export function adsEnabled(cfg: AppConfig, entitled: boolean): boolean {
 }
 
 /**
+ * The height, in dp, AdMob gives an anchored adaptive banner on a screen this
+ * wide — so a slot can hold that room before the banner exists. BannerAd is 0×0
+ * until it loads, which is why screens used to jump when one landed.
+ *
+ * This is the SDK's own arithmetic, read out of play-services-ads-api 24.6.0
+ * (`AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize`); the ads library
+ * hands it the full screen width on both platforms. The SDK also caps the height
+ * at 15% of the screen's, which only bites below 600dp tall — never a portrait
+ * phone.
+ *
+ * ponytail: mirrors the Android SDK and assumes iOS matches. AdSlot reserves it
+ * as a minHeight, so a drifted SDK grows the box a few pt rather than clipping
+ * the ad; re-read the SDK if a banner ever nudges the layout.
+ */
+export function anchoredBannerHeight(screenWidth: number): number {
+  const w = Math.floor(screenWidth);
+  const h =
+    w > 655 ? Math.round((w / 728) * 90)
+    : w > 632 ? 81
+    : w > 526 ? Math.round((w / 468) * 60)
+    : w > 432 ? 68
+    : Math.round((w / 320) * 50);
+  return Math.max(50, Math.min(90, h));
+}
+
+/**
  * The interstitial gate. Pure so the whole matrix is unit-testable; pass
  * `now` in tests.
  *
