@@ -6,19 +6,14 @@
       "ios",
       "android"
     ],
-    "version": "1.1.2",
+    "version": "1.1.3",
     "runtimeVersion": {
       "policy": "fingerprint"
     },
     "updates": {
       "url": "https://u.expo.dev/aa506900-7563-476a-a26b-899cf733621a",
       "fallbackToCacheTimeout": 0,
-      "checkAutomatically": "ON_LOAD",
-      "codeSigningCertificate": "./code-signing/certificate.pem",
-      "codeSigningMetadata": {
-        "keyid": "main",
-        "alg": "rsa-v1_5-sha256"
-      }
+      "checkAutomatically": "ON_LOAD"
     },
     "orientation": "portrait",
     "icon": "./assets/images/app-icon/icon.png",
