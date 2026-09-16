@@ -159,6 +159,12 @@ export const useFriends = create<FriendsStore>((set, get) => ({
     channel = friends.subscribeFriendEvents(userId, {
       onFriendships: () => void refreshFriendshipsWithChime(get),
       onInvite: () => void refreshInvitesWithChime(get, set),
+      // Every friendship delete in the app arrives here (see net/friends), so
+      // only a row this list actually holds may leave it.
+      onFriendshipRemoved: (id) => {
+        const rows = get().friendships;
+        if (rows.some((f) => f.id === id)) set({ friendships: rows.filter((f) => f.id !== id) });
+      },
     });
   },
 

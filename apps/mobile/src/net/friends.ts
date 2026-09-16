@@ -162,6 +162,8 @@ export async function getPresence(friendIds: string[]): Promise<Record<string, n
 export interface FriendEventHandlers {
   onFriendships: () => void;
   onInvite: () => void;
+  /** A friendship row was deleted — anyone's. Keep only the ones you hold. */
+  onFriendshipRemoved: (id: string) => void;
 }
 
 /** Subscribe to the caller's friendship + invite changes (both live-update). */
@@ -173,6 +175,16 @@ export function subscribeFriendEvents(userId: string, handlers: FriendEventHandl
     .on("postgres_changes", { event: "*", schema: "public", table: "friendships", filter: `addressee_user_id=eq.${userId}` }, () => handlers.onFriendships())
     // Friendships where I'm the requester (my request was accepted / removed).
     .on("postgres_changes", { event: "*", schema: "public", table: "friendships", filter: `requester_user_id=eq.${userId}` }, () => handlers.onFriendships())
+    // Supabase cannot filter Delete events, so the two listeners above never
+    // hear a friendship the OTHER player removed. This one hears every
+    // friendship delete in the app — under RLS the old record carries only the
+    // id — and the store keeps only the ones that are its own.
+    // ponytail: every client hears every friendship delete (ids only); move
+    // removal to a server broadcast if that volume ever matters.
+    .on("postgres_changes", { event: "DELETE", schema: "public", table: "friendships" }, (payload) => {
+      const id = (payload.old as { id?: unknown }).id;
+      if (typeof id === "string") handlers.onFriendshipRemoved(id);
+    })
     // Room invites addressed to me.
     .on("postgres_changes", { event: "INSERT", schema: "public", table: "room_invites", filter: `to_user_id=eq.${userId}` }, () => handlers.onInvite())
     .subscribe();

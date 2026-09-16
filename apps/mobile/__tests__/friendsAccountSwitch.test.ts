@@ -63,3 +63,23 @@ describe("friends store across an account switch", () => {
     expect(subscribeFriendEvents).toHaveBeenLastCalledWith("B", expect.anything());
   });
 });
+
+/**
+ * Removing a friend deletes the one row both players share, but Supabase cannot
+ * filter Delete events, so the per-user listeners never told the OTHER player.
+ * An unfiltered delete listener now does; it hears every friendship delete in
+ * the app (ids only) and must act on its own rows alone.
+ */
+describe("a friendship removed from the other side", () => {
+  it("leaves the list as soon as the delete arrives", async () => {
+    // Still account B, holding f1, from the test above.
+    expect(useFriends.getState().friendships.map((f) => f.id)).toEqual(["f1"]);
+    const handlers = vi.mocked(subscribeFriendEvents).mock.lastCall![1];
+
+    handlers.onFriendshipRemoved("someone-elses-row");
+    expect(useFriends.getState().friendships.map((f) => f.id)).toEqual(["f1"]);
+
+    handlers.onFriendshipRemoved("f1");
+    expect(useFriends.getState().friendships).toEqual([]);
+  });
+});
