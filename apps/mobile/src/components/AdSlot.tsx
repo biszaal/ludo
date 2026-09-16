@@ -81,24 +81,32 @@ export function AdSlot({ slot }: AdSlotProps) {
 
   const rect = slot === "lobby";
   const height = rect ? RECT.height : anchoredBannerHeight(screenWidth);
+  const requesting = ready && !waiting;
+  // Outside a SkeletonGroup a block has no wave, which is what "flat" means.
+  const block = <SkeletonBlock width={rect ? RECT.width : "100%"} height={height} rad={rect ? radius.sm : 0} />;
+  const fill = [StyleSheet.absoluteFill, { alignItems: "center" as const, justifyContent: "center" as const }];
 
   return (
     // minHeight, not height: if the SDK ever hands back a taller banner than
     // anchoredBannerHeight predicts, the box grows a few pt instead of clipping
     // the ad.
     <View style={{ minHeight: height, alignItems: "center", justifyContent: "center" }}>
-      {/* Only while a request is out. Before the SDK is ready (consent can hold
-          it back indefinitely) and after a failure the box stays, empty: a slot
-          that never fills must not shimmer at the player forever. */}
-      {ready && !loaded && !waiting && (
-        <SkeletonGroup
-          label={t("common.loading")}
-          style={[StyleSheet.absoluteFill, { alignItems: "center", justifyContent: "center" }]}
-        >
-          <SkeletonBlock width={rect ? RECT.width : "100%"} height={height} rad={rect ? radius.sm : 0} />
-        </SkeletonGroup>
-      )}
-      {ready && !waiting && (
+      {/* Until an ad fills it, the box shows the banner's shape: shimmering
+          while a request is out, flat otherwise (before the SDK is ready, which
+          consent can hold back indefinitely, and after a failure). Flat because
+          a slot that never fills must not shimmer at the player forever; a shape
+          rather than nothing because an empty band reads as a broken layout. */}
+      {!loaded &&
+        (requesting ? (
+          <SkeletonGroup label={t("common.loading")} style={fill}>
+            {block}
+          </SkeletonGroup>
+        ) : (
+          <View style={fill} pointerEvents="none">
+            {block}
+          </View>
+        ))}
+      {requesting && (
         <BannerAd
           key={attempt}
           unitId={bannerUnitId(slot)}
