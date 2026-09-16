@@ -20,6 +20,7 @@ import { getProfiles, deleteAccount as apiDeleteAccount } from "../net/api";
 import { useWallet } from "../store/walletStore";
 import { useEntitlements } from "../store/entitlementsStore";
 import { useProfile } from "../store/profileStore";
+import { useFriends } from "../store/friendsStore";
 import { nameAfterAuth } from "./profileCarry";
 import { t } from "../i18n";
 
@@ -279,6 +280,10 @@ async function rehydrateAfterAuth(previousUserId: string | null): Promise<void> 
     useEntitlements.getState().refresh(),
     hydrateProfileFromServer(previousUserId),
     syncPurchasesUser(uid), // attach RevenueCat purchases to the now-current user
+    // The friends store holds one account's rows and realtime channel. init
+    // sees the account changed and starts over — without it the new account's
+    // friends were read against the old id (store/friendsStore).
+    useFriends.getState().init(),
   ]);
 }
 

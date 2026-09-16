@@ -88,7 +88,9 @@ interface FriendsStore {
 
 let channel: RealtimeChannel | null = null;
 
-export const useFriends = create<FriendsStore>((set, get) => ({
+/** Everything the store holds about one account — restored whole when the
+ *  signed-in account changes (see init), so no field can outlive its owner. */
+const EMPTY = {
   ready: false,
   loaded: false,
   failed: false,
@@ -102,6 +104,10 @@ export const useFriends = create<FriendsStore>((set, get) => ({
   myCode: null,
   recentPlayers: [],
   viewingUserId: null,
+} satisfies Partial<FriendsStore>;
+
+export const useFriends = create<FriendsStore>((set, get) => ({
+  ...EMPTY,
 
   viewPlayer: async (userId) => {
     set({ viewingUserId: userId });
@@ -121,16 +127,11 @@ export const useFriends = create<FriendsStore>((set, get) => ({
   },
 
   init: async () => {
-    // Already signed in and subscribed. Still finish the job if the list never
-    // landed: the Friends screen's retry is wired here because the failure it
-    // most often shows is a sign-in that threw (below), which only init can
-    // redo — but a refresh that threw reaches the same card, and returning flat
-    // would leave that button dead. `loaded` is what tells the two apart, so a
-    // plain remount with a list in hand still costs nothing.
-    if (get().ready) {
-      if (!get().loaded) await get().refresh();
-      return;
-    }
+    // Always ask who is signed in, even with a list in hand. Signing out and
+    // back in does not restart the app, and everything this store holds belongs
+    // to one account: every fetch is scoped to the CURRENT session by RLS, so
+    // reading the new account's rows against the old id lists the player as
+    // their own friend. The ask is a local session read, not a request.
     let userId: string;
     try {
       userId = await ensureSignedIn();
@@ -139,7 +140,21 @@ export const useFriends = create<FriendsStore>((set, get) => ({
       // create/join, a remount, or the retry card run this again.
       return;
     }
-    set({ userId, ready: true });
+    // Same account, already subscribed. Still finish the job if the list never
+    // landed: the Friends screen's retry is wired here because the failure it
+    // most often shows is a sign-in that threw (above), which only init can
+    // redo — but a refresh that threw reaches the same card, and returning flat
+    // would leave that button dead. `loaded` is what tells the two apart, so a
+    // plain remount with a list in hand still costs no network.
+    if (get().ready && get().userId === userId) {
+      if (!get().loaded) await get().refresh();
+      return;
+    }
+    // First load, or a different account: start over. Checked and set with no
+    // await in between, so a caller racing this one sees the new id and returns.
+    channel?.unsubscribe();
+    channel = null;
+    set({ ...EMPTY, userId, ready: true });
     await get().refresh();
     channel = friends.subscribeFriendEvents(userId, {
       onFriendships: () => void refreshFriendshipsWithChime(get),
