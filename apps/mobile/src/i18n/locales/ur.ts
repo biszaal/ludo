@@ -463,6 +463,9 @@ export const ur: Strings = {
   "shop.collectionLoadFailed": "آپ کا مجموعہ لوڈ نہیں ہوا۔ کنکشن دیکھ کر دوبارہ کوشش کریں۔",
   "game.placeLockedCoins": "آپ کی جگہ پکی ہے۔ سکے میچ ختم ہونے پر ملیں گے — رکنا ضروری نہیں۔",
   "game.placeLocked": "آپ کی جگہ پکی ہے۔ رک کر باقی دیکھیں، یا گھر جائیں۔",
+  "game.removedTitle": "آپ اب اس میچ میں نہیں ہیں",
+  "game.removedBody": "دور رہنے کے دوران آپ کی بہت سی باریاں چھوٹ گئیں۔ آپ اب بھی باقی میچ دیکھ سکتے ہیں۔",
+  "game.removedCoins": "آپ کے {coins} سکے انعام میں ہی رہیں گے۔",
   "home.bonusServerFailed": "سرور تک نہیں پہنچ سکے۔ کنکشن دیکھ کر دوبارہ کوشش کریں۔",
 
   "friends.requested": "بھیجی گئی",

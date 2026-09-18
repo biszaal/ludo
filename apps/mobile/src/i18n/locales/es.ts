@@ -462,6 +462,9 @@ export const es: Strings = {
   "shop.collectionLoadFailed": "Tu colección no cargó. Revisa tu conexión e inténtalo de nuevo.",
   "game.placeLockedCoins": "Tu puesto está asegurado. Las monedas llegan al terminar la partida — no hace falta que te quedes.",
   "game.placeLocked": "Tu puesto está asegurado. Quédate a ver el resto, o vuelve al inicio.",
+  "game.removedTitle": "Ya no estás en esta partida",
+  "game.removedBody": "Perdiste demasiados turnos mientras estabas fuera. Aún puedes ver el resto.",
+  "game.removedCoins": "Tus {coins} monedas de entrada se quedan en el bote.",
   "home.bonusServerFailed": "No pudimos conectar con el servidor. Revisa tu conexión e inténtalo de nuevo.",
 
   "friends.requested": "Solicitado",

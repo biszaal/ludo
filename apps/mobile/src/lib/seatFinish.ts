@@ -29,6 +29,10 @@ export interface SeatFinish {
   /** This seat has banked a placement — it can read the standings now, and
    *  keeps that place whether it stays to watch or leaves. */
   placed: boolean;
+  /** This seat was taken out mid-race — idled out while the app was away — and
+   *  can only watch now. A seat that finished and then left is not removed:
+   *  its placement stands. */
+  removed: boolean;
 }
 
 export function seatFinish(state: GameState, viewColor?: Color): SeatFinish {
@@ -39,6 +43,7 @@ export function seatFinish(state: GameState, viewColor?: Color): SeatFinish {
     place,
     stillPlaying: !!seat && place === -1 && !seat.hasLeft,
     placed: place >= 0,
+    removed: !!seat && place === -1 && !!seat.hasLeft,
   };
 }
 

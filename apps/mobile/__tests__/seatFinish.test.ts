@@ -64,4 +64,24 @@ describe("seatFinish", () => {
     expect(none.stillPlaying).toBe(false);
     expect(none.placed).toBe(false);
   });
+
+  it("marks a seat taken out mid-race as removed", () => {
+    // The screen that seat comes back to still shows the board. Without this
+    // it read as an ordinary game with the player's own pawns simply gone.
+    const base = game(["red", "yellow", "green"]);
+    const s = { ...base, players: base.players.map((p) => (p.color === "green" ? { ...p, hasLeft: true } : p)) };
+    expect(seatFinish(s, "green").removed).toBe(true);
+    expect(seatFinish(s, "red").removed).toBe(false);
+  });
+
+  it("does not call a finished seat that walked out removed", () => {
+    // Leaving after coming home keeps the placement — that's not being removed.
+    const base = finish(game(["red", "yellow", "green"]), "p3");
+    const s = { ...base, players: base.players.map((p) => (p.color === "green" ? { ...p, hasLeft: true } : p)) };
+    expect(seatFinish(s, "green").removed).toBe(false);
+  });
+
+  it("never marks pass & play removed — there is no local seat", () => {
+    expect(seatFinish(game(["red", "yellow"]), undefined).removed).toBe(false);
+  });
 });

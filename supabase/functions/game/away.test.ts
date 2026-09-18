@@ -25,7 +25,7 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 // @deno-types="../_shared/engine/index.d.ts"
 import { createGame, getValidMoves, rollDice, type GameState } from "../_shared/engine/index.js";
-import { opTurn, advanceStalledGame } from "./turn.ts";
+import { opTimeout, opTurn, advanceStalledGame } from "./turn.ts";
 import { AWAY_TURN_SECONDS, TURN_SECONDS, type SupabaseClient } from "./lib.ts";
 
 const GAME = "11111111-2222-3333-4444-555555555550";
@@ -62,6 +62,19 @@ interface Fake {
   awayLookups: number;
 }
 
+interface Room {
+  /** User ids whose players row says is_connected. */
+  connected?: string[];
+  /** User ids seated as labelled friend-room bots (players.is_bot). */
+  bots?: string[];
+  /** The presence read errors instead of answering. */
+  presenceError?: boolean;
+  /** games.stake — handed back only to a read that actually selects it. */
+  stake?: number;
+  /** games.dry_turns, likewise. */
+  dryTurns?: Record<string, number>;
+}
+
 /**
  * Stand-in for the admin client covering the chains these ops walk.
  *
@@ -70,8 +83,17 @@ interface Fake {
  * server has already seen idle through a whole clock. Per seat rather than per
  * game because the ops read one row and write another in the same call — an
  * acting player clearing their own strikes must not clear anyone else's.
+ *
+ * `room` says who else is sitting there: which seats have an app open
+ * (`is_connected`), which are labelled friend-room bots, and whether reading
+ * that presence fails outright.
  */
-function fake(state: GameState, missedTurns: Record<string, number>, deadline: string | null = null): Fake {
+function fake(
+  state: GameState,
+  missedTurns: Record<string, number>,
+  deadline: string | null = null,
+  room: Room = {},
+): Fake {
   const self: Fake = {
     admin: null as unknown as SupabaseClient,
     row: { state, state_version: 0, turn_deadline: deadline },
@@ -93,7 +115,7 @@ function fake(state: GameState, missedTurns: Record<string, number>, deadline: s
       eq: (col: string, val: unknown) => chain({ ...filters, [col]: val }, settle),
       or: () => node,
       gt: () => node,
-      in: () => node,
+      in: (col: string, vals: unknown) => chain({ ...filters, [col]: vals }, settle),
       is: () => node,
       select: () => node,
       maybeSingle: () => Promise.resolve(settle(filters)),
@@ -105,7 +127,7 @@ function fake(state: GameState, missedTurns: Record<string, number>, deadline: s
   };
 
   const games = {
-    select: () =>
+    select: (columns = "") =>
       chain({}, () => ({
         data: {
           id: GAME,
@@ -114,6 +136,9 @@ function fake(state: GameState, missedTurns: Record<string, number>, deadline: s
           turn_deadline: self.row.turn_deadline,
           is_quick: false,
           has_bots: false,
+          // A column the op forgot to read isn't on the row it gets back.
+          ...(columns.includes("stake") && room.stake !== undefined ? { stake: room.stake } : {}),
+          ...(columns.includes("dry_turns") && room.dryTurns !== undefined ? { dry_turns: room.dryTurns } : {}),
         },
         error: null,
       })),
@@ -135,9 +160,23 @@ function fake(state: GameState, missedTurns: Record<string, number>, deadline: s
       }),
   };
 
+  const connected = new Set(room.connected ?? []);
+  const bots = new Set(room.bots ?? []);
+
   const players = {
     select: () =>
       chain({}, (filters) => {
+        // "Who else is still at this table?" — the only read that filters on
+        // presence, and the only one that asks about several seats at once.
+        if ("is_connected" in filters) {
+          if (room.presenceError) return { data: null, error: { message: "presence unavailable" } };
+          const asked = (filters["user_id"] as string[] | undefined) ?? [];
+          const rows = asked
+            .filter((id) => connected.has(id))
+            .filter((id) => filters["is_bot"] !== false || !bots.has(id))
+            .map((user_id) => ({ user_id }));
+          return { data: rows, error: null };
+        }
         self.awayLookups += 1;
         return { data: { missed_turns: missed.get(String(filters["user_id"])) ?? 0 }, error: null };
       }),
@@ -160,6 +199,8 @@ function fake(state: GameState, missedTurns: Record<string, number>, deadline: s
     from: (table: string) => {
       if (table === "games") return games;
       if (table === "moves") return moves;
+      // Hidden quick-match bots: none of the seats in these tests is one.
+      if (table === "game_bots") return { select: () => chain({}, () => ({ data: null, error: null })) };
       return players;
     },
   } as unknown as SupabaseClient;
@@ -274,31 +315,188 @@ Deno.test({
   },
 });
 
+// --- the strike limit ----------------------------------------------------------
+
+/**
+ * Play one more stalled turn for my seat, which has already idled through
+ * `missed` clocks, and report what the server did with it.
+ */
+async function strike(
+  missed: number,
+  kind: { is_quick: boolean; stake: number },
+  room: Room = {},
+): Promise<{ removed: boolean; action: string; strikes: unknown }> {
+  const f = fake(passableGame(), { [ME]: missed }, inAMinute(), room);
+  const outcome = await advanceStalledGame(
+    f.admin,
+    {
+      id: GAME,
+      state: f.row.state,
+      turn_deadline: f.row.turn_deadline,
+      state_version: 0,
+      is_quick: kind.is_quick,
+      has_bots: false,
+      stake: kind.stake,
+    },
+    { force: true },
+  );
+  assertEquals(outcome.kind, "advanced");
+  const me = f.row.state.players.find((p) => p.userId === ME);
+  return {
+    removed: me!.hasLeft === true,
+    action: String((f.moves[0]!.action as Record<string, unknown>).action),
+    strikes: f.presence.find((p) => p.user_id === ME)?.missed_turns,
+  };
+}
+
+const QUICK = { is_quick: true, stake: 50 };
+const STAKED_FRIENDS = { is_quick: false, stake: 50 };
+const FRIENDS = { is_quick: false, stake: 0 };
+
 Deno.test({
-  name: "an app that never comes back is removed from the game",
+  name: "a quick-match seat that never comes back is removed from the game",
   sanitizeOps: false,
   sanitizeResources: false,
   fn: async () => {
-    // One short of the limit: this turn is the strike that ends it.
-    const f = fake(passableGame(), { [ME]: 4 }, inAMinute());
-    const outcome = await advanceStalledGame(
-      f.admin,
-      {
-        id: GAME,
-        state: f.row.state,
-        turn_deadline: f.row.turn_deadline,
-        state_version: 0,
-        is_quick: false,
-        has_bots: false,
-      },
-      { force: true },
-    );
-
-    assertEquals(outcome.kind, "advanced");
-    assertEquals(f.moves.map((m) => (m.action as Record<string, unknown>).action), ["auto-leave"]);
+    // One short of the limit: this turn is the strike that ends it — however
+    // present the rest of the table is.
+    const r = await strike(4, QUICK, { connected: [THEM] });
+    assertEquals(r.action, "auto-leave");
     // Removed for good, not merely skipped again — the seat stops being dealt
     // turns at all, which is what ends the game for the player who stayed.
-    const me = f.row.state.players.find((p) => p.userId === ME);
-    assertEquals(me!.hasLeft, true);
+    assertEquals(r.removed, true);
+  },
+});
+
+Deno.test({
+  name: "a staked friend room still removes a seat that never comes back",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  fn: async () => {
+    // Coins ride on it, so the seat cannot sit there being played for its owner
+    // by the server's own bot, collecting a pot nobody is present to win.
+    const r = await strike(4, STAKED_FRIENDS, { connected: [THEM] });
+    assertEquals(r.action, "auto-leave");
+    assertEquals(r.removed, true);
+  },
+});
+
+Deno.test({
+  name: "a friendly room keeps an away seat while a friend is still at the table",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  fn: async () => {
+    // Well past the limit. Nothing is at stake and the friends are still
+    // playing: the bot keeps the seat warm, and the player who stepped out to
+    // take a call comes back to their own pawns rather than a board without
+    // them.
+    const r = await strike(7, FRIENDS, { connected: [THEM] });
+    assertEquals(r.removed, false);
+    assertEquals(r.action.startsWith("bot-"), true);
+    // Still counted — the Away badge and the strike are what the room sees.
+    assertEquals(r.strikes, 8);
+  },
+});
+
+Deno.test({
+  name: "a friendly room removes an away seat once nobody else is at the table",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  fn: async () => {
+    // Everyone has gone. Keeping every seat would leave the cron tick playing
+    // bots against bots a turn a minute for hours; the table winds down instead.
+    const r = await strike(4, FRIENDS, { connected: [] });
+    assertEquals(r.action, "auto-leave");
+    assertEquals(r.removed, true);
+  },
+});
+
+Deno.test({
+  name: "a friendly room does not count a labelled bot as someone still at the table",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  fn: async () => {
+    // Bot seats are born connected and never go away, so counting one would
+    // keep a table of nothing but bots running forever.
+    const r = await strike(4, FRIENDS, { connected: [THEM], bots: [THEM] });
+    assertEquals(r.action, "auto-leave");
+    assertEquals(r.removed, true);
+  },
+});
+
+Deno.test({
+  name: "a friendly room keeps the seat when presence can't be read",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  fn: async () => {
+    // Removal cannot be undone; keeping the seat one more turn can. The next
+    // strike asks again.
+    const r = await strike(4, FRIENDS, { presenceError: true });
+    assertEquals(r.removed, false);
+    assertEquals(r.action.startsWith("bot-"), true);
+  },
+});
+
+// --- the rows the strike limit is read from --------------------------------------
+
+const aMomentAgo = () => new Date(Date.now() - 1_000).toISOString();
+
+Deno.test({
+  name: "a friend's timeout keeps a friendly room's away seat",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  fn: async () => {
+    // The path a room actually takes: the friend's own device sees the clock
+    // run out and asks the server to play the seat. The room is only known to
+    // be friendly if that read fetched the stake.
+    const f = fake(passableGame(), { [ME]: 4 }, aMomentAgo(), { stake: 0, connected: [THEM] });
+    await opTimeout(f.admin, THEM, GAME);
+
+    assertEquals(f.moves[0] !== undefined, true);
+    assertEquals(String((f.moves[0]!.action as Record<string, unknown>).action).startsWith("bot-"), true);
+    assertEquals(f.row.state.players.find((p) => p.userId === ME)!.hasLeft, undefined);
+  },
+});
+
+Deno.test({
+  name: "handing the turn to a friendly room's away seat keeps it",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  fn: async () => {
+    // The other path: my pass hands the turn to a seat already known to be away,
+    // and the server plays it a beat later without waiting on anybody's clock.
+    const f = fake(passableGame(), { [THEM]: 4 }, null, { stake: 0, connected: [ME] });
+    await opTurn(f.admin, ME, GAME, "pass");
+    await new Promise((r) => setTimeout(r, 1800));
+
+    const played = f.moves.map((m) => String((m.action as Record<string, unknown>).action));
+    assertEquals(played.includes("auto-leave"), false);
+    assertEquals(played.some((a) => a.startsWith("bot-")), true);
+    assertEquals(f.row.state.players.find((p) => p.userId === THEM)!.hasLeft, undefined);
+  },
+});
+
+Deno.test({
+  name: "a roll played on a timeout keeps every other seat's stuck-in-the-yard streak",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  fn: async () => {
+    // The seat whose clock ran out has to ROLL, so its roll is what writes the
+    // streak map back. That write used to be built from a map the timeout never
+    // read — so it wiped the other player's streak, five dry turns from the
+    // guaranteed six the rescue owes them.
+    const fresh = createGame(
+      [
+        { id: "p1", userId: ME, color: "red" },
+        { id: "p2", userId: THEM, color: "yellow" },
+      ],
+      { gameId: GAME },
+    );
+    const f = fake(fresh, {}, aMomentAgo(), { dryTurns: { p2: 5 } });
+    await opTimeout(f.admin, THEM, GAME);
+
+    const written = f.patches.find((p) => "dry_turns" in p)?.dry_turns as Record<string, number> | undefined;
+    assertEquals(written !== undefined, true);
+    assertEquals(written!["p2"], 5);
   },
 });
