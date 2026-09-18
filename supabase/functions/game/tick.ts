@@ -20,7 +20,7 @@
 import type { GameState } from "../_shared/engine/index.js";
 import { json, secretMatches, type SupabaseClient } from "./lib.ts";
 import { settleIfFinished } from "./finish.ts";
-import { advanceStalledGame, type StalledGameRow } from "./turn.ts";
+import { advanceStalledGame, STALLED_GAME_COLUMNS, type StalledGameRow } from "./turn.ts";
 
 /**
  * Games advanced per tick. The cron runs every minute, so this is a ceiling on
@@ -72,7 +72,7 @@ async function advanceStalled(admin: SupabaseClient): Promise<number> {
   const cutoff = new Date(Date.now() - TICK_GRACE_MS).toISOString();
   const { data: games } = await admin
     .from("games")
-    .select("id, state, turn_deadline, state_version, is_quick, has_bots, stake")
+    .select(STALLED_GAME_COLUMNS)
     .eq("status", "active")
     .not("turn_deadline", "is", null)
     .lt("turn_deadline", cutoff)

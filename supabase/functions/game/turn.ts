@@ -434,7 +434,7 @@ function driveAwaySeatSoon(admin: SupabaseClient, gameId: string): void {
     await sleep(AWAY_TAKEOVER_MS);
     const { data: game } = await admin
       .from("games")
-      .select("id, state, turn_deadline, state_version, is_quick, has_bots, stake, dry_turns")
+      .select(STALLED_GAME_COLUMNS)
       .eq("id", gameId)
       .maybeSingle();
     const state = game?.state as GameState | undefined;
@@ -701,6 +701,18 @@ function continueStalledTurn(
   })());
 }
 
+/**
+ * The one select every caller of advanceStalledGame reads its row with.
+ *
+ * Shared, because each copy of this list drifted on its own and nothing failed
+ * loudly when one did: a column a caller forgets simply arrives as undefined.
+ * The timeout and the cron tick both lacked `dry_turns`, so a roll they played
+ * wrote the streak map back rebuilt from nothing — wiping every other seat's
+ * count on the way to the rescue six. `stake` went missing the same way until
+ * keepsAwaySeat needed it.
+ */
+export const STALLED_GAME_COLUMNS = "id, state, turn_deadline, state_version, is_quick, has_bots, stake, dry_turns";
+
 /** The games-row columns the stall driver needs. */
 export interface StalledGameRow {
   id: string;
@@ -868,7 +880,7 @@ export async function advanceStalledGame(
 export async function opTimeout(admin: SupabaseClient, userId: string, gameId: string): Promise<Response> {
   const { data: game } = await admin
     .from("games")
-    .select("id, state, turn_deadline, state_version, is_quick, has_bots, stake")
+    .select(STALLED_GAME_COLUMNS)
     .eq("id", gameId)
     .single();
   if (!game || !game.state) return json({ error: "Game not found." });

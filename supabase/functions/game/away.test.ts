@@ -71,6 +71,8 @@ interface Room {
   presenceError?: boolean;
   /** games.stake — handed back only to a read that actually selects it. */
   stake?: number;
+  /** games.dry_turns, likewise. */
+  dryTurns?: Record<string, number>;
 }
 
 /**
@@ -136,6 +138,7 @@ function fake(
           has_bots: false,
           // A column the op forgot to read isn't on the row it gets back.
           ...(columns.includes("stake") && room.stake !== undefined ? { stake: room.stake } : {}),
+          ...(columns.includes("dry_turns") && room.dryTurns !== undefined ? { dry_turns: room.dryTurns } : {}),
         },
         error: null,
       })),
@@ -470,5 +473,30 @@ Deno.test({
     assertEquals(played.includes("auto-leave"), false);
     assertEquals(played.some((a) => a.startsWith("bot-")), true);
     assertEquals(f.row.state.players.find((p) => p.userId === THEM)!.hasLeft, undefined);
+  },
+});
+
+Deno.test({
+  name: "a roll played on a timeout keeps every other seat's stuck-in-the-yard streak",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  fn: async () => {
+    // The seat whose clock ran out has to ROLL, so its roll is what writes the
+    // streak map back. That write used to be built from a map the timeout never
+    // read — so it wiped the other player's streak, five dry turns from the
+    // guaranteed six the rescue owes them.
+    const fresh = createGame(
+      [
+        { id: "p1", userId: ME, color: "red" },
+        { id: "p2", userId: THEM, color: "yellow" },
+      ],
+      { gameId: GAME },
+    );
+    const f = fake(fresh, {}, aMomentAgo(), { dryTurns: { p2: 5 } });
+    await opTimeout(f.admin, THEM, GAME);
+
+    const written = f.patches.find((p) => "dry_turns" in p)?.dry_turns as Record<string, number> | undefined;
+    assertEquals(written !== undefined, true);
+    assertEquals(written!["p2"], 5);
   },
 });
