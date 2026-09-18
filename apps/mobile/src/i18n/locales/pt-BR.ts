@@ -460,6 +460,9 @@ export const ptBR: Strings = {
   "shop.collectionLoadFailed": "Sua coleção não carregou. Confira sua conexão e tente de novo.",
   "game.placeLockedCoins": "Sua posição está garantida. As moedas chegam quando a partida acabar — não precisa ficar.",
   "game.placeLocked": "Sua posição está garantida. Fique para ver o resto, ou volte para o início.",
+  "game.removedTitle": "Você não está mais nesta partida",
+  "game.removedBody": "Você deixou passar a vez muitas vezes enquanto estava fora. Ainda dá para assistir ao resto.",
+  "game.removedCoins": "Suas {coins} moedas de entrada ficam no prêmio.",
   "home.bonusServerFailed": "Não conseguimos falar com o servidor. Confira sua conexão e tente de novo.",
 
   "friends.requested": "Solicitado",

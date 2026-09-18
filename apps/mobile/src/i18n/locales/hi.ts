@@ -464,6 +464,9 @@ export const hi: Strings = {
   "shop.collectionLoadFailed": "आपका संग्रह लोड नहीं हुआ। कनेक्शन जाँचकर फिर कोशिश करें।",
   "game.placeLockedCoins": "आपकी जगह पक्की है। सिक्के मैच खत्म होने पर मिलेंगे — रुकना ज़रूरी नहीं।",
   "game.placeLocked": "आपकी जगह पक्की है। रुककर बाकी देखें, या घर जाएँ।",
+  "game.removedTitle": "अब आप इस मैच में नहीं हैं",
+  "game.removedBody": "दूर रहने के दौरान आपकी बहुत सारी बारियाँ छूट गईं। आप अब भी बाकी मैच देख सकते हैं।",
+  "game.removedCoins": "आपके {coins} सिक्के इनाम में ही रहेंगे।",
   "home.bonusServerFailed": "सर्वर तक नहीं पहुँच सके। कनेक्शन जाँचकर फिर कोशिश करें।",
 
   "friends.requested": "भेजी गई",

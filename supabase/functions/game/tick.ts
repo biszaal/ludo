@@ -72,7 +72,7 @@ async function advanceStalled(admin: SupabaseClient): Promise<number> {
   const cutoff = new Date(Date.now() - TICK_GRACE_MS).toISOString();
   const { data: games } = await admin
     .from("games")
-    .select("id, state, turn_deadline, state_version, is_quick, has_bots")
+    .select("id, state, turn_deadline, state_version, is_quick, has_bots, stake")
     .eq("status", "active")
     .not("turn_deadline", "is", null)
     .lt("turn_deadline", cutoff)

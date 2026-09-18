@@ -52,6 +52,8 @@ import { endIfNoHumansLeft, recordFinishStats, settleIfFinished } from "./finish
  * about AWAY_TURN_SECONDS, so the table keeps moving while the absent seat is
  * given a genuinely long time — a couple of minutes at a four-handed table — to
  * come back before it forfeits the game and its stake.
+ *
+ * A friendly room is the exception — see keepsAwaySeat.
  */
 const MISSED_TURNS_TO_LEAVE = 5;
 
@@ -432,7 +434,7 @@ function driveAwaySeatSoon(admin: SupabaseClient, gameId: string): void {
     await sleep(AWAY_TAKEOVER_MS);
     const { data: game } = await admin
       .from("games")
-      .select("id, state, turn_deadline, state_version, is_quick, has_bots, dry_turns")
+      .select("id, state, turn_deadline, state_version, is_quick, has_bots, stake, dry_turns")
       .eq("id", gameId)
       .maybeSingle();
     const state = game?.state as GameState | undefined;
@@ -607,6 +609,52 @@ function stillStalled(step: StepOutcome, awayPlayerId: string): boolean {
   return step.state.status === "active" && step.state.currentTurnPlayerId === awayPlayerId && !!step.guard;
 }
 
+/**
+ * Does this room hold an away seat past the strike limit instead of removing it?
+ *
+ * Only a friendly room — a friend room with nothing staked — and only while
+ * somebody else is still sitting at it.
+ *
+ * Removal exists to protect strangers and a pot, and a friendly room has
+ * neither. What it cost there was the player who stepped out to take a call:
+ * a couple of minutes later they came back to a board with their pawns wiped
+ * off it and no way back in, while the bot that could have kept the seat warm
+ * plays an away seat in seconds and holds nobody up. Where coins ride on the
+ * game the seat still goes — otherwise leaving the app closed would let the
+ * server's own bot play for a pot its owner isn't there to win.
+ *
+ * "Somebody else" is a human with the app open (`is_connected`), never a bot:
+ * friend-room bots are seated connected and stay that way, so counting them
+ * would keep a table of nothing but bots running under the cron tick. With
+ * everyone gone, the strikes remove seats as they always have and the game
+ * winds down.
+ *
+ * An unreadable presence keeps the seat. Removal can't be undone; one more
+ * bot-played turn can, and the next strike asks again.
+ */
+async function keepsAwaySeat(
+  admin: SupabaseClient,
+  game: StalledGameRow,
+  state: GameState,
+  awayUserId: string,
+): Promise<boolean> {
+  if (game.is_quick || game.stake !== 0) return false;
+  const others = state.players
+    .filter((p) => !p.hasLeft && p.userId && p.userId !== awayUserId)
+    .map((p) => p.userId!);
+  if (others.length === 0) return false;
+
+  const { data, error } = await admin
+    .from("players")
+    .select("user_id")
+    .eq("game_id", game.id)
+    .eq("is_connected", true)
+    .eq("is_bot", false)
+    .in("user_id", others);
+  if (error) return true;
+  return (data ?? []).length > 0;
+}
+
 /** Everything that has to happen once the stalled turn is over. */
 async function finishStalledTurn(admin: SupabaseClient, gameId: string, hasBots: boolean, state: GameState): Promise<void> {
   await settleIfFinished(admin, gameId, state);
@@ -661,6 +709,9 @@ export interface StalledGameRow {
   state_version: number | null;
   is_quick: boolean | null;
   has_bots: boolean | null;
+  /** Coins each seat staked. Left unread, the room is treated as staked:
+   *  keepsAwaySeat only spares a seat in a room it KNOWS is free. */
+  stake?: number | null;
   /** Per-seat dry-turn map (0058). Absent on a database whose migration has not
    *  landed, which reads as "nobody is owed a rescue". */
   dry_turns?: unknown;
@@ -771,7 +822,7 @@ export async function advanceStalledGame(
       .eq("game_id", gameId)
       .eq("user_id", awayUserId);
 
-    if (missed >= MISSED_TURNS_TO_LEAVE) {
+    if (missed >= MISSED_TURNS_TO_LEAVE && !(await keepsAwaySeat(admin, game, state, awayUserId))) {
       // Gone for good — remove them from the game instead of bot-playing
       // another turn. Guard on the deadline we read so a racing caller (or
       // the player suddenly returning) can't double-apply.
@@ -817,7 +868,7 @@ export async function advanceStalledGame(
 export async function opTimeout(admin: SupabaseClient, userId: string, gameId: string): Promise<Response> {
   const { data: game } = await admin
     .from("games")
-    .select("id, state, turn_deadline, state_version, is_quick, has_bots")
+    .select("id, state, turn_deadline, state_version, is_quick, has_bots, stake")
     .eq("id", gameId)
     .single();
   if (!game || !game.state) return json({ error: "Game not found." });

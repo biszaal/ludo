@@ -17,19 +17,34 @@ const GAME = "11111111-2222-3333-4444-555555555555";
 const ME = "aaaaaaaa-0000-0000-0000-000000000001";
 const OTHER = "bbbbbbbb-0000-0000-0000-000000000002";
 
-/** Stub client: `seated` decides whether the players lookup finds a row. */
-function stubClient(seated: boolean): SupabaseClient {
+/** The engine's seats, as `state->players` hands them back; null before the deal. */
+type Seats = Array<{ userId: string; hasLeft?: boolean }> | null;
+
+/**
+ * Stub client: `seated` decides whether the players lookup finds a row, and
+ * `seats` is what the game's state says about who is still at the table.
+ */
+function stubClient(seated: boolean, seats: Seats = [{ userId: ME }, { userId: OTHER }]): SupabaseClient {
   return {
     rpc: () => Promise.resolve({ data: true, error: null }),
-    from: () => ({
-      select: () => ({
-        eq: () => ({
-          eq: () => ({
-            maybeSingle: () => Promise.resolve({ data: seated ? { id: "seat" } : null, error: null }),
+    from: (table: string) =>
+      table === "games"
+        ? {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: () => Promise.resolve({ data: { players: seats }, error: null }),
+            }),
           }),
-        }),
-      }),
-    }),
+        }
+        : {
+          select: () => ({
+            eq: () => ({
+              eq: () => ({
+                maybeSingle: () => Promise.resolve({ data: seated ? { id: "seat" } : null, error: null }),
+              }),
+            }),
+          }),
+        },
   } as unknown as SupabaseClient;
 }
 
@@ -94,6 +109,52 @@ Deno.test("opChat refuses a caller who holds no seat in the game", async () => {
     const res = await opChat(stubClient(false), ME, { gameId: GAME, kind: "text", value: "hi" });
     assertEquals((await body(res)).ok, undefined);
     assertEquals(net.calls.length, 0, "must not broadcast for a non-participant");
+  } finally {
+    net.restore();
+  }
+});
+
+Deno.test("opChat refuses a player who was removed from the game", async () => {
+  // Removal keeps the players row — the seat, its colour and its history stay —
+  // so the seat lookup alone let an idled-out player keep posting to a room
+  // that shows them as "Left".
+  const net = captureFetch();
+  try {
+    const res = await opChat(stubClient(true, [{ userId: ME, hasLeft: true }, { userId: OTHER }]), ME, {
+      gameId: GAME,
+      kind: "reaction",
+      value: "😂",
+    });
+    assertEquals((await body(res)).ok, undefined);
+    assertEquals(net.calls.length, 0, "must not broadcast for a removed player");
+  } finally {
+    net.restore();
+  }
+});
+
+Deno.test("opChat lets a player who finished and stayed to watch keep talking", async () => {
+  // Finishing is not leaving: a winner watching the race for second is still
+  // at the table, and is exactly who the room wants to hear from.
+  const net = captureFetch();
+  try {
+    const res = await opChat(stubClient(true, [{ userId: ME }, { userId: OTHER }]), ME, {
+      gameId: GAME,
+      kind: "text",
+      value: "gg",
+    });
+    assertEquals((await body(res)).ok, true);
+    assertEquals(net.calls.length, 1);
+  } finally {
+    net.restore();
+  }
+});
+
+Deno.test("opChat still works in a lobby that has not been dealt yet", async () => {
+  const net = captureFetch();
+  try {
+    const res = await opChat(stubClient(true, null), ME, { gameId: GAME, kind: "text", value: "ready?" });
+    assertEquals((await body(res)).ok, true);
+    assertEquals(net.calls.length, 1);
   } finally {
     net.restore();
   }

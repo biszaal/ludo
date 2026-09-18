@@ -24,6 +24,7 @@ import { ChatBubble } from "./ChatBubble";
 import { ResultsOverlay, type RematchVoting } from "./ResultsOverlay";
 import { WinnerCelebration } from "./WinnerCelebration";
 import { FinishedPrompt } from "./FinishedPrompt";
+import { RemovedPrompt } from "./RemovedPrompt";
 import { TableBackground } from "./TableBackground";
 import { CoinGlyph } from "./CoinsPill";
 import { ContentColumn } from "./ContentColumn";
@@ -251,7 +252,23 @@ export function GameView({
   const champion = championId ? state.players.find((p) => p.id === championId) : undefined;
   // Is the local seat still racing, and has it banked a place? Every end-of-race
   // screen below gates on this — see lib/seatFinish for why each is what it is.
-  const { seat: mySeat, place: myPlaceIndex, stillPlaying, placed: iFinished } = seatFinish(state, viewColor);
+  const { seat: mySeat, place: myPlaceIndex, stillPlaying, placed: iFinished, removed } = seatFinish(state, viewColor);
+
+  // Tell a player the server took out, once, the moment they are back to see
+  // it. "Watch the rest" dismisses it for good; a rematch (removed goes false)
+  // arms it again.
+  const [removedPrompt, setRemovedPrompt] = useState(false);
+  const dismissedRemoved = useRef(false);
+  useEffect(() => {
+    if (!removed) {
+      dismissedRemoved.current = false;
+      setRemovedPrompt(false);
+      return;
+    }
+    if (dismissedRemoved.current) return;
+    dismissedRemoved.current = true;
+    setRemovedPrompt(true);
+  }, [removed]);
 
   // Winner celebration: fires once when the game's champion is decided (the
   // first seat to finish all four tokens) — but only for a seat that is itself
@@ -587,10 +604,12 @@ export function GameView({
 
   // Reactions, chat and menu. Stacked keeps them bottom-left in the thumb zone
   // (Ludo Club convention); railed moves them into the rail, which in landscape
-  // is where the right thumb already is.
+  // is where the right thumb already is. A removed seat only watches — the
+  // server refuses its messages, so it gets nothing to send them with; the
+  // bubbles from the players still at the table keep showing.
   const actionCluster = (
     <View style={{ flexDirection: "row", gap: space.sm, marginBottom: space.sm }}>
-      {chat ? (
+      {chat && !removed ? (
         <>
           <IconButton label={t("game.reactions")} glyph="🙂" onPress={() => setReactionsOpen((v) => !v)} />
           {!chat.reactionsOnly ? (
@@ -744,6 +763,15 @@ export function GameView({
         />
       )}
 
+      {removedPrompt && removed && !finished && !celebrating && (
+        <RemovedPrompt
+          stake={stake}
+          onWatch={() => setRemovedPrompt(false)}
+          // No ad: this seat didn't finish a match, it lost one it wasn't at.
+          onHome={onLeave}
+        />
+      )}
+
       {/* The end-of-match results, or the early read a finished seat asked for.
           Live it drops the rematch controls (there is still a match on) and the
           entry delay (a tapped button has to answer at once); when the match
@@ -785,11 +813,11 @@ export function GameView({
         />
       )}
 
-      {reactionsOpen && chat && !finished && (
+      {reactionsOpen && chat && !finished && !removed && (
         <ReactionBar onSend={chat.onSendReaction} onClose={() => setReactionsOpen(false)} />
       )}
 
-      {chatOpen && chat && (
+      {chatOpen && chat && !removed && (
         <ChatSheet
           events={chat.events}
           nameForUser={nameForUser}

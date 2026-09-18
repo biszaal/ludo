@@ -118,6 +118,12 @@ export async function relayChat(
  * The seat lookup is the authorization: 0037 lets any participant JOIN the
  * topic (they must, to receive), so "can reach the channel" is not "may speak
  * in it" — a spectator who kept an old game id would otherwise be able to post.
+ *
+ * A seat is not enough on its own, though. Removal from a live game (leaving,
+ * or idling out) keeps the players row and marks the ENGINE's seat instead, so
+ * a removed player still held one — and went on posting to a room that showed
+ * them as "Left". The engine's `hasLeft` is the record of walking out; a player
+ * who merely finished is still at the table and may keep talking.
  */
 export async function opChat(admin: SupabaseClient, userId: string, req: ChatRequest): Promise<Response> {
   const gameId = String(req.gameId ?? "");
@@ -131,13 +137,14 @@ export async function opChat(admin: SupabaseClient, userId: string, req: ChatReq
 
   if (!(await rateOk(admin, userId, "chat", LIMITS.chat))) return rateLimited();
 
-  const { data: seat } = await admin
-    .from("players")
-    .select("id")
-    .eq("game_id", gameId)
-    .eq("user_id", userId)
-    .maybeSingle();
+  const [{ data: seat }, { data: game }] = await Promise.all([
+    admin.from("players").select("id").eq("game_id", gameId).eq("user_id", userId).maybeSingle(),
+    // Just the seats, not the whole state document. Null until the deal.
+    admin.from("games").select("players:state->players").eq("id", gameId).maybeSingle(),
+  ]);
   if (!seat) return json({ error: "You're not in that room." });
+  const seats = (game?.players ?? null) as Array<{ userId?: string; hasLeft?: boolean }> | null;
+  if (seats?.some((p) => p.userId === userId && p.hasLeft)) return json({ error: "You've left this game." });
 
   // fromUserId is set HERE, from the verified JWT — never read from the body.
   const ok = await broadcast(gameId, { kind, value, fromUserId: userId });

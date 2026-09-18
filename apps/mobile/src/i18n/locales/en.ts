@@ -491,6 +491,9 @@ export const en = {
   "shop.collectionLoadFailed": "Your collection didn't load. Check your connection and try again.",
   "game.placeLockedCoins": "Your place is locked in. The coins land when the match ends — you don't have to stay for them.",
   "game.placeLocked": "Your place is locked in. Stay and watch the rest, or head home.",
+  "game.removedTitle": "You were removed from this game",
+  "game.removedBody": "You missed too many turns while you were away. You can still watch the rest.",
+  "game.removedCoins": "Your {coins}-coin entry stays in the pot.",
   "home.bonusServerFailed": "Couldn't reach the server. Check your connection and try again.",
 
   "friends.requested": "Requested",

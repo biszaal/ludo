@@ -459,6 +459,9 @@ export const bn: Strings = {
   "shop.collectionLoadFailed": "আপনার সংগ্রহ লোড হয়নি। সংযোগ দেখে আবার চেষ্টা করুন।",
   "game.placeLockedCoins": "আপনার স্থান পাকা। কয়েন খেলা শেষে আসবে — থাকতে হবে না।",
   "game.placeLocked": "আপনার স্থান পাকা। থেকে বাকিটা দেখুন, বা বাড়ি ফিরুন।",
+  "game.removedTitle": "আপনি আর এই খেলায় নেই",
+  "game.removedBody": "দূরে থাকার সময় আপনার অনেকগুলো পালা চলে গেছে। আপনি এখনও বাকি খেলা দেখতে পারেন।",
+  "game.removedCoins": "আপনার {coins} কয়েন পুরস্কারেই থাকবে।",
   "home.bonusServerFailed": "সার্ভারে পৌঁছানো গেল না। সংযোগ দেখে আবার চেষ্টা করুন।",
 
   "friends.requested": "পাঠানো",
