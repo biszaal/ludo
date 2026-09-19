@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<style>
+  body { margin:0; background:#0A0D22; }
+  a { color:#7FF0AC; text-decoration:none; }
+  a:hover { color:#A8F7C8; }
+</style>
+</helmet>
+<div style="min-height:100vh;background:radial-gradient(1200px 700px at 80% -10%,rgba(127,240,172,0.09),rgba(10,13,34,0) 60%),#0A0D22;font-family:'Plus Jakarta Sans',system-ui,sans-serif;color:#fff;padding:72px 56px 140px">
+
+  <div style="max-width:1320px;margin:0 auto 64px">
+    <div style="font-size:12px;letter-spacing:2.2px;text-transform:uppercase;color:rgba(255,255,255,0.5);font-weight:600;margin-bottom:14px">Shop art direction · nine new sets · nature series first</div>
+    <div style="font-family:'Fredoka',sans-serif;font-size:66px;font-weight:700;letter-spacing:-1.8px;line-height:1.04;max-width:900px">Premium boards &amp; dice, built from real materials.</div>
+    <div style="font-size:17px;line-height:1.6;color:rgba(255,255,255,0.62);margin-top:22px;max-width:660px;text-wrap:pretty">Each set is a board and a matching pair of dice that can also sell apart. Board geometry is unchanged — 15×15, four home bases, the same safe cells — so nothing in the engine moves. All material detail stays in the outer frame: the playfield itself is clean, so tokens and dice never sit on top of ornament.</div>
+    <div style="display:flex;gap:10px;margin-top:30px;flex-wrap:wrap">
+      <span style="font-size:11px;letter-spacing:1.2px;text-transform:uppercase;font-weight:600;color:rgba(255,255,255,0.72);padding:8px 14px;background:rgba(255,255,255,0.06);border-radius:100px;border:1px solid rgba(255,255,255,0.1)">Set bundle · −20%</span>
+      <span style="font-size:11px;letter-spacing:1.2px;text-transform:uppercase;font-weight:600;color:rgba(255,255,255,0.72);padding:8px 14px;background:rgba(255,255,255,0.06);border-radius:100px;border:1px solid rgba(255,255,255,0.1)">3 gem · 3 coin</span>
+      <span style="font-size:11px;letter-spacing:1.2px;text-transform:uppercase;font-weight:600;color:rgba(255,255,255,0.72);padding:8px 14px;background:rgba(255,255,255,0.06);border-radius:100px;border:1px solid rgba(255,255,255,0.1)">Same grid, same hit targets</span>
+    </div>
+  </div>
+
+  <div style="max-width:1320px;margin:0 auto;display:flex;flex-direction:column;gap:34px">
+    <sc-for list="{{ sets }}" as="s" hint-placeholder-count="6">
+      <div style="{{ s.cardStyle }}">
+
+        <div style="display:flex;gap:44px;align-items:flex-start;flex-wrap:wrap">
+
+          <div style="position:relative;flex:0 0 auto">
+            <div style="{{ s.boardStyle }}">
+              <div style="{{ s.gridStyle }}">
+                <sc-for list="{{ s.plates }}" as="p" hint-placeholder-count="4">
+                  <div style="{{ p.style }}">
+                    <div style="{{ p.innerStyle }}">
+                      <sc-for list="{{ p.seats }}" as="seat" hint-placeholder-count="4">
+                        <div style="{{ seat.style }}"><div style="{{ seat.tokenStyle }}"></div></div>
+                      </sc-for>
+                    </div>
+                  </div>
+                </sc-for>
+                <sc-for list="{{ s.cells }}" as="cell" hint-placeholder-count="72">
+                  <div style="{{ cell.style }}"><div style="{{ cell.markStyle }}"></div></div>
+                </sc-for>
+                <div style="{{ s.centerStyle }}">
+                  <sc-for list="{{ s.centerWedges }}" as="w" hint-placeholder-count="4">
+                    <div style="{{ w.style }}"></div>
+                  </sc-for>
+                </div>
+              </div>
+              <div style="{{ s.decorStyle }}">
+                <sc-for list="{{ s.decor }}" as="dd" hint-placeholder-count="0">
+                  <div style="{{ dd.style }}"></div>
+                </sc-for>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;margin-top:18px;justify-content:center">
+              <span style="font-size:11px;letter-spacing:1.4px;text-transform:uppercase;color:rgba(255,255,255,0.68);font-weight:600">Board</span>
+              <span style="{{ s.boardPriceStyle }}">{{ s.boardPrice }}</span>
+            </div>
+          </div>
+
+          <div style="flex:1 1 380px;min-width:320px;padding-top:6px">
+            <div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap">
+              <div style="font-family:'Fredoka',sans-serif;font-size:40px;font-weight:700;letter-spacing:-1px;line-height:1.05">{{ s.name }}</div>
+              <span style="{{ s.tierStyle }}">{{ s.tier }}</span>
+            </div>
+            <div style="font-size:12px;letter-spacing:1.6px;text-transform:uppercase;color:rgba(255,255,255,0.45);font-weight:600;margin-top:10px">{{ s.material }}</div>
+            <div style="font-size:15.5px;line-height:1.62;color:rgba(255,255,255,0.68);margin-top:16px;max-width:520px;text-wrap:pretty">{{ s.blurb }}</div>
+
+            <div style="display:flex;align-items:flex-end;gap:46px;margin-top:40px;flex-wrap:wrap">
+              <sc-for list="{{ s.dice }}" as="d" hint-placeholder-count="2">
+                <div style="{{ d.sceneStyle }}">
+                  <div style="{{ d.cubeStyle }}">
+                    <sc-for list="{{ d.faces }}" as="f" hint-placeholder-count="3">
+                      <div style="{{ f.style }}">
+                        <sc-for list="{{ f.pips }}" as="pip" hint-placeholder-count="3">
+                          <div style="{{ pip.style }}"></div>
+                        </sc-for>
+                      </div>
+                    </sc-for>
+                  </div>
+                  <div style="{{ d.shadowStyle }}"></div>
+                </div>
+              </sc-for>
+            </div>
+
+            <div style="display:flex;align-items:center;gap:10px;margin-top:34px">
+              <span style="font-size:11px;letter-spacing:1.4px;text-transform:uppercase;color:rgba(255,255,255,0.68);font-weight:600">Dice</span>
+              <span style="{{ s.dicePriceStyle }}">{{ s.dicePrice }}</span>
+              <span style="font-size:11px;letter-spacing:1.4px;text-transform:uppercase;color:rgba(255,255,255,0.68);font-weight:600;margin-left:8px">Set</span>
+              <span style="{{ s.setPriceStyle }}">{{ s.setPrice }}</span>
+            </div>
+
+            <div style="display:flex;gap:8px;margin-top:26px;flex-wrap:wrap">
+              <sc-for list="{{ s.notes }}" as="n" hint-placeholder-count="3">
+                <span style="font-size:11px;letter-spacing:1px;text-transform:uppercase;font-weight:600;color:rgba(255,255,255,0.55);padding:7px 12px;background:rgba(255,255,255,0.05);border-radius:100px;border:1px solid rgba(255,255,255,0.09)">{{ n }}</span>
+              </sc-for>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </sc-for>
+  </div>
+
+  <div style="max-width:1320px;margin:72px auto 0;padding-top:40px;border-top:1px solid rgba(255,255,255,0.09);display:flex;gap:56px;flex-wrap:wrap">
+    <div style="flex:1 1 300px;max-width:420px">
+      <div style="font-family:'Fredoka',sans-serif;font-size:22px;font-weight:600;margin-bottom:12px">Thumbnail legibility</div>
+      <div style="font-size:14.5px;line-height:1.6;color:rgba(255,255,255,0.6)">Every set keeps a high-contrast frame and saturated home plates, so the 120px shop tile still reads as four colours at a glance. The material detail lives in the surface, not the silhouette.</div>
+    </div>
+    <div style="flex:1 1 300px;max-width:420px">
+      <div style="font-family:'Fredoka',sans-serif;font-size:22px;font-weight:600;margin-bottom:12px">What the engine needs</div>
+      <div style="font-size:14.5px;line-height:1.6;color:rgba(255,255,255,0.6)">One board sprite plus a 9-slice frame, four plate colours, two cell states (path, safe) and six dice face textures per set. Nothing here changes grid coordinates or token size.</div>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440}}">
+class Component extends DCLogic {
+  renderVals() {
+    const CELL = 30, GRID = CELL * 15;
+
+    const pipMap = {
+      1: [[2,2]],
+      2: [[1,1],[3,3]],
+      3: [[1,1],[2,2],[3,3]],
+      4: [[1,1],[1,3],[3,1],[3,3]],
+      5: [[1,1],[1,3],[2,2],[3,1],[3,3]],
+      6: [[1,1],[1,3],[2,1],[2,3],[3,1],[3,3]]
+    };
+
+    const leaf = (x, y, w, h, rot, c1, c2, op) =>
+      'position:absolute;left:' + x + '%;top:' + y + '%;width:' + w + 'px;height:' + h + 'px;opacity:' + op +
+      ';transform:rotate(' + rot + 'deg);border-radius:0 100% 0 100%;background:linear-gradient(140deg,' + c1 + ',' + c2 + ')' +
+      ';box-shadow:inset 0 1px 0 rgba(255,255,255,0.35)';
+    const petal = (x, y, w, h, rot, c1, c2, op) =>
+      'position:absolute;left:' + x + '%;top:' + y + '%;width:' + w + 'px;height:' + h + 'px;opacity:' + op +
+      ';transform:rotate(' + rot + 'deg);border-radius:60% 40% 55% 45%/50% 55% 45% 50%;background:radial-gradient(120% 100% at 30% 20%,' + c1 + ',' + c2 + ')';
+    const blob = (x, y, w, h, rot, c1, c2, op) =>
+      'position:absolute;left:' + x + '%;top:' + y + '%;width:' + w + 'px;height:' + h + 'px;opacity:' + op +
+      ';transform:rotate(' + rot + 'deg);border-radius:48% 52% 62% 38%/56% 44% 58% 42%;background:radial-gradient(90% 90% at 35% 30%,' + c1 + ',' + c2 + ')';
+    const fleck = (x, y, d, c, op) =>
+      'position:absolute;left:' + x + '%;top:' + y + '%;width:' + d + 'px;height:' + d + 'px;opacity:' + op +
+      ';border-radius:50%;background:' + c + ';box-shadow:0 0 ' + (d * 2) + 'px ' + c;
+
+    const specs = [
+      {
+        key: 'herbarium',
+        name: 'Pressed Herbarium',
+        material: 'Cotton rag paper · pressed botanicals',
+        tier: 'Gem · 440',
+        blurb: 'A herbarium sheet under museum glass. Real fern, cow parsley and geranium petals pressed flat and gone slightly translucent with age, laid over cotton rag that has foxed at the edges. The tracks are drawn in iron-gall ink, the way a specimen sheet is annotated.',
+        boardPrice: '440', dicePrice: '380', setPrice: '660', currency: 'gem',
+        notes: ['Pressed specimens', 'Iron-gall ink', 'Foxed rag paper'],
+        card: 'linear-gradient(150deg,rgba(150,180,110,0.10),rgba(235,220,185,0.05))',
+        cardBorder: 'rgba(190,200,150,0.24)',
+        colors: { red:'#B4553F', green:'#5E7A3C', blue:'#41618A', yellow:'#C79A3E' },
+        board: {
+          bg: 'radial-gradient(130% 100% at 20% 0%,#F6EEDB,#E2D4B6 70%,#CFBE99)',
+          frame: '3px solid #9C8A63',
+          shadow: '0 40px 80px rgba(0,0,0,0.5), inset 0 2px 0 rgba(255,255,255,0.7)',
+          gridBg: 'radial-gradient(120% 90% at 30% 10%,#FBF5E6,#E8DCC1)',
+          cell: 'linear-gradient(160deg,#FDF9EE,#EFE4CB)',
+          cellBorder: '0.6px solid rgba(70,60,35,0.4)',
+          cellShadow: 'inset 0 -2px 3px rgba(150,130,90,0.18)',
+          plateTint: 0.82, plateInner: 'rgba(253,249,238,0.9)',
+          plateShadow: 'inset 0 2px 0 rgba(255,255,255,0.6), 0 10px 20px rgba(90,75,45,0.28)',
+          seatRing: 'rgba(70,60,35,0.45)', seatFill: 'linear-gradient(160deg,#FFFDF6,#DCCDA8)',
+          radius: 12
+        },
+        decor: [
+          leaf(1, 1, 96, 30, 8, 'rgba(94,122,60,1)', 'rgba(52,76,32,0.9)', 0.72),
+          leaf(58, -1, 104, 28, -6, 'rgba(120,140,72,1)', 'rgba(62,86,38,0.9)', 0.66),
+          leaf(-2, 88, 112, 30, -6, 'rgba(84,110,56,1)', 'rgba(44,66,28,0.9)', 0.64),
+          leaf(64, 92, 98, 28, 6, 'rgba(110,132,66,1)', 'rgba(56,80,34,0.9)', 0.6),
+          leaf(-4, 34, 30, 96, 6, 'rgba(104,128,64,1)', 'rgba(52,76,32,0.9)', 0.6),
+          leaf(94, 40, 28, 104, -6, 'rgba(96,120,58,1)', 'rgba(48,70,30,0.9)', 0.58),
+          petal(36, 0, 36, 30, 14, 'rgba(214,150,160,1)', 'rgba(158,86,104,0.9)', 0.66),
+          petal(50, 94, 34, 30, -22, 'rgba(226,180,120,1)', 'rgba(168,116,60,0.9)', 0.62),
+          petal(0, 62, 30, 28, 40, 'rgba(206,158,176,1)', 'rgba(142,88,108,0.85)', 0.54),
+          petal(95, 16, 28, 26, -30, 'rgba(214,150,160,1)', 'rgba(150,84,102,0.85)', 0.5)
+        ],
+        die: {
+          face: 'linear-gradient(150deg,#FBF4E3,#E6D9BC)',
+          faceTop: 'linear-gradient(160deg,#FFFBF0,#EFE5CC)',
+          border: '1px solid rgba(90,76,46,0.45)',
+          inset: 'inset 0 2px 4px rgba(255,255,255,0.8), inset 0 -10px 16px rgba(150,130,90,0.24)',
+          pip: 'radial-gradient(circle at 36% 30%,#7A9A4E,#43602C 65%,#2B4019)',
+          pipShadow: 'inset 0 -1px 2px rgba(255,255,255,0.35), 0 1px 1px rgba(90,76,46,0.4)',
+          radius: 14
+        }
+      },
+      {
+        key: 'riverstone',
+        name: 'Moss & River Stone',
+        material: 'Wet slate · living moss',
+        tier: 'Coin · 75K',
+        blurb: 'Slate pulled out of a streambed, still dark with water, with moss growing in the joints and along the shaded edge of every track. The home plates are worn pebbles set into the stone; the dice are tumbled granite with drilled pips.',
+        boardPrice: '75K', dicePrice: '55K', setPrice: '105K', currency: 'coin',
+        notes: ['Wet-slate sheen', 'Moss in the joints', 'Tumbled granite dice'],
+        card: 'linear-gradient(150deg,rgba(110,140,110,0.10),rgba(70,80,80,0.06))',
+        cardBorder: 'rgba(140,175,140,0.20)',
+        colors: { red:'#9C4A44', green:'#4F7A4A', blue:'#3E5E76', yellow:'#B08A42' },
+        board: {
+          bg: 'radial-gradient(130% 110% at 25% 5%,#4A5356,#242A2C 70%,#333A3C)',
+          frame: '3px solid #6E7A6A',
+          shadow: '0 40px 90px rgba(0,0,0,0.62), inset 0 2px 0 rgba(200,220,200,0.22)',
+          gridBg: 'radial-gradient(120% 100% at 25% 0%,#3F4749,#202628)',
+          cell: 'linear-gradient(160deg,#596366,#394144)',
+          cellBorder: '0.6px solid rgba(12,16,16,0.7)',
+          cellShadow: 'inset 0 1px 0 rgba(215,235,215,0.22), inset 0 -3px 5px rgba(0,0,0,0.42)',
+          plateTint: 0.82, plateInner: 'rgba(28,33,34,0.72)',
+          plateShadow: 'inset 0 2px 0 rgba(210,230,210,0.25), 0 12px 24px rgba(0,0,0,0.55)',
+          seatRing: 'rgba(196,216,190,0.5)', seatFill: 'linear-gradient(160deg,#B9C6B4,#6C7A6A)',
+          radius: 20
+        },
+        decor: [
+          blob(-2, 26, 40, 84, 12, 'rgba(126,170,84,1)', 'rgba(56,86,44,0.9)', 0.72),
+          blob(93, 8, 38, 66, -18, 'rgba(140,182,96,1)', 'rgba(62,92,48,0.9)', 0.64),
+          blob(40, 92, 88, 34, 6, 'rgba(112,158,78,1)', 'rgba(48,78,40,0.9)', 0.68),
+          blob(92, 62, 36, 70, 28, 'rgba(132,174,90,1)', 'rgba(56,86,44,0.85)', 0.6),
+          blob(18, -1, 74, 30, -8, 'rgba(120,164,82,1)', 'rgba(52,82,42,0.85)', 0.62),
+          blob(66, -2, 52, 28, 10, 'rgba(134,176,92,1)', 'rgba(58,88,46,0.85)', 0.5),
+          fleck(3, 78, 5, 'rgba(226,242,216,0.9)', 0.6),
+          fleck(96, 30, 4, 'rgba(226,242,216,0.9)', 0.55)
+        ],
+        die: {
+          face: 'radial-gradient(90% 90% at 30% 20%,#8A938F,#5A6260),radial-gradient(3px 3px at 22% 64%,rgba(255,255,255,0.5),rgba(0,0,0,0) 60%)',
+          faceTop: 'radial-gradient(90% 90% at 40% 25%,#A6AEA9,#727A77)',
+          border: '1px solid rgba(20,24,24,0.7)',
+          inset: 'inset 0 2px 5px rgba(255,255,255,0.35), inset 0 -10px 18px rgba(0,0,0,0.45)',
+          pip: 'radial-gradient(circle at 36% 32%,#3A4240,#171B1A 70%)',
+          pipShadow: 'inset 0 2px 3px rgba(0,0,0,0.85), 0 1px 0 rgba(255,255,255,0.28)',
+          radius: 20
+        }
+      },
+      {
+        key: 'amber',
+        name: 'Amber Inclusion',
+        material: 'Baltic amber · fossil inclusions',
+        tier: 'Gem · 500',
+        blurb: 'Warm amber poured over a dark walnut bed, with a fern frond and a scatter of resin bubbles caught mid-fall inside the slab. Light travels through the body of the board, so the tracks glow from underneath rather than being printed on top.',
+        boardPrice: '500', dicePrice: '440', setPrice: '760', currency: 'gem',
+        notes: ['Suspended inclusions', 'Light through the body', 'Walnut bed'],
+        card: 'linear-gradient(150deg,rgba(255,176,60,0.10),rgba(120,70,20,0.06))',
+        cardBorder: 'rgba(255,190,110,0.22)',
+        colors: { red:'#C8503A', green:'#6E8E3A', blue:'#4A6C90', yellow:'#E8A93A' },
+        board: {
+          bg: 'radial-gradient(130% 110% at 28% 4%,#4A2B10,#22120699 70%),linear-gradient(160deg,#3A2009,#150A03)',
+          frame: '3px solid #C98A34',
+          shadow: '0 40px 90px rgba(0,0,0,0.65), inset 0 2px 0 rgba(255,214,140,0.35)',
+          gridBg: 'radial-gradient(120% 100% at 30% 0%,#6B3F12,#2A1607)',
+          cell: 'radial-gradient(120% 120% at 30% 20%,rgba(255,196,96,0.92),rgba(196,120,34,0.82))',
+          cellBorder: '0.6px solid rgba(90,48,12,0.7)',
+          cellShadow: 'inset 0 2px 4px rgba(255,236,190,0.55), inset 0 -4px 8px rgba(120,62,12,0.5)',
+          plateTint: 0.88, plateInner: 'rgba(58,32,10,0.68)',
+          plateShadow: 'inset 0 2px 0 rgba(255,225,165,0.45), 0 12px 26px rgba(0,0,0,0.55)',
+          seatRing: 'rgba(255,214,140,0.6)', seatFill: 'linear-gradient(160deg,#FFE3A8,#C9863A)',
+          radius: 24
+        },
+        decor: [
+          leaf(2, 4, 110, 30, 6, 'rgba(96,74,26,1)', 'rgba(52,36,10,0.9)', 0.7),
+          leaf(60, 93, 100, 28, -6, 'rgba(110,84,30,1)', 'rgba(58,40,12,0.9)', 0.62),
+          leaf(-3, 52, 28, 96, 4, 'rgba(104,80,28,1)', 'rgba(54,38,12,0.9)', 0.58),
+          fleck(28, 1, 7, 'rgba(255,236,180,0.95)', 0.75),
+          fleck(72, 2, 5, 'rgba(255,236,180,0.95)', 0.7),
+          fleck(2, 30, 6, 'rgba(255,236,180,0.95)', 0.7),
+          fleck(96, 46, 5, 'rgba(255,236,180,0.95)', 0.65),
+          fleck(95, 84, 4, 'rgba(255,246,210,1)', 0.7),
+          fleck(40, 96, 6, 'rgba(255,236,180,0.95)', 0.65)
+        ],
+        die: {
+          face: 'radial-gradient(120% 120% at 32% 22%,rgba(255,206,110,0.95),rgba(190,110,28,0.9))',
+          faceTop: 'radial-gradient(120% 120% at 35% 25%,rgba(255,232,170,0.98),rgba(226,152,52,0.92))',
+          border: '1px solid rgba(120,64,14,0.7)',
+          inset: 'inset 0 3px 7px rgba(255,244,210,0.8), inset 0 -12px 20px rgba(130,64,12,0.55)',
+          pip: 'radial-gradient(circle at 36% 30%,#7A4A12,#2E1804 70%)',
+          pipShadow: 'inset 0 -1px 2px rgba(255,214,140,0.45), 0 1px 2px rgba(80,40,8,0.6)',
+          radius: 22
+        }
+      },
+      {
+        key: 'glacier',
+        name: 'Glacier Optic',
+        material: 'Cast optical glass · anodised rail',
+        tier: 'Gem · flagship',
+        blurb: 'A single slab of clear glass over a dark deck. Cells are cut into the underside so the light pools at the edges, and the home plates glow through the body rather than sitting on top of it. Dice are solid clear blanks with polished specular pips.',
+        boardPrice: '620', dicePrice: '560', setPrice: '940', currency: 'gem',
+        notes: ['Edge-lit cells', 'Refracted plates', 'Specular pips'],
+        card: 'linear-gradient(150deg,rgba(120,170,255,0.10),rgba(255,255,255,0.02))',
+        cardBorder: 'rgba(150,190,255,0.20)',
+        colors: { red:'#FF6B8A', green:'#5BE3B0', blue:'#6FB2FF', yellow:'#FFD36B' },
+        board: {
+          bg: 'linear-gradient(150deg,#141B33 0%,#0A0E1E 60%,#131A30 100%)',
+          frame: '1.5px solid rgba(180,215,255,0.34)',
+          shadow: '0 40px 90px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.28)',
+          gridBg: 'linear-gradient(160deg,rgba(255,255,255,0.08),rgba(255,255,255,0.01) 45%,rgba(140,190,255,0.07))',
+          cell: 'linear-gradient(160deg,rgba(255,255,255,0.13),rgba(255,255,255,0.03))',
+          cellBorder: '0.5px solid rgba(190,220,255,0.30)',
+          cellShadow: 'inset 0 1px 0 rgba(255,255,255,0.35), inset 0 -2px 4px rgba(10,20,40,0.35)',
+          plateTint: 0.46, plateInner: 'rgba(255,255,255,0.07)',
+          plateShadow: 'inset 0 1px 0 rgba(255,255,255,0.45), 0 10px 22px rgba(0,0,0,0.42)',
+          seatRing: 'rgba(255,255,255,0.55)', seatFill: 'linear-gradient(160deg,rgba(255,255,255,0.35),rgba(255,255,255,0.06))',
+          radius: 22
+        },
+        die: {
+          face: 'linear-gradient(150deg,rgba(226,240,255,0.55),rgba(150,190,240,0.30) 45%,rgba(230,245,255,0.45))',
+          faceTop: 'linear-gradient(160deg,rgba(255,255,255,0.78),rgba(190,225,255,0.42))',
+          border: '1px solid rgba(255,255,255,0.7)',
+          inset: 'inset 0 2px 6px rgba(255,255,255,0.8), inset 0 -8px 18px rgba(60,110,180,0.35)',
+          pip: 'radial-gradient(circle at 34% 30%,#FFFFFF,#BBD9FF 55%,#5D8FD6)',
+          pipShadow: '0 1px 2px rgba(255,255,255,0.9), inset 0 -1px 2px rgba(40,80,140,0.6)',
+          radius: 20
+        }
+      },
+      {
+        key: 'urushi',
+        name: 'Urushi Vermilion',
+        material: 'Lacquer on wood · maki-e gold',
+        tier: 'Gem · 480',
+        blurb: 'Twenty coats of black lacquer polished flat, with vermilion home plates and gold dust drifted along the tracks. The gold is scattered, never repeated, so the surface catches light unevenly the way real maki-e does.',
+        boardPrice: '480', dicePrice: '420', setPrice: '720', currency: 'gem',
+        notes: ['Hand-scattered gold', 'Deep black ground', 'Brush-edge plates'],
+        card: 'linear-gradient(150deg,rgba(220,70,50,0.10),rgba(255,210,120,0.04))',
+        cardBorder: 'rgba(230,160,90,0.22)',
+        colors: { red:'#D9412C', green:'#2F7D5B', blue:'#2B4C8C', yellow:'#E0A92B' },
+        board: {
+          bg: 'radial-gradient(120% 90% at 30% 10%,#241712,#0C0705 70%)',
+          frame: '2px solid #C9973F',
+          shadow: '0 40px 90px rgba(0,0,0,0.66), inset 0 1px 0 rgba(255,214,140,0.35)',
+          gridBg: 'radial-gradient(100% 100% at 20% 0%,#1B100C,#0B0605)',
+          cell: 'linear-gradient(160deg,#1E120D,#140B08)',
+          cellBorder: '0.5px solid rgba(201,151,63,0.42)',
+          cellShadow: 'inset 0 1px 0 rgba(255,220,160,0.14)',
+          plateTint: 1, plateInner: '#160C08',
+          plateShadow: 'inset 0 1px 0 rgba(255,220,170,0.3), 0 12px 24px rgba(0,0,0,0.55)',
+          seatRing: 'rgba(201,151,63,0.8)', seatFill: 'linear-gradient(160deg,#F3E3BE,#C9973F)',
+          radius: 14
+        },
+        die: {
+          face: 'linear-gradient(150deg,#1C100B,#0C0605)',
+          faceTop: 'linear-gradient(160deg,#D9412C,#8E2416)',
+          border: '1px solid rgba(201,151,63,0.85)',
+          inset: 'inset 0 2px 5px rgba(255,220,170,0.22), inset 0 -10px 18px rgba(0,0,0,0.6)',
+          pip: 'radial-gradient(circle at 34% 30%,#FFE9B8,#C9973F 60%,#8A5F1E)',
+          pipShadow: '0 1px 1px rgba(0,0,0,0.55)',
+          radius: 16
+        }
+      },
+      {
+        key: 'celadon',
+        name: 'Celadon Porcelain',
+        material: 'Glazed ceramic · cobalt underglaze',
+        tier: 'Coin · 60K',
+        blurb: 'Pale celadon glaze with hairline crackle and cobalt line work drawn under the glaze, so the blue sits below a wet-looking surface. Plates are glazed tiles with a thicker pooled rim where the glaze ran.',
+        boardPrice: '60K', dicePrice: '45K', setPrice: '85K', currency: 'coin',
+        notes: ['Crackle glaze', 'Underglaze cobalt', 'Pooled rims'],
+        card: 'linear-gradient(150deg,rgba(150,200,190,0.10),rgba(255,255,255,0.03))',
+        cardBorder: 'rgba(170,210,205,0.22)',
+        colors: { red:'#C05B58', green:'#5E9C7E', blue:'#3C5FA8', yellow:'#D2A44E' },
+        board: {
+          bg: 'linear-gradient(160deg,#EAF0E8,#CFDCD4 60%,#E4ECE6)',
+          frame: '2px solid #9FB4AC',
+          shadow: '0 40px 80px rgba(0,0,0,0.5), inset 0 2px 0 rgba(255,255,255,0.9)',
+          gridBg: 'linear-gradient(160deg,#F3F7F1,#DCE7E0)',
+          cell: 'linear-gradient(160deg,#FBFDFA,#E3EDE6)',
+          cellBorder: '0.5px solid rgba(60,95,168,0.34)',
+          cellShadow: 'inset 0 -2px 4px rgba(120,150,140,0.22)',
+          plateTint: 0.9, plateInner: 'rgba(255,255,255,0.86)',
+          plateShadow: 'inset 0 2px 0 rgba(255,255,255,0.7), 0 10px 20px rgba(60,90,80,0.26)',
+          seatRing: 'rgba(60,95,168,0.55)', seatFill: 'linear-gradient(160deg,#FFFFFF,#DAE6E0)',
+          radius: 16
+        },
+        die: {
+          face: 'linear-gradient(150deg,#FAFCF8,#D9E5DD)',
+          faceTop: 'linear-gradient(160deg,#FFFFFF,#E8F0EA)',
+          border: '1px solid rgba(120,150,140,0.5)',
+          inset: 'inset 0 3px 6px rgba(255,255,255,0.95), inset 0 -10px 16px rgba(120,150,140,0.28)',
+          pip: 'radial-gradient(circle at 36% 30%,#5C7FC4,#27459A 60%,#162C68)',
+          pipShadow: 'inset 0 -1px 2px rgba(255,255,255,0.4)',
+          radius: 18
+        }
+      },
+      {
+        key: 'titanium',
+        name: 'Titanium & Bronze',
+        material: 'Brushed titanium · burnished bronze',
+        tier: 'Gem · 380',
+        blurb: 'Machined from two metals. The deck is brushed titanium running in one direction, the rail and home plates are bronze that has been handled enough to darken in the recesses. Pips are drilled, not printed.',
+        boardPrice: '380', dicePrice: '340', setPrice: '580', currency: 'gem',
+        notes: ['Directional brushing', 'Drilled pips', 'Patina recesses'],
+        card: 'linear-gradient(150deg,rgba(200,200,205,0.09),rgba(190,140,80,0.06))',
+        cardBorder: 'rgba(200,180,150,0.20)',
+        colors: { red:'#A6503C', green:'#4C7A62', blue:'#47638F', yellow:'#B8873A' },
+        board: {
+          bg: 'linear-gradient(160deg,#3A3D42,#22252A 55%,#33363C)',
+          frame: '3px solid #8A6A3C',
+          shadow: '0 40px 90px rgba(0,0,0,0.62), inset 0 1px 0 rgba(255,255,255,0.22)',
+          gridBg: 'repeating-linear-gradient(92deg,rgba(255,255,255,0.055) 0 1px,rgba(0,0,0,0) 1px 3px),linear-gradient(160deg,#4A4E55,#2A2D33)',
+          cell: 'repeating-linear-gradient(92deg,rgba(255,255,255,0.06) 0 1px,rgba(0,0,0,0) 1px 3px),linear-gradient(160deg,#5A5F67,#3B3F46)',
+          cellBorder: '0.5px solid rgba(20,22,26,0.8)',
+          cellShadow: 'inset 0 1px 0 rgba(255,255,255,0.2), inset 0 -1px 0 rgba(0,0,0,0.45)',
+          plateTint: 0.92, plateInner: 'rgba(32,35,40,0.75)',
+          plateShadow: 'inset 0 1px 0 rgba(255,235,190,0.35), 0 12px 22px rgba(0,0,0,0.55)',
+          seatRing: 'rgba(233,203,142,0.6)', seatFill: 'linear-gradient(160deg,#EBD3A0,#8A6A3C)',
+          radius: 10
+        },
+        die: {
+          face: 'repeating-linear-gradient(92deg,rgba(255,255,255,0.05) 0 1px,rgba(0,0,0,0) 1px 3px),linear-gradient(150deg,#6A6F78,#3C4048)',
+          faceTop: 'repeating-linear-gradient(2deg,rgba(255,255,255,0.06) 0 1px,rgba(0,0,0,0) 1px 3px),linear-gradient(160deg,#868C96,#575C65)',
+          border: '1px solid rgba(20,22,26,0.9)',
+          inset: 'inset 0 2px 3px rgba(255,255,255,0.3), inset 0 -10px 18px rgba(0,0,0,0.5)',
+          pip: 'radial-gradient(circle at 36% 32%,#4A4E55,#1A1C20 70%)',
+          pipShadow: 'inset 0 2px 3px rgba(0,0,0,0.9), 0 1px 0 rgba(255,255,255,0.3)',
+          radius: 12
+        }
+      },
+      {
+        key: 'voyager',
+        name: 'Voyager Travel Set',
+        material: 'Saddle leather · brass hardware',
+        tier: 'Coin · 90K',
+        blurb: 'A roll-up travel board. Tan saddle leather with a saddle stitch around the rail, brass corner plates and debossed tracks that have gone darker where a thumb would rest. Dice are bone-white with a leather-grain shadow.',
+        boardPrice: '90K', dicePrice: '70K', setPrice: '130K', currency: 'coin',
+        notes: ['Saddle stitch rail', 'Debossed tracks', 'Brass corners'],
+        card: 'linear-gradient(150deg,rgba(190,140,80,0.10),rgba(120,80,45,0.05))',
+        cardBorder: 'rgba(200,160,110,0.22)',
+        colors: { red:'#9E3D33', green:'#4A6A47', blue:'#3B5170', yellow:'#C08A35' },
+        board: {
+          bg: 'radial-gradient(120% 100% at 25% 5%,#A2703F,#6B4523 75%)',
+          frame: '3px dashed rgba(247,228,193,0.55)',
+          shadow: '0 40px 90px rgba(0,0,0,0.6), inset 0 2px 0 rgba(255,225,180,0.3)',
+          gridBg: 'radial-gradient(100% 100% at 30% 0%,#B07C48,#7A5129)',
+          cell: 'linear-gradient(160deg,#C08E58,#9A6A38)',
+          cellBorder: '0.5px solid rgba(70,42,18,0.55)',
+          cellShadow: 'inset 0 2px 3px rgba(60,35,12,0.45), inset 0 -1px 0 rgba(255,220,170,0.28)',
+          plateTint: 0.95, plateInner: 'rgba(120,82,42,0.5)',
+          plateShadow: 'inset 0 2px 4px rgba(50,28,10,0.5), 0 10px 20px rgba(0,0,0,0.45)',
+          seatRing: 'rgba(240,210,150,0.65)', seatFill: 'linear-gradient(160deg,#F2DCA8,#B68A3C)',
+          radius: 18
+        },
+        die: {
+          face: 'linear-gradient(150deg,#F6ECD8,#DCC9A6)',
+          faceTop: 'linear-gradient(160deg,#FFF9EC,#EADDC2)',
+          border: '1px solid rgba(120,85,45,0.45)',
+          inset: 'inset 0 2px 4px rgba(255,255,255,0.85), inset 0 -10px 16px rgba(150,110,60,0.3)',
+          pip: 'radial-gradient(circle at 36% 30%,#6A4522,#33200C 70%)',
+          pipShadow: 'inset 0 2px 3px rgba(0,0,0,0.6)',
+          radius: 15
+        }
+      },
+      {
+        key: 'carbon',
+        name: 'Carbon Monocoque',
+        material: '2×2 carbon weave · acid lime',
+        tier: 'Coin · 30K',
+        blurb: 'Twill carbon under clear coat, with a lime tracer running the length of each track and plate lit from behind. The weave shifts direction between the deck and the home plates so the four corners stay readable.',
+        boardPrice: '30K', dicePrice: '22K', setPrice: '45K', currency: 'coin',
+        notes: ['2×2 twill', 'Tracer lighting', 'Clear coat depth'],
+        card: 'linear-gradient(150deg,rgba(170,255,90,0.07),rgba(255,255,255,0.02))',
+        cardBorder: 'rgba(170,255,120,0.18)',
+        colors: { red:'#FF4D5E', green:'#9BE83C', blue:'#3FA6FF', yellow:'#FFC13C' },
+        board: {
+          bg: 'linear-gradient(160deg,#16181B,#0B0C0E)',
+          frame: '2px solid rgba(155,232,60,0.45)',
+          shadow: '0 40px 90px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.14)',
+          gridBg: 'repeating-conic-gradient(from 45deg,#1C1F23 0% 25%,#121417 0% 50%) 0 0/10px 10px',
+          cell: 'repeating-conic-gradient(from 45deg,#2A2E34 0% 25%,#1A1D21 0% 50%) 0 0/7px 7px',
+          cellBorder: '0.5px solid rgba(155,232,60,0.22)',
+          cellShadow: 'inset 0 1px 0 rgba(255,255,255,0.12)',
+          plateTint: 0.7, plateInner: 'rgba(12,14,16,0.82)',
+          plateShadow: 'inset 0 1px 0 rgba(255,255,255,0.18), 0 12px 26px rgba(0,0,0,0.6)',
+          seatRing: 'rgba(255,255,255,0.35)', seatFill: 'linear-gradient(160deg,#2E3238,#14161A)',
+          radius: 12
+        },
+        die: {
+          face: 'repeating-conic-gradient(from 45deg,#25292E 0% 25%,#15181B 0% 50%) 0 0/9px 9px',
+          faceTop: 'repeating-conic-gradient(from 45deg,#31363C 0% 25%,#1D2125 0% 50%) 0 0/9px 9px',
+          border: '1px solid rgba(155,232,60,0.4)',
+          inset: 'inset 0 2px 4px rgba(255,255,255,0.18), inset 0 -10px 18px rgba(0,0,0,0.6)',
+          pip: 'radial-gradient(circle at 36% 30%,#DBFF9B,#9BE83C 55%,#5FA317)',
+          pipShadow: '0 0 10px rgba(155,232,60,0.7)',
+          radius: 14
+        }
+      }
+    ];
+
+    const hex2rgba = (hex, a) => {
+      const n = parseInt(hex.slice(1), 16);
+      return 'rgba(' + ((n >> 16) & 255) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + a + ')';
+    };
+
+    const runs = { // arm -> color key, cells of the home column
+      red:  (r, c) => r === 7 && c >= 1 && c <= 5,
+      green:(r, c) => c === 7 && r >= 1 && r <= 5,
+      yellow:(r, c) => r === 7 && c >= 9 && c <= 13,
+      blue: (r, c) => c === 7 && r >= 9 && r <= 13
+    };
+    const starts = { red: [6,1], green: [1,8], yellow: [8,13], blue: [13,6] };
+    const safes = [[2,6],[6,12],[12,8],[8,2]];
+
+    const buildBoard = (sp) => {
+      const b = sp.board, col = sp.colors;
+      const cells = [];
+      for (let r = 0; r < 15; r++) {
+        for (let c = 0; c < 15; c++) {
+          const inV = c >= 6 && c <= 8, inH = r >= 6 && r <= 8;
+          if (inV && inH) continue;
+          if (!inV && !inH) continue;
+          let fill = b.cell, border = b.cellBorder, shadow = b.cellShadow, mark = 'display:none';
+          let runColor = null;
+          Object.keys(runs).forEach(k => { if (runs[k](r, c)) runColor = col[k]; });
+          let startColor = null;
+          Object.keys(starts).forEach(k => { if (starts[k][0] === r && starts[k][1] === c) startColor = col[k]; });
+          if (runColor) {
+            fill = 'linear-gradient(160deg,' + hex2rgba(runColor, Math.min(1, b.plateTint + 0.08)) + ',' + hex2rgba(runColor, b.plateTint * 0.7) + ')';
+            shadow = b.cellShadow + ', inset 0 0 8px ' + hex2rgba(runColor, 0.5);
+          } else if (startColor) {
+            fill = 'linear-gradient(160deg,' + hex2rgba(startColor, b.plateTint * 0.85) + ',' + hex2rgba(startColor, b.plateTint * 0.5) + ')';
+            mark = 'width:8px;height:8px;border-radius:2px;transform:rotate(45deg);background:' + hex2rgba(startColor, 1) + ';box-shadow:0 0 6px ' + hex2rgba(startColor, 0.8);
+          } else if (safes.some(s => s[0] === r && s[1] === c)) {
+            mark = 'width:9px;height:9px;border-radius:50%;border:1.5px solid rgba(255,255,255,0.5);box-shadow:inset 0 0 4px rgba(255,255,255,0.35)';
+          }
+          cells.push({
+            style: 'grid-column:' + (c + 1) + ';grid-row:' + (r + 1) +
+              ';background:' + fill +
+              ';border:' + b.cellBorder +
+              ';box-shadow:' + shadow +
+              ';display:flex;align-items:center;justify-content:center;border-radius:3px',
+            markStyle: mark
+          });
+        }
+      }
+
+      const plateSpec = [
+        { k: 'red', gc: '1 / 7', gr: '1 / 7' },
+        { k: 'green', gc: '10 / 16', gr: '1 / 7' },
+        { k: 'blue', gc: '1 / 7', gr: '10 / 16' },
+        { k: 'yellow', gc: '10 / 16', gr: '10 / 16' }
+      ];
+      const plates = plateSpec.map(p => {
+        const cc = col[p.k];
+        return {
+          style: 'grid-column:' + p.gc + ';grid-row:' + p.gr +
+            ';background:linear-gradient(155deg,' + hex2rgba(cc, Math.min(1, b.plateTint + 0.12)) + ',' + hex2rgba(cc, b.plateTint * 0.72) + ')' +
+            ';border-radius:' + Math.round(b.radius * 0.7) + 'px;box-shadow:' + b.plateShadow +
+            ';display:flex;align-items:center;justify-content:center;padding:' + Math.round(CELL * 0.55) + 'px',
+          innerStyle: 'width:100%;height:100%;background:' + b.plateInner +
+            ';border-radius:' + Math.round(b.radius * 0.5) + 'px;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;place-items:center;box-shadow:inset 0 2px 6px rgba(0,0,0,0.28)',
+          seats: [0, 1, 2, 3].map(() => ({
+            style: 'width:' + Math.round(CELL * 1.05) + 'px;height:' + Math.round(CELL * 1.05) + 'px;border-radius:50%;border:1.5px solid ' + b.seatRing +
+              ';display:flex;align-items:center;justify-content:center;box-shadow:inset 0 2px 5px rgba(0,0,0,0.35)',
+            tokenStyle: 'width:62%;height:62%;border-radius:50%;background:' + b.seatFill + ';box-shadow:inset 0 1px 0 rgba(255,255,255,0.55),0 2px 4px rgba(0,0,0,0.4)'
+          }))
+        };
+      });
+
+      const wedge = (cc, poly) => ({
+        style: 'position:absolute;inset:0;clip-path:polygon(' + poly + ');background:linear-gradient(160deg,' + hex2rgba(cc, 1) + ',' + hex2rgba(cc, 0.62) + ')'
+      });
+      const centerWedges = [
+        wedge(col.green, '50% 50%, 0% 0%, 100% 0%'),
+        wedge(col.yellow, '50% 50%, 100% 0%, 100% 100%'),
+        wedge(col.blue, '50% 50%, 100% 100%, 0% 100%'),
+        wedge(col.red, '50% 50%, 0% 100%, 0% 0%')
+      ];
+
+      return { cells, plates, centerWedges };
+    };
+
+    /* Isometric cube from three 2D-transformed faces — no preserve-3d, so it
+       renders the same in the browser and in DOM-clone captures. */
+    const buildDice = (sp, size, values) => {
+      const d = sp.die;
+      const S = size, W = 0.866 * S;
+      const pipSize = Math.round(size * 0.155);
+      const faceDefs = [
+        { v: values[2], bg: d.faceTop, shade: null,
+          t: 'translate(' + W + 'px,0px) matrix(0.866,0.5,-0.866,0.5,0,0)' },
+        { v: values[0], bg: d.face, shade: 'rgba(0,0,0,0.10)',
+          t: 'translate(0px,' + (0.5 * S) + 'px) matrix(0.866,0.5,0,1,0,0)' },
+        { v: values[1], bg: d.face, shade: 'rgba(0,0,0,0.34)',
+          t: 'translate(' + W + 'px,' + S + 'px) matrix(0.866,-0.5,0,1,0,0)' }
+      ];
+      return {
+        sceneStyle: 'position:relative;width:' + Math.round(W * 2) + 'px;height:' + Math.round(S * 2.3) + 'px',
+        cubeStyle: 'position:relative;width:' + Math.round(W * 2) + 'px;height:' + (S * 2) + 'px',
+        shadowStyle: 'position:absolute;left:50%;top:' + Math.round(S * 1.96) + 'px;transform:translateX(-50%);width:' + Math.round(W * 1.9) + 'px;height:' + Math.round(S * 0.3) + 'px;border-radius:50%;background:radial-gradient(closest-side,rgba(0,0,0,0.55),rgba(0,0,0,0))',
+        faces: faceDefs.map(f => ({
+          style: 'position:absolute;left:0;top:0;width:' + S + 'px;height:' + S + 'px;transform-origin:0 0;transform:' + f.t +
+            ';background:' + (f.shade ? 'linear-gradient(' + f.shade + ',' + f.shade + '),' : '') + f.bg +
+            ';border:' + d.border + ';box-shadow:' + d.inset +
+            ';display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);place-items:center;padding:' + Math.round(size * 0.11) + 'px;box-sizing:border-box',
+          pips: pipMap[f.v].map(p => ({
+            style: 'grid-row:' + p[0] + ';grid-column:' + p[1] + ';width:' + pipSize + 'px;height:' + pipSize + 'px;border-radius:50%;background:' + d.pip + ';box-shadow:' + d.pipShadow
+          }))
+        }))
+      };
+    };
+
+    const priceChip = (cur) => cur === 'gem'
+      ? 'display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:#C9B6FF;background:rgba(140,110,255,0.16);border:1px solid rgba(160,130,255,0.4);border-radius:100px;padding:5px 12px'
+      : 'display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:#FFD979;background:rgba(255,196,60,0.14);border:1px solid rgba(255,196,60,0.38);border-radius:100px;padding:5px 12px';
+
+    const sets = specs.map(sp => {
+      const bd = buildBoard(sp);
+      const mark = sp.currency === 'gem' ? '◆ ' : '● ';
+      return {
+        name: sp.name, material: sp.material, tier: sp.tier, blurb: sp.blurb, notes: sp.notes,
+        cardStyle: 'background:' + sp.card + ';border:1px solid ' + sp.cardBorder +
+          ';border-radius:30px;padding:40px;box-shadow:0 30px 70px rgba(0,0,0,0.35)',
+        decor: (sp.decor || []).map(st => ({ style: st })),
+        decorStyle: 'position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:0;border-radius:' + Math.round(sp.board.radius * 0.6) + 'px;mix-blend-mode:' + (sp.key === 'herbarium' ? 'multiply' : 'normal'),
+        boardStyle: 'position:relative;width:' + (GRID + 64) + 'px;height:' + (GRID + 64) + 'px;padding:32px;box-sizing:border-box;background:' + sp.board.bg +
+          ';border:' + sp.board.frame + ';border-radius:' + sp.board.radius + 'px;box-shadow:' + sp.board.shadow,
+        gridStyle: 'position:relative;z-index:2;width:100%;height:100%;display:grid;grid-template-columns:repeat(15,1fr);grid-template-rows:repeat(15,1fr);gap:1px;background:' + sp.board.gridBg +
+          ';border-radius:' + Math.round(sp.board.radius * 0.6) + 'px;overflow:hidden',
+        cells: bd.cells, plates: bd.plates, centerWedges: bd.centerWedges,
+        centerStyle: 'position:relative;grid-column:7 / 10;grid-row:7 / 10;overflow:hidden;box-shadow:inset 0 0 0 1px rgba(255,255,255,0.22)',
+        dice: [buildDice(sp, 104, [3, 2, 1]), buildDice(sp, 82, [4, 6, 5])],
+        boardPrice: mark + sp.boardPrice, dicePrice: mark + sp.dicePrice, setPrice: mark + sp.setPrice,
+        boardPriceStyle: priceChip(sp.currency), dicePriceStyle: priceChip(sp.currency), setPriceStyle: priceChip(sp.currency),
+        tierStyle: 'font-size:11px;letter-spacing:1.4px;text-transform:uppercase;font-weight:700;color:rgba(255,255,255,0.55);padding:6px 12px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.12);border-radius:100px'
+      };
+    });
+
+    return { sets };
+  }
+}
+</script>
+</body>
+</html>
