@@ -117,3 +117,36 @@ export function tokenCenterPx(
     position.type === "track" ? TRACK_CELLS[position.index]! : HOME_CELLS[color][position.index]!;
   return cellCenterPx(col, row, cell);
 }
+
+/**
+ * The geometry of one yard tile, in pixels, for a board whose cell is `cell`.
+ *
+ * Every measurement here is a fraction of the yard, never a pixel constant, and
+ * that is the whole point of the function. The radii used to be written inline
+ * as `r={16}` / `r={12}`, which is a gentle round on the ~136pt yard of a board
+ * in play and *half the side* of the ~25pt yard in a 64pt shop thumbnail —
+ * where Skia clamps the radius to w/2 and draws a circle. Boards with square
+ * yards therefore advertised themselves in the shop grid with the round yards
+ * of a "disc" board, which is one of the few things a player picks a board for.
+ *
+ * The fractions reproduce the old pixel values at a full-size board and hold
+ * the shape at every other size. __tests__/boardGeometry.test.ts pins that.
+ */
+export function yardGeometry(cell: number, blockSize = 6) {
+  const pad = cell * 0.12;
+  const w = blockSize * cell - pad * 2;
+  const iw = blockSize * cell - cell * 1.8;
+  return {
+    pad,
+    /** Outer yard tile. */
+    w,
+    /** Inset plate inside the tile. */
+    iw,
+    r: w * 0.118,
+    lipR: w * 0.103,
+    bandR: w * 0.096,
+    innerR: iw * 0.121,
+    lipInset: w * 0.011,
+    drop: w * 0.022,
+  };
+}

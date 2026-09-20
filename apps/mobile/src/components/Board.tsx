@@ -47,6 +47,7 @@ import {
   START_CELL_INDEX,
   TRACK_CELLS,
   YARD_BLOCKS,
+  yardGeometry,
   YARD_SLOTS,
   cellSize,
   tokenCenterPx,
@@ -472,16 +473,15 @@ export function BoardSurface({ size, theme, ornament = true }: { size: number; t
       {COLORS.map((color) => {
         const b = YARD_BLOCKS[color];
         const team = theme.team[color];
-        const pad = cell * 0.12;
+        const { pad, w, iw, r: yardR, lipR: yardLipR, bandR: yardBandR, innerR: yardInnerR, lipInset, drop: yardDrop } =
+          yardGeometry(cell, b.size);
         const x = b.col * cell + pad;
         const y = b.row * cell + pad;
-        const w = b.size * cell - pad * 2;
         const ix = b.col * cell + cell * 0.9;
         const iy = b.row * cell + cell * 0.9;
-        const iw = b.size * cell - cell * 1.8;
         return (
           <Group key={`yard-${color}`}>
-            <RoundedRect x={x} y={y + 3} width={w} height={w} r={16} color="rgba(0,0,0,0.18)" />
+            <RoundedRect x={x} y={y + yardDrop} width={w} height={w} r={yardR} color="rgba(0,0,0,0.18)" />
             {theme.yardStyle === "disc" ? (
               <Group>
                 {/* A round bed set into the board's material, with the tile's
@@ -490,7 +490,7 @@ export function BoardSurface({ size, theme, ornament = true }: { size: number; t
                     changes the silhouette without moving a single slot — all
                     four still sit inside it (the inner disc is sized off the
                     slot ring, not guessed). */}
-                <RoundedRect x={x} y={y} width={w} height={w} r={16}>
+                <RoundedRect x={x} y={y} width={w} height={w} r={yardR}>
                   <LinearGradient
                     start={vec(x, y)}
                     end={vec(x, y + w)}
@@ -528,7 +528,7 @@ export function BoardSurface({ size, theme, ornament = true }: { size: number; t
                 {/* The board's own material, with the seat colour set as a band
                     around it — see BoardTheme.yardStyle on why the tile stops
                     being a solid block of seat colour on these boards. */}
-                <RoundedRect x={x} y={y} width={w} height={w} r={16}>
+                <RoundedRect x={x} y={y} width={w} height={w} r={yardR}>
                   <LinearGradient
                     start={vec(x, y)}
                     end={vec(x, y + w)}
@@ -541,7 +541,7 @@ export function BoardSurface({ size, theme, ornament = true }: { size: number; t
                   y={y + cell * 0.19}
                   width={w - cell * 0.38}
                   height={w - cell * 0.38}
-                  r={13}
+                  r={yardBandR}
                   color={team}
                   style="stroke"
                   strokeWidth={cell * 0.3}
@@ -551,26 +551,26 @@ export function BoardSurface({ size, theme, ornament = true }: { size: number; t
                   y={y + cell * 0.19}
                   width={w - cell * 0.38}
                   height={w - cell * 0.38}
-                  r={13}
+                  r={yardBandR}
                   color={shade(team, 0.3)}
                   opacity={0.5}
                   style="stroke"
                   strokeWidth={1}
                 />
-                <RoundedRect x={x + 1.5} y={y + 1.5} width={w - 3} height={w - 3} r={14} color="rgba(255,255,255,0.18)" style="stroke" strokeWidth={1.5} />
+                <RoundedRect x={x + lipInset} y={y + lipInset} width={w - lipInset * 2} height={w - lipInset * 2} r={yardLipR} color="rgba(255,255,255,0.18)" style="stroke" strokeWidth={1.5} />
               </Group>
             ) : (
               <Group opacity={tint}>
-                <RoundedRect x={x} y={y} width={w} height={w} r={16}>
+                <RoundedRect x={x} y={y} width={w} height={w} r={yardR}>
                   <LinearGradient start={vec(x, y)} end={vec(x, y + w)} colors={[shade(team, 0.22), team, shade(team, -0.18)]} positions={[0, 0.55, 1]} />
                 </RoundedRect>
-                <RoundedRect x={x + 1.5} y={y + 1.5} width={w - 3} height={w - 3} r={14} color="rgba(255,255,255,0.35)" style="stroke" strokeWidth={2} />
+                <RoundedRect x={x + lipInset} y={y + lipInset} width={w - lipInset * 2} height={w - lipInset * 2} r={yardLipR} color="rgba(255,255,255,0.35)" style="stroke" strokeWidth={2} />
               </Group>
             )}
             {theme.yardStyle === "disc" ? (
               <Circle cx={x + w / 2} cy={y + w / 2} r={w * 0.4} color={theme.cellFill} />
             ) : (
-              <RoundedRect x={ix} y={iy} width={iw} height={iw} r={12} color={theme.cellFill} />
+              <RoundedRect x={ix} y={iy} width={iw} height={iw} r={yardInnerR} color={theme.cellFill} />
             )}
             {/* One composed figure per yard, centred (render/boardArt.ts's
                 yardEmblem). The yard plates are the largest uninterrupted
@@ -582,7 +582,7 @@ export function BoardSurface({ size, theme, ornament = true }: { size: number; t
                 clip={
                   theme.yardStyle === "disc"
                     ? circleClip(x + w / 2, y + w / 2, w * 0.4)
-                    : roundedClip(ix, iy, iw, 12)
+                    : roundedClip(ix, iy, iw, yardInnerR)
                 }
               >
                 <ArtLayer
@@ -597,7 +597,7 @@ export function BoardSurface({ size, theme, ornament = true }: { size: number; t
             {theme.yardStyle === "disc" ? (
               <Circle cx={x + w / 2} cy={y + w / 2} r={w * 0.4} color={shade(team, -0.3)} opacity={0.4} style="stroke" strokeWidth={1.5} />
             ) : (
-              <RoundedRect x={ix} y={iy} width={iw} height={iw} r={12} color={shade(team, -0.3)} opacity={0.35} style="stroke" strokeWidth={1.5} />
+              <RoundedRect x={ix} y={iy} width={iw} height={iw} r={yardInnerR} color={shade(team, -0.3)} opacity={0.35} style="stroke" strokeWidth={1.5} />
             )}
             {YARD_SLOTS[color].map(([gx, gy], i) => {
               const cx = gx * cell;
