@@ -14,7 +14,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { AvatarSwatch } from "./AvatarSwatch";
 import { ThemeSwatch } from "./ThemeSwatch";
 import { DiceSwatch } from "./DiceSwatch";
@@ -61,7 +61,7 @@ const SWATCH_SKELETON: Record<CosmeticCategory, { thumb: number; rad: number; la
   dice: { thumb: 72, rad: radius.md, label: true, gap: space.xs },
 };
 
-export function CosmeticsBrowser({ mode }: { mode: "locker" | "shop" }) {
+export function CosmeticsBrowser({ mode, bottomInset = 0 }: { mode: "locker" | "shop"; bottomInset?: number }) {
   const t = useT();
   const category = useCosmeticsUI((s) => s.category);
   const tab = useCosmeticsUI((s) => s.tab);
@@ -185,8 +185,8 @@ export function CosmeticsBrowser({ mode }: { mode: "locker" | "shop" }) {
     highlightId === equippedId ? t("shop.equipped") : highlightOwned ? t("shop.inYourCollection") : t("shop.notYetUnlocked");
 
   return (
-    <View style={{ gap: space.lg }}>
-      {/* Category tabs */}
+    <View style={{ flex: 1, gap: space.lg }}>
+      {/* Category tabs — pinned */}
       <View
         style={{
           flexDirection: "row",
@@ -227,8 +227,11 @@ export function CosmeticsBrowser({ mode }: { mode: "locker" | "shop" }) {
         })}
       </View>
 
-      {showingGems ? <GemsSection /> : <>
-      {/* Hero preview + caption */}
+      {/* Hero preview + caption — pinned, so the item you tapped stays in view
+          no matter how far down the grid you are. It used to scroll with the
+          grid, which meant picking anything past the second row and then
+          scrolling back to the top to see what you had picked. */}
+      {showingGems ? null : (
       <View style={{ gap: space.sm }}>
         <CosmeticPreview category={category} itemId={highlightId} boardTheme={boardTheme} />
         <View style={{ alignItems: "center", gap: 2 }}>
@@ -247,8 +250,15 @@ export function CosmeticsBrowser({ mode }: { mode: "locker" | "shop" }) {
           )}
         </View>
       </View>
+      )}
 
-      {/* Item grid */}
+      {/* Everything below the preview scrolls. */}
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ gap: space.lg, paddingBottom: bottomInset }}
+        showsVerticalScrollIndicator={false}
+      >
+      {showingGems ? <GemsSection /> : <>
       {view === "stalled" ? (
         <LoadFailed
           message={
@@ -337,6 +347,7 @@ export function CosmeticsBrowser({ mode }: { mode: "locker" | "shop" }) {
         <Button label={t("shop.shopForMore")} variant="ghost" onPress={() => push("shop")} />
       ) : null}
       </>}
+      </ScrollView>
 
       {pending ? (
         <BuySheet

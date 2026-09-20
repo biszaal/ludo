@@ -14,7 +14,7 @@
  */
 
 import { useState } from "react";
-import { ScrollView, View } from "react-native";
+import { View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { TableBackground } from "../components/TableBackground";
 import { ScreenHeader } from "../components/ScreenHeader";
@@ -47,12 +47,14 @@ export function ShopScreen() {
         }
       />
 
-      <ScrollView contentContainerStyle={{ paddingTop: space.lg, paddingBottom: space.xxl + dockPad, alignItems: "center" }}>
-        <ContentColumn style={{ paddingHorizontal: space.xl, gap: space.lg }}>
-          <RemoveAdsSection />
-          <CosmeticsBrowser mode="shop" />
-        </ContentColumn>
-      </ScrollView>
+      {/* Not a ScrollView any more. The browser pins its own hero preview and
+          scrolls only the grid beneath it, which it can only do inside a
+          parent that gives it a bounded height. It pays the dock's clearance
+          at the bottom of that inner scroll, so the last row still clears. */}
+      <ContentColumn style={{ flex: 1, paddingTop: space.lg, paddingHorizontal: space.xl, gap: space.lg }}>
+        <RemoveAdsSection />
+        <CosmeticsBrowser mode="shop" bottomInset={space.xxl + dockPad} />
+      </ContentColumn>
 
       {coinsSheet && <GetCoinsSheet onClose={() => setCoinsSheet(false)} />}
     </SafeAreaView>
