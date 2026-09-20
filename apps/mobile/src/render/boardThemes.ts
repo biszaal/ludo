@@ -46,6 +46,7 @@ export type BoardThemeId =
   | "garden"
   | "blossom"
   | "onyx"
+  | "celadon"
   | "riverstone"
   | "gilded"
   | "aurora"
@@ -53,6 +54,7 @@ export type BoardThemeId =
   | "titanium"
   | "nacre"
   | "herbarium"
+  | "urushi"
   | "amber"
   | "peacock"
   | "celestial";
@@ -496,6 +498,46 @@ export const BOARD_THEMES: Record<BoardThemeId, BoardTheme> = {
    * track. Seats sit at 0.82 so they read as wet stone taking a colour rather
    * than as paint on stone.
    */
+  /**
+   * Pale celadon glaze with cobalt drawn under it.
+   *
+   * The crackle is the material: a glaze that has aged has a net of hairlines
+   * through it, and `veins` at a whisper is what that is — anything stronger
+   * stops being a fired surface and becomes a cracked one. Cobalt is used as
+   * the cell border rather than as ink on the surface, so the blue sits UNDER
+   * the glaze the way underglaze actually does.
+   */
+  celadon: {
+    id: "celadon",
+    label: "Celadon Porcelain",
+    price: 60000,
+    boardBase: "#CFDCD4",
+    plate: { colors: ["#EAF0E8", "#CFDCD4", "#E4ECE6"], positions: [0, 0.6, 1], angle: "diagonal" },
+    boardEdge: "#9FB4AC",
+    edgeWidth: 2,
+    lip: "rgba(255,255,255,0.9)",
+    interior: { colors: ["#F3F7F1", "#DCE7E0"], angle: "diagonal" },
+    texture: { kind: "veins", color: "#6E8A84", alpha: 0.14 },
+    cellFill: "#E3EDE6",
+    cellTop: "#FBFDFA",
+    cellBorder: "rgba(60,95,168,0.34)",
+    emboss: { top: "rgba(255,255,255,0.7)", bottom: "rgba(120,150,140,0.22)" },
+    cellRadius: 0.1,
+    plateTint: 0.9,
+    slotEmpty: "#DAE6E0",
+    slotRing: "rgba(60,95,168,0.55)",
+    slotFill: "#E8F0EA",
+    starColor: "#5A7FA8",
+    glyph: "star",
+    sheen: 0.06,
+    vignette: 0.16,
+    // The design's glaze colours ran 76 apart for red against yellow and 81 for
+    // green against blue. Lifted clear of 90 without leaving the palette a
+    // glazed pot could hold.
+    team: { red: "#C24E48", green: "#4FA57A", yellow: "#DBAE4A", blue: "#2F55AA" },
+    dice: { face: "#FAFCF8", pip: "#27459A" },
+    pawnStroke: "rgba(0,0,0,0.28)",
+  },
   riverstone: {
     id: "riverstone",
     label: "Moss & River Stone",
@@ -781,6 +823,52 @@ export const BOARD_THEMES: Record<BoardThemeId, BoardTheme> = {
    * is why the safe stars are cut dark here — a white star on lit resin is the
    * one marking that would disappear.
    */
+  /**
+   * Twenty coats of black lacquer, with gold dust drifted across it.
+   *
+   * The only board in the catalog whose seats are laid in at full strength —
+   * `plateTint` stays 1 here on purpose. Vermilion on black is the whole point
+   * of urushi, and tinting it into the ground would turn the one high-contrast
+   * material in the tier into another muted one.
+   *
+   * The gold is a starfield at low alpha, which is nearer to maki-e than it
+   * sounds: hand-scattered dust is uneven, mostly fine, with the occasional
+   * larger flake catching the light. It survives in the grout between cells,
+   * which is where a lacquered ground shows anyway.
+   */
+  urushi: {
+    id: "urushi",
+    label: "Urushi Vermilion",
+    price: 480,
+    currency: "gems",
+    boardBase: "#0C0705",
+    // The design holds the ground colour from 70% outwards, so the far stop is
+    // repeated rather than left to run — a wash has to end at 1.
+    plate: { colors: ["#241712", "#0C0705", "#0C0705"], positions: [0, 0.7, 1], angle: "radial", center: [0.3, 0.1], radius: 1.2 },
+    boardEdge: "#C9973F",
+    edgeWidth: 2,
+    lip: "rgba(255,220,170,0.3)",
+    interior: { colors: ["#1B100C", "#0B0605"], angle: "radial", center: [0.2, 0], radius: 1.1 },
+    texture: { kind: "starfield", color: "#E8C57A", alpha: 0.5 },
+    cellFill: "#140B08",
+    cellTop: "#1E120D",
+    cellBorder: "rgba(201,151,63,0.42)",
+    emboss: { top: "rgba(255,220,160,0.14)", bottom: "rgba(0,0,0,0.5)" },
+    cellRadius: 0.09,
+    slotEmpty: "#160C08",
+    slotRing: "rgba(201,151,63,0.8)",
+    slotFill: "#8A6A2E",
+    starColor: "#D8B366",
+    glyph: "star",
+    sheen: 0.1,
+    vignette: 0.3,
+    band: { kind: "meander", color: "#C9973F", alpha: 0.8 },
+    // Only the green moved: against the design's blue it sat 69 apart, under
+    // the 90 a seat has to clear. The vermilion and the gold are the design's.
+    team: { red: "#D9412C", green: "#2F9A62", yellow: "#E0A92B", blue: "#2A4694" },
+    dice: { face: "#1C100B", pip: "#C9973F" },
+    pawnStroke: "rgba(0,0,0,0.55)",
+  },
   amber: {
     id: "amber",
     label: "Amber Inclusion",

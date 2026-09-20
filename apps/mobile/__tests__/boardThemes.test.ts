@@ -53,11 +53,12 @@ describe("board themes", () => {
     }
   });
 
-  it("theme ids are the seventeen boards, uniquely keyed", () => {
+  it("theme ids are the nineteen boards, uniquely keyed", () => {
     expect(Object.keys(BOARD_THEMES).sort()).toEqual([
       "amber",
       "aurora",
       "blossom",
+      "celadon",
       "celestial",
       "classic",
       "garden",
@@ -71,6 +72,7 @@ describe("board themes", () => {
       "riverstone",
       "sand",
       "titanium",
+      "urushi",
       "walnut",
     ]);
   });
