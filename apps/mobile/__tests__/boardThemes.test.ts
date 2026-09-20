@@ -13,13 +13,12 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, it, expect } from "vitest";
-import { BOARD_THEMES, DEFAULT_THEME, resolveBoardTheme, type BoardTheme } from "../src/render/boardThemes";
+import { BOARD_THEMES, DEFAULT_THEME, resolveBoardTheme, type BoardTheme, type BoardThemeId } from "../src/render/boardThemes";
 import { teamColor } from "../src/theme";
 
 const COLOR = /^(#[0-9A-Fa-f]{6}|rgba?\()/;
 
 /** The themes that shipped before the premium tiers — none may be restyled. */
-const ORIGINAL = ["classic", "night", "walnut", "sand", "aurora"] as const;
 
 describe("board themes", () => {
   it("classic matches the original board literals exactly", () => {
@@ -80,21 +79,31 @@ describe("board themes", () => {
     ]);
   });
 
-  it("leaves the themes that shipped before the premium tiers untouched", () => {
-    // Anyone who already owns one of these bought the board they can see. A
-    // premium treatment landing on it later is a restyle of something sold.
-    for (const id of ORIGINAL) {
+  it("never changes what an older board IS — only how it looks", () => {
+    // This replaces a rule that said the five pre-premium boards could never
+    // take a premium treatment at all, on the grounds that a treatment landing
+    // later restyles something already sold. That held until the material tier
+    // arrived and left them visibly older than everything beside them, so the
+    // line moved: appearance is not what was sold, IDENTITY is. A player who
+    // bought Night owns Night at the price they paid, on whatever shelf it
+    // sits, and that is what is locked here.
+    //
+    // Geometry is covered elsewhere and deliberately cannot move per board
+    // (render/boardThemes.ts's header): a restyle may never change where a
+    // cell, a pawn or a safe square is.
+    const SOLD: Array<[BoardThemeId, number, "coins" | "gems"]> = [
+      ["classic", 0, "coins"],
+      ["night", 600, "coins"],
+      ["walnut", 600, "coins"],
+      ["sand", 600, "coins"],
+      ["aurora", 250, "gems"],
+    ];
+    for (const [id, price, currency] of SOLD) {
       const t: BoardTheme = BOARD_THEMES[id];
-      expect(t.plate, id).toBeUndefined();
-      expect(t.lip, id).toBeUndefined();
-      expect(t.cellTop, id).toBeUndefined();
-      expect(t.glyph, id).toBeUndefined();
-      expect(t.sheen, id).toBeUndefined();
-      expect(t.crest, id).toBeUndefined();
-      expect(t.texture, id).toBeUndefined();
-      expect(t.emblem, id).toBeUndefined();
-      expect(t.band, id).toBeUndefined();
-      expect(t.vignette, id).toBeUndefined();
+      expect(t, id).toBeDefined();
+      expect(t.id, id).toBe(id);
+      expect(t.price, id).toBe(price);
+      expect(t.currency ?? "coins", id).toBe(currency);
     }
   });
 
