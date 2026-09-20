@@ -131,16 +131,42 @@ export function CosmeticsBrowser({ mode }: { mode: "locker" | "shop" }) {
     }
   };
 
-  const confirmBuy = async () => {
+  const confirmBuy = async (sku?: string) => {
     if (!pending) return;
     setBuyError(null);
-    const err = await buy(pending.item.sku);
+    const err = await buy(sku ?? pending.item.sku);
     if (err) {
       setBuyError(err);
       return;
     }
+    // Equip the thing they were looking at either way. A set grants its parts
+    // server-side, so buying one leaves the player owning both — but they came
+    // here for the board, and that is what should be on the table afterwards.
     equipIn(pending.category, pending.item.id);
     setPending(null);
+  };
+
+  /**
+   * The set offer for whatever is in the buy sheet, or null.
+   *
+   * Only shown when the matching piece is BOTH sellable and not already owned —
+   * there is nothing to bundle with something the player has, and the server
+   * would (rightly) refuse the purchase.
+   */
+  const bundleFor = (item: CosmeticItem, category: CosmeticCategory) => {
+    if (category !== "board" && category !== "dice") return undefined;
+    const setSku = `set.${item.id}`;
+    if (!catalogKnown(prices) || !(setSku in prices)) return undefined;
+    const otherSku = category === "board" ? `dice.${item.id}` : `theme.${item.id}`;
+    if (!(otherSku in prices) || isUnlocked(owned, prices, otherSku)) return undefined;
+    const apart = priceOf(prices, item.sku) + priceOf(prices, otherSku);
+    const price = priceOf(prices, setSku);
+    return {
+      label: category === "board" ? "Board + dice set" : "Dice + board set",
+      price,
+      saving: apart - price,
+      onConfirm: () => void confirmBuy(setSku),
+    };
   };
 
   const items = mode === "locker" ? ownedItems(category, owned, prices) : sellableItems(category, owned, prices);
@@ -321,6 +347,7 @@ export function CosmeticsBrowser({ mode }: { mode: "locker" | "shop" }) {
           busy={buying === pending.item.sku}
           error={buyError}
           onConfirm={() => void confirmBuy()}
+          bundle={bundleFor(pending.item, pending.category)}
           onClose={() => setPending(null)}
           onGetCurrency={
             currencyOf(currencies, pending.item.sku) === "gems"

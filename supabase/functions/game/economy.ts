@@ -510,6 +510,20 @@ export async function opEntitlementsGet(admin: SupabaseClient, userId: string): 
   });
 }
 
+/**
+ * The parts a set sku grants. `set.amber` is not equippable — it is a cheaper
+ * way to buy `theme.amber` and `dice.amber` together, so a purchase leaves the
+ * two parts in entitlements plus the set row as a receipt.
+ *
+ * Deliberately derived from the key rather than stored in a table: the whole
+ * point of a set is that its parts are the same name, and a mapping table is
+ * one more thing that can disagree with the catalog.
+ */
+export function setParts(sku: string): string[] {
+  const key = sku.slice("set.".length);
+  return [`theme.${key}`, `dice.${key}`];
+}
+
 /** Buy a cosmetic. Price AND currency come from the catalog, never from the
  *  client, and the debit is what gates the grant — no debit, no entitlement. */
 export async function opShopBuy(admin: SupabaseClient, userId: string, sku: string): Promise<Response> {
@@ -521,13 +535,20 @@ export async function opShopBuy(admin: SupabaseClient, userId: string, sku: stri
     .maybeSingle();
   if (!item || !item.active) return json({ error: "That item isn't available." });
 
-  const { data: already } = await admin
+  // A set is owned when its PARTS are owned, however they were bought — buying
+  // the Amber board and then the Amber set would otherwise charge for a board
+  // the player already has.
+  const isSet = sku.startsWith("set.");
+  const wanted = isSet ? [sku, ...setParts(sku)] : [sku];
+  const { data: held } = await admin
     .from("entitlements")
     .select("sku")
     .eq("user_id", userId)
-    .eq("sku", sku)
-    .maybeSingle();
-  if (already) return json({ error: "You already own that." });
+    .in("sku", wanted);
+  const have = new Set((held ?? []).map((r) => r.sku as string));
+  if (isSet ? setParts(sku).every((s) => have.has(s)) : have.has(sku)) {
+    return json({ error: "You already own that." });
+  }
 
   const price = (item.price as number | null) ?? 0;
   const inGems = item.currency === "gems";
@@ -538,9 +559,16 @@ export async function opShopBuy(admin: SupabaseClient, userId: string, sku: stri
     if (paid === null) return json({ error: inGems ? "Not enough gems." : "Not enough coins." });
   }
 
+  const source = inGems ? "gems" : "coins";
+  // Upsert rather than insert: a set may include a part the player already
+  // bought on its own, and a duplicate key there must not fail the purchase
+  // they have just been charged for.
   const { error } = await admin
     .from("entitlements")
-    .insert({ user_id: userId, sku, source: inGems ? "gems" : "coins" });
+    .upsert(
+      wanted.map((s) => ({ user_id: userId, sku: s, source })),
+      { onConflict: "user_id,sku", ignoreDuplicates: true },
+    );
   if (error) {
     // Refund rather than silently pocketing the currency.
     if (price > 0) {

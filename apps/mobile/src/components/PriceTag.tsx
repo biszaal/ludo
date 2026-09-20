@@ -51,6 +51,14 @@ interface BuySheetProps {
   onClose: () => void;
   /** Short on funds — offer a doorway to top up (Get coins / Get gems). */
   onGetCurrency?: () => void;
+  /**
+   * A cheaper way to buy this AND its matching piece — the set (`set.<key>`).
+   *
+   * Offered here rather than as a shelf of its own because this is the moment
+   * it is worth anything: the player has already decided they want the board.
+   * A separate Sets tab would be a third place to browse the same nine things.
+   */
+  bundle?: { label: string; price: number; saving: number; onConfirm: () => void };
 }
 
 /** Confirm sheet. Spells out the price and the balance after, so a purchase is
@@ -65,6 +73,7 @@ export function BuySheet({
   onConfirm,
   onClose,
   onGetCurrency,
+  bundle,
 }: BuySheetProps) {
   const t = useT();
   const have = balance ?? 0;
@@ -97,6 +106,14 @@ export function BuySheet({
         onPress={onConfirm}
         disabled={busy || !affordable}
       />
+      {bundle && bundle.price <= have ? (
+        <Button
+          label={`${bundle.label} · ${bundle.price} (save ${bundle.saving})`}
+          variant="ghost"
+          onPress={bundle.onConfirm}
+          disabled={busy}
+        />
+      ) : null}
       {!affordable && onGetCurrency ? (
         <Button label={currency === "gems" ? t("gems.getGems") : t("coins.getCoins")} variant="ghost" onPress={onGetCurrency} />
       ) : (

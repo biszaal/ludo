@@ -49,6 +49,13 @@ describe("gem catalog seed parity (all migrations)", () => {
         expect(Object.keys(BOARD_THEMES)).toContain(id);
       } else if (kind === "avatar") {
         expect(AVATAR_IDS).toContain(id);
+      } else if (kind === "set") {
+        // A set is not a registry item — it is a cheaper way to buy two of
+        // them. It resolves when BOTH its parts do, which is the thing that
+        // actually matters: a set whose board or dice the client cannot
+        // render would take gems and grant nothing equippable.
+        expect(Object.keys(BOARD_THEMES), sku).toContain(id);
+        expect(Object.values(DICE_SKINS).some((d) => d.id === id), sku).toBe(true);
       } else {
         throw new Error(`unexpected gem kind: ${kind}`);
       }
