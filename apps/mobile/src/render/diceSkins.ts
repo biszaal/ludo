@@ -26,6 +26,10 @@ export type DiceSkinId =
   | "midnight"
   | "bubblegum"
   | "walnut"
+  | "carbon"
+  | "celadon"
+  | "riverstone"
+  | "voyager"
   | "marble"
   | "neon"
   | "gold"
@@ -37,6 +41,11 @@ export type DiceSkinId =
   | "ivory"
   | "jade"
   | "oxblood"
+  | "titanium"
+  | "herbarium"
+  | "urushi"
+  | "amber"
+  | "glacier"
   | "bullion"
   | "bloom"
   | "lapis"
@@ -203,6 +212,15 @@ export const DICE_SKINS: Record<DiceSkinId, DiceSkin> = {
     pip: { color: "#FF9E3D", shape: "flame", glow: "#FF5A26" },
     edge: "#1A120E",
   },
+  carbon: {
+    id: "carbon",
+    label: "Carbon Monocoque",
+    price: 22000,
+    face: { type: "linear", colors: ["#25292E", "#15181B"] },
+    pip: { color: "#9BE83C", shape: "dot", glow: "#9BE83C" },
+    edge: "#0B0C0E",
+    overlay: "grain",
+  },
   diamond: {
     id: "diamond",
     label: "Diamond",
@@ -211,6 +229,33 @@ export const DICE_SKINS: Record<DiceSkinId, DiceSkin> = {
     pip: { color: "#1E5C8C", shape: "diamond", glow: "#FFFFFF" },
     edge: "#3D7FB3",
     overlay: "facets",
+  },
+  celadon: {
+    id: "celadon",
+    label: "Celadon Porcelain",
+    price: 45000,
+    face: { type: "linear", colors: ["#FAFCF8", "#D9E5DD"] },
+    pip: { color: "#27459A", shape: "dot" },
+    edge: "#B9C7BF",
+    overlay: "veins",
+  },
+  riverstone: {
+    id: "riverstone",
+    label: "Moss & River Stone",
+    price: 55000,
+    face: { type: "linear", colors: ["#8A938F", "#5A6260"] },
+    pip: { color: "#171B1A", shape: "dot" },
+    edge: "#3A4240",
+    overlay: "grain",
+  },
+  voyager: {
+    id: "voyager",
+    label: "Voyager Travel Set",
+    price: 70000,
+    face: { type: "linear", colors: ["#F6ECD8", "#DCC9A6"] },
+    pip: { color: "#33200C", shape: "dot" },
+    edge: "#8A6A3C",
+    overlay: "grain",
   },
   "obsidian-king": {
     id: "obsidian-king",
@@ -283,6 +328,28 @@ export const DICE_SKINS: Record<DiceSkinId, DiceSkin> = {
     // would read as a scratch, not as a finish.
     sheen: 0.6,
   },
+  titanium: {
+    id: "titanium",
+    label: "Titanium & Bronze",
+    price: 340,
+    currency: "gems",
+    face: { type: "linear", colors: ["#6A6F78", "#3C4048"] },
+    pip: { color: "#1A1C20", shape: "dot" },
+    edge: "#2A2D33",
+    frame: "#C9A870",
+    overlay: "grain",
+    sheen: 0.35,
+  },
+  herbarium: {
+    id: "herbarium",
+    label: "Pressed Herbarium",
+    price: 380,
+    currency: "gems",
+    face: { type: "linear", colors: ["#FBF4E3", "#E6D9BC"] },
+    pip: { color: "#43602C", shape: "dot" },
+    edge: "#C7B98E",
+    sheen: 0.3,
+  },
   bullion: {
     id: "bullion",
     label: "Bullion",
@@ -298,6 +365,27 @@ export const DICE_SKINS: Record<DiceSkinId, DiceSkin> = {
   // The ornamented top of the line. Material alone runs out of ways to look
   // more expensive somewhere around a polished lacquer, so these three carry a
   // struck figure as well as a finish — a bloom, a sunburst, engine turning.
+  urushi: {
+    id: "urushi",
+    label: "Urushi Vermilion",
+    price: 420,
+    currency: "gems",
+    face: { type: "linear", colors: ["#1C100B", "#0C0605"] },
+    pip: { color: "#C9973F", shape: "dot", glow: "#C9973F" },
+    edge: "#0C0705",
+    frame: "#C9973F",
+    sheen: 0.6,
+  },
+  amber: {
+    id: "amber",
+    label: "Amber Inclusion",
+    price: 440,
+    currency: "gems",
+    face: { type: "linear", colors: ["#FFCE6E", "#BE6E1C"] },
+    pip: { color: "#2E1804", shape: "dot" },
+    edge: "#8A4A10",
+    sheen: 0.5,
+  },
   bloom: {
     id: "bloom",
     label: "Cloisonné Bloom",
@@ -321,6 +409,18 @@ export const DICE_SKINS: Record<DiceSkinId, DiceSkin> = {
     frame: "#D4AC33",
     sheen: 0.5,
     motif: { kind: "deco", color: "#F0D08A", alpha: 0.78, scale: 0.46 },
+  },
+  glacier: {
+    id: "glacier",
+    label: "Glacier Optic",
+    price: 560,
+    currency: "gems",
+    face: { type: "linear", colors: ["#E2F0FF", "#96BEF0", "#E6F5FF"], stops: [0, 0.45, 1] },
+    pip: { color: "#FFFFFF", shape: "diamond", glow: "#5D8FD6" },
+    edge: "#5D8FD6",
+    frame: "#FFFFFF",
+    overlay: "facets",
+    sheen: 0.55,
   },
   sovereign: {
     id: "sovereign",

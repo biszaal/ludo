@@ -22,10 +22,10 @@ function rgbOf(hex: string): [number, number, number] {
 }
 
 describe("dice skin registry", () => {
-  it("has 21 unique ids matching the sku id format", () => {
+  it("has 30 unique ids matching the sku id format", () => {
     const ids = Object.values(DICE_SKINS).map((s) => s.id);
-    expect(ids.length).toBe(21);
-    expect(new Set(ids).size).toBe(21);
+    expect(ids.length).toBe(30);
+    expect(new Set(ids).size).toBe(30);
     for (const id of ids) expect(id).toMatch(/^[a-z0-9-]{1,24}$/);
   });
 
