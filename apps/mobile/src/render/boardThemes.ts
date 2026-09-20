@@ -350,6 +350,7 @@ export const BOARD_THEMES: Record<BoardThemeId, BoardTheme> = {
     team: { red: "#C9403F", green: "#27915A", yellow: "#D9A422", blue: "#3B58C4" },
     dice: { face: palette.raisedSlate, pip: palette.porcelain },
     pawnStroke: "rgba(0,0,0,0.5)",
+    table: { colors: ["#22262E", "#161A20", "#0D0F13"], positions: [0, 0.52, 1], ink: "rgba(220,230,245,0.05)", lamp: "rgba(230,240,255,0.05)" },
   },
   // Warm wood with cream cells and a brass-toned edge.
   walnut: {
@@ -365,6 +366,7 @@ export const BOARD_THEMES: Record<BoardThemeId, BoardTheme> = {
     team: teamColor,
     dice: { face: "#6B4E30", pip: "#F3E9D7" },
     pawnStroke: "rgba(0,0,0,0.38)",
+    table: { colors: ["#3A2A1E", "#241A12", "#14100B"], positions: [0, 0.52, 1], ink: "rgba(255,235,205,0.05)", lamp: "rgba(255,240,210,0.055)" },
   },
   // Soft warm off-white with clay accents; light dice with dark pips.
   sand: {
@@ -380,6 +382,7 @@ export const BOARD_THEMES: Record<BoardThemeId, BoardTheme> = {
     team: teamColor,
     dice: { face: "#E8DFCE", pip: "#5B5344" },
     pawnStroke: "rgba(0,0,0,0.28)",
+    table: { colors: ["#3E3A32", "#292620", "#171512"], positions: [0, 0.52, 1], ink: "rgba(255,248,230,0.05)", lamp: "rgba(255,250,235,0.055)" },
   },
 
   // --- The premium coin ladder (0061) -------------------------------------
@@ -427,6 +430,7 @@ export const BOARD_THEMES: Record<BoardThemeId, BoardTheme> = {
     team: { red: "#C4514C", green: "#3E9C63", yellow: "#DFAE3E", blue: "#4767C6" },
     dice: { face: "#F3EFE2", pip: "#2C4835" },
     pawnStroke: "rgba(0,0,0,0.34)",
+    table: { colors: ["#26382A", "#182619", "#0D150E"], positions: [0, 0.52, 1], ink: "rgba(225,245,220,0.05)", lamp: "rgba(235,255,230,0.055)" },
   },
   // Ink-wash aubergine under rice paper, with a blossom on every safe square.
   // The one board in the catalog built on a warm dark neutral rather than on a
@@ -461,6 +465,7 @@ export const BOARD_THEMES: Record<BoardThemeId, BoardTheme> = {
     team: { red: "#CF5763", green: "#48A06A", yellow: "#E0B24A", blue: "#4C63BE" },
     dice: { face: "#F7F1EC", pip: "#3A2C38" },
     pawnStroke: "rgba(0,0,0,0.36)",
+    table: { colors: ["#33242C", "#20161C", "#120C10"], positions: [0, 0.52, 1], ink: "rgba(255,230,240,0.05)", lamp: "rgba(255,235,245,0.055)" },
   },
   // Black stone and brass: graphite tiles, brass rail, brass lip, brass mark.
   // The only premium board with dark cells — the pawns are the brightest thing
@@ -536,6 +541,8 @@ export const BOARD_THEMES: Record<BoardThemeId, BoardTheme> = {
     team: { red: "#D6524E", green: "#33AE72", yellow: "#E4B93E", blue: "#5273DD" },
     dice: { face: "#282A31", pip: "#E5C979" },
     pawnStroke: "rgba(0,0,0,0.5)",
+    emboss: { top: "rgba(255,255,255,0.14)", bottom: "rgba(0,0,0,0.5)" },
+    table: { colors: ["#1E2028", "#141519", "#0A0B0D"], positions: [0, 0.52, 1], ink: "rgba(201,162,74,0.05)", lamp: "rgba(255,230,170,0.05)" },
     crest: { kind: "deco", color: "#C9A24A", alpha: 0.5, scale: 1.15 },
   },
   // The gold board. Struck metal plate, ivory field, fleur-de-lis marks, a
@@ -711,6 +718,7 @@ export const BOARD_THEMES: Record<BoardThemeId, BoardTheme> = {
     team: { red: "#B23B41", green: "#2A8A5E", yellow: "#EFC03A", blue: "#3457B8" },
     dice: { face: "#FBF4E2", pip: "#6E5116" },
     pawnStroke: "rgba(0,0,0,0.4)",
+    table: { colors: ["#2E2414", "#1E170D", "#100C06"], positions: [0, 0.52, 1], ink: "rgba(255,230,160,0.05)", lamp: "rgba(255,235,175,0.06)" },
     // Ivory, not dark gold: struck in the plate's own shadow tone the medallion
     // vanished into the wedges and read as a smudge. Inlay reads by contrast
     // with what it is set into, and porcelain into gold is the real reference.
@@ -739,6 +747,7 @@ export const BOARD_THEMES: Record<BoardThemeId, BoardTheme> = {
     team: { red: "#D9484F", green: "#2FA98C", yellow: "#D9B02E", blue: "#5B76E8" },
     dice: { face: "#2E3554", pip: "#BFE8DF" },
     pawnStroke: "rgba(0,0,0,0.45)",
+    table: { colors: ["#1E2440", "#141A2E", "#0A0D18"], positions: [0, 0.52, 1], ink: "rgba(200,220,255,0.05)", lamp: "rgba(215,230,255,0.055)" },
   },
   // The same garden after dark: foliage gone blue-green, the path lit by
   // moonlight, weathered silver instead of brass. Deliberately a night GARDEN
@@ -770,6 +779,7 @@ export const BOARD_THEMES: Record<BoardThemeId, BoardTheme> = {
     team: { red: "#CE565A", green: "#37A874", yellow: "#DDB44B", blue: "#5477DA" },
     dice: { face: "#2C4039", pip: "#E2E8E4" },
     pawnStroke: "rgba(0,0,0,0.45)",
+    table: { colors: ["#1E2E2C", "#14201E", "#0B1211"], positions: [0, 0.52, 1], ink: "rgba(220,240,235,0.05)", lamp: "rgba(230,250,245,0.055)" },
     crest: { kind: "rosette", color: "#C8D8CF", alpha: 0.3, scale: 1.15 },
   },
   // Oxblood lacquer with mother-of-pearl inlay and a gold rail. The highest
@@ -856,6 +866,7 @@ export const BOARD_THEMES: Record<BoardThemeId, BoardTheme> = {
     team: { red: "#E05A50", green: "#2F9C77", yellow: "#E2B446", blue: "#4A66C8" },
     dice: { face: "#F6EFE6", pip: "#5A2028" },
     pawnStroke: "rgba(0,0,0,0.42)",
+    table: { colors: ["#331A1E", "#201013", "#12080A"], positions: [0, 0.52, 1], ink: "rgba(255,225,200,0.05)", lamp: "rgba(255,230,205,0.06)" },
     crest: { kind: "guilloche", color: "#E8CFA2", alpha: 0.4, scale: 1.15 },
   },
   // Peacock enamel over gold: the plate runs teal to indigo across the
@@ -1049,6 +1060,7 @@ export const BOARD_THEMES: Record<BoardThemeId, BoardTheme> = {
     team: { red: "#D6564F", green: "#39B07E", yellow: "#E5BA47", blue: "#4F6FD8" },
     dice: { face: "#1F5A63", pip: "#F4EFE3" },
     pawnStroke: "rgba(0,0,0,0.45)",
+    table: { colors: ["#14343A", "#0D2228", "#061316"], positions: [0, 0.52, 1], ink: "rgba(200,240,245,0.05)", lamp: "rgba(215,250,255,0.055)" },
     crest: { kind: "deco", color: "#D8B667", alpha: 0.5, scale: 1.15 },
   },
   // The top of the shelf: a night sky under glass.
@@ -1097,6 +1109,8 @@ export const BOARD_THEMES: Record<BoardThemeId, BoardTheme> = {
     team: { red: "#E05A5F", green: "#35B183", yellow: "#E9C24C", blue: "#5B7FEA" },
     dice: { face: "#1E2758", pip: "#EDEBF6" },
     pawnStroke: "rgba(0,0,0,0.5)",
+    emboss: { top: "rgba(190,205,255,0.16)", bottom: "rgba(0,0,0,0.5)" },
+    table: { colors: ["#151A3C", "#0D1028", "#060816"], positions: [0, 0.52, 1], ink: "rgba(215,225,255,0.05)", lamp: "rgba(230,235,255,0.06)" },
     crest: { kind: "deco", color: "#E7CE93", alpha: 0.55, scale: 1.15 },
   },
   /**
