@@ -298,6 +298,22 @@ export interface BoardTheme {
    * it.
    */
   decor?: DecorItem[];
+  /**
+   * The table this board is played on.
+   *
+   * A board is an object on a surface, and the surface has always been the
+   * same one: a blue felt that was chosen to sit under the bright classic
+   * plate. Under a black lacquer board or a slab of glass it stops being a
+   * table and starts being a background the board is pasted onto — the boards
+   * that read least well in play are exactly the ones furthest from that blue.
+   *
+   * `colors` runs top to bottom, `ink` is the woven game-glyph pattern and
+   * `lamp` the pool of light the board sits in. Omitted, the felt is the
+   * app's own, unchanged — so this is opt-in per board and the fourteen
+   * screens that are not the game table never see it (they are chrome, and
+   * chrome belongs to the app rather than to what you bought).
+   */
+  table?: { colors: string[]; positions?: number[]; ink: string; lamp: string };
 }
 
 // Declared cheap → prestige within each currency: the shop and the locker
@@ -485,6 +501,7 @@ export const BOARD_THEMES: Record<BoardThemeId, BoardTheme> = {
     team: { red: "#FF4D5E", green: "#9BE83C", yellow: "#FFC13C", blue: "#3FA6FF" },
     dice: { face: "#25292E", pip: "#9BE83C" },
     pawnStroke: "rgba(0,0,0,0.55)",
+    table: { colors: ["#1A1D20", "#111315", "#08090A"], positions: [0, 0.52, 1], ink: "rgba(155,232,60,0.05)", lamp: "rgba(200,255,150,0.04)" },
   },
   onyx: {
     id: "onyx",
@@ -577,6 +594,7 @@ export const BOARD_THEMES: Record<BoardThemeId, BoardTheme> = {
     team: { red: "#C24E48", green: "#4FA57A", yellow: "#DBAE4A", blue: "#2F55AA" },
     dice: { face: "#FAFCF8", pip: "#27459A" },
     pawnStroke: "rgba(0,0,0,0.28)",
+    table: { colors: ["#3B4A46", "#26312E", "#161D1B"], positions: [0, 0.52, 1], ink: "rgba(235,245,240,0.05)", lamp: "rgba(240,255,250,0.05)" },
   },
   riverstone: {
     id: "riverstone",
@@ -606,6 +624,7 @@ export const BOARD_THEMES: Record<BoardThemeId, BoardTheme> = {
     team: { red: "#9E4238", green: "#4E9A5C", yellow: "#C29A3E", blue: "#2C4A86" },
     dice: { face: "#5A6260", pip: "#171B1A" },
     pawnStroke: "rgba(0,0,0,0.45)",
+    table: { colors: ["#2E3A38", "#1C2524", "#101514"], positions: [0, 0.52, 1], ink: "rgba(220,240,220,0.05)", lamp: "rgba(230,255,230,0.05)" },
     decor: [
       { shape: "blob", x: -0.02, y: 0.26, w: 0.0889, h: 0.1867, rot: 12, fill: "rgba(126,170,84,1)", edge: "rgba(56,86,44,0.9)", a: 0.72 },
       { shape: "blob", x: 0.93, y: 0.08, w: 0.0844, h: 0.1467, rot: -18, fill: "rgba(140,182,96,1)", edge: "rgba(62,92,48,0.9)", a: 0.64 },
@@ -656,6 +675,7 @@ export const BOARD_THEMES: Record<BoardThemeId, BoardTheme> = {
     team: { red: "#A2382C", green: "#3A8C54", yellow: "#E8B95A", blue: "#2C3F86" },
     dice: { face: "#F6ECD8", pip: "#33200C" },
     pawnStroke: "rgba(0,0,0,0.45)",
+    table: { colors: ["#4A3520", "#2E2114", "#18110A"], positions: [0, 0.52, 1], ink: "rgba(255,230,190,0.05)", lamp: "rgba(255,235,200,0.06)" },
   },
   gilded: {
     id: "gilded",
@@ -806,6 +826,7 @@ export const BOARD_THEMES: Record<BoardThemeId, BoardTheme> = {
     team: { red: "#AE4230", green: "#3E9668", yellow: "#C99B36", blue: "#3F51A6" },
     dice: { face: "#5A5F67", pip: "#E9CB8E" },
     pawnStroke: "rgba(0,0,0,0.5)",
+    table: { colors: ["#2A2E34", "#1A1D22", "#101214"], positions: [0, 0.52, 1], ink: "rgba(255,235,190,0.05)", lamp: "rgba(255,240,215,0.05)" },
   },
   nacre: {
     id: "nacre",
@@ -880,6 +901,7 @@ export const BOARD_THEMES: Record<BoardThemeId, BoardTheme> = {
     team: { red: "#B54A35", green: "#5E7A3C", yellow: "#D2A63C", blue: "#3A5A9A" },
     dice: { face: "#FBF4E3", pip: "#43602C" },
     pawnStroke: "rgba(0,0,0,0.3)",
+    table: { colors: ["#4A4436", "#302C22", "#1A1813"], positions: [0, 0.52, 1], ink: "rgba(255,245,220,0.05)", lamp: "rgba(255,248,225,0.06)" },
     decor: [
       { shape: "leaf", x: 0.01, y: 0.01, w: 0.2133, h: 0.0667, rot: 8, fill: "rgba(94,122,60,1)", edge: "rgba(52,76,32,0.9)", a: 0.72 },
       { shape: "leaf", x: 0.58, y: -0.01, w: 0.2311, h: 0.0622, rot: -6, fill: "rgba(120,140,72,1)", edge: "rgba(62,86,38,0.9)", a: 0.66 },
@@ -948,6 +970,7 @@ export const BOARD_THEMES: Record<BoardThemeId, BoardTheme> = {
     team: { red: "#D9412C", green: "#2F9A62", yellow: "#E0A92B", blue: "#2A4694" },
     dice: { face: "#1C100B", pip: "#C9973F" },
     pawnStroke: "rgba(0,0,0,0.55)",
+    table: { colors: ["#2A1A14", "#170D09", "#0A0605"], positions: [0, 0.52, 1], ink: "rgba(255,220,160,0.05)", lamp: "rgba(255,225,170,0.06)" },
   },
   amber: {
     id: "amber",
@@ -986,6 +1009,7 @@ export const BOARD_THEMES: Record<BoardThemeId, BoardTheme> = {
     team: { red: "#C8503A", green: "#6E8E3A", yellow: "#F5D25A", blue: "#4A6C90" },
     dice: { face: "#FFCE6E", pip: "#2E1804" },
     pawnStroke: "rgba(0,0,0,0.5)",
+    table: { colors: ["#3A2410", "#24160A", "#140C05"], positions: [0, 0.52, 1], ink: "rgba(255,220,150,0.05)", lamp: "rgba(255,225,160,0.06)" },
     decor: [
       { shape: "leaf", x: 0.02, y: 0.04, w: 0.2444, h: 0.0667, rot: 6, fill: "rgba(96,74,26,1)", edge: "rgba(52,36,10,0.9)", a: 0.7 },
       { shape: "leaf", x: 0.6, y: 0.93, w: 0.2222, h: 0.0622, rot: -6, fill: "rgba(110,84,30,1)", edge: "rgba(58,40,12,0.9)", a: 0.62 },
@@ -1116,6 +1140,7 @@ export const BOARD_THEMES: Record<BoardThemeId, BoardTheme> = {
     team: { red: "#FF6B8A", green: "#5BE3B0", yellow: "#FFD36B", blue: "#6FB2FF" },
     dice: { face: "#E2F0FF", pip: "#5D8FD6" },
     pawnStroke: "rgba(0,0,0,0.45)",
+    table: { colors: ["#16203A", "#0D1426", "#070A14"], positions: [0, 0.52, 1], ink: "rgba(200,225,255,0.05)", lamp: "rgba(210,235,255,0.06)" },
   },
 };
 

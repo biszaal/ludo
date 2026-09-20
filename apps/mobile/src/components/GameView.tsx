@@ -654,8 +654,8 @@ export function GameView({
     ) : null;
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: palette.tableBlue }}>
-      <TableBackground width={width} height={height} />
+    <SafeAreaView style={{ flex: 1, backgroundColor: theme.table?.colors[0] ?? palette.tableBlue }}>
+      <TableBackground width={width} height={height} theme={theme} />
       {/* Centered column on tablet so the board and the corner chips share one
           readable width instead of spanning the whole iPad; full-width on phone. */}
       <ContentColumn style={{ flex: 1, paddingHorizontal: space.xl, paddingTop: space.sm, maxWidth: colWidth }}>

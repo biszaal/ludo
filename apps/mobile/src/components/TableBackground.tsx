@@ -5,12 +5,19 @@
  * pawn silhouettes, yard rings — woven into the felt as barely-there line
  * work, like the monogrammed baize of a card table. Drawn once in Skia and
  * sized to fill its parent; purely decorative and memoized on size.
+ *
+ * A board may bring its own table with it (BoardTheme.table) — the game passes
+ * the equipped one, and that is the only caller that does. The blue was picked
+ * to sit under the bright classic plate, and under black lacquer or a slab of
+ * glass it stops reading as a table at all. Everywhere else this is chrome, and
+ * chrome belongs to the app rather than to whatever the player bought.
  */
 
 import { memo, useMemo } from "react";
 import { useWindowDimensions } from "react-native";
 import { Canvas, Circle, Group, LinearGradient, Path, RadialGradient, Rect, Skia, vec } from "@shopify/react-native-skia";
 import { palette } from "../theme";
+import type { BoardTheme } from "../render/boardThemes";
 
 /** Staggered weave: row pitch is tighter than column pitch (hex-like packing). */
 const TILE_X = 104;
@@ -31,10 +38,21 @@ interface Glyph {
 /** Fills its parent; dimensions default to the full window when omitted.
  *  Memoized: it re-renders with every game-state write otherwise, and its
  *  ~dozens of glyph groups are pure decoration that never changes. */
-export const TableBackground = memo(function TableBackground({ width: w, height: h }: { width?: number; height?: number } = {}) {
+export const TableBackground = memo(function TableBackground({
+  width: w,
+  height: h,
+  theme,
+}: { width?: number; height?: number; theme?: BoardTheme } = {}) {
   const win = useWindowDimensions();
   const width = w ?? win.width;
   const height = h ?? win.height;
+  // A board may bring its own table (see boardThemes.ts). Omitted — which is
+  // every caller but the game itself — this is the app's own felt, unchanged.
+  const felt = theme?.table;
+  const colors = felt?.colors ?? [palette.tableBlue, palette.tableBlueDeep, palette.feltCharcoal];
+  const positions = felt?.positions ?? [0, 0.52, 1];
+  const ink = felt?.ink ?? palette.tableDot;
+  const lamp = felt?.lamp ?? "rgba(255,255,255,0.055)";
 
   const glyphs = useMemo(() => {
     const out: Glyph[] = [];
@@ -56,8 +74,8 @@ export const TableBackground = memo(function TableBackground({ width: w, height:
         <LinearGradient
           start={vec(width / 2, 0)}
           end={vec(width / 2, height)}
-          colors={[palette.tableBlue, palette.tableBlueDeep, palette.feltCharcoal]}
-          positions={[0, 0.52, 1]}
+          colors={colors}
+          positions={positions}
         />
       </Rect>
 
@@ -66,20 +84,20 @@ export const TableBackground = memo(function TableBackground({ width: w, height:
         {glyphs.map((g, i) => (
           <Group key={i} transform={[{ translateX: g.x }, { translateY: g.y }, { rotate: g.rotate }]}>
             {g.kind === 0 ? (
-              <Path path={STAR} color={palette.tableDot} />
+              <Path path={STAR} color={ink} />
             ) : g.kind === 1 ? (
               <>
                 {[[-5, -5], [5, -5], [0, 0], [-5, 5], [5, 5]].map(([px, py], j) => (
-                  <Circle key={j} cx={px!} cy={py!} r={1.7} color={palette.tableDot} />
+                  <Circle key={j} cx={px!} cy={py!} r={1.7} color={ink} />
                 ))}
               </>
             ) : g.kind === 2 ? (
               <>
-                <Circle cx={0} cy={-4.5} r={3.4} color={palette.tableDot} />
-                <Circle cx={0} cy={3} r={5.4} color={palette.tableDot} />
+                <Circle cx={0} cy={-4.5} r={3.4} color={ink} />
+                <Circle cx={0} cy={3} r={5.4} color={ink} />
               </>
             ) : (
-              <Circle cx={0} cy={0} r={6.5} color={palette.tableDot} style="stroke" strokeWidth={1.5} />
+              <Circle cx={0} cy={0} r={6.5} color={ink} style="stroke" strokeWidth={1.5} />
             )}
           </Group>
         ))}
@@ -90,7 +108,7 @@ export const TableBackground = memo(function TableBackground({ width: w, height:
         <RadialGradient
           c={vec(width / 2, height * 0.38)}
           r={width * 0.95}
-          colors={["rgba(255,255,255,0.055)", "rgba(255,255,255,0)"]}
+          colors={[lamp, "rgba(255,255,255,0)"]}
         />
       </Rect>
     </Canvas>

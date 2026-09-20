@@ -145,6 +145,24 @@ describe("board themes", () => {
     }
   });
 
+  it("gives every board that brings a table a well-formed one", () => {
+    // Same contract as the plate wash it mirrors, plus the two ink colours. A
+    // malformed table is not a crash — it is a game played on a black
+    // rectangle, which is exactly the kind of thing that ships.
+    for (const t of Object.values(BOARD_THEMES)) {
+      if (!t.table) continue;
+      expect(t.table.colors.length, t.id).toBeGreaterThanOrEqual(2);
+      for (const c of t.table.colors) expect(c, t.id).toMatch(COLOR);
+      expect(t.table.ink, t.id).toMatch(COLOR);
+      expect(t.table.lamp, t.id).toMatch(COLOR);
+      if (t.table.positions) {
+        expect(t.table.positions.length, t.id).toBe(t.table.colors.length);
+        expect(t.table.positions[0], t.id).toBe(0);
+        expect(t.table.positions.at(-1), t.id).toBe(1);
+      }
+    }
+  });
+
   it("keeps every seat colour distinguishable on every board", () => {
     // A cosmetic may re-tone a seat but never blur two of them together: the
     // colour IS the player at the table. Compared in RGB, which is crude, but
