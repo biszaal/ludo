@@ -67,6 +67,7 @@ describe("board themes", () => {
       "onyx",
       "peacock",
       "sand",
+      "titanium",
       "walnut",
     ]);
   });

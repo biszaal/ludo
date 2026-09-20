@@ -420,7 +420,7 @@ export function BoardSurface({ size, theme, ornament = true }: { size: number; t
       {/* Material, then a vignette, then the rim. Clipped to the plate so a
           vein or a leaf that runs off the edge is cut by the board's own
           rounded corner instead of squaring it off. */}
-      {texture ? (
+      {texture && !theme.interior ? (
         <Group clip={plateClip(size)}>
           <ArtLayer art={texture} color={theme.texture!.color} alpha={theme.texture!.alpha} />
         </Group>
@@ -460,9 +460,20 @@ export function BoardSurface({ size, theme, ornament = true }: { size: number; t
           surface are different materials. Omitted, the plate shows through the
           grout exactly as before. */}
       {theme.interior ? (
-        <RoundedRect x={0} y={0} width={size} height={size} r={14}>
-          <Wash w={theme.interior} size={size} />
-        </RoundedRect>
+        <>
+          <RoundedRect x={0} y={0} width={size} height={size} r={14}>
+            <Wash w={theme.interior} size={size} />
+          </RoundedRect>
+          {/* A material belongs to the surface it is a material OF. A board
+              with its own deck is brushed or woven on the deck, not on the
+              rail around it — and painting it on the plate would simply put it
+              under the deck, where nothing would ever see it. */}
+          {texture ? (
+            <Group clip={roundedClip(0, 0, size, 14)}>
+              <ArtLayer art={texture} color={theme.texture!.color} alpha={theme.texture!.alpha} />
+            </Group>
+          ) : null}
+        </>
       ) : null}
 
       {/* Yards: raised gradient tile (drop shadow + top lip), inset inner plate,

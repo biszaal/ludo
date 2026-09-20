@@ -49,6 +49,7 @@ export type BoardThemeId =
   | "gilded"
   | "aurora"
   | "moonlit"
+  | "titanium"
   | "nacre"
   | "peacock"
   | "celestial";
@@ -581,6 +582,58 @@ export const BOARD_THEMES: Record<BoardThemeId, BoardTheme> = {
   // Oxblood lacquer with mother-of-pearl inlay and a gold rail. The highest
   // gloss in the catalog: lacquer is a flawless surface, so the sheen carries
   // it and nothing textures it (the same reasoning as dice.oxblood).
+  /**
+   * Machined from two metals: a brushed titanium deck inside a bronze rail.
+   *
+   * The first board in the catalog whose FRAME and DECK are different
+   * materials, which is what `interior` exists for — everything before this
+   * was one plate showing through the grout. The seats are laid in at 0.92 so
+   * they read as anodised into the metal rather than painted on it, and the
+   * cell hairlines drop the white top line every earlier board carried: white
+   * over shadow is moulded plastic, and it is the single fastest way to make
+   * metal look like a toy.
+   */
+  titanium: {
+    id: "titanium",
+    label: "Titanium & Bronze",
+    price: 380,
+    currency: "gems",
+    boardBase: "#2A2D33",
+    plate: { colors: ["#3A3D42", "#22252A", "#33363C"], positions: [0, 0.55, 1], angle: "diagonal" },
+    boardEdge: "#8A6A3C",
+    edgeWidth: 3,
+    lip: "rgba(255,235,190,0.35)",
+    interior: { colors: ["#4A4E55", "#2A2D33"], angle: "diagonal" },
+    texture: { kind: "grain", color: "#FFFFFF", alpha: 0.24 },
+    cellFill: "#3B3F46",
+    cellTop: "#5A5F67",
+    cellBorder: "rgba(20,22,26,0.8)",
+    emboss: { top: "rgba(255,255,255,0.2)", bottom: "rgba(0,0,0,0.45)" },
+    cellRadius: 0.04,
+    plateTint: 0.92,
+    slotEmpty: "#20232A",
+    slotRing: "rgba(233,203,142,0.6)",
+    slotFill: "#6E5637",
+    starColor: "#E9CB8E",
+    glyph: "star",
+    sheen: 0.04,
+    vignette: 0.28,
+    band: { kind: "rope", color: "#C9A870", alpha: 0.7 },
+    // Solid, not a ring. A ring yard leaves the seat as a band around the
+    // board's own material, and on a deck this dark that reduced all four
+    // corners to the same near-black square — the one thing a yard exists to
+    // prevent. `plateTint` already sets the seat INTO the metal; the plate
+    // does not also have to give it up.
+    // Pulled off the design's own metals, which sat too close together to tell
+    // apart: its red and yellow were 58 apart in RGB and its green and blue 51,
+    // against the 90 every board has to clear. Muted is the look, but a player
+    // finding their own tokens is not something the look gets to cost — so the
+    // four are separated on the green channel and left as earthy as that
+    // allows.
+    team: { red: "#AE4230", green: "#3E9668", yellow: "#C99B36", blue: "#3F51A6" },
+    dice: { face: "#5A5F67", pip: "#E9CB8E" },
+    pawnStroke: "rgba(0,0,0,0.5)",
+  },
   nacre: {
     id: "nacre",
     label: "Lacquer & Nacre",
