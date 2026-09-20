@@ -1,9 +1,10 @@
 /**
- * Avatar chips — the fourteen Ludo Club–style characters, shipped as PNGs.
+ * Avatar chips — the thirty-three Ludo Club–style characters, shipped as PNGs.
  *
  * These used to be drawn at runtime with Skia. The art now lives in
- * scripts/gen-avatars.mjs, which renders assets/images/avatars/<id>.png, so
- * this component is just an image. That also retires a sharp edge: the Skia
+ * scripts/avatar-art.mjs, which gen-avatars.mjs renders to
+ * assets/images/avatars/<id>.png, so this component is just an image. That
+ * also retires a sharp edge: the Skia
  * version could NOT be memoized, because PlayerChip animates a scale pop on an
  * ancestor every turn hand-off, which dropped the canvas's native picture, and
  * only an incidental re-render repainted it — memoizing blanked the avatars one

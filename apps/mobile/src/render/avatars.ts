@@ -1,9 +1,10 @@
 /**
  * Avatar catalog — the ids the app knows, and nothing about how they look.
  *
- * The art lives in scripts/gen-avatars.mjs, which draws each character and
- * writes assets/images/avatars/<id>.png; render/avatarImages.ts maps an id to
- * its image. Splitting it that way keeps this module dependency-free (like
+ * The art lives in scripts/avatar-art.mjs, which draws each character, and
+ * scripts/gen-avatars.mjs, which writes assets/images/avatars/<id>.png;
+ * render/avatarImages.ts maps an id to its image. Splitting it that way keeps
+ * this module dependency-free (like
  * boardThemes.ts and diceSkins.ts) so the cosmetics catalog and the Node unit
  * tests can read the id set without pulling in a binary asset.
  *
@@ -37,6 +38,24 @@ export const AVATAR_IDS = [
   "astra",
   "selene",
   "solis",
+  // Avatar set v2 (0070 seed). Twelve faces the set had nothing like: a South
+  // Asian line, which is the audience this game actually has, and characters
+  // who are not human at all.
+  "momo",
+  "tashi",
+  "bolt",
+  "rana",
+  "mira",
+  "sylva",
+  "draco",
+  "vega",
+  "frost",
+  "diya",
+  "ember",
+  "rani",
+  // Onyx II — the v2 drawing of Onyx, sold beside the original rather than
+  // replacing it (0071 seed). See scripts/avatar-art.mjs for why.
+  "onyx-ii",
 ] as const;
 
 export type AvatarId = (typeof AVATAR_IDS)[number];

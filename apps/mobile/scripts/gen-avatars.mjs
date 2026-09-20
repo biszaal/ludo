@@ -1,19 +1,26 @@
 /**
- * Generates the avatar chips — the fourteen Ludo Club–style characters, drawn
- * in code here and shipped as PNGs (same pure-Node approach and hand-rolled PNG
- * encoder as gen-app-icon.mjs / gen-emoji.mjs).
+ * Renders the avatar chips to PNG — the raster half of the avatar pipeline.
  *
- * This script is the source of truth for what the avatars LOOK like. The app
- * only knows their ids and the image files; src/render/avatars.ts holds the id
- * list and the require() map. If you change art here, re-run and commit the
- * PNGs — nothing regenerates them at build time.
+ * What the characters LOOK like lives in scripts/avatar-art.mjs, which draws
+ * each one as an SVG string. This file is the engine underneath: it parses that
+ * SVG into flattened polylines and fills/strokes them with the same pure-Node
+ * rasterizer and hand-rolled PNG encoder as gen-app-icon.mjs / gen-emoji.mjs.
+ * The app only knows the ids and the image files; src/render/avatars.ts holds
+ * the id list and the require() map. Nothing regenerates at build time — if you
+ * change art, re-run this and commit the PNGs.
+ *
+ * Why an SVG layer at all. The art used to be written directly as the engine's
+ * own op objects in a 100x100 space, which meant the drawing code and the
+ * rasterizer could only ever be read together. Avatar set v2 is a parametric
+ * library (face shapes x eye kits x brows x mouths x hair), and that is far
+ * easier to write, review and diff as SVG — so the engine grew a parser for the
+ * subset the art actually emits, and throws on anything outside it rather than
+ * silently drawing nothing.
  *
  * Rendering notes:
- *  - Geometry lives in the same 100x100 design space the Skia version used, so
- *    the path data is unchanged from when these were drawn at runtime.
- *  - Fills use scanline + nonzero winding; strokes use distance-to-polyline,
- *    which yields round caps. The only stroke whose caps are not already closed
- *    or hidden is the headphone band, whose ends sit under the earcups.
+ *  - Geometry is the SVG's own 512x512 space; the chip is the disc r=250.
+ *  - Fills use scanline + nonzero winding. Strokes use distance-to-polyline,
+ *    with round joins always and butt caps unless stroke-linecap says round.
  *  - 3x supersampled, then box-downsampled, matching the sibling generators.
  *
  * Run: node scripts/gen-avatars.mjs
@@ -24,489 +31,13 @@ import { writeFileSync, mkdirSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
 
+import { AVATARS, CHIP_TONES, buildSVG } from "./avatar-art.mjs";
+
+export { AVATARS, CHIP_TONES, buildSVG };
+
 const OUT_SIZE = 512;
 const SS = 3; // supersample factor, as in gen-app-icon.mjs
-const DESIGN = 100; // the coordinate space all the path data is written in
-
-// --- Catalog ----------------------------------------------------------------
-
-/**
- * The chip tones — one flat color each, no gradient and no pattern behind the
- * character. The chip is a background: anything drawn in it competes with the
- * board during a turn, so it stays a single quiet fill.
- *
- * The seats own red, green, yellow and blue, so the chips use none of those
- * families: a tone is either a true grey (r === g === b, no hue at all) or sits
- * in the violet/magenta band, which is the widest gap the seat hues leave —
- * 132deg between blue at 226 and red at 358. Every violet here is at least
- * 40deg from all four.
- *
- * Hue is only half of it, and the weaker half — it collapses under
- * colorblindness. Every tone is also far paler and flatter than any seat
- * (sat <= 0.35 vs 0.56-0.86, light >= 0.80 vs 0.42-0.59), so the frame reads
- * as the color and the chip reads as tinted paper. See the tests in
- * __tests__/avatars.test.ts, which enforce all of it.
- */
-export const CHIP_TONES = {
-  pearl: "#EDEDED",
-  slate: "#D2D2D2",
-  lilac: "#E4D8EC",
-  violet: "#EBD9EC",
-  orchid: "#ECDAE8",
-};
-
-export const AVATARS = [
-  { id: "leo", skin: "#FFD9B3", hair: "#7A4A21", shirt: "#B98A3E", style: "crown", tone: "pearl" },
-  { id: "sunny", skin: "#FFE0C2", hair: "#E8542F", shirt: "#C07551", style: "spiky", tone: "pearl" },
-  { id: "coco", skin: "#8A5A3B", hair: "#26150B", shirt: "#4E8A6B", style: "afro", tone: "violet" },
-  { id: "zara", skin: "#C68642", hair: "#2B1B10", shirt: "#B06A82", style: "bun", tone: "orchid" },
-  { id: "rex", skin: "#FFD9B3", hair: "#5A3A1E", shirt: "#5F76B0", style: "cap", tone: "slate" },
-  { id: "nina", skin: "#8A5A3B", hair: "#1E1208", shirt: "#8168AD", style: "pigtails", tone: "lilac" },
-  { id: "milo", skin: "#FFE0C2", hair: "#B0722F", shirt: "#4C8C87", style: "side", tone: "violet" },
-  { id: "ivy", skin: "#F3C7A5", hair: "#C2572E", shirt: "#6E8C55", style: "beanie", tone: "pearl" },
-  { id: "ace", skin: "#E8B98A", hair: "#6E3FBF", shirt: "#6870AD", style: "headphones", tone: "lilac" },
-  { id: "ruby", skin: "#FFD9B3", hair: "#4A2C15", shirt: "#A85A5A", style: "bow", tone: "orchid" },
-  { id: "bruno", skin: "#E8B98A", hair: "#3D2A1A", shirt: "#B08A55", style: "beard", tone: "pearl" },
-  { id: "kito", skin: "#F5B78D", hair: "#E88A3C", shirt: "#6B8395", style: "cat", tone: "pearl" },
-  // The gem tier (0018 seed) — same drawn styles, premium shirt tones.
-  { id: "nova", skin: "#F3C7A5", hair: "#8E86AD", shirt: "#7A6BB5", style: "spiky", tone: "lilac" },
-  // Onyx's cap is the one piece of clothing that does not take the shirt color.
-  // It was drawn red back when caps were a fixed #D93636, players knew him by
-  // it, and the shirt-derived cap that replaced it turned him into a silhouette
-  // of one flat charcoal. Red is deliberately louder than the shirt rule allows
-  // (see the saturation test) — it is a crown-sized accent, not a torso, and it
-  // is the only override in the catalog.
-  { id: "onyx", skin: "#C68642", hair: "#0B0C0F", shirt: "#2A2E36", cap: "#D93636", style: "cap", tone: "slate" },
-
-  // --- Regalia: the coin prestige line (0059) -------------------------------
-  // Coin dice already climb to 75,000 while avatars stopped at 500, so the top
-  // of the face catalog was four times cheaper than the top of the dice one.
-  // These fill that gap. They are drawn, not tinted: every one carries a metal
-  // ramp and a silhouette no other chip has, because a prestige tier built out
-  // of recolors is the thing players stop believing in first.
-  { id: "laurel", skin: "#F3C7A5", hair: "#6A4A2A", shirt: "#7A6B3F", style: "laurel", tone: "pearl" },
-  { id: "saga", skin: "#E8B98A", hair: "#A87C2E", shirt: "#4A5568", style: "helm", tone: "lilac" },
-  { id: "pharo", skin: "#A9713F", hair: "#1A1208", shirt: "#2E4257", style: "nemes", tone: "slate" },
-  { id: "regis", skin: "#FFD9B3", hair: "#3A2A18", shirt: "#5A3A5E", style: "regis", tone: "violet" },
-
-  // --- Celestial: the gem line (0059) ---------------------------------------
-  // Deliberately a different axis from Regalia rather than more of it — star,
-  // moon and sun in silver and pearl, where the coin line is gold and armor.
-  // Two lines that look unlike each other give a player a reason to want both.
-  { id: "astra", skin: "#F5B78D", hair: "#5B4E8C", shirt: "#4E4A7A", style: "circlet", tone: "pearl" },
-  { id: "selene", skin: "#7A4A2C", hair: "#2A1E38", shirt: "#3F4A6B", style: "crescent", tone: "slate" },
-  { id: "solis", skin: "#C68642", hair: "#1E1208", shirt: "#8A6A38", style: "sunburst", tone: "lilac" },
-];
-
-const NEUTRAL_BROW = "#5A4632";
-
-// --- Premium tier: metals, jewels and the shapes that need them -------------
-
-/**
- * Metal ramps. A metal is not a hue, it is a ramp — highlight, body, shadow,
- * then a second small lift where the form turns back toward the light. Flat
- * #F2C94F is mustard; this is gold. The premium avatars are the only art in
- * the catalog that uses a gradient, and it is most of why they read as a tier
- * rather than as four more palettes (the same lesson 0045 learned for dice:
- * material runs out of ways to look expensive well before price does).
- */
-const GOLD_STOPS = [[0, "#FFF7DA"], [0.28, "#F2C94F"], [0.58, "#BE8210"], [0.78, "#E9BC46"], [1, "#8A5C08"]];
-const SILVER_STOPS = [[0, "#FFFFFF"], [0.3, "#DCE4EC"], [0.6, "#8B97A6"], [0.8, "#C6D0DA"], [1, "#5A646F"]];
-const PEARL_STOPS = [[0, "#FFFFFF"], [0.34, "#F4EEFA"], [0.68, "#CFC2E0"], [1, "#9D8EB6"]];
-
-/**
- * A metal ramp running straight down y0..y1.
- *
- * Vertical is not a style choice, it is the only axis that survives symmetry.
- * A tilted axis puts t<0 at the left edge of a wreath and t>1 at the right,
- * and both ends clamp — so one wing came out white and the other charcoal. The
- * metal here reads from the stops' highlight/body/shadow/re-lift, not from any
- * tilt, and mirrored ornament gets the same ramp on both sides.
- */
-const metal = (stops) => (y0, y1) => ({ from: [50, y0], to: [50, y1], stops });
-const gold = metal(GOLD_STOPS);
-const silver = metal(SILVER_STOPS);
-const pearl = metal(PEARL_STOPS);
-
-/**
- * The jewels are amethyst and diamond, and that is a rule rather than a taste.
- * The four seats own red, green, yellow and blue, so a ruby or an emerald on a
- * crown is a seat color worn on a player's face — exactly the confusion the
- * chip tones were designed away from. Violet is the widest gap the seat hues
- * leave, and a colorless stone has no hue to clash at all.
- */
-const AMETHYST = "#8A4FD0";
-const DIAMOND = "#E4F0FF";
-
-/** A closed polygon through `pts`, and its mirror image about the centre line. */
-const poly = (pts) => `M${pts.map(([x, y]) => `${x} ${y}`).join(" L")} Z`;
-const mirrored = (pts) => pts.map(([x, y]) => [100 - x, y]);
-
-/** A pointed almond leaf, `deg` measured from straight up. */
-function leafPath(cx, cy, len, wid, deg) {
-  const a = ((deg - 90) * Math.PI) / 180;
-  const ca = Math.cos(a), sa = Math.sin(a);
-  const P = (u, v) => `${(cx + u * ca - v * sa).toFixed(2)} ${(cy + u * sa + v * ca).toFixed(2)}`;
-  return `M${P(0, 0)} Q${P(len * 0.45, -wid)} ${P(len, 0)} Q${P(len * 0.45, wid)} ${P(0, 0)} Z`;
-}
-
-/** An n-pointed star, first point straight up. */
-function starPath(cx, cy, rOuter, rInner, points = 5) {
-  const pts = [];
-  for (let i = 0; i < points * 2; i++) {
-    const r = i % 2 ? rInner : rOuter;
-    const a = ((-90 + (i * 180) / points) * Math.PI) / 180;
-    pts.push(`${(cx + r * Math.cos(a)).toFixed(2)} ${(cy + r * Math.sin(a)).toFixed(2)}`);
-  }
-  return `M${pts.join(" L")} Z`;
-}
-
-/**
- * One tapering blade of a sunburst, radiating from (cx, cy) at `deg`. Rays are
- * struck from the head's own centre so they read as a crown standing on the
- * skull — NOT as a motif floating on the chip, which is the pattern the tests
- * deliberately removed.
- */
-function rayPath(cx, cy, deg, rBase, rTip, halfDeg) {
-  const P = (r, d) => {
-    const a = (d * Math.PI) / 180;
-    return `${(cx + r * Math.cos(a)).toFixed(2)} ${(cy + r * Math.sin(a)).toFixed(2)}`;
-  };
-  return `M${P(rBase, deg - halfDeg)} L${P(rTip, deg)} L${P(rBase, deg + halfDeg)} Z`;
-}
-
-/** Full draw list for one avatar: torso, head, hair/hat, face. */
-function buildOps(spec) {
-  const { skin, hair, style, shirt } = spec;
-  // A cap takes the shirt color unless the spec names one of its own.
-  const cap = spec.cap ?? shirt;
-  const ops = [
-    { t: "oval", cx: 50, cy: 102, rx: 30, ry: 20, fill: shirt }, // torso
-    { t: "circle", cx: 50, cy: 55, r: 26, fill: skin },
-    { t: "ring", cx: 50, cy: 55, r: 26, color: "rgba(0,0,0,0.12)", w: 1.5 },
-    { t: "circle", cx: 24, cy: 56, r: 5, fill: skin },
-    { t: "ring", cx: 24, cy: 56, r: 5, color: "rgba(0,0,0,0.12)", w: 1.2 },
-    { t: "circle", cx: 76, cy: 56, r: 5, fill: skin },
-    { t: "ring", cx: 76, cy: 56, r: 5, color: "rgba(0,0,0,0.12)", w: 1.2 },
-  ];
-
-  switch (style) {
-    case "crown":
-      ops.push(
-        { t: "path", d: "M50 24 A26 26 0 0 1 76 52 L24 52 A26 26 0 0 1 50 24 Z", fill: hair },
-        { t: "path", d: "M34 22 L37 8 L45 17 L50 4 L55 17 L63 8 L66 22 Z", fill: "#FFE45C" },
-        { t: "stroke", d: "M34 22 L37 8 L45 17 L50 4 L55 17 L63 8 L66 22 Z", color: "#B8770A", w: 2.5 },
-        { t: "path", d: "M33.5 20 H66.5 A3.5 3.5 0 0 1 66.5 27 H33.5 A3.5 3.5 0 0 1 33.5 20 Z", fill: "#FFE45C" },
-        { t: "stroke", d: "M33.5 20 H66.5 A3.5 3.5 0 0 1 66.5 27 H33.5 A3.5 3.5 0 0 1 33.5 20 Z", color: "#B8770A", w: 2.5 },
-      );
-      break;
-    case "spiky":
-      ops.push({
-        t: "path",
-        d: "M26 48 C24 30 34 24 38 30 L40 22 L45 29 L50 19 L55 29 L60 22 L62 30 C68 24 76 30 74 48 C66 38 34 38 26 48 Z",
-        fill: hair,
-      });
-      break;
-    case "afro":
-      ops.push(
-        { t: "circle", cx: 50, cy: 31, r: 19, fill: hair },
-        { t: "circle", cx: 33, cy: 38, r: 10, fill: hair },
-        { t: "circle", cx: 67, cy: 38, r: 10, fill: hair },
-        { t: "path", d: "M26 47 A26 26 0 0 1 74 47 L74 42 A26 26 0 0 0 26 42 Z", fill: hair },
-      );
-      break;
-    case "bun":
-      ops.push(
-        { t: "circle", cx: 50, cy: 22, r: 10, fill: hair },
-        { t: "path", d: "M24 56 C22 34 36 27 50 27 C64 27 78 34 76 56 C74 44 66 40 50 40 C34 40 26 44 24 56 Z", fill: hair },
-        { t: "ring", cx: 24, cy: 63, r: 4, color: "#F5C542", w: 2.4 },
-        { t: "ring", cx: 76, cy: 63, r: 4, color: "#F5C542", w: 2.4 },
-      );
-      break;
-    case "cap":
-      ops.push(
-        { t: "path", d: "M26 46 A25 25 0 0 1 74 46 L74 42 L26 42 Z", fill: hair },
-        { t: "path", d: "M25 44 A25 22 0 0 1 75 44 L75 47 L25 47 Z", fill: cap },
-        { t: "path", d: "M23 43 H77 A3.5 3.5 0 0 1 77 50 H23 A3.5 3.5 0 0 1 23 43 Z", fill: shade(cap, -0.25) },
-        { t: "circle", cx: 50, cy: 27, r: 4, fill: shade(cap, -0.25) },
-      );
-      break;
-    case "pigtails":
-      ops.push(
-        { t: "circle", cx: 22, cy: 40, r: 9, fill: hair },
-        { t: "circle", cx: 78, cy: 40, r: 9, fill: hair },
-        { t: "path", d: "M24 54 C24 32 38 26 50 26 C62 26 76 32 76 54 C70 42 62 38 50 38 C38 38 30 42 24 54 Z", fill: hair },
-      );
-      break;
-    case "side":
-      ops.push({
-        t: "path",
-        d: "M24 52 C24 30 40 24 54 27 C68 30 76 38 75 52 C70 40 62 40 58 34 C50 42 32 40 24 52 Z",
-        fill: hair,
-      });
-      for (const fx of [40, 46, 54, 60]) ops.push({ t: "circle", cx: fx, cy: 63, r: 1.3, fill: "rgba(160,90,40,0.55)" });
-      break;
-    case "beanie":
-      ops.push(
-        { t: "circle", cx: 50, cy: 21, r: 6.5, fill: "#5E9E3A" },
-        { t: "path", d: "M23 45 A27 25 0 0 1 77 45 Z", fill: "#4C7F2C" },
-        { t: "path", d: "M22 41 H78 A4.2 4.2 0 0 1 78 49.5 H22 A4.2 4.2 0 0 1 22 41 Z", fill: "#3E6A23" },
-      );
-      break;
-    case "headphones":
-      ops.push(
-        { t: "path", d: "M26 50 C26 30 42 25 50 25 C58 25 74 30 74 50 C66 36 34 36 26 50 Z", fill: hair },
-        { t: "stroke", d: "M24 52 A26 26 0 0 1 76 52", color: "#2A2E39", w: 5 },
-        { t: "path", d: "M19 48 H29 A5 5 0 0 1 29 62 H19 A5 5 0 0 1 19 48 Z", fill: "#2A2E39" },
-        { t: "path", d: "M71 48 H81 A5 5 0 0 1 81 62 H71 A5 5 0 0 1 71 48 Z", fill: "#2A2E39" },
-        { t: "path", d: "M21.5 51 H26.5 A2.5 2.5 0 0 1 26.5 59 H21.5 A2.5 2.5 0 0 1 21.5 51 Z", fill: "#4E56C9" },
-        { t: "path", d: "M73.5 51 H78.5 A2.5 2.5 0 0 1 78.5 59 H73.5 A2.5 2.5 0 0 1 73.5 51 Z", fill: "#4E56C9" },
-      );
-      break;
-    case "bow":
-      ops.push(
-        {
-          t: "path",
-          d: "M24 54 C24 32 36 26 50 26 C64 26 76 32 76 54 C72 44 64 41 58 42 C60 38 58 34 54 33 C50 40 32 42 24 54 Z",
-          fill: hair,
-        },
-        // Bow at (66,30), rotated ~18°: two triangles + knot (pre-transformed points).
-        { t: "path", d: "M66 30 L57.4 22.9 L53.7 34.3 Z", fill: "#E8386D" },
-        { t: "path", d: "M66 30 L78.3 25.7 L74.6 37.1 Z", fill: "#E8386D" },
-        { t: "circle", cx: 66, cy: 30, r: 3.4, fill: "#C21850" },
-      );
-      break;
-    case "beard":
-      ops.push(
-        { t: "path", d: "M27 50 A25 25 0 0 1 73 50 L73 44 A25 25 0 0 0 27 44 Z", fill: hair },
-        { t: "path", d: "M31 60 C31 76 40 81 50 81 C60 81 69 76 69 60 C66 70 58 72 50 72 C42 72 34 70 31 60 Z", fill: hair },
-      );
-      break;
-    case "cat":
-      ops.push(
-        { t: "path", d: "M28 40 L22 20 L40 30 Z", fill: hair },
-        { t: "path", d: "M72 40 L78 20 L60 30 Z", fill: hair },
-        { t: "path", d: "M31 38 L27 25 L38 31 Z", fill: "#FFC9A3" },
-        { t: "path", d: "M69 38 L73 25 L62 31 Z", fill: "#FFC9A3" },
-        { t: "path", d: "M26 50 A26 24 0 0 1 74 50 L74 44 A26 26 0 0 0 26 44 Z", fill: hair },
-      );
-      break;
-
-    // --- Regalia: the coin prestige line ------------------------------------
-    case "laurel":
-      ops.push({ t: "path", d: "M24 54 C22 33 36 26 50 26 C64 26 78 33 76 54 C74 43 66 39 50 39 C34 39 26 43 24 54 Z", fill: hair });
-      // Wreath: leaves seated on the skull circle and laid along it, each one
-      // tangent to the head so the wreath grips rather than hovers. Placed on
-      // the left, then mirrored, so the two halves cannot drift apart.
-      for (let i = 0; i < 5; i++) {
-        const a = ((198 + i * 17) * Math.PI) / 180;
-        const lx = 50 + 28.5 * Math.cos(a), ly = 55 + 28.5 * Math.sin(a);
-        const deg = (Math.atan2(-Math.sin(a), -Math.cos(a)) * 180) / Math.PI;
-        for (const side of [-1, 1]) {
-          ops.push({ t: "path", d: leafPath(50 + side * (lx - 50), ly, 12, 4.4, side * deg), fill: gold(16, 50) });
-          ops.push({ t: "stroke", d: leafPath(50 + side * (lx - 50), ly, 12, 4.4, side * deg), color: "rgba(94,58,4,0.35)", w: 0.7 });
-        }
-      }
-      ops.push(
-        { t: "stroke", d: "M26 47 A29 29 0 0 1 74 47", color: gold(24, 50), w: 3.2 },
-        { t: "circle", cx: 50, cy: 26.5, r: 3.6, fill: gold(23, 30) },
-        { t: "path", d: starPath(50, 26.5, 3, 1.2, 4), fill: DIAMOND },
-      );
-      break;
-
-    case "helm":
-      ops.push(
-        // Wings first, so the dome overlaps their roots and they look socketed.
-        ...[-1, 1].flatMap((side) => [
-          { t: "path", d: `M${50 + side * 22} 46 Q${50 + side * 41} 36 ${50 + side * 45} 19 Q${50 + side * 31} 28 ${50 + side * 23} 38 Z`, fill: silver(16, 50) },
-          { t: "path", d: `M${50 + side * 21} 41 Q${50 + side * 38} 30 ${50 + side * 40} 13 Q${50 + side * 28} 23 ${50 + side * 21} 34 Z`, fill: silver(11, 45) },
-          { t: "path", d: `M${50 + side * 19} 36 Q${50 + side * 32} 25 ${50 + side * 33} 9 Q${50 + side * 24} 19 ${50 + side * 18} 30 Z`, fill: silver(7, 40) },
-        ]),
-        { t: "path", d: "M24 52 A26 26 0 0 1 76 52 Z", fill: silver(24, 54) },
-        { t: "stroke", d: "M24 50 A26 26 0 0 1 76 50", color: silver(26, 40), w: 4 },
-        // Nose guard — the single line that makes the silhouette unmistakable.
-        { t: "path", d: "M46.4 46 L53.6 46 L52.4 62 Q50 65.5 47.6 62 Z", fill: silver(46, 66) },
-        { t: "circle", cx: 50, cy: 34, r: 3.2, fill: gold(31, 37) },
-        { t: "path", d: starPath(50, 34, 2.6, 1.05, 4), fill: DIAMOND },
-        // Beard last so it sits over the jaw, and the one place the hair
-        // color is visible at all under a full helm.
-        { t: "path", d: "M31 59 C31 76 40 82 50 82 C60 82 69 76 69 59 C66 70 58 73 50 73 C42 73 34 70 31 59 Z", fill: hair },
-      );
-      break;
-
-    case "nemes":
-      ops.push(
-        // Lappets: the headcloth falling to the shoulders, the widest
-        // silhouette in the catalog and readable at chip size on its own.
-        ...[[[30, 42], [17, 47], [13, 84], [34, 84], [33, 52]]].flatMap((lappet) =>
-          [lappet, mirrored(lappet)].map((pts) => ({ t: "path", d: poly(pts), fill: gold(44, 86) })),
-        ),
-        ...[[18.5, 21], [24, 26.5]].flatMap(([x0, x1]) => {
-          const stripe = [[x0, 46], [x1, 45.6], [x1 + 1.9, 84], [x0 + 1.9, 84]];
-          return [stripe, mirrored(stripe)].map((pts) => ({ t: "path", d: poly(pts), fill: "#26406E" }));
-        }),
-        { t: "path", d: "M24 50 A26 26 0 0 1 76 50 Z", fill: gold(24, 52) },
-        // Dome stripes stop at the browband rather than running down the face.
-        ...[-1, 1].flatMap((side) =>
-          [8, 16].map((off) => ({
-            t: "stroke",
-            d: `M${50 + side * off} 27 L${50 + side * (off + 1.5)} 40`,
-            color: "#26406E",
-            w: 3.2,
-          })),
-        ),
-        // Browband clears the eyes (cy 55) with the same floor the cap uses.
-        { t: "path", d: "M21 36 H79 A3.8 3.8 0 0 1 79 43.6 H21 A3.8 3.8 0 0 1 21 36 Z", fill: gold(35, 45) },
-        { t: "stroke", d: "M22 43.4 H78", color: "rgba(94,58,4,0.45)", w: 0.9 },
-        // Uraeus — the rearing cobra at the brow.
-        { t: "path", d: "M50 40 Q46.5 35 48.4 30.5 Q50.4 26.5 50 23 Q49.6 26.5 51.6 30.5 Q53.5 35 50 40 Z", fill: gold(22, 41) },
-        { t: "path", d: "M50 20.5 Q46 21.7 46 25.7 Q50 28.1 54 25.7 Q54 21.7 50 20.5 Z", fill: gold(19, 29) },
-        { t: "circle", cx: 50, cy: 24.2, r: 1.3, fill: AMETHYST },
-        // Usekh collar. It has to cover the torso oval exactly, or the shirt
-        // shows as a dark rim around it and the whole thing reads as an eye.
-        { t: "oval", cx: 50, cy: 102, rx: 30, ry: 20, fill: gold(80, 106) },
-        { t: "stroke", d: "M34 85 A16 8 0 0 0 66 85", color: "#26406E", w: 3.4 },
-        { t: "stroke", d: "M28 85 A22 12 0 0 0 72 85", color: "#26406E", w: 3.4 },
-        { t: "stroke", d: "M22 85 A28 16 0 0 0 78 85", color: "#26406E", w: 3.4 },
-      );
-      break;
-
-    case "regis":
-      ops.push(
-        // Curved hairline, not the flat-bottomed cap: with the band up clear of
-        // the eyes, a straight edge left a dark slab ruled across the forehead.
-        { t: "path", d: "M24 54 C22 34 36 27 50 27 C64 27 78 34 76 54 C74 44 66 40 50 40 C34 40 26 44 24 54 Z", fill: hair },
-        // Five points, tallest at centre, on a deep jewelled band.
-        { t: "path", d: "M25 44 L27.5 13 L34 27 L39.5 9 L44.5 24 L50 3 L55.5 24 L60.5 9 L66 27 L72.5 13 L75 44 Z", fill: gold(6, 48) },
-        { t: "stroke", d: "M25 44 L27.5 13 L34 27 L39.5 9 L44.5 24 L50 3 L55.5 24 L60.5 9 L66 27 L72.5 13 L75 44 Z", color: "rgba(94,58,4,0.55)", w: 1.1 },
-        ...[[27.5, 13], [39.5, 9], [50, 3], [60.5, 9], [72.5, 13]].map(([x, y]) => ({
-          t: "circle", cx: x, cy: y + 3.2, r: 1.7, fill: DIAMOND,
-        })),
-        { t: "path", d: "M22 34 H78 A5.2 5.2 0 0 1 78 45 H22 A5.2 5.2 0 0 1 22 34 Z", fill: gold(33, 47) },
-        { t: "stroke", d: "M23 45 H77", color: "rgba(94,58,4,0.4)", w: 1 },
-        { t: "circle", cx: 50, cy: 39.5, r: 4, fill: AMETHYST },
-        { t: "circle", cx: 48.7, cy: 38.2, r: 1.4, fill: "#E6D4FF" },
-        ...[34, 42, 58, 66].map((x) => ({ t: "circle", cx: x, cy: 39.5, r: 2.3, fill: DIAMOND })),
-        // Ermine mantle — the half of "royal" a crown alone never says. Sized
-        // to the torso oval so no shirt shows as a rim around it.
-        { t: "oval", cx: 50, cy: 102, rx: 30, ry: 20, fill: "#F7F4EE" },
-        ...[[34, 96], [45, 100], [56, 97], [65, 93], [40, 90], [59, 90], [50, 91]].map(([x, y]) => ({
-          t: "oval", cx: x, cy: y, rx: 0.9, ry: 1.7, fill: "#2C2A28",
-        })),
-      );
-      break;
-
-    // --- Celestial: the gem line --------------------------------------------
-    case "circlet":
-      ops.push(
-        { t: "path", d: "M22 78 C18 50 30 23 50 23 C70 23 82 50 78 78 C74 56 69 43 50 43 C31 43 26 56 22 78 Z", fill: hair },
-        { t: "stroke", d: "M25 45 A28 28 0 0 1 75 45", color: silver(26, 48), w: 3.2 },
-        // Seated on that arc (centre 50,57.6 r 28) so every star touches the
-        // band — the first pass scattered them beside the head and they read
-        // as specks on the chip rather than as a circlet.
-        ...[-46, -25, 25, 46].map((d) => {
-          const a = ((d - 90) * Math.PI) / 180;
-          const x = 50 + 28 * Math.cos(a), y = 57.6 + 28 * Math.sin(a);
-          const r = Math.abs(d) > 30 ? 3 : 3.8;
-          return { t: "path", d: starPath(x, y, r, r * 0.4), fill: silver(y - r, y + r) };
-        }),
-        { t: "path", d: starPath(50, 29.6, 7.4, 3), fill: silver(22.2, 37) },
-        { t: "circle", cx: 50, cy: 29.6, r: 1.9, fill: DIAMOND },
-      );
-      break;
-
-    case "crescent":
-      ops.push(
-        // Veil, then hair inside it, so the silk frames the face.
-        { t: "path", d: "M18 82 C12 48 27 18 50 18 C73 18 88 48 82 82 C77 54 68 36 50 36 C32 36 23 54 18 82 Z", fill: pearl(16, 84) },
-        { t: "path", d: "M26 66 C24 40 34 27 50 27 C66 27 76 40 74 66 C70 48 63 41 50 41 C37 41 30 48 26 66 Z", fill: hair },
-        // Silver, not pearl, and rimmed: the first pass drew a pearl crescent
-        // on a pearl veil and the moon simply was not there.
-        { t: "path", d: "M50 7 A12 12 0 1 0 50 31 A16 16 0 0 1 50 7 Z", fill: silver(6, 32) },
-        { t: "stroke", d: "M50 7 A12 12 0 1 0 50 31 A16 16 0 0 1 50 7 Z", color: "#6E6484", w: 0.9 },
-        { t: "path", d: starPath(52.5, 19, 4.4, 1.8), fill: silver(14.6, 23.4) },
-        { t: "stroke", d: starPath(52.5, 19, 4.4, 1.8), color: "#6E6484", w: 0.7 },
-        // Pearls strung along the veil edge instead of floating on the chip.
-        ...[-1, 1].flatMap((side) =>
-          [[27.5, 58], [27, 67], [26.5, 76]].map(([dx, y]) => ({
-            t: "circle", cx: 50 + side * dx, cy: y, r: 2, fill: pearl(y - 2, y + 2),
-          })),
-        ),
-      );
-      break;
-
-    case "sunburst":
-      ops.push(
-        ...Array.from({ length: 13 }, (_, i) => {
-          const deg = -150 + i * 10; // 13 blades, centred on -90 (straight up)
-          const long = i % 2 === 0;
-          return { t: "path", d: rayPath(50, 55, deg, 26, long ? 46 : 37, long ? 3.4 : 2.6), fill: gold(6, 56) };
-        }),
-        { t: "path", d: "M26 50 A26 26 0 0 1 74 50 Q50 36 26 50 Z", fill: hair },
-        { t: "stroke", d: "M25 47 A27 27 0 0 1 75 47", color: gold(24, 48), w: 4.4 },
-        { t: "circle", cx: 50, cy: 27.5, r: 4.6, fill: gold(23, 32) },
-        { t: "path", d: starPath(50, 27.5, 4, 1.6, 8), fill: DIAMOND },
-      );
-      break;
-  }
-
-  // Mouth (cat gets a muzzle + whiskers instead of the open smile).
-  if (style === "cat") {
-    ops.push(
-      { t: "oval", cx: 50, cy: 66, rx: 10, ry: 7, fill: "#FFE8D6" },
-      { t: "path", d: "M47 62 L53 62 L50 66 Z", fill: "#E8698A" },
-      {
-        t: "stroke",
-        d: "M50 66 L50 69 M50 69 C48 71 46 71 45 70 M50 69 C52 71 54 71 55 70",
-        color: "rgba(0,0,0,0.5)",
-        w: 1.4,
-        round: true,
-      },
-      { t: "stroke", d: "M36 62 L26 61 M36 66 L26 65 M64 62 L74 61 M64 66 L74 65", color: "rgba(0,0,0,0.35)", w: 1.3, round: true },
-    );
-  } else {
-    ops.push({ t: "path", d: "M42 66 Q50 75 58 66 Q50 70 42 66 Z", fill: "#7A3B2E" });
-  }
-
-  // Eyes + shine.
-  const eyeCy = style === "cat" ? 54 : 55;
-  const eyeRy = style === "cat" ? 6.2 : 5.6;
-  for (const ex of [41, 59]) {
-    ops.push(
-      { t: "oval", cx: ex, cy: eyeCy, rx: 4.6, ry: eyeRy, fill: "#26221E" },
-      { t: "circle", cx: ex + 1.6, cy: eyeCy - 2.5, r: 1.7, fill: "#FFFFFF" },
-    );
-  }
-
-  // Brows (cats skip them; hat styles use the neutral brow tone).
-  if (style !== "cat") {
-    const HIDDEN_HAIR = ["cap", "beanie", "headphones", "helm", "nemes", "sunburst"];
-    const brow = HIDDEN_HAIR.includes(style) ? NEUTRAL_BROW : hair;
-    ops.push(
-      { t: "stroke", d: "M36 47 Q41 44 46 47", color: brow, w: 2.2, round: true },
-      { t: "stroke", d: "M54 47 Q59 44 64 47", color: brow, w: 2.2, round: true },
-    );
-  }
-
-  // Blush.
-  ops.push(
-    { t: "oval", cx: 33, cy: 62, rx: 4.5, ry: 2.8, fill: "rgba(255,120,120,0.35)" },
-    { t: "oval", cx: 67, cy: 62, rx: 4.5, ry: 2.8, fill: "rgba(255,120,120,0.35)" },
-  );
-  return ops;
-}
-
-/**
- * Mirrors `shade` in src/theme.ts — kept local so this script stays runnable
- * with no imports from the app. If the app's version changes, change this too.
- */
-function shade(hex, amt) {
-  const n = parseInt(hex.replace("#", ""), 16);
-  const target = amt >= 0 ? 255 : 0;
-  const p = Math.abs(amt);
-  const mix = (c) => Math.round((target - c) * p + c);
-  return `rgb(${mix((n >> 16) & 255)}, ${mix((n >> 8) & 255)}, ${mix(n & 255)})`;
-}
+const DESIGN = 512; // the coordinate space the art is written in
 
 // --- Color ------------------------------------------------------------------
 
@@ -541,7 +72,7 @@ export function hslOf(hex) {
   return { h, s: d ? d / (l > 0.5 ? 2 - max - min : max + min) : 0, l };
 }
 
-/** HSL saturation, 0-1; NaN for non-hex input. Guards shirts against seat colors. */
+/** HSL saturation, 0-1; NaN for non-hex input. Guards busts against seat colors. */
 export function saturationOf(hex) {
   const m = /^#([0-9a-f]{6})$/i.exec(hex);
   if (!m) return NaN;
@@ -553,7 +84,7 @@ export function saturationOf(hex) {
   return (max - min) / (l > 0.5 ? 2 - max - min : max + min);
 }
 
-/** WCAG contrast ratio, 1-21. Guards hair against vanishing into the chip. */
+/** WCAG contrast ratio, 1-21. Guards a silhouette against vanishing into the chip. */
 export function contrastRatio(a, b) {
   const lum = (hex) => {
     const [r, g, b2] = parseColor(hex);
@@ -565,12 +96,15 @@ export function contrastRatio(a, b) {
 }
 
 // --- SVG path -> flattened polylines ----------------------------------------
-// Only the commands the avatar art actually uses, all absolute: M A C H L Q Z.
+//
+// Every command the art emits, absolute and relative: M L H V C S Q Z A. The
+// previous version of this parser upper-cased the command letter, which is
+// correct only for absolute paths — v2's art is written largely in relative
+// curves, where that silently drew the wrong shape rather than failing.
 
 const CUBIC_STEPS = 24;
 const QUAD_STEPS = 16;
 
-/** Elliptical arc, endpoint parameterisation (SVG F.6.1) -> points. */
 function arcPoints(x0, y0, rx, ry, rot, largeArc, sweep, x, y) {
   if (x0 === x && y0 === y) return [];
   const rad = (rot * Math.PI) / 180;
@@ -611,65 +145,299 @@ function arcPoints(x0, y0, rx, ry, rot, largeArc, sweep, x, y) {
   return pts;
 }
 
-/** Parses a path `d` into subpaths of flattened points. */
+const PATH_CMD = /([MmLlHhVvCcSsQqTtAaZz])([^MmLlHhVvCcSsQqTtAaZz]*)/g;
+const nums = (s) => (s.match(/-?\d*\.?\d+(?:e[-+]?\d+)?/gi) ?? []).map(Number);
+
+/**
+ * Parses a path `d` into subpaths of flattened points.
+ *
+ * Each subpath carries `closed`, because a stroke needs to know: an open
+ * polyline gets caps at its ends, a closed one gets a join there instead. Fills
+ * ignore it — SVG closes every subpath implicitly when filling.
+ */
 export function parsePath(d) {
   const subpaths = [];
-  let cur = null, cx = 0, cy = 0, sx = 0, sy = 0;
-  const nums = (s) => (s.match(/-?\d*\.?\d+(?:e[-+]?\d+)?/gi) || []).map(Number);
-  for (const m of d.matchAll(/([MACHLQZ])([^MACHLQZ]*)/gi)) {
-    const cmd = m[1].toUpperCase();
+  let cur = null;
+  let cx = 0, cy = 0, sx = 0, sy = 0;
+  // Reflection point for a smooth curve continuing the previous one.
+  let lastC = null, lastQ = null;
+  const push = (closed) => {
+    if (cur && cur.pts.length > 1) { cur.closed = closed; subpaths.push(cur); }
+    cur = null;
+  };
+  const open = () => { if (!cur) cur = { pts: [[cx, cy]], closed: false }; };
+  const cubic = (x1, y1, x2, y2, x, y) => {
+    open();
+    for (let s = 1; s <= CUBIC_STEPS; s++) {
+      const t = s / CUBIC_STEPS, u = 1 - t;
+      cur.pts.push([
+        u * u * u * cx + 3 * u * u * t * x1 + 3 * u * t * t * x2 + t * t * t * x,
+        u * u * u * cy + 3 * u * u * t * y1 + 3 * u * t * t * y2 + t * t * t * y,
+      ]);
+    }
+    lastC = [x2, y2]; lastQ = null;
+    cx = x; cy = y;
+  };
+  const quad = (x1, y1, x, y) => {
+    open();
+    for (let s = 1; s <= QUAD_STEPS; s++) {
+      const t = s / QUAD_STEPS, u = 1 - t;
+      cur.pts.push([u * u * cx + 2 * u * t * x1 + t * t * x, u * u * cy + 2 * u * t * y1 + t * t * y]);
+    }
+    lastQ = [x1, y1]; lastC = null;
+    cx = x; cy = y;
+  };
+  const line = (x, y) => { open(); cur.pts.push([x, y]); lastC = null; lastQ = null; cx = x; cy = y; };
+
+  for (const m of d.matchAll(PATH_CMD)) {
+    const cmd = m[1];
+    const rel = cmd === cmd.toLowerCase() && cmd !== "Z" && cmd !== "z";
     const a = nums(m[2]);
-    if (cmd === "M") {
-      if (cur && cur.length > 1) subpaths.push(cur);
-      cx = a[0]; cy = a[1]; sx = cx; sy = cy;
-      cur = [[cx, cy]];
-      // Extra coordinate pairs after an M are implicit L commands.
-      for (let i = 2; i + 1 < a.length; i += 2) { cx = a[i]; cy = a[i + 1]; cur.push([cx, cy]); }
-    } else if (cmd === "L") {
-      for (let i = 0; i + 1 < a.length; i += 2) { cx = a[i]; cy = a[i + 1]; cur.push([cx, cy]); }
-    } else if (cmd === "H") {
-      for (const v of a) { cx = v; cur.push([cx, cy]); }
-    } else if (cmd === "C") {
-      for (let i = 0; i + 5 < a.length; i += 6) {
-        const [x1, y1, x2, y2, x, y] = a.slice(i, i + 6);
-        for (let s = 1; s <= CUBIC_STEPS; s++) {
-          const t = s / CUBIC_STEPS, u = 1 - t;
-          cur.push([
-            u * u * u * cx + 3 * u * u * t * x1 + 3 * u * t * t * x2 + t * t * t * x,
-            u * u * u * cy + 3 * u * u * t * y1 + 3 * u * t * t * y2 + t * t * t * y,
-          ]);
+    const ox = () => (rel ? cx : 0);
+    const oy = () => (rel ? cy : 0);
+    switch (cmd.toUpperCase()) {
+      case "M": {
+        if (a.length < 2) break;
+        push(false);
+        cx = a[0] + ox(); cy = a[1] + oy(); sx = cx; sy = cy;
+        cur = { pts: [[cx, cy]], closed: false };
+        lastC = null; lastQ = null;
+        // Extra coordinate pairs after an M are implicit L commands.
+        for (let i = 2; i + 1 < a.length; i += 2) line(a[i] + ox(), a[i + 1] + oy());
+        break;
+      }
+      case "L": for (let i = 0; i + 1 < a.length; i += 2) line(a[i] + ox(), a[i + 1] + oy()); break;
+      case "H": for (const v of a) line(v + ox(), cy); break;
+      case "V": for (const v of a) line(cx, v + oy()); break;
+      case "C":
+        for (let i = 0; i + 5 < a.length; i += 6) {
+          cubic(a[i] + ox(), a[i + 1] + oy(), a[i + 2] + ox(), a[i + 3] + oy(), a[i + 4] + ox(), a[i + 5] + oy());
         }
-        cx = x; cy = y;
-      }
-    } else if (cmd === "Q") {
-      for (let i = 0; i + 3 < a.length; i += 4) {
-        const [x1, y1, x, y] = a.slice(i, i + 4);
-        for (let s = 1; s <= QUAD_STEPS; s++) {
-          const t = s / QUAD_STEPS, u = 1 - t;
-          cur.push([u * u * cx + 2 * u * t * x1 + t * t * x, u * u * cy + 2 * u * t * y1 + t * t * y]);
+        break;
+      case "S":
+        for (let i = 0; i + 3 < a.length; i += 4) {
+          // The first control point mirrors the previous curve's second one.
+          const rx = lastC ? 2 * cx - lastC[0] : cx;
+          const ry = lastC ? 2 * cy - lastC[1] : cy;
+          cubic(rx, ry, a[i] + ox(), a[i + 1] + oy(), a[i + 2] + ox(), a[i + 3] + oy());
         }
-        cx = x; cy = y;
-      }
-    } else if (cmd === "A") {
-      for (let i = 0; i + 6 < a.length; i += 7) {
-        const [rx, ry, rot, laf, sf, x, y] = a.slice(i, i + 7);
-        cur.push(...arcPoints(cx, cy, rx, ry, rot, laf, sf, x, y));
-        cx = x; cy = y;
-      }
-    } else if (cmd === "Z") {
-      if (cur) { cur.push([sx, sy]); subpaths.push(cur); cur = null; }
-      cx = sx; cy = sy;
+        break;
+      case "Q":
+        for (let i = 0; i + 3 < a.length; i += 4) quad(a[i] + ox(), a[i + 1] + oy(), a[i + 2] + ox(), a[i + 3] + oy());
+        break;
+      case "T":
+        for (let i = 0; i + 1 < a.length; i += 2) {
+          const rx = lastQ ? 2 * cx - lastQ[0] : cx;
+          const ry = lastQ ? 2 * cy - lastQ[1] : cy;
+          quad(rx, ry, a[i] + ox(), a[i + 1] + oy());
+        }
+        break;
+      case "A":
+        for (let i = 0; i + 6 < a.length; i += 7) {
+          const [rx, ry, rot, laf, sf] = a.slice(i, i + 5);
+          const x = a[i + 5] + ox(), y = a[i + 6] + oy();
+          open();
+          cur.pts.push(...arcPoints(cx, cy, rx, ry, rot, laf, sf, x, y));
+          lastC = null; lastQ = null;
+          cx = x; cy = y;
+        }
+        break;
+      case "Z":
+        if (cur) { cur.pts.push([sx, sy]); push(true); }
+        cx = sx; cy = sy;
+        lastC = null; lastQ = null;
+        break;
+      default: throw new Error(`unsupported path command: ${cmd}`);
     }
   }
-  if (cur && cur.length > 1) subpaths.push(cur);
+  push(false);
   return subpaths;
 }
 
-const ellipse = (cx, cy, rx, ry, n = 96) =>
-  [Array.from({ length: n + 1 }, (_, i) => {
+const ellipsePolys = (cx, cy, rx, ry, n = 128) => [{
+  closed: true,
+  pts: Array.from({ length: n + 1 }, (_, i) => {
     const t = (i / n) * Math.PI * 2;
     return [cx + rx * Math.cos(t), cy + ry * Math.sin(t)];
-  })];
+  }),
+}];
+
+/** A rounded rectangle, as SVG's `rect` with rx/ry defines it. */
+function rectPolys(x, y, w, h, rx, ry) {
+  rx = Math.min(rx ?? 0, w / 2);
+  ry = Math.min(ry ?? rx, h / 2);
+  if (rx <= 0 || ry <= 0) {
+    return [{ closed: true, pts: [[x, y], [x + w, y], [x + w, y + h], [x, y + h], [x, y]] }];
+  }
+  return parsePath(
+    `M${x + rx} ${y} H${x + w - rx} A${rx} ${ry} 0 0 1 ${x + w} ${y + ry}` +
+    ` V${y + h - ry} A${rx} ${ry} 0 0 1 ${x + w - rx} ${y + h}` +
+    ` H${x + rx} A${rx} ${ry} 0 0 1 ${x} ${y + h - ry}` +
+    ` V${y + ry} A${rx} ${ry} 0 0 1 ${x + rx} ${y} Z`,
+  );
+}
+
+// --- SVG document -> draw ops ------------------------------------------------
+
+const IDENTITY = [1, 0, 0, 1, 0, 0];
+const matMul = (m, n) => [
+  m[0] * n[0] + m[2] * n[1], m[1] * n[0] + m[3] * n[1],
+  m[0] * n[2] + m[2] * n[3], m[1] * n[2] + m[3] * n[3],
+  m[0] * n[4] + m[2] * n[5] + m[4], m[1] * n[4] + m[3] * n[5] + m[5],
+];
+const applyMat = (m, [x, y]) => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
+
+/** `rotate(a[ cx cy])`, `translate(x[,y])` and `scale(s[,sy])`, composed left to right. */
+function parseTransform(s) {
+  let m = IDENTITY;
+  for (const t of s.matchAll(/([a-z]+)\s*\(([^)]*)\)/gi)) {
+    const a = nums(t[2]);
+    switch (t[1]) {
+      case "translate": m = matMul(m, [1, 0, 0, 1, a[0] ?? 0, a[1] ?? 0]); break;
+      case "scale": m = matMul(m, [a[0] ?? 1, 0, 0, a[1] ?? a[0] ?? 1, 0, 0]); break;
+      case "rotate": {
+        const r = ((a[0] ?? 0) * Math.PI) / 180, c = Math.cos(r), sn = Math.sin(r);
+        const [px, py] = [a[1] ?? 0, a[2] ?? 0];
+        m = matMul(m, [1, 0, 0, 1, px, py]);
+        m = matMul(m, [c, sn, -sn, c, 0, 0]);
+        m = matMul(m, [1, 0, 0, 1, -px, -py]);
+        break;
+      }
+      default: throw new Error(`unsupported transform: ${t[1]}`);
+    }
+  }
+  return m;
+}
+
+const TAG = /<(\/?)([a-zA-Z][\w:.-]*)((?:\s+[\w:.-]+\s*=\s*"[^"]*")*)\s*(\/?)>/g;
+const ATTR = /([\w:.-]+)\s*=\s*"([^"]*)"/g;
+
+/** Elements whose contents never draw: definitions, clips and provenance. */
+const SKIPPED = new Set(["defs", "clippath", "metadata", "lineargradient", "radialgradient", "c2pa:manifest"]);
+
+/** Style properties that cascade from a `g` to its children. */
+const INHERITED = ["fill", "stroke", "stroke-width", "stroke-linecap", "stroke-dasharray"];
+
+/**
+ * Flattens an SVG document into `{ polys, fill | stroke }` draw ops.
+ *
+ * Deliberately narrow: it understands the shapes, attributes and transforms the
+ * avatar art emits and throws on everything else. A permissive parser that
+ * shrugged at an unknown element would ship a face with a missing feature and
+ * no error, which is the one failure mode a generated-art pipeline cannot see.
+ */
+export function svgToOps(svg) {
+  const ops = [];
+  const stack = [{ style: {}, mat: IDENTITY }];
+  let skipDepth = 0;
+  let skipAt = 0;
+
+  for (const m of svg.matchAll(TAG)) {
+    const closing = m[1] === "/";
+    const name = m[2].toLowerCase();
+    const selfClosing = m[4] === "/";
+
+    if (skipDepth > 0) {
+      if (closing && --skipAt === 0) skipDepth = 0;
+      else if (!closing && !selfClosing) skipAt++;
+      continue;
+    }
+    if (closing) {
+      if (stack.length > 1) stack.pop();
+      continue;
+    }
+    if (SKIPPED.has(name)) {
+      if (!selfClosing) { skipDepth = 1; skipAt = 1; }
+      continue;
+    }
+
+    const attrs = {};
+    for (const a of m[3].matchAll(ATTR)) attrs[a[1].toLowerCase()] = a[2];
+
+    const parent = stack[stack.length - 1];
+    const style = { ...parent.style };
+    for (const k of INHERITED) if (attrs[k] !== undefined) style[k] = attrs[k];
+    // Group opacity is multiplicative here rather than composited through an
+    // offscreen buffer. The art only ever puts opacity on groups of shapes that
+    // do not overlap each other, where the two are identical.
+    style.opacity = (parent.style.opacity ?? 1) * (attrs.opacity !== undefined ? Number(attrs.opacity) : 1);
+    const mat = attrs.transform ? matMul(parent.mat, parseTransform(attrs.transform)) : parent.mat;
+
+    // Every element that is not self-closing gets a frame, shapes included —
+    // the art writes `<circle .../>` but the reference sheet writes
+    // `<circle ...></circle>`, and popping on a close that never pushed
+    // unbalances the stack. Once it does, children inherit the root's empty
+    // style and every `fill` from an enclosing `g` silently becomes black.
+    if (!selfClosing) stack.push({ style, mat });
+    if (name === "svg" || name === "g") continue;
+
+    let polys;
+    switch (name) {
+      case "path": polys = parsePath(attrs.d ?? ""); break;
+      case "circle": polys = ellipsePolys(+attrs.cx, +attrs.cy, +attrs.r, +attrs.r); break;
+      case "ellipse": polys = ellipsePolys(+attrs.cx, +attrs.cy, +attrs.rx, +attrs.ry); break;
+      case "rect": polys = rectPolys(+attrs.x || 0, +attrs.y || 0, +attrs.width, +attrs.height, attrs.rx === undefined ? 0 : +attrs.rx, attrs.ry === undefined ? undefined : +attrs.ry); break;
+      case "line": polys = [{ closed: false, pts: [[+attrs.x1, +attrs.y1], [+attrs.x2, +attrs.y2]] }]; break;
+      default: throw new Error(`unsupported SVG element: <${name}>`);
+    }
+    if (mat !== IDENTITY) polys = polys.map((p) => ({ ...p, pts: p.pts.map((pt) => applyMat(mat, pt)) }));
+
+    // SVG's initial fill is black; only `line` has no fill at all.
+    const fill = attrs.fill ?? style.fill ?? (name === "line" ? "none" : "#000000");
+    const stroke = attrs.stroke ?? style.stroke ?? "none";
+    if (fill !== "none" && name !== "line") ops.push({ polys, fill, opacity: style.opacity });
+    if (stroke !== "none") {
+      // A stroke scales with its transform, as SVG defines it. Nothing in the
+      // v2 art scales, but the preserved v1 Onyx is written in its original
+      // 100-unit space under one `scale(5)`, and without this its outlines
+      // would come out five times too thin.
+      const scale = Math.sqrt(Math.abs(mat[0] * mat[3] - mat[1] * mat[2])) || 1;
+      ops.push({
+        polys,
+        stroke,
+        width: Number(attrs["stroke-width"] ?? style["stroke-width"] ?? 1) * scale,
+        cap: attrs["stroke-linecap"] ?? style["stroke-linecap"] ?? "butt",
+        dash: (attrs["stroke-dasharray"] ?? style["stroke-dasharray"] ?? "none") === "none"
+          ? null
+          : nums(attrs["stroke-dasharray"] ?? style["stroke-dasharray"]),
+        opacity: style.opacity,
+      });
+    }
+  }
+  return ops;
+}
+
+/** Cuts a polyline into the "on" runs of a dash pattern. */
+function dashPolys(polys, pattern) {
+  if (!pattern || !pattern.length) return polys;
+  const total = pattern.reduce((a, b) => a + b, 0);
+  if (total <= 0) return polys;
+  const out = [];
+  for (const poly of polys) {
+    let idx = 0, left = pattern[0], on = true, run = [poly.pts[0]];
+    for (let i = 0; i + 1 < poly.pts.length; i++) {
+      let [ax, ay] = poly.pts[i];
+      const [bx, by] = poly.pts[i + 1];
+      let seg = Math.hypot(bx - ax, by - ay);
+      while (seg > left) {
+        const t = left / seg;
+        const mx = ax + (bx - ax) * t, my = ay + (by - ay) * t;
+        if (on) { run.push([mx, my]); if (run.length > 1) out.push({ closed: false, pts: run }); }
+        run = [[mx, my]];
+        on = !on;
+        ax = mx; ay = my;
+        seg -= left;
+        idx = (idx + 1) % pattern.length;
+        left = pattern[idx];
+      }
+      left -= seg;
+      if (on) run.push([bx, by]);
+      else run = [[bx, by]];
+    }
+    if (on && run.length > 1) out.push({ closed: false, pts: run });
+  }
+  return out;
+}
 
 // --- Raster -----------------------------------------------------------------
 // Premultiplied float RGBA at the supersampled resolution; source-over.
@@ -687,57 +455,23 @@ function blend(cv, i, r, g, b, a) {
   cv.px[i + 3] = a + cv.px[i + 3] * inv;
 }
 
-/**
- * A paint is either a flat CSS color or a linear gradient in DESIGN space:
- *
- *   { from: [x, y], to: [x, y], stops: [[t, color], ...] }
- *
- * Gradients exist for the premium tier, and they are the whole reason it can
- * look premium. A flat #E8B93A is mustard; gold is the *ramp* — near-white
- * highlight, body color, brown shadow — and the eye reads the ramp, not the
- * hue. Nothing else in the catalog uses one, so the flat path below stays
- * exactly as it was and the original fourteen still render byte-identically.
- *
- * Returns either { flat: [r,g,b,a] } or { at(x, y) } sampling in design space.
- */
-function makePaint(paint) {
-  if (typeof paint === "string") return { flat: parseColor(paint) };
-  const stops = paint.stops.map(([t, c]) => [t, parseColor(c)]).sort((p, q) => p[0] - q[0]);
-  const [gx, gy] = paint.from;
-  const dx = paint.to[0] - gx, dy = paint.to[1] - gy;
-  const len2 = dx * dx + dy * dy || 1;
-  return {
-    at(x, y) {
-      let t = ((x - gx) * dx + (y - gy) * dy) / len2;
-      t = t < 0 ? 0 : t > 1 ? 1 : t;
-      let i = 0;
-      while (i < stops.length - 1 && t > stops[i + 1][0]) i++;
-      const [ta, ca] = stops[i];
-      const [tb, cb] = stops[i + 1] ?? stops[i];
-      const f = tb === ta ? 0 : (t - ta) / (tb - ta);
-      return [ca[0] + (cb[0] - ca[0]) * f, ca[1] + (cb[1] - ca[1]) * f, ca[2] + (cb[2] - ca[2]) * f, ca[3] + (cb[3] - ca[3]) * f];
-    },
-  };
-}
-
 /** Scanline fill, nonzero winding, over a set of subpaths in design space. */
 function fillPolys(cv, polys, color, opacity = 1) {
-  const paint = makePaint(color);
-  const [r, g, b, ca] = paint.flat ?? [0, 0, 0, 1];
+  const [r, g, b, ca] = parseColor(color);
   const alpha = ca * opacity;
-  if (paint.flat && alpha <= 0) return;
+  if (alpha <= 0) return;
   const k = cv.size / DESIGN;
   const edges = [];
   let minY = Infinity, maxY = -Infinity;
-  for (const poly of polys) {
-    for (let i = 0; i + 1 < poly.length; i++) {
-      const y0 = poly[i][1] * k, y1 = poly[i + 1][1] * k;
+  for (const { pts } of polys) {
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const y0 = pts[i][1] * k, y1 = pts[i + 1][1] * k;
       if (y0 === y1) continue;
-      edges.push([poly[i][0] * k, y0, poly[i + 1][0] * k, y1]);
+      edges.push([pts[i][0] * k, y0, pts[i + 1][0] * k, y1]);
       minY = Math.min(minY, y0, y1); maxY = Math.max(maxY, y0, y1);
     }
     // Close implicitly for fill (SVG fills treat subpaths as closed).
-    const [fx, fy] = poly[0], [lx, ly] = poly[poly.length - 1];
+    const [fx, fy] = pts[0], [lx, ly] = pts[pts.length - 1];
     if (fx !== lx || fy !== ly) {
       const y0 = ly * k, y1 = fy * k;
       if (y0 !== y1) { edges.push([lx * k, y0, fx * k, y1]); minY = Math.min(minY, y0, y1); maxY = Math.max(maxY, y0, y1); }
@@ -761,35 +495,45 @@ function fillPolys(cv, polys, color, opacity = 1) {
       wind += xs[i][1];
       if (wind === 0) continue;
       const x0 = Math.max(0, Math.ceil(xs[i][0] - 0.5)), x1 = Math.min(cv.size - 1, Math.floor(xs[i + 1][0] - 0.5));
-      if (paint.flat) {
-        for (let x = x0; x <= x1; x++) blend(cv, (y * cv.size + x) * 4, r, g, b, alpha);
-      } else {
-        for (let x = x0; x <= x1; x++) {
-          const [pr, pg, pb, pa] = paint.at((x + 0.5) / k, sy / k);
-          blend(cv, (y * cv.size + x) * 4, pr, pg, pb, pa * opacity);
-        }
-      }
+      for (let x = x0; x <= x1; x++) blend(cv, (y * cv.size + x) * 4, r, g, b, alpha);
     }
   }
 }
 
-/** Stroke as distance-to-polyline (round caps and joins). */
-function strokePolys(cv, polys, color, width, opacity = 1) {
-  const paint = makePaint(color);
-  const [r, g, b, ca] = paint.flat ?? [0, 0, 0, 1];
+/**
+ * Stroke as distance-to-polyline: round joins always, and butt caps unless the
+ * art asked for round ones.
+ *
+ * A butt cap is the half-plane test at each end of an open polyline. Without
+ * it every unclosed stroke grows by half its width at both ends, which on the
+ * art's thick bands (a turban wrap is 16 units wide) pushes past the shape it
+ * is meant to sit inside.
+ */
+function strokePolys(cv, polys, color, width, cap = "butt", opacity = 1) {
+  const [r, g, b, ca] = parseColor(color);
   const alpha = ca * opacity;
-  if (paint.flat && alpha <= 0) return;
+  if (alpha <= 0 || width <= 0) return;
   const k = cv.size / DESIGN;
   const hw = (width * k) / 2;
   const segs = [];
+  const planes = []; // [px, py, nx, ny] — reject samples on the far side
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  for (const poly of polys) {
-    for (let i = 0; i + 1 < poly.length; i++) {
-      const ax = poly[i][0] * k, ay = poly[i][1] * k, bx = poly[i + 1][0] * k, by = poly[i + 1][1] * k;
+  for (const { pts, closed } of polys) {
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const ax = pts[i][0] * k, ay = pts[i][1] * k, bx = pts[i + 1][0] * k, by = pts[i + 1][1] * k;
       segs.push([ax, ay, bx, by]);
       minX = Math.min(minX, ax, bx); maxX = Math.max(maxX, ax, bx);
       minY = Math.min(minY, ay, by); maxY = Math.max(maxY, ay, by);
     }
+    if (cap === "round" || closed || pts.length < 2) continue;
+    const dir = (from, to) => {
+      const d = Math.hypot(to[0] - from[0], to[1] - from[1]);
+      return d ? [(to[0] - from[0]) / d, (to[1] - from[1]) / d] : null;
+    };
+    const head = dir(pts[0], pts[1]);
+    const tail = dir(pts[pts.length - 2], pts[pts.length - 1]);
+    if (head) planes.push([pts[0][0] * k, pts[0][1] * k, -head[0], -head[1]]);
+    if (tail) planes.push([pts[pts.length - 1][0] * k, pts[pts.length - 1][1] * k, tail[0], tail[1]]);
   }
   if (!segs.length) return;
   const x0 = Math.max(0, Math.floor(minX - hw - 1)), x1 = Math.min(cv.size - 1, Math.ceil(maxX + hw + 1));
@@ -806,20 +550,14 @@ function strokePolys(cv, polys, color, width, opacity = 1) {
         if (d < best) best = d;
       }
       if (Math.sqrt(best) > hw) continue;
-      if (paint.flat) {
-        blend(cv, (y * cv.size + x) * 4, r, g, b, alpha);
-      } else {
-        const [pr, pg, pb, pa] = paint.at(px / k, py / k);
-        blend(cv, (y * cv.size + x) * 4, pr, pg, pb, pa * opacity);
+      let clipped = false;
+      for (const [qx, qy, nx, ny] of planes) {
+        if ((px - qx) * nx + (py - qy) * ny > 0 && Math.hypot(px - qx, py - qy) <= hw) { clipped = true; break; }
       }
+      if (clipped) continue;
+      blend(cv, (y * cv.size + x) * 4, r, g, b, alpha);
     }
   }
-}
-
-/** Vertical linear gradient across the whole design box. */
-function fillFlat(cv, color) {
-  const [r, g, b] = parseColor(color);
-  for (let i = 0; i < cv.px.length; i += 4) blend(cv, i, r, g, b, 1);
 }
 
 /** Multiplies alpha by an antialiased disc — the chip's clip. */
@@ -862,27 +600,20 @@ function resolve(cv, outSize) {
   return out;
 }
 
-/** Renders one avatar to RGBA8 at `size`. Mirrors AvatarGlyph's draw order. */
-export function renderAvatar(spec, size = OUT_SIZE) {
+/** Rasterizes an SVG string to RGBA8 at `size`, clipped to the chip disc. */
+export function renderSVG(svg, size = OUT_SIZE) {
   const cv = makeCanvas(size * SS);
-  const tone = CHIP_TONES[spec.tone];
-  if (!tone) throw new Error(`${spec.id}: unknown chip tone ${spec.tone}`);
-  fillFlat(cv, tone);
-  for (const o of buildOps(spec)) {
-    switch (o.t) {
-      case "path": fillPolys(cv, parsePath(o.d), o.fill, o.op ?? 1); break;
-      case "stroke": strokePolys(cv, parsePath(o.d), o.color, o.w, o.op ?? 1); break;
-      case "circle": fillPolys(cv, ellipse(o.cx, o.cy, o.r, o.r), o.fill, o.op ?? 1); break;
-      case "oval": fillPolys(cv, ellipse(o.cx, o.cy, o.rx, o.ry), o.fill, o.op ?? 1); break;
-      case "ring": strokePolys(cv, ellipse(o.cx, o.cy, o.r, o.r), o.color, o.w, o.op ?? 1); break;
-      default: throw new Error(`unknown op: ${o.t}`);
-    }
+  for (const op of svgToOps(svg)) {
+    if (op.fill) fillPolys(cv, op.polys, op.fill, op.opacity);
+    else strokePolys(cv, dashPolys(op.polys, op.dash), op.stroke, op.width, op.cap, op.opacity);
   }
-  // The rim sits inside r=50, so drawing it before the clip is equivalent to
-  // the runtime version drawing it outside the clip group.
-  strokePolys(cv, ellipse(50, 50, 49, 49), "rgba(0,0,0,0.15)", 2);
-  clipToCircle(cv, 50, 50, 50);
+  clipToCircle(cv, 256, 256, 250);
   return resolve(cv, size);
+}
+
+/** Renders one avatar to RGBA8 at `size`. */
+export function renderAvatar(spec, size = OUT_SIZE) {
+  return renderSVG(buildSVG(spec), size);
 }
 
 // --- PNG (same hand-rolled encoder as gen-app-icon.mjs) ----------------------

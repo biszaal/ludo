@@ -143,8 +143,22 @@ function pickBotName(rng: () => number, attempt: number): { name: string; presen
 }
 
 /** Avatar ids mirrored from the client's render/avatars.ts set, tagged by how
- *  the drawn style reads (see Avatar.tsx buildOps): hair-forward faces present,
- *  hat-and-ears faces don't. Keep in sync if the avatar set grows. */
+ *  the drawn style reads (see scripts/avatar-art.mjs): hair-forward faces
+ *  present, hat-and-ears faces don't.
+ *
+ *  TWO RULES BEFORE ADDING ONE, and the first is the one that bites.
+ *
+ *  A face here is written into profiles.avatar_id, and every OTHER player's
+ *  client then has to draw it. A client that shipped before the id existed
+ *  resolves it through resolveAvatarId, which answers the default — so adding
+ *  an id the app stores have not shipped yet turns a slice of the bot
+ *  population into a crowd of identical Leos on every phone out there. Avatar
+ *  set v2 (0070) added twelve faces for exactly this reason are NOT here yet:
+ *  they go in only once a build carrying their art is live on both stores.
+ *
+ *  Second, the pool stays inside the entry coin bands (0-500). Bots wearing a
+ *  prestige face is how a prestige face stops being one — a player who ground
+ *  100,000 coins for regis should not be seated opposite three of him. */
 const BOT_AVATARS: readonly (readonly [string, Presents])[] = [
   ["zara", "f"], ["nina", "f"], ["ruby", "f"],       // bun, pigtails, bow
   ["sunny", "m"], ["milo", "m"], ["bruno", "m"],     // spiky, side part, beard

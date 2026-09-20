@@ -1,15 +1,16 @@
 /**
- * The avatar art is generated (scripts/gen-avatars.mjs) and shipped as PNGs, so
- * these guard the catalog rather than the rendering: the app's id list and the
- * generator's must agree, every id must have an image on disk, and the colors
- * must stay legible against the chip and distinct from the seat colors.
+ * The avatar art is generated (scripts/avatar-art.mjs draws it, gen-avatars.mjs
+ * rasterizes it) and shipped as PNGs, so these guard the catalog rather than the
+ * rendering: the app's id list and the generator's must agree, every id must
+ * have an image on disk, and the colors must stay legible against the chip and
+ * distinct from the seat colors.
  */
 
 import { describe, it, expect } from "vitest";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { AVATARS, CHIP_TONES, contrastRatio, hslOf, parseColor, renderAvatar, saturationOf } from "../scripts/gen-avatars.mjs";
+import { AVATARS, CHIP_TONES, buildSVG, contrastRatio, hslOf, parseColor, renderAvatar, saturationOf, svgToOps } from "../scripts/gen-avatars.mjs";
 import { AVATAR_IDS, DEFAULT_AVATAR_ID, resolveAvatarId } from "../src/render/avatars";
 import { teamColor } from "../src/theme";
 
@@ -77,6 +78,10 @@ describe("avatar chip background", () => {
   // colorblindness (deuteranopia merges red and green; violet drifts toward
   // blue). A chip that is always paler and flatter than any seat reads as
   // tinted paper next to the frame's vivid ring, whatever your color vision.
+  //
+  // This is also the rule avatar set v2's reference sheet broke, by putting the
+  // rarity tier in the chip background: its "rare" was a pale blue at 215deg
+  // and its "legendary" a gold at 46deg, against the yellow seat's 46deg.
   it("stays paler and flatter than every seat color", () => {
     const seats = Object.entries(teamColor).map(([n, hex]) => [n, hslOf(hex)] as const);
     for (const [name, tone] of tones()) {
@@ -123,28 +128,155 @@ describe("avatar chip background", () => {
 
   it("gives every character a known tone", () => {
     // Tones repeat on purpose — the chip is a backdrop, and a character is told
-    // apart by its face, hair and shirt (asserted below), never by its chip.
+    // apart by its face, hair and bust (asserted below), never by its chip.
     for (const spec of AVATARS) {
       expect(Object.keys(CHIP_TONES), `${spec.id} has an unknown tone`).toContain(spec.tone);
     }
   });
+
+  // PlayerChip frames the avatar in the seat's colour and learned that a second
+  // coloured frame under that one reads as a double border, so the chip's own
+  // edge is a neutral hairline. The reference sheet drew a 10-unit tier ring
+  // here; this is the assertion that keeps it out.
+  it("draws no coloured ring inside the chip edge", () => {
+    // Only the chip's own edge — a stroke that traces a circle on the chip's
+    // centre at most of its radius. Earrings, a helmet rim and Selene's moon
+    // are circular strokes too, and they are allowed to have a colour.
+    const isChipEdge = (op: any) => {
+      if (!op.stroke || op.polys.length !== 1) return false;
+      const xs = op.polys[0].pts.map((p: number[]) => p[0]);
+      const ys = op.polys[0].pts.map((p: number[]) => p[1]);
+      const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+      const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+      const r = (Math.max(...xs) - Math.min(...xs)) / 2;
+      return Math.abs(cx - 256) < 2 && Math.abs(cy - 256) < 2 && r > 200;
+    };
+    for (const spec of AVATARS) {
+      const edges = svgToOps(buildSVG(spec)).filter(isChipEdge);
+      expect(edges.length, `${spec.id} has no chip edge`).toBe(1);
+      const stroke = edges[0].stroke as string;
+      const neutral = !stroke.startsWith("#") || hslOf(stroke).s < 0.06;
+      expect(neutral, `${spec.id} draws a coloured ring (${stroke}) inside the chip edge`).toBe(true);
+    }
+  });
 });
 
-describe("premium regalia", () => {
-  // The regression this pins. The metal ramps started life on a diagonal axis,
-  // which put t<0 at the left edge of a wreath and t>1 at the right — both
-  // clamp, so saga rendered one wing white and the other charcoal, and every
-  // mirrored ornament in the tier was lopsided. A vertical ramp is the only
-  // one that survives mirroring, and nothing but a render can prove it did.
-  //
-  // Only the crown of the chip is compared. Below it sit highlights that are
-  // off-centre on purpose — the eye shine, and the specular on regis's
-  // amethyst — and selene is exempt outright because a crescent moon beside a
-  // star is asymmetric by design.
-  const SIZE = 96;
-  const CROWN_ROWS = Math.floor(SIZE * 0.33); // design y < ~33: ornament only
+describe("avatar silhouette", () => {
+  // Every spec declares the colour of its outermost shape where that shape
+  // meets the chip. v1's test read `hair` instead, which was the wrong field
+  // for anyone in a hat: saga declared a dark blonde the chip never sees,
+  // because a steel helm sits on top of it, and passed while rendering as a
+  // pale shape on a pale chip. Measuring the edge is measuring what you see.
+  it("declares an edge colour for every character", () => {
+    for (const a of AVATARS) {
+      expect(a.edge, `${a.id} declares no edge colour`).toMatch(/^#[0-9A-Fa-f]{6}$/);
+    }
+  });
 
-  for (const spec of AVATARS.filter((a) => ["laurel", "saga", "pharo", "regis", "astra", "solis"].includes(a.id))) {
+  // The head is drawn without an outline, so a silhouette no darker than the
+  // chip renders as nothing at all. A character clears the chip either on its
+  // own colour or on the rim it carries.
+  it("keeps every silhouette readable against its chip", () => {
+    for (const a of AVATARS) {
+      const edge = a.rim ?? a.edge;
+      expect(contrastRatio(edge, CHIP_TONES[a.tone]), `${a.id} vanishes into the ${a.tone} chip`).toBeGreaterThan(2);
+    }
+  });
+
+  // A rim is an escape hatch, so guard it: it must be a real colour, it must be
+  // darker than the edge it is rescuing (an outline that lightens a pale shape
+  // is not an outline), and it must only exist where the edge actually fails.
+  // Otherwise "add a rim" becomes the way to dodge the rule above.
+  it("only rims a silhouette the chip cannot tell on its own", () => {
+    for (const a of AVATARS) {
+      if (a.rim === undefined) continue;
+      expect(a.rim, `${a.id}'s rim is not a hex color`).toMatch(/^#[0-9A-Fa-f]{6}$/);
+      expect(
+        contrastRatio(a.edge, CHIP_TONES[a.tone]),
+        `${a.id} carries a rim it does not need — its edge already clears the chip`,
+      ).toBeLessThan(2);
+      expect(hslOf(a.rim).l, `${a.id}'s rim is lighter than the edge it outlines`).toBeLessThan(hslOf(a.edge).l);
+    }
+  });
+});
+
+describe("avatar identity", () => {
+  it("gives every avatar a hex bust color", () => {
+    for (const a of AVATARS) {
+      expect(a.bust, `${a.id} has no bust color`).toMatch(/^#[0-9A-Fa-f]{6}$/);
+    }
+  });
+
+  // v1 keyed this on style/hair/shirt, which was the whole of a v1 character.
+  // v2 varies the head as well, so the signature has to include it — otherwise
+  // two characters could share a face shape, eye kit, brow and mouth and still
+  // count as distinct because their hair differed by one hex digit.
+  it("never repeats a visual signature", () => {
+    const seen = new Map<string, string>();
+    for (const a of AVATARS) {
+      const key = [
+        // A character preserved from v1 brings its own body, so the feature
+        // fields say nothing about it — its art is the signature.
+        a.legacy ?? "-",
+        a.face ?? "round", a.eyes ?? "round", a.brow ?? "soft", a.mouth ?? "smile",
+        a.hair ?? "-", a.hat ?? "-",
+        (a.hairColor ?? a.hatColor ?? "-").toLowerCase(), a.bust.toLowerCase(), a.skin.toLowerCase(),
+      ].join("|");
+      const clash = seen.get(key);
+      expect(clash, `${a.id} is indistinguishable from ${clash}`).toBeUndefined();
+      seen.set(key, a.id);
+    }
+  });
+
+  // A hat override escapes the bust rule below, so guard the escape hatch: it
+  // has to be a real color, it has to be on an avatar that actually wears a
+  // hat, and it must clear the chip. Onyx's red is the loudest of them,
+  // restored because players recognised him by it.
+  it("keeps any hat colour deliberate and legible", () => {
+    for (const a of AVATARS) {
+      if (a.hatColor === undefined) continue;
+      expect(a.hatColor, `${a.id}'s hat is not a hex color`).toMatch(/^#[0-9A-Fa-f]{6}$/);
+      expect(a.hat, `${a.id} names a hat colour but wears no hat`).toBeTruthy();
+      expect(contrastRatio(a.rim ?? a.hatColor, CHIP_TONES[a.tone]), `${a.id}'s hat vanishes into the chip`).toBeGreaterThan(2);
+    }
+  });
+
+  it("keeps every bust muted below the least saturated team color", () => {
+    const floor = Math.min(...Object.values(teamColor).map(saturationOf));
+    for (const a of AVATARS) {
+      expect(saturationOf(a.bust), `${a.id}'s bust competes with the seat color`).toBeLessThan(floor);
+    }
+  });
+});
+
+describe("avatar rendering", () => {
+  // The SVG parser is deliberately strict — it throws on an element, attribute
+  // or path command it does not implement, rather than drawing nothing. That is
+  // only a safety net if something exercises every character through it, since
+  // a face silently missing its crown is exactly the failure a generated-art
+  // pipeline cannot see.
+  it("draws every character without hitting an unsupported feature", () => {
+    for (const spec of AVATARS) {
+      expect(() => svgToOps(buildSVG(spec)), `${spec.id} uses an SVG feature the rasterizer lacks`).not.toThrow();
+    }
+  });
+
+  // The regression this pins. Mirrored ornament — a laurel wreath, a winged
+  // helm, a crown — used to come out lopsided, because the metal ramp behind it
+  // ran on a diagonal axis and both ends clamped. v2's metals are flat, but the
+  // asymmetry is worth pinning anyway: a crown that is one pixel wider on the
+  // right is the kind of thing nothing but a render can prove.
+  //
+  // Only the crown of the chip is compared, and only for characters whose
+  // crown is mirrored ornament and nothing else. Excluded on purpose: Selene,
+  // because a crescent moon beside a star is asymmetric by design, and
+  // everyone wearing `longStraight` hair (Astra, Mira, Ember, Rani, Frost),
+  // because that hair carries a one-sided specular highlight — a light source
+  // has a direction, and the same exemption the eye shine gets.
+  const SIZE = 96;
+  const CROWN_ROWS = Math.floor(SIZE * 0.28);
+
+  for (const spec of AVATARS.filter((a) => ["laurel", "pharo", "regis", "solis"].includes(a.id))) {
     it(`draws ${spec.id}'s ornament the same on both sides`, () => {
       const px = renderAvatar(spec, SIZE);
       let worst = 0;
@@ -158,50 +290,4 @@ describe("premium regalia", () => {
       expect(worst, `${spec.id} is lopsided across the centre line`).toBeLessThanOrEqual(2);
     });
   }
-});
-
-describe("avatar identity without a colored background", () => {
-  it("gives every avatar a hex shirt color", () => {
-    for (const a of AVATARS) {
-      expect(a.shirt, `${a.id} has no shirt color`).toMatch(/^#[0-9A-Fa-f]{6}$/);
-    }
-  });
-
-  it("never repeats a style/hair/shirt combination", () => {
-    const seen = new Map<string, string>();
-    for (const a of AVATARS) {
-      const key = `${a.style}|${a.hair.toLowerCase()}|${a.shirt.toLowerCase()}|${(a.cap ?? a.shirt).toLowerCase()}`;
-      const clash = seen.get(key);
-      expect(clash, `${a.id} is indistinguishable from ${clash}`).toBeUndefined();
-      seen.set(key, a.id);
-    }
-  });
-
-  it("keeps every hair color readable against the neutral chip", () => {
-    // The head has a dark outline, so skin needs no contrast against the chip;
-    // hair is drawn bare, so a pale hair color on a pale chip renders bald.
-    for (const a of AVATARS) {
-      expect(contrastRatio(a.hair, CHIP_TONES[a.tone]), `${a.id}'s hair vanishes into the chip`).toBeGreaterThan(2);
-    }
-  });
-
-  // A cap override escapes the shirt rule below, so guard the escape hatch: it
-  // has to be a real color, it has to be on an avatar that actually wears a cap,
-  // and it must not turn a character into a seat color's twin. Onyx's red is the
-  // one override, restored because players recognised him by it.
-  it("keeps any cap override deliberate and legible", () => {
-    for (const a of AVATARS) {
-      if (a.cap === undefined) continue;
-      expect(a.cap, `${a.id}'s cap is not a hex color`).toMatch(/^#[0-9A-Fa-f]{6}$/);
-      expect(a.style, `${a.id} names a cap color but wears no cap`).toBe("cap");
-      expect(contrastRatio(a.cap, CHIP_TONES[a.tone]), `${a.id}'s cap vanishes into the chip`).toBeGreaterThan(2);
-    }
-  });
-
-  it("keeps every shirt muted below the least saturated team color", () => {
-    const floor = Math.min(...Object.values(teamColor).map(saturationOf));
-    for (const a of AVATARS) {
-      expect(saturationOf(a.shirt), `${a.id}'s shirt competes with the seat color`).toBeLessThan(floor);
-    }
-  });
 });
