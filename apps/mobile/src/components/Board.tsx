@@ -38,7 +38,7 @@ import { FLY_MS, computeWaypoints, originsFromLastAction, positionKey, walkDurat
 import { shade } from "../theme";
 import type { BoardTheme, PlateWash } from "../render/boardThemes";
 import { appendGlyph } from "../render/boardGlyphs";
-import { artSeed, frameBand, plateTexture, yardEmblem, type Art } from "../render/boardArt";
+import { artSeed, frameBand, frameDecor, plateTexture, yardEmblem, type Art } from "../render/boardArt";
 import { mulberry32 } from "../render/pipShapes";
 import { appendMotif, motifStyle } from "../render/faceMotifs";
 import { useT } from "../i18n";
@@ -393,6 +393,7 @@ export function BoardSurface({ size, theme, ornament = true }: { size: number; t
   const bandInset = size * 0.011;
   const bandWidth = size * 0.024;
   const band = ornament && theme.band ? frameBand(theme.band.kind, size, bandInset, bandWidth) : null;
+  const decor = ornament && theme.decor ? frameDecor(theme.decor, size) : null;
   const cellR = theme.cellRadius ? cell * theme.cellRadius : 2;
   // Seeded per-cell tone. Drawn from one PRNG walked in track order, so a board
   // varies the same way on every device — and so two neighbouring cells are
@@ -442,6 +443,16 @@ export function BoardSurface({ size, theme, ornament = true }: { size: number; t
           yard tile. That gap is ~3.8% of the board, which is why the band is
           sized off `size` rather than off the cell. */}
       {band ? <ArtLayer art={band} color={theme.band!.color} alpha={theme.band!.alpha} /> : null}
+      {/* Placed ornament, clipped to the plate so a frond that runs off the
+          board is cut by its rounded corner rather than squaring it off. Edge
+          layers come first, so every fill lands on its own outline. */}
+      {decor ? (
+        <Group clip={plateClip(size)}>
+          {decor.map((d, i) => (
+            <ArtLayer key={`decor-${i}`} art={d.art} color={d.color} alpha={d.alpha} />
+          ))}
+        </Group>
+      ) : null}
 
       <Group origin={{ x: center, y: center }} transform={[{ scale: BOARD_INTERIOR_SCALE }]}>
 
@@ -1190,7 +1201,7 @@ function ArtLayer({ art, color, alpha, dx = 0, dy = 0 }: { art: Art; color: stri
       const key = round(m.a);
       let p = fills.get(key);
       if (!p) fills.set(key, (p = Skia.Path.Make()));
-      appendGlyph(p, m.glyph, m.x + dx, m.y + dy, m.r, m.rot);
+      appendGlyph(p, m.glyph, m.x + dx, m.y + dy, m.r, m.rot, m.sx ?? 1, m.sy ?? 1);
     }
     for (const m of art.motifs) {
       // Engine turning is cut, not inlaid, so it joins the stroke buckets and

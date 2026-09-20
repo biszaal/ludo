@@ -12,9 +12,20 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { artSeed, frameBand, plateTexture, yardEmblem, type Art, type BandKind, type EmblemKind, type TextureKind } from "../src/render/boardArt";
+import {
+  artSeed,
+  frameBand,
+  frameDecor,
+  plateTexture,
+  yardEmblem,
+  type Art,
+  type BandKind,
+  type DecorItem,
+  type EmblemKind,
+  type TextureKind,
+} from "../src/render/boardArt";
 
-const TEXTURES: TextureKind[] = ["grain", "veins", "foliage", "starfield", "ripple", "damask"];
+const TEXTURES: TextureKind[] = ["grain", "veins", "foliage", "starfield", "ripple", "damask", "twill"];
 const BANDS: BandKind[] = ["meander", "rope", "pearls", "laurel", "chevron", "rays"];
 const EMBLEMS: EmblemKind[] = ["rose", "wreath", "medallion", "constellation", "lattice", "rings"];
 
@@ -193,5 +204,76 @@ describe("yard emblems", () => {
     const big = yardEmblem("rose", 120);
     expect(elementCount(small)).toBe(elementCount(big));
     expect(big.marks[0]!.r).toBeCloseTo(small.marks[0]!.r * 2, 6);
+  });
+});
+
+describe("frameDecor", () => {
+  // The three nature sets' ornament, in the shape the registry declares it.
+  const ITEMS: DecorItem[] = [
+    { shape: "leaf", x: 0.01, y: 0.01, w: 0.96, h: 0.3, rot: 8, fill: "rgba(94,122,60,1)", edge: "rgba(52,76,32,0.9)", a: 0.72 },
+    { shape: "leaf", x: 0.58, y: -0.01, w: 1.04, h: 0.28, rot: -6, fill: "rgba(94,122,60,1)", edge: "rgba(52,76,32,0.9)", a: 0.66 },
+    { shape: "petal", x: 0.36, y: 0.0, w: 0.36, h: 0.3, rot: 14, fill: "rgba(214,150,160,1)", a: 0.66 },
+    { shape: "blob", x: 0.93, y: 0.08, w: 0.38, h: 0.66, rot: -18, fill: "rgba(140,182,96,1)", edge: "rgba(62,92,48,0.9)", a: 0.64 },
+    { shape: "fleck", x: 0.03, y: 0.78, w: 0.05, h: 0.05, rot: 0, fill: "rgba(226,242,216,0.9)", a: 0.6 },
+  ];
+
+  it("groups by colour, edges before fills", () => {
+    // A layer paints one colour, so the generator's job is to hand back as few
+    // of them as there are colours — and to put every outline under its fill.
+    const layers = frameDecor(ITEMS, 340);
+    expect(layers.map((l) => l.color)).toEqual([
+      "rgba(52,76,32,0.9)",
+      "rgba(62,92,48,0.9)",
+      "rgba(94,122,60,1)",
+      "rgba(214,150,160,1)",
+      "rgba(140,182,96,1)",
+      "rgba(226,242,216,0.9)",
+    ]);
+    // The two leaves share a fill, so they share a layer rather than costing
+    // one each.
+    expect(layers.find((l) => l.color === "rgba(94,122,60,1)")!.art.marks.length).toBe(2);
+  });
+
+  it("centres every item on the board it was written for", () => {
+    // Extent is deliberately NOT checked: these overrun and are clipped to the
+    // plate by Board.tsx, which is the look. What would be a bug is an item
+    // whose centre lands off the board entirely — that is a misread of the
+    // top-left coordinates, and it silently drops the ornament out of frame.
+    const size = 340;
+    for (const layer of frameDecor(ITEMS, size)) {
+      for (const e of extents(layer.art)) {
+        expect(e.x).toBeGreaterThanOrEqual(0);
+        expect(e.x).toBeLessThanOrEqual(size * 1.15);
+        expect(e.y).toBeGreaterThanOrEqual(0);
+        expect(e.y).toBeLessThanOrEqual(size * 1.15);
+      }
+    }
+  });
+
+  it("is placed, not generated — identical every call", () => {
+    // No PRNG: the whole point of this primitive over plateTexture is that a
+    // human chose where each item goes.
+    expect(JSON.stringify(frameDecor(ITEMS, 340))).toBe(JSON.stringify(frameDecor(ITEMS, 340)));
+  });
+
+  it("scales with the board, so one list serves a thumbnail and a tablet", () => {
+    const small = frameDecor(ITEMS, 64);
+    const big = frameDecor(ITEMS, 640);
+    expect(small.length).toBe(big.length);
+    const rs = small[0]!.art.marks[0]!.r;
+    const rb = big[0]!.art.marks[0]!.r;
+    expect(rb / rs).toBeCloseTo(10, 5);
+  });
+
+  it("stretches a glyph instead of drawing it round", () => {
+    // A frond is three times as long as it is wide; without the scale it comes
+    // out as a circle and the board reads as clip art.
+    const [layer] = frameDecor([ITEMS[0]!], 340);
+    const mark = layer!.art.marks[0]!;
+    expect(mark.sx).toBeGreaterThan(mark.sy! * 2);
+  });
+
+  it("returns nothing for an empty list", () => {
+    expect(frameDecor([], 340)).toEqual([]);
   });
 });

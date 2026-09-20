@@ -28,7 +28,7 @@ import type { BoardGlyph } from "./boardGlyphs";
 import type { MotifKind } from "./faceMotifs";
 import { mulberry32 } from "./pipShapes";
 
-export type TextureKind = "grain" | "veins" | "foliage" | "starfield" | "ripple" | "damask";
+export type TextureKind = "grain" | "veins" | "foliage" | "starfield" | "ripple" | "damask" | "twill";
 export type BandKind = "meander" | "rope" | "pearls" | "laurel" | "chevron" | "rays";
 /** The composed figure printed on a yard plate — see yardEmblem. */
 export type EmblemKind = "rose" | "wreath" | "medallion" | "constellation" | "lattice" | "rings";
@@ -59,6 +59,10 @@ export interface ArtMark {
   /** Radians, applied about (x, y). */
   rot: number;
   a: number;
+  /** Scale in the glyph's own frame, before rotation. Default 1 — a glyph is
+   *  round unless a caller says otherwise. */
+  sx?: number;
+  sy?: number;
 }
 
 /** An ornament figure from faceMotifs.ts — a rosette, engine turning, a deco
@@ -153,6 +157,25 @@ export function plateTexture(kind: TextureKind, seed: number, size: number, fit:
           pts.push([(s / steps) * size, y + (rnd() - 0.5) * size * 0.012]);
         }
         strokes.push({ pts, w: (0.6 + rnd() * 1.1) * z, a: 0.25 + rnd() * 0.5 });
+      }
+      return { dots, strokes, marks, motifs: [] };
+    }
+
+    case "twill": {
+      // 2x2 carbon weave. A literal weave at board size is a few pixels across
+      // and would cost several hundred elements to draw as blocks; what the eye
+      // actually reads at this scale is light running two ways across the
+      // surface, so that is what is drawn — crossed diagonals, clipped to the
+      // plate so nothing leaves it.
+      const n = count(size, 34, density);
+      for (let i = 0; i < n; i++) {
+        const d = i % 2 === 0 ? 1 : -1;
+        // Offsets are spread across twice the plate so both diagonal families
+        // cover it corner to corner.
+        const t = ((i + rnd() * 0.6) / n) * size * 2 - size * 0.5;
+        const seg = clipDiagonal(t, d, size);
+        if (!seg) continue;
+        strokes.push({ pts: seg, w: (0.7 + rnd() * 0.8) * z, a: 0.2 + rnd() * 0.35 });
       }
       return { dots, strokes, marks, motifs: [] };
     }
@@ -625,4 +648,112 @@ export function yardEmblem(kind: EmblemKind, size: number): Art {
   }
 
   return { dots, strokes, marks, motifs };
+}
+
+/**
+ * The segment of a 45° line, offset `t`, that lies inside a `size` square.
+ * Returns null when the line only clips a corner. Used by the twill weave so
+ * every stroke it emits stays on the plate.
+ */
+function clipDiagonal(t: number, d: number, size: number): Array<[number, number]> | null {
+  const lo = d > 0 ? Math.max(0, t) : Math.max(0, t - size);
+  const hi = d > 0 ? Math.min(size, t + size) : Math.min(size, t);
+  if (hi - lo < size * 0.05) return null;
+  const y = (x: number) => (d > 0 ? x - t : t - x);
+  return [
+    [lo, y(lo)],
+    [hi, y(hi)],
+  ];
+}
+
+/** A shape in the frame ornament. Deliberately a short list: these are laid by
+ *  hand, one at a time, and a vocabulary you can hold in your head is what
+ *  keeps that from turning into scatter. */
+export type DecorShape = "leaf" | "petal" | "blob" | "fleck";
+
+/**
+ * One placed ornament, positioned and sized as a FRACTION of the board so the
+ * same list describes a 64px shop thumbnail and a 900px tablet board.
+ *
+ * This is the opposite of `plateTexture`, and the difference is the whole
+ * lesson of the premium tier: scattered ink at board scale reads as dirt on the
+ * surface, while the same ink placed — a frond across one corner, a petal
+ * caught against the rail — reads as something that was arranged. So these
+ * carry no PRNG at all.
+ */
+export interface DecorItem {
+  shape: DecorShape;
+  /**
+   * TOP-LEFT corner, 0..1 across the board — not the centre, which is how the
+   * design lays these out and why several of them are negative or run past 1.
+   * An item is MEANT to overrun: a frond that stops neatly inside the rail
+   * looks placed on the board, where one that runs off it looks like the board
+   * was cut from something larger. Board.tsx clips them to the plate.
+   */
+  x: number;
+  y: number;
+  /** Size, 0..1 of the board. `fleck` uses `w` as its diameter. */
+  w: number;
+  h: number;
+  /** Degrees, clockwise. */
+  rot: number;
+  fill: string;
+  /** A darker outline, drawn as a hair under the fill. A pressed specimen has
+   *  a dark edge where the leaf thinned against the glass; without it these
+   *  read as flat stickers. */
+  edge?: string;
+  a: number;
+}
+
+/** Decor grouped into one bundle per colour, since a layer paints one colour.
+ *  Edges come first in the returned list so the fills land on top of them. */
+export interface DecorLayer {
+  art: Art;
+  color: string;
+  alpha: number;
+}
+
+const DECOR_GLYPH: Record<Exclude<DecorShape, "fleck">, BoardGlyph> = {
+  leaf: "leaf",
+  petal: "blossom",
+  blob: "lozenge",
+};
+
+/** How far an edge is drawn outside its fill. Small on purpose: at phone size
+ *  a decor item is ~30px, so this is the difference between a visible hairline
+ *  and a dark blob with a bright centre. */
+const EDGE_SPREAD = 1.09;
+
+export function frameDecor(items: readonly DecorItem[], size: number): DecorLayer[] {
+  const edges = new Map<string, Art>();
+  const fills = new Map<string, Art>();
+  const into = (map: Map<string, Art>, color: string): Art => {
+    let art = map.get(color);
+    if (!art) map.set(color, (art = { dots: [], strokes: [], marks: [], motifs: [] }));
+    return art;
+  };
+
+  for (const it of items) {
+    const cx = (it.x + it.w / 2) * size;
+    const cy = (it.y + it.h / 2) * size;
+    if (it.shape === "fleck") {
+      into(fills, it.fill).dots.push({ x: cx, y: cy, r: (it.w * size) / 2, a: it.a });
+      continue;
+    }
+    // A glyph is drawn round, so the item's longer side sets the radius and the
+    // shorter one becomes a scale. That keeps one leaf shape serving a frond
+    // laid along an edge and a rounder one tucked into a corner.
+    const w = (it.w * size) / 2;
+    const h = (it.h * size) / 2;
+    const r = Math.max(w, h);
+    const glyph = DECOR_GLYPH[it.shape];
+    const rot = (it.rot * Math.PI) / 180;
+    const mark = { glyph, x: cx, y: cy, r, rot, a: it.a, sx: w / r, sy: h / r };
+    if (it.edge) into(edges, it.edge).marks.push({ ...mark, r: r * EDGE_SPREAD });
+    into(fills, it.fill).marks.push(mark);
+  }
+
+  const layer = (map: Map<string, Art>): DecorLayer[] =>
+    [...map.entries()].map(([color, art]) => ({ art, color, alpha: 1 }));
+  return [...layer(edges), ...layer(fills)];
 }

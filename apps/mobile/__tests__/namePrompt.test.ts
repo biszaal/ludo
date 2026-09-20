@@ -12,6 +12,14 @@
  * rather than raising, so a taken name comes back as a silently different
  * string. Read as success, that snaps the field to `guest481920` with no
  * explanation — which is precisely the failure the prompt exists to avoid.
+ *
+ * And the reinstall, added later: the migration above only protects a device
+ * whose stored profile survived. AsyncStorage goes with the app, so after a
+ * reinstall `namePromptSeen` is false and a fresh guest handle has been minted
+ * — while the keychain restores the player's real, email-linked account
+ * underneath it (lib/identity). The device looks brand new and the account is
+ * anything but, and the player was met with "What should we call you?" over a
+ * name they registered months ago.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -19,6 +27,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const upsertMyProfile = vi.fn();
 vi.mock("../src/net/api", () => ({ upsertMyProfile: (...a: unknown[]) => upsertMyProfile(...a) }));
 
+import { askForName } from "../src/lib/namePrompt";
 import { claimName } from "../src/net/profileSync";
 import { useProfile } from "../src/store/profileStore";
 
@@ -82,5 +91,27 @@ describe("the prompt is one-time", () => {
   it("still asks a genuinely fresh install", () => {
     // No stored state at all: the store's own default stands.
     expect(useProfile.getInitialState().namePromptSeen).toBe(false);
+  });
+});
+
+describe("askForName", () => {
+  it("asks a new guest who has never been asked", () => {
+    expect(askForName({ promptSeen: false, isGuest: true })).toBe(true);
+  });
+
+  it("never asks a saved account, however new this device is", () => {
+    // The reinstall: nothing on this device has been asked anything, and the
+    // account behind it already holds a registered name.
+    expect(askForName({ promptSeen: false, isGuest: false })).toBe(false);
+  });
+
+  it("waits rather than guessing while the session is still being read", () => {
+    // Guessing "guest" here is how the prompt flashes over the hub and vanishes
+    // a frame later on every reinstall.
+    expect(askForName({ promptSeen: false, isGuest: null })).toBe(false);
+  });
+
+  it("stays a one-time question once it has been answered", () => {
+    expect(askForName({ promptSeen: true, isGuest: true })).toBe(false);
   });
 });

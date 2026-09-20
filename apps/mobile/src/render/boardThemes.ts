@@ -34,7 +34,7 @@
 
 import type { Color as PlayerColor } from "@ludo/engine";
 import type { MotifKind } from "./faceMotifs";
-import type { BandKind, EmblemKind, TextureKind } from "./boardArt";
+import type { BandKind, DecorItem, EmblemKind, TextureKind } from "./boardArt";
 import type { BoardGlyph } from "./boardGlyphs";
 import { palette, teamColor } from "../theme";
 
@@ -277,6 +277,18 @@ export interface BoardTheme {
   slotRing?: string;
   /** The disc inside an empty yard slot. Omitted = derived from `slotEmpty`. */
   slotFill?: string;
+  /**
+   * Ornament placed by hand in the frame — a frond across a corner, moss in the
+   * rail, a bubble caught in the resin (render/boardArt.ts's frameDecor).
+   *
+   * It stays OUT of the playing surface, which is the rule the whole tier is
+   * built on: a token or a die landing on ornament makes both harder to read,
+   * and the frame is the one part of the board nothing is ever placed on. That
+   * is also why this is a list and not a generator — six things put where they
+   * belong beat sixty scattered, and the earlier scattered pass is what proved
+   * it.
+   */
+  decor?: DecorItem[];
 }
 
 // Declared cheap → prestige within each currency: the shop and the locker

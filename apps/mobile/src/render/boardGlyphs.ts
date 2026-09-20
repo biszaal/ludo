@@ -44,7 +44,16 @@ export interface GlyphSink {
  * phone — so each shape is built out of as few curves as will still read at
  * that size. Detail that dissolves into a smudge is worse than no detail.
  */
-export function appendGlyph(sink: GlyphSink, glyph: BoardGlyph, cx: number, cy: number, r: number, rot = 0): void {
+export function appendGlyph(
+  sink: GlyphSink,
+  glyph: BoardGlyph,
+  cx: number,
+  cy: number,
+  r: number,
+  rot = 0,
+  sx = 1,
+  sy = 1,
+): void {
   // Rotation is applied by wrapping the sink rather than by threading an angle
   // through every shape below: a proxy that spins each coordinate about the
   // centre before forwarding it is exact for straight segments and for Beziers
@@ -63,6 +72,21 @@ export function appendGlyph(sink: GlyphSink, glyph: BoardGlyph, cx: number, cy: 
       lineTo: (x, y) => outer.lineTo(rx(x, y), ry(x, y)),
       cubicTo: (a, b, c2, d, e, f) =>
         outer.cubicTo(rx(a, b), ry(a, b), rx(c2, d), ry(c2, d), rx(e, f), ry(e, f)),
+      close: () => outer.close(),
+    };
+  }
+  // A non-uniform scale, applied INSIDE the rotation above — so the shape is
+  // stretched in its own frame and then laid down at an angle, which is what a
+  // long leaf resting across a corner looks like. Squashing it after rotating
+  // gives a different, and visibly wrong, shape.
+  if (sx !== 1 || sy !== 1) {
+    const outer = sink;
+    const px = (x: number) => cx + (x - cx) * sx;
+    const py = (y: number) => cy + (y - cy) * sy;
+    sink = {
+      moveTo: (x, y) => outer.moveTo(px(x), py(y)),
+      lineTo: (x, y) => outer.lineTo(px(x), py(y)),
+      cubicTo: (a, b, c2, d, e, f) => outer.cubicTo(px(a), py(b), px(c2), py(d), px(e), py(f)),
       close: () => outer.close(),
     };
   }

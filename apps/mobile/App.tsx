@@ -20,7 +20,8 @@ import { ChooseNameScreen } from "./src/components/ChooseNameScreen";
 import { ErrorBoundary } from "./src/components/ErrorBoundary";
 import { useOnlineStore } from "./src/store/onlineStore";
 import { useNav } from "./src/store/navStore";
-import { useProfile } from "./src/store/profileStore";
+import { useNamePrompt } from "./src/lib/useNamePrompt";
+import { restoreSavedAccount } from "./src/lib/auth";
 import { initSound, setMusicActive } from "./src/lib/sound";
 import { initFeedback } from "./src/lib/feedback";
 import { initCrashReporting } from "./src/lib/crashReporting";
@@ -65,8 +66,9 @@ export default function App() {
     JetBrainsMono_500Medium,
   });
   const [launched, setLaunched] = useState(false);
-  // Never prompted on an existing install: profileStore v3 migrates them past it.
-  const namePromptSeen = useProfile((s) => s.namePromptSeen);
+  // Never prompted on an existing install (profileStore v3 migrates them past
+  // it), nor on an account that already has a name — see lib/namePrompt.
+  const askName = useNamePrompt();
   const onLaunched = useCallback(() => setLaunched(true), []);
 
   useEffect(() => {
@@ -96,6 +98,10 @@ export default function App() {
         .then(syncPurchasesUser)
         .catch(() => {});
     }
+    // A saved account looks like itself from the first frame — the name, face
+    // and dice this device shows are the ones the account registered, not the
+    // guest defaults a reinstall minted. See lib/auth.
+    void restoreSavedAccount();
     // Who this player has blocked. Loaded before the first game rather than on
     // entering one: the mute filter sits on the chat receive path, and a list
     // that arrives after the first message would let exactly the message
@@ -198,7 +204,7 @@ export default function App() {
       {/* First launch only: asked once, above the hub so nothing behind it can
           be tapped, and below the loading screen so it never flashes during
           startup. Skipping keeps the minted guest handle. */}
-      {ready && launched && !namePromptSeen && <ChooseNameScreen />}
+      {ready && launched && askName && <ChooseNameScreen />}
       {!launched && <LoadingScreen done={ready} onHidden={onLaunched} />}
     </SafeAreaProvider>
     </KeyboardProvider>
