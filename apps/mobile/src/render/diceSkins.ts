@@ -211,6 +211,9 @@ export const DICE_SKINS: Record<DiceSkinId, DiceSkin> = {
     face: { type: "linear", colors: ["#F6D97C", "#D4A83B", "#B8862B"], stops: [0, 0.55, 1] },
     pip: { color: "#5C3A12", shape: "crown" },
     edge: "#8A6420",
+    // A rim and no metal: the most expensive plain face on the coin ladder,
+    // named for a material it never showed. Burnished gold is worked, not cast.
+    overlay: "grain",
     frame: "#FFF0BE",
   },
   galaxy: {
@@ -229,6 +232,8 @@ export const DICE_SKINS: Record<DiceSkinId, DiceSkin> = {
     face: { type: "linear", colors: ["#2B2320", "#6E1F14", "#A93415"], stops: [0, 0.6, 1] },
     pip: { color: "#FF9E3D", shape: "flame", glow: "#FF5A26" },
     edge: "#1A120E",
+    // Cracks in a cooling surface — "Dragon Ember" was a gradient and a glow.
+    overlay: "veins",
   },
   carbon: {
     id: "carbon",
