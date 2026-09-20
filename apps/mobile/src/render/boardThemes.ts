@@ -62,8 +62,18 @@ export type BoardThemeId =
 export interface PlateWash {
   colors: string[];
   positions?: number[];
-  /** Vertical (a lit table) or diagonal (a raking light across metal). */
-  angle?: "vertical" | "diagonal";
+  /**
+   * Vertical (a lit table), diagonal (a raking light across metal), or radial
+   * (a light source standing over the board). Poured and cast materials —
+   * resin, glass, glaze — read as radial and as nothing else: their brightest
+   * point is a place on the surface, not an edge of it.
+   */
+  angle?: "vertical" | "diagonal" | "radial";
+  /** Radial only: the light's centre, as a fraction of the board. Default
+   *  [0.3, 0.1] — over the shoulder, which is where a table lamp is. */
+  center?: [number, number];
+  /** Radial only: the light's reach, as a fraction of the board. Default 1.2. */
+  radius?: number;
 }
 
 export interface BoardTheme {
@@ -214,6 +224,59 @@ export interface BoardTheme {
    * cells across, so 1.15 fills it without touching the seams).
    */
   crest?: { kind: MotifKind; color: string; alpha: number; scale: number };
+
+  // --- Material treatments. Same contract as everything above: each one is
+  // optional, and each one defaults to exactly what the board drew before it
+  // existed. ----------------------------------------------------------------
+
+  /**
+   * A second wash laid over the plate. One gradient describes a colour; two
+   * describe a material — resin poured over a dark bed, a lit face falling
+   * away into an unlit one. The base carries the body and this carries the
+   * light, so its colours usually end transparent.
+   */
+  plateTop?: PlateWash;
+  /**
+   * The surface the track sits on, when it differs from the plate.
+   *
+   * The plate rings the play area and shows between the cells as grout, and
+   * that grid of grout lines is most of what a player reads as the board's
+   * colour. A board whose frame is one material and whose deck is another — a
+   * bronze rail around a brushed titanium deck — needs the two to be separate
+   * things. Omitted, the plate shows through exactly as it always has.
+   */
+  interior?: PlateWash;
+  /** Rim stroke thickness. Omitted = 2.5, the original moulded edge. */
+  edgeWidth?: number;
+  /**
+   * Dash pattern for the rim, as [on, off] in points. A stitched edge is the
+   * fastest way to say a board is not moulded: leather, canvas, a travel set
+   * that rolls up. Omitted = a solid rim.
+   */
+  edgeDash?: [number, number];
+  /**
+   * The hairlines along a track cell's top and bottom edge. Omitted, they stay
+   * the original white-over-shadow pair, which reads as moulded plastic — a
+   * stone or metal deck wants a dimmer top line and a deeper bottom one.
+   */
+  emboss?: { top: string; bottom: string };
+  /**
+   * How far the seat colour is laid INTO the material, 0..1, on the four yard
+   * plates, the home runs and the start cells. Omitted = 1, opaque, which is
+   * how every board has drawn them.
+   *
+   * Under 1 the material shows through the seat colour, and that is the whole
+   * difference between a colour printed on a board and a colour that is part
+   * of one: a seat set into glass or into slate should be tinted stone, not a
+   * sticker on stone. It deliberately never reaches the centre wedges or the
+   * pawns — a seat has to stay identifiable at a glance, and those are where a
+   * player actually looks to find their own.
+   */
+  plateTint?: number;
+  /** The ring around an empty yard slot. Omitted = a tonal step off the seat. */
+  slotRing?: string;
+  /** The disc inside an empty yard slot. Omitted = derived from `slotEmpty`. */
+  slotFill?: string;
 }
 
 // Declared cheap → prestige within each currency: the shop and the locker

@@ -11,7 +11,7 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef } from "react";
 import { Pressable, View } from "react-native";
-import { Canvas, Circle, Group, Line, LinearGradient, Path, RadialGradient, RoundedRect, Skia, vec } from "@shopify/react-native-skia";
+import { Canvas, Circle, DashPathEffect, Group, Line, LinearGradient, Path, RadialGradient, RoundedRect, Skia, vec } from "@shopify/react-native-skia";
 import {
   cancelAnimation,
   Easing,
@@ -36,7 +36,7 @@ import { hopTick } from "../lib/haptics";
 import { cueDurations } from "../lib/moveTiming";
 import { FLY_MS, computeWaypoints, originsFromLastAction, positionKey, walkDurationMs } from "../render/waypoints";
 import { shade } from "../theme";
-import type { BoardTheme } from "../render/boardThemes";
+import type { BoardTheme, PlateWash } from "../render/boardThemes";
 import { appendGlyph } from "../render/boardGlyphs";
 import { artSeed, frameBand, plateTexture, yardEmblem, type Art } from "../render/boardArt";
 import { mulberry32 } from "../render/pipShapes";
@@ -373,9 +373,13 @@ export function BoardSurface({ size, theme, ornament = true }: { size: number; t
   // Premium treatments, each defaulting to exactly what the board drew before
   // they existed (see boardThemes.ts) — so the four original themes render byte
   // for byte as they always have.
-  const plateColors = theme.plate?.colors ?? [shade(theme.boardBase, 0.02), shade(theme.boardBase, -0.07)];
-  const plateEnd = theme.plate?.angle === "diagonal" ? vec(size, size) : vec(0, size);
+  const plate: PlateWash = theme.plate ?? { colors: [shade(theme.boardBase, 0.02), shade(theme.boardBase, -0.07)] };
   const lip = theme.lip ?? "rgba(255,255,255,0.5)";
+  const edgeWidth = theme.edgeWidth ?? 2.5;
+  const emboss = theme.emboss ?? { top: "rgba(255,255,255,0.75)", bottom: "rgba(0,0,0,0.06)" };
+  // Undefined rather than 1 when unset: an opacity of 1 still asks Skia for a
+  // layer, and every board that has ever shipped drew these without one.
+  const tint = theme.plateTint === undefined || theme.plateTint >= 1 ? undefined : theme.plateTint;
   const yardPlate = theme.yardPlate ?? theme.boardBase;
   const sheen = theme.sheen ?? 0.05;
   // The material and the worked edge (render/boardArt.ts). Both are plain
@@ -405,8 +409,13 @@ export function BoardSurface({ size, theme, ornament = true }: { size: number; t
           The plate fills the full footprint; the track interior below is scaled
           in (BOARD_INTERIOR_SCALE) so a board-coloured frame rings the cells. */}
       <RoundedRect x={0} y={0} width={size} height={size} r={18}>
-        <LinearGradient start={vec(0, 0)} end={plateEnd} colors={plateColors} positions={theme.plate?.positions} />
+        <Wash w={plate} size={size} />
       </RoundedRect>
+      {theme.plateTop ? (
+        <RoundedRect x={0} y={0} width={size} height={size} r={18}>
+          <Wash w={theme.plateTop} size={size} />
+        </RoundedRect>
+      ) : null}
       {/* Material, then a vignette, then the rim. Clipped to the plate so a
           vein or a leaf that runs off the edge is cut by the board's own
           rounded corner instead of squaring it off. */}
@@ -425,7 +434,9 @@ export function BoardSurface({ size, theme, ornament = true }: { size: number; t
           />
         </RoundedRect>
       ) : null}
-      <RoundedRect x={1.5} y={1.5} width={size - 3} height={size - 3} r={16} color={theme.boardEdge} style="stroke" strokeWidth={2.5} />
+      <RoundedRect x={1.5} y={1.5} width={size - 3} height={size - 3} r={16} color={theme.boardEdge} style="stroke" strokeWidth={edgeWidth}>
+        {theme.edgeDash ? <DashPathEffect intervals={theme.edgeDash} /> : null}
+      </RoundedRect>
       <RoundedRect x={4} y={4} width={size - 8} height={size - 8} r={14} color={lip} style="stroke" strokeWidth={1.5} />
       {/* The worked edge, in the clear plate between the lip and the first
           yard tile. That gap is ~3.8% of the board, which is why the band is
@@ -433,6 +444,15 @@ export function BoardSurface({ size, theme, ornament = true }: { size: number; t
       {band ? <ArtLayer art={band} color={theme.band!.color} alpha={theme.band!.alpha} /> : null}
 
       <Group origin={{ x: center, y: center }} transform={[{ scale: BOARD_INTERIOR_SCALE }]}>
+
+      {/* The deck under the track, when the board's frame and its playing
+          surface are different materials. Omitted, the plate shows through the
+          grout exactly as before. */}
+      {theme.interior ? (
+        <RoundedRect x={0} y={0} width={size} height={size} r={14}>
+          <Wash w={theme.interior} size={size} />
+        </RoundedRect>
+      ) : null}
 
       {/* Yards: raised gradient tile (drop shadow + top lip), inset inner plate,
           and recessed slot discs ringed in the team color. */}
@@ -527,7 +547,7 @@ export function BoardSurface({ size, theme, ornament = true }: { size: number; t
                 <RoundedRect x={x + 1.5} y={y + 1.5} width={w - 3} height={w - 3} r={14} color="rgba(255,255,255,0.18)" style="stroke" strokeWidth={1.5} />
               </Group>
             ) : (
-              <Group>
+              <Group opacity={tint}>
                 <RoundedRect x={x} y={y} width={w} height={w} r={16}>
                   <LinearGradient start={vec(x, y)} end={vec(x, y + w)} colors={[shade(team, 0.22), team, shade(team, -0.18)]} positions={[0, 0.55, 1]} />
                 </RoundedRect>
@@ -572,13 +592,25 @@ export function BoardSurface({ size, theme, ornament = true }: { size: number; t
               const r = cell * 0.38;
               return (
                 <Group key={`slot-${color}-${i}`}>
-                  <Circle cx={cx} cy={cy} r={cell * 0.44} color={shade(theme.slotEmpty, -0.22)} />
+                  <Circle cx={cx} cy={cy} r={cell * 0.44} color={shade(theme.slotFill ?? theme.slotEmpty, -0.22)} />
                   <Circle cx={cx} cy={cy} r={r}>
-                    <RadialGradient c={vec(cx, cy - r * 0.3)} r={r * 1.6} colors={[shade(theme.slotEmpty, -0.14), shade(theme.slotEmpty, 0.1)]} />
+                    <RadialGradient
+                      c={vec(cx, cy - r * 0.3)}
+                      r={r * 1.6}
+                      colors={[shade(theme.slotFill ?? theme.slotEmpty, -0.14), shade(theme.slotFill ?? theme.slotEmpty, 0.1)]}
+                    />
                   </Circle>
                   {/* Inner-shadow crescent along the top — reads as a recess. */}
                   <Path path={topArc(cx, cy, r)} color="rgba(0,0,0,0.18)" style="stroke" strokeWidth={3} />
-                  <Circle cx={cx} cy={cy} r={cell * 0.44} color={shade(team, -0.12)} opacity={0.5} style="stroke" strokeWidth={1.5} />
+                  <Circle
+                    cx={cx}
+                    cy={cy}
+                    r={cell * 0.44}
+                    color={theme.slotRing ?? shade(team, -0.12)}
+                    opacity={theme.slotRing ? 1 : 0.5}
+                    style="stroke"
+                    strokeWidth={1.5}
+                  />
                 </Group>
               );
             })}
@@ -597,6 +629,7 @@ export function BoardSurface({ size, theme, ornament = true }: { size: number; t
             team={theme.team[color]}
             r={cellR}
             jitter={jitter ? jitter[TRACK_CELLS.length + COLORS.indexOf(color) * 5 + i]! : 0}
+            opacity={tint}
           />
         )),
       )}
@@ -610,7 +643,7 @@ export function BoardSurface({ size, theme, ornament = true }: { size: number; t
         if (isStart) {
           return (
             <Group key={`track-${idx}`}>
-              <ColorCell x={col * cell} y={row * cell} cell={cell} team={startColor(idx, theme)} r={cellR} jitter={0} />
+              <ColorCell x={col * cell} y={row * cell} cell={cell} team={startColor(idx, theme)} r={cellR} jitter={0} opacity={tint} />
               <Path path={markPath(theme, cx, cy, cell * 0.3, cell * 0.13)} color="rgba(255,255,255,0.9)" />
             </Group>
           );
@@ -638,8 +671,8 @@ export function BoardSurface({ size, theme, ornament = true }: { size: number; t
               />
             )}
             <RoundedRect x={col * cell + g} y={row * cell + g} width={cell - g * 2} height={cell - g * 2} r={cellR} color={theme.cellBorder} style="stroke" strokeWidth={1} />
-            <Line p1={vec(col * cell + g + 2.5, row * cell + g + 1.1)} p2={vec(col * cell + cell - g - 2.5, row * cell + g + 1.1)} color="rgba(255,255,255,0.75)" strokeWidth={1.2} />
-            <Line p1={vec(col * cell + g + 2.5, row * cell + cell - g - 1.1)} p2={vec(col * cell + cell - g - 2.5, row * cell + cell - g - 1.1)} color="rgba(0,0,0,0.06)" strokeWidth={1.2} />
+            <Line p1={vec(col * cell + g + 2.5, row * cell + g + 1.1)} p2={vec(col * cell + cell - g - 2.5, row * cell + g + 1.1)} color={emboss.top} strokeWidth={1.2} />
+            <Line p1={vec(col * cell + g + 2.5, row * cell + cell - g - 1.1)} p2={vec(col * cell + cell - g - 2.5, row * cell + cell - g - 1.1)} color={emboss.bottom} strokeWidth={1.2} />
             {SAFE.has(idx) && <Path path={markPath(theme, cx, cy, cell * 0.28, cell * 0.12)} color={theme.starColor} />}
           </Group>
         );
@@ -692,11 +725,44 @@ export function BoardSurface({ size, theme, ornament = true }: { size: number; t
   );
 }
 
+/**
+ * Paints a PlateWash into whatever shape encloses it — the plate, the second
+ * layer over it, or the deck under the track.
+ *
+ * The radial form is not decoration: a poured or cast material (resin, glass,
+ * glaze) has its brightest point somewhere ON the surface, while a linear wash
+ * can only put it along an edge, which is what makes a flat board read as
+ * printed. Defaults reproduce the original vertical light-to-dark plate
+ * exactly, so a theme that declares no wash is unchanged.
+ */
+function Wash({ w, size }: { w: PlateWash; size: number }) {
+  if (w.angle === "radial") {
+    const [fx, fy] = w.center ?? [0.3, 0.1];
+    return <RadialGradient c={vec(size * fx, size * fy)} r={size * (w.radius ?? 1.2)} colors={w.colors} positions={w.positions} />;
+  }
+  return (
+    <LinearGradient
+      start={vec(0, 0)}
+      end={w.angle === "diagonal" ? vec(size, size) : vec(0, size)}
+      colors={w.colors}
+      positions={w.positions}
+    />
+  );
+}
+
 /** A colored path cell (home runs + start cells): vertical gradient + tonal edge. */
-function ColorCell({ x, y, cell, team, r = 2, jitter = 0 }: { x: number; y: number; cell: number; team: string; r?: number; jitter?: number }) {
+function ColorCell({
+  x,
+  y,
+  cell,
+  team,
+  r = 2,
+  jitter = 0,
+  opacity,
+}: { x: number; y: number; cell: number; team: string; r?: number; jitter?: number; opacity?: number }) {
   const g = cellInset(cell);
   return (
-    <Group>
+    <Group opacity={opacity}>
       <RoundedRect x={x + g} y={y + g} width={cell - g * 2} height={cell - g * 2} r={r}>
         <LinearGradient start={vec(x, y)} end={vec(x, y + cell)} colors={[shade(team, 0.16 + jitter), shade(team, -0.1 + jitter)]} />
       </RoundedRect>

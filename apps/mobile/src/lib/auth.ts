@@ -16,7 +16,7 @@ import * as WebBrowser from "expo-web-browser";
 import { getSupabase } from "./supabase";
 import { forgetIdentity } from "./identityClient";
 import { syncPurchasesUser } from "./purchases";
-import { getProfiles, deleteAccount as apiDeleteAccount } from "../net/api";
+import { ensureSignedIn, getProfiles, deleteAccount as apiDeleteAccount } from "../net/api";
 import { useWallet } from "../store/walletStore";
 import { useEntitlements } from "../store/entitlementsStore";
 import { useProfile } from "../store/profileStore";
@@ -291,6 +291,12 @@ async function rehydrateAfterAuth(previousUserId: string | null): Promise<void> 
  * Pull the account's saved name / avatar / dice skin into the local profile, so
  * a restored account looks like itself and not this device's guest defaults.
  *
+ * Called after every auth change, and once at launch by restoreSavedAccount
+ * below.
+ *
+ * `previousUserId` is null on that launch path — no account was left behind, so
+ * nothing is being carried anywhere. See lib/profileCarry for the rule.
+ *
  * The absent-row case is the one with teeth. This used to `return` on it, which
  * left the PREVIOUS account's name in the store — and since names are
  * unique-indexed, that name was usually already registered to the account just
@@ -321,6 +327,40 @@ async function hydrateProfileFromServer(previousUserId: string | null): Promise<
 
   if (me?.avatar_id) p.setAvatar(me.avatar_id);
   if (me?.dice_skin) p.setDiceSkin(me.dice_skin);
+}
+
+/**
+ * Cold start: an account that already has a name wears it. Called once from
+ * App.tsx, best-effort.
+ *
+ * Every other hydrate hangs off an auth operation (rehydrateAfterAuth), which
+ * is enough while the only way into an account is to sign in. The reinstall has
+ * no such moment: AsyncStorage goes with the app, so the profile store comes
+ * back empty with a freshly minted `guestNNNNNN` handle, while the keychain
+ * silently restores the real account underneath it (lib/identity). Nothing then
+ * asked the server who that account is.
+ *
+ * Two things went wrong with that, and the second is the expensive one. The
+ * player was shown a guest handle as their own name; and net/profileSync would
+ * push that handle up on their next profile edit, where 0030's trigger reads a
+ * guest handle replacing a real name as the one username change they are
+ * allowed — spending it, and losing the name, in silence.
+ *
+ * `ensureSignedIn` and not a bare session read, because on that same launch the
+ * session does not exist until the keychain's refresh token has been spent on
+ * one. Guests are left alone: the server holds nothing for them this device
+ * does not already have, and a launch that can skip a round trip should.
+ */
+export async function restoreSavedAccount(): Promise<void> {
+  try {
+    await ensureSignedIn();
+    const { isGuest } = await getIdentity();
+    if (isGuest) return;
+    await hydrateProfileFromServer(null);
+  } catch {
+    // Offline, or no account to restore. The name on screen stays this device's
+    // own and the next launch tries again.
+  }
 }
 
 /**
