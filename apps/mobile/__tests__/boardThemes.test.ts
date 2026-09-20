@@ -53,19 +53,22 @@ describe("board themes", () => {
     }
   });
 
-  it("theme ids are the thirteen skins, uniquely keyed", () => {
+  it("theme ids are the seventeen boards, uniquely keyed", () => {
     expect(Object.keys(BOARD_THEMES).sort()).toEqual([
+      "amber",
       "aurora",
       "blossom",
       "celestial",
       "classic",
       "garden",
       "gilded",
+      "herbarium",
       "moonlit",
       "nacre",
       "night",
       "onyx",
       "peacock",
+      "riverstone",
       "sand",
       "titanium",
       "walnut",

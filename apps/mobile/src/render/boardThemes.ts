@@ -46,11 +46,14 @@ export type BoardThemeId =
   | "garden"
   | "blossom"
   | "onyx"
+  | "riverstone"
   | "gilded"
   | "aurora"
   | "moonlit"
   | "titanium"
   | "nacre"
+  | "herbarium"
+  | "amber"
   | "peacock"
   | "celestial";
 
@@ -484,6 +487,54 @@ export const BOARD_THEMES: Record<BoardThemeId, BoardTheme> = {
   // the marigold yard that sits on it, and the yard keeps its lit lip — value
   // separation, not hue separation, because hue is the one thing a seat colour
   // is not allowed to trade away.
+  /**
+   * Slate out of a streambed, with moss in the joints.
+   *
+   * The first board to use placed ornament (render/boardArt.ts's frameDecor):
+   * moss does not grow evenly over a stone, it grows where water sits, so the
+   * six clumps are put along the rail and in the corners and nowhere near the
+   * track. Seats sit at 0.82 so they read as wet stone taking a colour rather
+   * than as paint on stone.
+   */
+  riverstone: {
+    id: "riverstone",
+    label: "Moss & River Stone",
+    price: 75000,
+    boardBase: "#242A2C",
+    plate: { colors: ["#4A5356", "#242A2C", "#333A3C"], positions: [0, 0.7, 1], angle: "radial", center: [0.25, 0.05], radius: 1.3 },
+    boardEdge: "#6E7A6A",
+    edgeWidth: 3,
+    lip: "rgba(200,220,200,0.22)",
+    interior: { colors: ["#3F4749", "#202628"], angle: "radial", center: [0.25, 0], radius: 1.2 },
+    cellFill: "#394144",
+    cellTop: "#596366",
+    cellBorder: "rgba(12,16,16,0.7)",
+    emboss: { top: "rgba(215,235,215,0.22)", bottom: "rgba(0,0,0,0.42)" },
+    cellRadius: 0.08,
+    plateTint: 0.82,
+    slotEmpty: "#1C2122",
+    slotRing: "rgba(196,216,190,0.5)",
+    slotFill: "#6C7A6A",
+    starColor: "#C4D8BE",
+    glyph: "star",
+    sheen: 0.04,
+    vignette: 0.3,
+    // The design's slate seats were 91 apart at best and 55 at worst; these
+    // clear 90 on every pair while staying as drab as slate allows.
+    team: { red: "#9E4238", green: "#4E9A5C", yellow: "#C29A3E", blue: "#2C4A86" },
+    dice: { face: "#5A6260", pip: "#171B1A" },
+    pawnStroke: "rgba(0,0,0,0.45)",
+    decor: [
+      { shape: "blob", x: -0.02, y: 0.26, w: 0.0889, h: 0.1867, rot: 12, fill: "rgba(126,170,84,1)", edge: "rgba(56,86,44,0.9)", a: 0.72 },
+      { shape: "blob", x: 0.93, y: 0.08, w: 0.0844, h: 0.1467, rot: -18, fill: "rgba(140,182,96,1)", edge: "rgba(62,92,48,0.9)", a: 0.64 },
+      { shape: "blob", x: 0.4, y: 0.92, w: 0.1956, h: 0.0756, rot: 6, fill: "rgba(112,158,78,1)", edge: "rgba(48,78,40,0.9)", a: 0.68 },
+      { shape: "blob", x: 0.92, y: 0.62, w: 0.08, h: 0.1556, rot: 28, fill: "rgba(132,174,90,1)", edge: "rgba(56,86,44,0.85)", a: 0.6 },
+      { shape: "blob", x: 0.18, y: -0.01, w: 0.1644, h: 0.0667, rot: -8, fill: "rgba(120,164,82,1)", edge: "rgba(52,82,42,0.85)", a: 0.62 },
+      { shape: "blob", x: 0.66, y: -0.02, w: 0.1156, h: 0.0622, rot: 10, fill: "rgba(134,176,92,1)", edge: "rgba(58,88,46,0.85)", a: 0.5 },
+      { shape: "fleck", x: 0.03, y: 0.78, w: 0.0111, h: 0.0111, rot: 0, fill: "rgba(226,242,216,0.9)", a: 0.6 },
+      { shape: "fleck", x: 0.96, y: 0.3, w: 0.0089, h: 0.0089, rot: 0, fill: "rgba(226,242,216,0.9)", a: 0.55 },
+    ],
+  },
   gilded: {
     id: "gilded",
     label: "Gilded Royal",
@@ -669,6 +720,116 @@ export const BOARD_THEMES: Record<BoardThemeId, BoardTheme> = {
   // struck into every safe square and a deco medallion at the centre. The top
   // of the gem ladder, and the one board that changes colour across its own
   // surface.
+  /**
+   * A herbarium sheet under glass: specimens pressed flat on foxed cotton rag.
+   *
+   * The brightest board in the material tier, and the one that most needed the
+   * playfield kept clear — pressed botanicals over a track would be unreadable
+   * twice over. Everything sits in the frame, which is exactly what a specimen
+   * sheet looks like: the plant laid out, the margin annotated.
+   */
+  herbarium: {
+    id: "herbarium",
+    label: "Pressed Herbarium",
+    price: 440,
+    currency: "gems",
+    boardBase: "#E2D4B6",
+    plate: { colors: ["#F6EEDB", "#E2D4B6", "#CFBE99"], positions: [0, 0.7, 1], angle: "radial", center: [0.2, 0], radius: 1.3 },
+    boardEdge: "#9C8A63",
+    edgeWidth: 3,
+    lip: "rgba(255,255,255,0.6)",
+    interior: { colors: ["#FBF5E6", "#E8DCC1"], angle: "radial", center: [0.3, 0.1], radius: 1.2 },
+    cellFill: "#EFE4CB",
+    cellTop: "#FDF9EE",
+    cellBorder: "rgba(70,60,35,0.4)",
+    emboss: { top: "rgba(255,255,255,0.5)", bottom: "rgba(150,130,90,0.18)" },
+    cellRadius: 0.08,
+    plateTint: 0.82,
+    slotEmpty: "#CDC7B4",
+    slotRing: "rgba(70,60,35,0.45)",
+    slotFill: "#DCCDA8",
+    starColor: "#8A7A4E",
+    glyph: "star",
+    sheen: 0.03,
+    vignette: 0.18,
+    // Iron-gall inks read close together; the design's came in at 72 for red
+    // against yellow and 87 for green against blue. Separated on the green
+    // channel, which keeps the herbarium palette and loses none of the seats.
+    team: { red: "#B54A35", green: "#5E7A3C", yellow: "#D2A63C", blue: "#3A5A9A" },
+    dice: { face: "#FBF4E3", pip: "#43602C" },
+    pawnStroke: "rgba(0,0,0,0.3)",
+    decor: [
+      { shape: "leaf", x: 0.01, y: 0.01, w: 0.2133, h: 0.0667, rot: 8, fill: "rgba(94,122,60,1)", edge: "rgba(52,76,32,0.9)", a: 0.72 },
+      { shape: "leaf", x: 0.58, y: -0.01, w: 0.2311, h: 0.0622, rot: -6, fill: "rgba(120,140,72,1)", edge: "rgba(62,86,38,0.9)", a: 0.66 },
+      { shape: "leaf", x: -0.02, y: 0.88, w: 0.2489, h: 0.0667, rot: -6, fill: "rgba(84,110,56,1)", edge: "rgba(44,66,28,0.9)", a: 0.64 },
+      { shape: "leaf", x: 0.64, y: 0.92, w: 0.2178, h: 0.0622, rot: 6, fill: "rgba(110,132,66,1)", edge: "rgba(56,80,34,0.9)", a: 0.6 },
+      { shape: "leaf", x: -0.04, y: 0.34, w: 0.0667, h: 0.2133, rot: 6, fill: "rgba(104,128,64,1)", edge: "rgba(52,76,32,0.9)", a: 0.6 },
+      { shape: "leaf", x: 0.94, y: 0.4, w: 0.0622, h: 0.2311, rot: -6, fill: "rgba(96,120,58,1)", edge: "rgba(48,70,30,0.9)", a: 0.58 },
+      { shape: "petal", x: 0.36, y: 0.0, w: 0.08, h: 0.0667, rot: 14, fill: "rgba(214,150,160,1)", edge: "rgba(158,86,104,0.9)", a: 0.66 },
+      { shape: "petal", x: 0.5, y: 0.94, w: 0.0756, h: 0.0667, rot: -22, fill: "rgba(226,180,120,1)", edge: "rgba(168,116,60,0.9)", a: 0.62 },
+      { shape: "petal", x: 0.0, y: 0.62, w: 0.0667, h: 0.0622, rot: 40, fill: "rgba(206,158,176,1)", edge: "rgba(142,88,108,0.85)", a: 0.54 },
+      { shape: "petal", x: 0.95, y: 0.16, w: 0.0622, h: 0.0578, rot: -30, fill: "rgba(214,150,160,1)", edge: "rgba(150,84,102,0.85)", a: 0.5 },
+    ],
+  },
+  /**
+   * Resin poured over a dark walnut bed, with a frond and a scatter of bubbles
+   * caught in it.
+   *
+   * The one board whose cells are brighter than its plate: light travels
+   * through the body of a slab of amber, so the track glows from underneath
+   * rather than being printed on top. That inverts the usual contrast, which
+   * is why the safe stars are cut dark here — a white star on lit resin is the
+   * one marking that would disappear.
+   */
+  amber: {
+    id: "amber",
+    label: "Amber Inclusion",
+    price: 500,
+    currency: "gems",
+    boardBase: "#221206",
+    plate: { colors: ["#3A2009", "#150A03"], angle: "diagonal" },
+    plateTop: { colors: ["#4A2B10", "rgba(34,18,6,0.55)"], angle: "radial", center: [0.28, 0.04], radius: 1.3 },
+    boardEdge: "#C98A34",
+    edgeWidth: 3,
+    lip: "rgba(255,214,140,0.35)",
+    interior: { colors: ["#6B3F12", "#2A1607"], angle: "radial", center: [0.3, 0], radius: 1.2 },
+    // Pulled back from the design's near-yellow resin. Lit amber at full
+    // strength is the same hue as the yellow seat, and a yard that matches the
+    // board it sits on stops being a yard — on the device the whole
+    // bottom-right corner simply disappeared. Darker and browner keeps the lit
+    // slab and gives all four seats something to read against.
+    cellFill: "#A55F19",
+    cellTop: "#E9A94E",
+    cellBorder: "rgba(90,48,12,0.7)",
+    emboss: { top: "rgba(255,236,190,0.55)", bottom: "rgba(120,62,12,0.5)" },
+    cellRadius: 0.1,
+    plateTint: 0.88,
+    slotEmpty: "#3A200A",
+    slotRing: "rgba(255,214,140,0.6)",
+    slotFill: "#C9863A",
+    starColor: "#5A3208",
+    glyph: "star",
+    sheen: 0.08,
+    vignette: 0.26,
+    // The design's yellow was amber on amber: its own board swallowed it, and
+    // cooling the cells was not enough on the device. A pale gold is the one
+    // yellow that survives a warm board, and it clears the seat rule against
+    // the other three by a wide margin.
+    team: { red: "#C8503A", green: "#6E8E3A", yellow: "#F5D25A", blue: "#4A6C90" },
+    dice: { face: "#FFCE6E", pip: "#2E1804" },
+    pawnStroke: "rgba(0,0,0,0.5)",
+    decor: [
+      { shape: "leaf", x: 0.02, y: 0.04, w: 0.2444, h: 0.0667, rot: 6, fill: "rgba(96,74,26,1)", edge: "rgba(52,36,10,0.9)", a: 0.7 },
+      { shape: "leaf", x: 0.6, y: 0.93, w: 0.2222, h: 0.0622, rot: -6, fill: "rgba(110,84,30,1)", edge: "rgba(58,40,12,0.9)", a: 0.62 },
+      { shape: "leaf", x: -0.03, y: 0.52, w: 0.0622, h: 0.2133, rot: 4, fill: "rgba(104,80,28,1)", edge: "rgba(54,38,12,0.9)", a: 0.58 },
+      { shape: "fleck", x: 0.28, y: 0.01, w: 0.0156, h: 0.0156, rot: 0, fill: "rgba(255,236,180,0.95)", a: 0.75 },
+      { shape: "fleck", x: 0.72, y: 0.02, w: 0.0111, h: 0.0111, rot: 0, fill: "rgba(255,236,180,0.95)", a: 0.7 },
+      { shape: "fleck", x: 0.02, y: 0.3, w: 0.0133, h: 0.0133, rot: 0, fill: "rgba(255,236,180,0.95)", a: 0.7 },
+      { shape: "fleck", x: 0.96, y: 0.46, w: 0.0111, h: 0.0111, rot: 0, fill: "rgba(255,236,180,0.95)", a: 0.65 },
+      { shape: "fleck", x: 0.95, y: 0.84, w: 0.0089, h: 0.0089, rot: 0, fill: "rgba(255,246,210,1)", a: 0.7 },
+      { shape: "fleck", x: 0.4, y: 0.96, w: 0.0133, h: 0.0133, rot: 0, fill: "rgba(255,236,180,0.95)", a: 0.65 },
+    ],
+  },
   peacock: {
     id: "peacock",
     label: "Peacock Enamel",

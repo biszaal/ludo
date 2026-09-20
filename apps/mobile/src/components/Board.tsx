@@ -443,16 +443,7 @@ export function BoardSurface({ size, theme, ornament = true }: { size: number; t
           yard tile. That gap is ~3.8% of the board, which is why the band is
           sized off `size` rather than off the cell. */}
       {band ? <ArtLayer art={band} color={theme.band!.color} alpha={theme.band!.alpha} /> : null}
-      {/* Placed ornament, clipped to the plate so a frond that runs off the
-          board is cut by its rounded corner rather than squaring it off. Edge
-          layers come first, so every fill lands on its own outline. */}
-      {decor ? (
-        <Group clip={plateClip(size)}>
-          {decor.map((d, i) => (
-            <ArtLayer key={`decor-${i}`} art={d.art} color={d.color} alpha={d.alpha} />
-          ))}
-        </Group>
-      ) : null}
+
 
       <Group origin={{ x: center, y: center }} transform={[{ scale: BOARD_INTERIOR_SCALE }]}>
 
@@ -738,6 +729,20 @@ export function BoardSurface({ size, theme, ornament = true }: { size: number; t
       ) : null}
       <RoundedRect x={6 * cell} y={6 * cell} width={3 * cell} height={3 * cell} r={3} color={theme.boardEdge} style="stroke" strokeWidth={1.5} />
       </Group>
+
+      {/* Placed ornament, clipped to the FRAME — the ring of plate outside the
+          playfield. Drawn last and cut by that ring rather than drawn early and
+          painted over: the deck wash covers all but the outermost 3% of the
+          board, so ornament laid down before it was very nearly invisible. The
+          clip is also what enforces the tier's one rule mechanically — an item
+          can be any size and still cannot reach a cell a token lands on. */}
+      {decor ? (
+        <Group clip={frameRing(size)}>
+          {decor.map((d, i) => (
+            <ArtLayer key={`decor-${i}`} art={d.art} color={d.color} alpha={d.alpha} />
+          ))}
+        </Group>
+      ) : null}
 
       {/* Soft diagonal sheen over the whole plate. 0.05 is the original
           plastic-board gloss; a lacquer theme raises it, a matte stone one
@@ -1270,6 +1275,18 @@ function circleClip(cx: number, cy: number, r: number) {
 }
 
 /** A yard plate's rounded rect, as a clip for its emblem. */
+/**
+ * The plate minus the playfield: the band of board between the rim and the
+ * first cell. `BOARD_INTERIOR_SCALE` is what makes it exist — the track is
+ * scaled in, and this is the margin that leaves.
+ */
+function frameRing(size: number) {
+  const inset = (size * (1 - BOARD_INTERIOR_SCALE)) / 2;
+  const hole = Skia.Path.Make();
+  hole.addRRect(Skia.RRectXY(Skia.XYWHRect(inset, inset, size - inset * 2, size - inset * 2), 14, 14));
+  return Skia.Path.MakeFromOp(plateClip(size), hole, 2 /* Difference */) ?? plateClip(size);
+}
+
 function roundedClip(x: number, y: number, w: number, r: number) {
   const p = Skia.Path.Make();
   p.addRRect(Skia.RRectXY(Skia.XYWHRect(x, y, w, w), r, r));
