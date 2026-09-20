@@ -104,6 +104,13 @@ function dieCubePicture(skin: DiceSkin, size: number): SkPicture {
     // Cull faces nearly edge-on (they draw as stray hairline slivers).
     .filter(({ n }) => n.z < -0.06);
 
+  // The lid, for a skin whose top is its own material (see DiceSkin.faceTop).
+  // Screen y grows downward, so the face pointing up is the one whose rotated
+  // normal is most negative in y.
+  const topFace = sp.topFaceRGB || sp.topGradient
+    ? visible.reduce((a, b) => (b.n.y < a.n.y ? b : a)).face
+    : null;
+
   // Pass 1 — oversized dark cores behind the faces, so the wedges left by the
   // rounded face corners read as the die's own edges instead of as a gap
   // between three separate tiles. 1.17 with a tighter corner is what it takes
@@ -139,13 +146,16 @@ function dieCubePicture(skin: DiceSkin, size: number): SkPicture {
     canvas.save();
     canvas.concat(Skia.Matrix(faceMatrix(u, v, n, H, cx, cy)));
 
-    if (sp.gradient) {
+    const lid = face === topFace;
+    const grad = lid && sp.topGradient ? sp.topGradient : sp.gradient;
+    const flat = lid && sp.topFaceRGB ? hex(sp.topFaceRGB) : faceHex;
+    if (grad && !(lid && !sp.topGradient && sp.topFaceRGB)) {
       facePaint.setShader(
         Skia.Shader.MakeLinearGradient(
           { x: -1, y: -1 },
           { x: 1, y: 1 },
-          sp.gradient.colors.map((cc) => Skia.Color(cc)),
-          sp.gradient.stops,
+          grad.colors.map((cc) => Skia.Color(cc)),
+          grad.stops,
           TileMode.Clamp,
         ),
       );
@@ -156,7 +166,7 @@ function dieCubePicture(skin: DiceSkin, size: number): SkPicture {
     } else {
       facePaint.setShader(null);
       facePaint.setAlphaf(1);
-      facePaint.setColor(Skia.Color(shade(faceHex, -0.46 + 0.62 * lambert(n))));
+      facePaint.setColor(Skia.Color(shade(flat, -0.46 + 0.62 * lambert(n))));
     }
     canvas.drawRRect(faceRect, facePaint);
 

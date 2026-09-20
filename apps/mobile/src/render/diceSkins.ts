@@ -83,6 +83,24 @@ export interface DiceSkin {
   /** Which wallet the price charges. Omitted = coins (the default tier). */
   currency?: "gems";
   face: DiceFaceSpec;
+  /**
+   * A different treatment for the face that points UP in a preview cube
+   * (components/DieCube.tsx), where a skin is being advertised rather than
+   * played with.
+   *
+   * Not lighting — the cube already shades its three faces by their normals.
+   * This is for a die whose lid is a different material from its body, which
+   * is a real object: a lacquered die with a vermilion top on a black cube.
+   * Omitted, and for every skin whose top is just its face lit, the cube's own
+   * shading does the work.
+   *
+   * The rolling die ignores it on purpose. Which face lands up is whichever
+   * one the roll gave you, so a colour tied to "the top" would mean the die
+   * changed material depending on the number — and it would have to be
+   * resolved inside the tumble's cached paints, which is the one place in this
+   * app with a measured judder regression behind it.
+   */
+  faceTop?: DiceFaceSpec;
   pip: DicePipSpec;
   /** Tumble core / landed under-layer. Omitted = derive from the face (today's look). */
   edge?: string;
@@ -371,6 +389,9 @@ export const DICE_SKINS: Record<DiceSkinId, DiceSkin> = {
     price: 420,
     currency: "gems",
     face: { type: "linear", colors: ["#1C100B", "#0C0605"] },
+    // Twenty coats of black, and a vermilion lid. The one die in the catalog
+    // that is two materials rather than one material lit two ways.
+    faceTop: { type: "linear", colors: ["#D9412C", "#8E2416"] },
     pip: { color: "#C9973F", shape: "dot", glow: "#C9973F" },
     edge: "#0C0705",
     frame: "#C9973F",
@@ -466,6 +487,9 @@ export interface DiceRenderParams {
   faceRGB: [number, number, number];
   pipRGB: [number, number, number];
   gradient: { colors: string[]; stops: number[] | null } | null;
+  /** The up-facing preview face, when the skin gives it its own treatment. */
+  topFaceRGB: [number, number, number] | null;
+  topGradient: { colors: string[]; stops: number[] | null } | null;
   pipShape: FaceMark;
   glow: string | null;
   edgeRGB: [number, number, number] | null;
@@ -496,6 +520,8 @@ function hashSeed(id: string): number {
  *  classic with no theme — the original Dice.tsx literals. */
 export function diceRenderParams(skin: DiceSkin | undefined, _theme?: BoardTheme): DiceRenderParams {
   const face = skin?.face ?? null;
+  const faceTop = skin?.faceTop ?? null;
+  const faceTopHex = faceTop ? (faceTop.type === "solid" ? faceTop.color : faceTop.colors[0]!) : null;
   const pip = skin?.pip ?? null;
   const faceHex = face ? (face.type === "solid" ? face.color : face.colors[0]!) : DEFAULT_DIE.face;
   const pipHex = pip ? pip.color : DEFAULT_DIE.pip;
@@ -503,6 +529,8 @@ export function diceRenderParams(skin: DiceSkin | undefined, _theme?: BoardTheme
     faceRGB: hexRGB(faceHex),
     pipRGB: hexRGB(pipHex),
     gradient: face?.type === "linear" ? { colors: face.colors, stops: face.stops ?? null } : null,
+    topFaceRGB: faceTopHex ? hexRGB(faceTopHex) : null,
+    topGradient: faceTop?.type === "linear" ? { colors: faceTop.colors, stops: faceTop.stops ?? null } : null,
     pipShape: pip?.shape ?? "dot",
     glow: pip?.glow ?? null,
     edgeRGB: skin?.edge ? hexRGB(skin.edge) : null,

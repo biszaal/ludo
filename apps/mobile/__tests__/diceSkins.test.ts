@@ -14,7 +14,8 @@ import { BOARD_THEMES } from "../src/render/boardThemes";
 import { DEFAULT_DICE_SKIN, DEFAULT_DIE, DICE_SKINS, diceRenderParams, resolveDiceSkin } from "../src/render/diceSkins";
 
 const HEX = /^#[0-9A-Fa-f]{6}$/;
-const ALLOWED_KEYS = ["id", "label", "price", "currency", "face", "pip", "edge", "frame", "overlay", "sheen", "motif"];
+const ALLOWED_KEYS = ["id", "label", "price", "currency", "face",
+  "faceTop", "pip", "edge", "frame", "overlay", "sheen", "motif"];
 
 /** Independent of the implementation's own hexRGB — just parses a literal. */
 function rgbOf(hex: string): [number, number, number] {
