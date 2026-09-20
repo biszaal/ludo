@@ -45,9 +45,11 @@ export type BoardThemeId =
   | "sand"
   | "garden"
   | "blossom"
+  | "carbon"
   | "onyx"
   | "celadon"
   | "riverstone"
+  | "voyager"
   | "gilded"
   | "aurora"
   | "moonlit"
@@ -57,7 +59,8 @@ export type BoardThemeId =
   | "urushi"
   | "amber"
   | "peacock"
-  | "celestial";
+  | "celestial"
+  | "glacier";
 
 /**
  * The base plate's wash. Omitted, the plate takes the derived light-to-dark
@@ -446,6 +449,43 @@ export const BOARD_THEMES: Record<BoardThemeId, BoardTheme> = {
   // Black stone and brass: graphite tiles, brass rail, brass lip, brass mark.
   // The only premium board with dark cells — the pawns are the brightest thing
   // on it by a wide margin, which is exactly the drama the tier is paying for.
+  /**
+   * Twill carbon under clear coat, with a lime tracer.
+   *
+   * The weave is the `twill` material, and it is honest about being an
+   * approximation: a real 2x2 at board size is a few pixels across, so what is
+   * drawn is what the eye reads at that scale — light running two ways over the
+   * surface. Seats sit at 0.7 so the weave carries through them, which is what
+   * makes them read as laid UNDER the clear coat rather than painted on it.
+   */
+  carbon: {
+    id: "carbon",
+    label: "Carbon Monocoque",
+    price: 30000,
+    boardBase: "#0B0C0E",
+    plate: { colors: ["#16181B", "#0B0C0E"], angle: "diagonal" },
+    boardEdge: "rgba(155,232,60,0.45)",
+    edgeWidth: 2,
+    lip: "rgba(255,255,255,0.14)",
+    interior: { colors: ["#1C1F23", "#121417"], angle: "diagonal" },
+    texture: { kind: "twill", color: "#FFFFFF", alpha: 0.3 },
+    cellFill: "#1A1D21",
+    cellTop: "#2A2E34",
+    cellBorder: "rgba(155,232,60,0.22)",
+    emboss: { top: "rgba(255,255,255,0.12)", bottom: "rgba(0,0,0,0.5)" },
+    cellRadius: 0.06,
+    plateTint: 0.7,
+    slotEmpty: "#14161A",
+    slotRing: "rgba(255,255,255,0.35)",
+    slotFill: "#2E3238",
+    starColor: "#9BE83C",
+    glyph: "star",
+    sheen: 0.05,
+    vignette: 0.3,
+    team: { red: "#FF4D5E", green: "#9BE83C", yellow: "#FFC13C", blue: "#3FA6FF" },
+    dice: { face: "#25292E", pip: "#9BE83C" },
+    pawnStroke: "rgba(0,0,0,0.55)",
+  },
   onyx: {
     id: "onyx",
     label: "Onyx & Brass",
@@ -576,6 +616,46 @@ export const BOARD_THEMES: Record<BoardThemeId, BoardTheme> = {
       { shape: "fleck", x: 0.03, y: 0.78, w: 0.0111, h: 0.0111, rot: 0, fill: "rgba(226,242,216,0.9)", a: 0.6 },
       { shape: "fleck", x: 0.96, y: 0.3, w: 0.0089, h: 0.0089, rot: 0, fill: "rgba(226,242,216,0.9)", a: 0.55 },
     ],
+  },
+  /**
+   * A roll-up travel board: tan saddle leather with a stitched rail.
+   *
+   * The only board with a broken rim, and the reason `edgeDash` exists. A
+   * saddle stitch is the fastest way to say a board was sewn rather than
+   * moulded, and every other board in the catalog is moulded.
+   */
+  voyager: {
+    id: "voyager",
+    label: "Voyager Travel Set",
+    price: 90000,
+    boardBase: "#6B4523",
+    plate: { colors: ["#A2703F", "#6B4523", "#6B4523"], positions: [0, 0.75, 1], angle: "radial", center: [0.25, 0.05], radius: 1.2 },
+    boardEdge: "rgba(247,228,193,0.55)",
+    edgeWidth: 3,
+    edgeDash: [7, 5],
+    lip: "rgba(255,225,180,0.3)",
+    interior: { colors: ["#B07C48", "#7A5129"], angle: "radial", center: [0.3, 0], radius: 1.1 },
+    texture: { kind: "grain", color: "#3A2410", alpha: 0.2 },
+    cellFill: "#9A6A38",
+    cellTop: "#C08E58",
+    cellBorder: "rgba(70,42,18,0.55)",
+    emboss: { top: "rgba(255,220,170,0.28)", bottom: "rgba(60,35,12,0.45)" },
+    cellRadius: 0.07,
+    plateTint: 0.95,
+    slotEmpty: "#78522A",
+    slotRing: "rgba(240,210,150,0.65)",
+    slotFill: "#B68A3C",
+    starColor: "#F2DCA8",
+    glyph: "star",
+    sheen: 0.04,
+    vignette: 0.24,
+    // The design's tannery colours sat 84 apart for red against yellow and 50
+    // for green against blue — the closest pair in the whole set.
+    // The yellow is lighter than the design's: tan on tan, its own leather was
+    // swallowing that corner.
+    team: { red: "#A2382C", green: "#3A8C54", yellow: "#E8B95A", blue: "#2C3F86" },
+    dice: { face: "#F6ECD8", pip: "#33200C" },
+    pawnStroke: "rgba(0,0,0,0.45)",
   },
   gilded: {
     id: "gilded",
@@ -994,6 +1074,48 @@ export const BOARD_THEMES: Record<BoardThemeId, BoardTheme> = {
     dice: { face: "#1E2758", pip: "#EDEBF6" },
     pawnStroke: "rgba(0,0,0,0.5)",
     crest: { kind: "deco", color: "#E7CE93", alpha: 0.55, scale: 1.15 },
+  },
+  /**
+   * A slab of cast glass over a dark deck. The flagship, and the only board
+   * that is mostly not there.
+   *
+   * Everything on the playing surface is white at 3-13% over the deck, and
+   * `plateTint` drops to 0.46 — the lowest in the catalog by a wide margin —
+   * so the seats are glass that has been tinted rather than glass with colour
+   * sitting on it. That is the whole material, and it is also why the safe
+   * stars are cut in pale blue rather than white: white on white glass is the
+   * one marking that would vanish.
+   */
+  glacier: {
+    id: "glacier",
+    label: "Glacier Optic",
+    price: 620,
+    currency: "gems",
+    boardBase: "#0A0E1E",
+    plate: { colors: ["#141B33", "#0A0E1E", "#131A30"], positions: [0, 0.6, 1], angle: "diagonal" },
+    boardEdge: "rgba(180,215,255,0.34)",
+    edgeWidth: 1.5,
+    lip: "rgba(255,255,255,0.28)",
+    interior: { colors: ["rgba(255,255,255,0.08)", "rgba(255,255,255,0.01)", "rgba(140,190,255,0.07)"], positions: [0, 0.45, 1], angle: "diagonal" },
+    cellFill: "rgba(255,255,255,0.03)",
+    cellTop: "rgba(255,255,255,0.13)",
+    cellBorder: "rgba(190,220,255,0.3)",
+    emboss: { top: "rgba(255,255,255,0.35)", bottom: "rgba(10,20,40,0.35)" },
+    cellRadius: 0.14,
+    // The design's 0.46 was measured against a pale deck; over this one the
+    // seats went to smoke on the device. 0.6 is still the lowest in the
+    // catalog by a distance, and still unmistakably tinted glass.
+    plateTint: 0.6,
+    slotEmpty: "#1B2440",
+    slotRing: "rgba(255,255,255,0.55)",
+    slotFill: "#2A3A60",
+    starColor: "#BEDCFF",
+    glyph: "star",
+    sheen: 0.1,
+    vignette: 0.34,
+    team: { red: "#FF6B8A", green: "#5BE3B0", yellow: "#FFD36B", blue: "#6FB2FF" },
+    dice: { face: "#E2F0FF", pip: "#5D8FD6" },
+    pawnStroke: "rgba(0,0,0,0.45)",
   },
 };
 
