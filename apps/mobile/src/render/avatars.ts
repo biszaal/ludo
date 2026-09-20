@@ -86,3 +86,53 @@ export function resolveAvatarId(id: string | null | undefined): AvatarId {
   const mapped = LEGACY_IDS[id] ?? id;
   return KNOWN.has(mapped) ? (mapped as AvatarId) : DEFAULT_AVATAR_ID;
 }
+
+/**
+ * The name a player sees. Kept here rather than derived from the id, because
+ * an id is a slug and a slug is not a name: "onyx-ii" title-cases to
+ * "Onyx-Ii", and the twelve faces added in v2 have names worth spelling
+ * ("Momo", "Rani") rather than lowercase ids worth hiding. Parity with the art
+ * catalog's own `name` field is test-enforced, so the shop can never drift
+ * from what the character is actually called.
+ */
+export const AVATAR_NAMES: Record<AvatarId, string> = {
+  leo: "Leo",
+  sunny: "Sunny",
+  coco: "Coco",
+  zara: "Zara",
+  rex: "Rex",
+  nina: "Nina",
+  milo: "Milo",
+  ivy: "Ivy",
+  ace: "Ace",
+  ruby: "Ruby",
+  bruno: "Bruno",
+  kito: "Kito",
+  nova: "Nova",
+  onyx: "Onyx",
+  laurel: "Laurel",
+  saga: "Saga",
+  pharo: "Pharo",
+  regis: "Regis",
+  astra: "Astra",
+  selene: "Selene",
+  solis: "Solis",
+  momo: "Momo",
+  tashi: "Tashi",
+  bolt: "Bolt",
+  rana: "Rana",
+  mira: "Mira",
+  sylva: "Sylva",
+  draco: "Draco",
+  vega: "Vega",
+  frost: "Frost",
+  diya: "Diya",
+  ember: "Ember",
+  rani: "Rani",
+  "onyx-ii": "Onyx II",
+};
+
+/** The display name for any stored id, legacy slugs and unknowns included. */
+export function avatarName(id: string | null | undefined): string {
+  return AVATAR_NAMES[resolveAvatarId(id)];
+}

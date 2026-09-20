@@ -11,7 +11,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { AVATARS, CHIP_TONES, buildSVG, contrastRatio, hslOf, parseColor, renderAvatar, saturationOf, svgToOps } from "../scripts/gen-avatars.mjs";
-import { AVATAR_IDS, DEFAULT_AVATAR_ID, resolveAvatarId } from "../src/render/avatars";
+import { AVATAR_IDS, AVATAR_NAMES, DEFAULT_AVATAR_ID, avatarName, resolveAvatarId } from "../src/render/avatars";
 import { teamColor } from "../src/theme";
 
 const AVATAR_DIR = join(__dirname, "..", "assets", "images", "avatars");
@@ -52,6 +52,23 @@ describe("avatar catalog", () => {
     for (const sku of seeded) {
       expect(AVATAR_IDS, `avatar.${sku} is seeded but no such avatar exists`).toContain(sku);
     }
+  });
+
+  // The shop used to label an avatar with its raw id. That is fine while every
+  // id is a word ("leo") and wrong the moment one is not: "onyx-ii" title-cases
+  // to "Onyx-Ii". Names live in the client registry, and must say exactly what
+  // the art catalog says the character is called.
+  it("gives every avatar the name its art catalog declares", () => {
+    for (const spec of AVATARS) {
+      expect(AVATAR_NAMES[spec.id as keyof typeof AVATAR_NAMES], `${spec.id} has no display name`).toBe(spec.name);
+    }
+    expect(Object.keys(AVATAR_NAMES).sort()).toEqual([...AVATAR_IDS].sort());
+  });
+
+  it("names any stored id, legacy slugs and unknowns included", () => {
+    expect(avatarName("onyx-ii")).toBe("Onyx II");
+    expect(avatarName("orbit-moss")).toBe("Leo");
+    expect(avatarName(null)).toBe(AVATAR_NAMES[DEFAULT_AVATAR_ID]);
   });
 
   it("resolves legacy and unknown ids to a real avatar", () => {

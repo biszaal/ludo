@@ -7,7 +7,7 @@
  * Account screen (Home dock); this screen owns your LOOK.
  */
 
-import { Text, View } from "react-native";
+import { Text, useWindowDimensions, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { TableBackground } from "../components/TableBackground";
 import { ScreenHeader } from "../components/ScreenHeader";
@@ -26,6 +26,11 @@ export function ProfileScreen() {
   const t = useT();
   const displayName = useProfile((s) => s.displayName);
   const avatarId = useProfile((s) => s.avatarId);
+  // Everything above the browser is pinned now, so on a short phone it is
+  // spent out of the collection grid rather than out of empty space. The card
+  // carries the same information either way; it just stops being roomy.
+  const { height } = useWindowDimensions();
+  const compact = height < 700;
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: palette.tableBlue }}>
@@ -43,11 +48,11 @@ export function ProfileScreen() {
       {/* Not a ScrollView any more — see ShopScreen. The identity card and the
           section heading stay put; the browser pins its own preview and
           scrolls the collection grid under it. */}
-      <ContentColumn style={{ flex: 1, paddingTop: space.lg, paddingHorizontal: space.xl, gap: space.xl }}>
+      <ContentColumn style={{ flex: 1, paddingTop: space.lg, paddingHorizontal: space.xl, gap: compact ? space.lg : space.xl }}>
           {/* Identity preview (edit your name on the Account screen) */}
-          <Surface3D rad={radius.lg} faceStyle={{ padding: space.lg }}>
+          <Surface3D rad={radius.lg} faceStyle={{ padding: compact ? space.md : space.lg }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: space.lg }}>
-              <AvatarGlyph id={avatarId} size={72} />
+              <AvatarGlyph id={avatarId} size={compact ? 52 : 72} />
               <View style={{ flex: 1, gap: 2 }}>
                 <Text style={{ fontFamily: font.display, fontSize: 20, color: palette.porcelain }}>{displayName}</Text>
                 <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.mutedSteel }}>
@@ -60,9 +65,11 @@ export function ProfileScreen() {
           {/* Customize: equip the avatars, boards and dice you own. */}
           <View style={{ flex: 1, gap: space.sm }}>
             <SectionLabel>{t("account.customize")}</SectionLabel>
-            <Text style={{ fontFamily: font.regular, fontSize: 12, color: palette.mutedSteel, marginTop: -4 }}>
-              Your collection. Dice show to everyone at the table when you roll.
-            </Text>
+            {compact ? null : (
+              <Text style={{ fontFamily: font.regular, fontSize: 12, color: palette.mutedSteel, marginTop: -4 }}>
+                Your collection. Dice show to everyone at the table when you roll.
+              </Text>
+            )}
             <CosmeticsBrowser mode="locker" bottomInset={space.xxl} />
           </View>
       </ContentColumn>

@@ -6,7 +6,7 @@
  * backs each item, so it stays testable in Node (no Skia imports).
  */
 
-import { AVATAR_IDS } from "../render/avatars";
+import { AVATAR_IDS, AVATAR_NAMES } from "../render/avatars";
 import { BOARD_THEMES } from "../render/boardThemes";
 import { DICE_SKINS } from "../render/diceSkins";
 import { avatarSku, diceSku, inCatalog, isUnlocked, themeSku } from "../store/entitlementsStore";
@@ -24,8 +24,7 @@ export interface CosmeticItem {
 export function cosmeticItems(category: CosmeticCategory): CosmeticItem[] {
   switch (category) {
     case "avatar":
-      // Avatars have no display label of their own; the id doubles as one.
-      return AVATAR_IDS.map((id) => ({ id, sku: avatarSku(id), label: id }));
+      return AVATAR_IDS.map((id) => ({ id, sku: avatarSku(id), label: AVATAR_NAMES[id] }));
     case "board":
       return Object.values(BOARD_THEMES).map((t) => ({ id: t.id, sku: themeSku(t.id), label: t.label }));
     case "dice":

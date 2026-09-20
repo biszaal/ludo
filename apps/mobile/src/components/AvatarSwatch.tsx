@@ -5,6 +5,7 @@
 
 import { Pressable, View } from "react-native";
 import { AvatarGlyph } from "./Avatar";
+import { avatarName } from "../render/avatars";
 import { PriceTag, type PriceCurrency } from "./PriceTag";
 import { palette, radius, space } from "../theme";
 
@@ -24,7 +25,7 @@ export function AvatarSwatch({ id, selected, price = 0, currency = "coins", lock
     <Pressable
       accessibilityRole="radio"
       accessibilityState={{ selected }}
-      accessibilityLabel={locked ? `Avatar ${id}, locked, ${price} ${currency}` : `Avatar ${id}`}
+      accessibilityLabel={locked ? `${avatarName(id)}, locked, ${price} ${currency}` : avatarName(id)}
       onPress={onSelect}
       style={({ pressed }) => ({
         width: "22%",

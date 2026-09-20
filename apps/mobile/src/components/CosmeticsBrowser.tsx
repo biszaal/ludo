@@ -242,7 +242,13 @@ export function CosmeticsBrowser({ mode, bottomInset = 0 }: { mode: "locker" | "
             </SkeletonGroup>
           ) : (
             <>
-              <Text style={{ fontFamily: font.display, fontSize: 17, color: palette.porcelain, textTransform: "capitalize" }}>
+              {/* No textTransform. It was here to title-case the raw avatar
+                  ids this caption used to show; avatars have real names now,
+                  and iOS implements "capitalize" with -capitalizedString,
+                  which lowercases the rest of every word — it would render
+                  "Onyx II" as "Onyx Ii". Board and dice labels were already
+                  cased correctly, so nothing needed it. */}
+              <Text style={{ fontFamily: font.display, fontSize: 17, color: palette.porcelain }}>
                 {highlightItem?.label ?? highlightId}
               </Text>
               <Text style={{ fontFamily: font.regular, fontSize: 12, color: palette.mutedSteel }}>{status}</Text>
