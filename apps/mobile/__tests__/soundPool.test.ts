@@ -18,7 +18,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { freshSlot, pickSlot, rewindLandsBeforePlay, type Slot } from "../src/lib/soundPool";
+import { effectiveVolume, freshSlot, pickSlot, rewindLandsBeforePlay, type Slot } from "../src/lib/soundPool";
 
 const NOW = 10_000;
 
@@ -152,5 +152,31 @@ describe("rewindLandsBeforePlay", () => {
   it("assumes the waiting branch on any runtime it does not know", () => {
     expect(rewindLandsBeforePlay("web")).toBe(false);
     expect(rewindLandsBeforePlay("windows")).toBe(false);
+  });
+});
+
+describe("effectiveVolume", () => {
+  it("scales a sound's mixed level by the channel master", () => {
+    // The master is a hand on the whole channel; the per-sound number stays
+    // the balance between one sound and another.
+    expect(effectiveVolume(0.6, 0.5)).toBeCloseTo(0.3, 6);
+  });
+
+  it("leaves the mix exactly as authored at full master", () => {
+    // The default, and the case that matters most: a player who never opens
+    // the slider must hear what they heard before it existed.
+    expect(effectiveVolume(0.35, 1)).toBe(0.35);
+  });
+
+  it("is silent at zero", () => {
+    expect(effectiveVolume(0.6, 0)).toBe(0);
+  });
+
+  it("never hands the native player a value outside 0..1", () => {
+    // expo-audio's `volume` is documented as 0..1; anything else is undefined
+    // behaviour that differs per platform.
+    expect(effectiveVolume(0.6, 5)).toBe(1);
+    expect(effectiveVolume(0.6, -2)).toBe(0);
+    expect(effectiveVolume(0.6, Number.NaN)).toBe(0.6);
   });
 });

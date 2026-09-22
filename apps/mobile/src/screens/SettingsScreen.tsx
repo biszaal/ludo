@@ -13,8 +13,10 @@ import { ScreenHeader } from "../components/ScreenHeader";
 import { ContentColumn } from "../components/ContentColumn";
 import { SectionLabel } from "../components/SectionLabel";
 import { SettingRow } from "../components/SettingRow";
+import { VolumeSlider } from "../components/VolumeSlider";
 import { FeedbackSheet } from "../components/FeedbackSheet";
 import { registerForPush, unregisterPush } from "../lib/push";
+import { playSound } from "../lib/sound";
 import { cancelBonusReminder, scheduleBonusReminder } from "../lib/bonusReminder";
 import { Surface3D } from "../components/Surface3D";
 import { BookGlyph, ChevronGlyph, CycleGlyph, NoteGlyph, PeopleGlyph, PulseGlyph, SpeakerGlyph, SpeechGlyph } from "../components/HomeGlyphs";
@@ -49,10 +51,31 @@ export function SettingsScreen() {
         <Tray title={t("settings.soundAndFeel")}>
           <Row glyph={<SpeakerGlyph size={20} />}>
             <SettingRow label={t("settings.soundEffects")} hint={t("settings.soundEffectsHint")} value={settings.soundOn} onChange={settings.setSound} />
+            {/* The level is dimmed rather than removed while the channel is
+                off: a control that vanishes takes the player's setting with it
+                as far as anyone can tell, and the toggle is the fast mute
+                precisely because the slider underneath it is remembered.
+
+                Effects preview on release — a channel you cannot hear while
+                dragging is one you have to leave Settings to judge. Music
+                needs no preview; it is already playing. */}
+            <VolumeSlider
+              label={t("settings.soundEffects")}
+              value={settings.soundVolume}
+              onChange={settings.setSoundVolume}
+              onCommit={() => playSound("tap")}
+              disabled={!settings.soundOn}
+            />
           </Row>
           <Hairline />
           <Row glyph={<NoteGlyph size={20} />}>
             <SettingRow label={t("settings.music")} hint={t("settings.musicHint")} value={settings.musicOn} onChange={settings.setMusic} />
+            <VolumeSlider
+              label={t("settings.music")}
+              value={settings.musicVolume}
+              onChange={settings.setMusicVolume}
+              disabled={!settings.musicOn}
+            />
           </Row>
           <Hairline />
           <Row glyph={<PulseGlyph size={20} />}>
@@ -187,8 +210,12 @@ function Tray({ title, children }: { title: string; children: ReactNode }) {
 /** Glyph gutter beside a SettingRow, vertically centered on the row. */
 function Row({ glyph, children }: { glyph: ReactNode; children: ReactNode }) {
   return (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
-      {glyph}
+    // The glyph sits against the top of its row rather than the middle, because
+    // the two audio rows are now two lines tall (label, then track) and a
+    // centred speaker would drift down beside the slider instead of marking
+    // the thing it names.
+    <View style={{ flexDirection: "row", alignItems: "flex-start", gap: space.md, paddingVertical: space.xs }}>
+      <View style={{ height: 52, justifyContent: "center" }}>{glyph}</View>
       <View style={{ flex: 1 }}>{children}</View>
     </View>
   );

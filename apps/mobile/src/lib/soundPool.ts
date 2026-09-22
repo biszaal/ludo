@@ -109,3 +109,19 @@ export function pickSlot(slots: readonly Slot[]): number {
 export function rewindLandsBeforePlay(platform: string): boolean {
   return platform === "android";
 }
+
+/**
+ * What to hand the native player's `volume`, given the sound's own mixed level
+ * and the channel master from settings.
+ *
+ * A plain multiply, with two guards that are not decoration. expo-audio
+ * documents `volume` as 0..1 and says nothing about what a platform does with
+ * a value outside it, so the result is clamped rather than trusted; and a
+ * non-finite master (a NaN that survived a gesture) falls back to the authored
+ * level, because the failure mode of the alternative is a game that is silent
+ * for reasons nothing on screen explains.
+ */
+export function effectiveVolume(base: number, master: number): number {
+  if (!Number.isFinite(master)) return base;
+  return Math.min(1, Math.max(0, base * master));
+}

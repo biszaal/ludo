@@ -5,6 +5,16 @@
  * simulator quirks) are ignored. Effects respect settings.soundOn, music
  * respects settings.musicOn plus the app's foreground state.
  *
+ * Both channels also carry a master level from settings (soundVolume /
+ * musicVolume), which multiplies the per-sound mix below rather than replacing
+ * it. Where that master is APPLIED is the thing to be careful about: never in
+ * playSound. Writing `player.volume` is a `runOnMain` property write, i.e. the
+ * same blocking hop across Android's main thread that the rest of this file is
+ * organised around avoiding, and doing it per play would put one on the hot
+ * path of every hop of every move. It is applied instead when the slider moves
+ * (applySoundVolume, from the settings subscription) and when a player is
+ * created, which between them cover every player that can ever sound.
+ *
  * The one thing to know before editing playSound: expo-audio's `seekTo` and
  * `play()` are implemented with OPPOSITE threading on the two platforms, so
  * there is no single correct way to order them. On Android `play()` blocks the
@@ -23,7 +33,7 @@
 
 import { Platform } from "react-native";
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from "expo-audio";
-import { freshSlot, pickSlot, rewindLandsBeforePlay, type Slot } from "./soundPool";
+import { effectiveVolume, freshSlot, pickSlot, rewindLandsBeforePlay, type Slot } from "./soundPool";
 import { useSettings } from "../store/settingsStore";
 
 export type SoundName =
@@ -80,6 +90,11 @@ const SPECS: Record<SoundName, { source: number; pool: number; volume: number; m
  * as close to "never" as the API allows.
  */
 const STATUS_INTERVAL_MS = 60_000;
+
+/** Music's own level in the mix, before the player's master is applied. The
+ *  ambient loop sits well under the effects on purpose — it is a room, not an
+ *  event. */
+const MUSIC_BASE_VOLUME = 0.25;
 
 const pools = {} as Record<SoundName, AudioPlayer[]>;
 /** What JS believes each pooled player is doing. See lib/soundPool. */
@@ -154,7 +169,10 @@ function buildPool(name: SoundName): void {
   slots[name] = Array.from({ length: spec.pool }, freshSlot);
   pools[name] = Array.from({ length: spec.pool }, (_, i) => {
     const player = createAudioPlayer(spec.source, { updateInterval: STATUS_INTERVAL_MS });
-    player.volume = spec.volume;
+    // The master at creation time, not 1 — the deferred reaction voices are
+    // built long after the slider was last moved, and a pool born at full
+    // volume would be the one set of sounds that ignored it.
+    player.volume = effectiveVolume(spec.volume, useSettings.getState().soundVolume);
     // Only under the debug flag: a status listener is a native→JS event per
     // change, over the same main thread the sound has to cross, so a shipped
     // build must not pay for one.
@@ -174,6 +192,27 @@ function buildPool(name: SoundName): void {
     return player;
   });
   if (SOUND_DEBUG) debugLog(`built ${name} x${spec.pool} (${countPlayers()} players total)`);
+}
+
+/**
+ * Push the effects master onto every player that exists.
+ *
+ * Called when the slider moves, and only then — see the header for why this is
+ * not done per play. Walking the whole pool set is a handful of native writes
+ * at a moment when nothing is animating, which is the cheapest time to spend
+ * the main thread.
+ */
+function applySoundVolume(): void {
+  const master = useSettings.getState().soundVolume;
+  for (const [name, pool] of Object.entries(pools) as [SoundName, AudioPlayer[]][]) {
+    for (const player of pool) {
+      try {
+        player.volume = effectiveVolume(SPECS[name].volume, master);
+      } catch {
+        // player removed underneath us — a dev reload, or releaseAll
+      }
+    }
+  }
 }
 
 /** Native players currently alive, music included — the number that matters if
@@ -246,32 +285,51 @@ export async function initSound(): Promise<void> {
       updateInterval: STATUS_INTERVAL_MS,
     });
     music.loop = true;
-    music.volume = 0.25;
+    music.volume = effectiveVolume(MUSIC_BASE_VOLUME, useSettings.getState().musicVolume);
     ready = true;
   } catch (err) {
     ready = false;
     if (SOUND_DEBUG) debugLog(`init FAILED ${String(err)}`);
   }
   if (SOUND_DEBUG) debugLog(`init ready=${ready} players=${countPlayers()}`);
-  // React to the music toggle; effects check soundOn per play.
+  // React to the music toggle and to both masters; effects check soundOn per
+  // play but NOT their master, which is baked into each player's volume by the
+  // branch below.
   //
-  // syncMusic reads musicOn and nothing else, so the guard below is the whole
-  // selector: an unguarded subscribe ran it on EVERY settings write, including
-  // setBoardTheme. (A real selector would need the subscribeWithSelector
-  // middleware on the store — not worth adding for one field.)
-  let lastMusicOn = useSettings.getState().musicOn;
+  // The per-field guards are the whole selector: an unguarded subscribe would
+  // run this on EVERY settings write, including setBoardTheme, and each run
+  // costs native property writes across every player alive. (A real selector
+  // would need the subscribeWithSelector middleware on the store — not worth
+  // adding for three fields.)
+  const initial = useSettings.getState();
+  let lastMusicOn = initial.musicOn;
+  let lastMusicVolume = initial.musicVolume;
+  let lastSoundVolume = initial.soundVolume;
   useSettings.subscribe((st) => {
-    if (st.musicOn === lastMusicOn) return;
-    lastMusicOn = st.musicOn;
-    syncMusic();
+    if (st.soundVolume !== lastSoundVolume) {
+      lastSoundVolume = st.soundVolume;
+      applySoundVolume();
+    }
+    if (st.musicOn !== lastMusicOn || st.musicVolume !== lastMusicVolume) {
+      lastMusicOn = st.musicOn;
+      lastMusicVolume = st.musicVolume;
+      syncMusic();
+    }
   });
   syncMusic();
 }
 
 /** Play a one-shot effect (no-op when sound is off or audio failed to load). */
 export function playSound(name: SoundName): void {
-  if (!ready || !useSettings.getState().soundOn) {
-    if (SOUND_DEBUG) debugLog(`skip ${name} ready=${ready} soundOn=${useSettings.getState().soundOn}`);
+  // One store read, reused — `getState()` twice on the hot path for the sake
+  // of a log line is a cost every hop pays so that a disabled branch can be
+  // tidier. A master of 0 short-circuits here rather than starting a silent
+  // clip: the play would cross the main thread to produce nothing.
+  const settings = useSettings.getState();
+  if (!ready || !settings.soundOn || settings.soundVolume === 0) {
+    if (SOUND_DEBUG) {
+      debugLog(`skip ${name} ready=${ready} soundOn=${settings.soundOn} master=${settings.soundVolume}`);
+    }
     return;
   }
   if (!pools[name] && DEFERRED.has(name)) buildPool(name);
@@ -339,8 +397,12 @@ export function setMusicActive(active: boolean): void {
 
 function syncMusic(): void {
   if (!music) return;
+  const st = useSettings.getState();
   try {
-    if (useSettings.getState().musicOn && appActive) {
+    // Level first, so a drag while the loop is already playing is heard as it
+    // happens rather than at the next pause/resume.
+    music.volume = effectiveVolume(MUSIC_BASE_VOLUME, st.musicVolume);
+    if (st.musicOn && appActive) {
       if (!music.playing) music.play();
     } else if (music.playing) {
       music.pause();

@@ -61,3 +61,73 @@ describe("motion preference", () => {
     expect(migrated.motionPref).toBe("reduced");
   });
 });
+
+describe("volume levels", () => {
+  it("defaults both masters to full, so an existing mix is untouched", () => {
+    // These multiply the per-sound levels in lib/sound rather than replacing
+    // them: anything other than 1 here would quietly re-mix the whole game.
+    expect(useSettings.getState().soundVolume).toBe(1);
+    expect(useSettings.getState().musicVolume).toBe(1);
+  });
+
+  it("stores a chosen level", () => {
+    useSettings.getState().setSoundVolume(0.4);
+    useSettings.getState().setMusicVolume(0.15);
+    expect(useSettings.getState().soundVolume).toBe(0.4);
+    expect(useSettings.getState().musicVolume).toBe(0.15);
+  });
+
+  it("clamps rather than trusting its caller", () => {
+    // The caller is a gesture. A value off the end of the track, or a NaN from
+    // a zero-width layout, would otherwise persist and be silent forever.
+    useSettings.getState().setSoundVolume(3);
+    expect(useSettings.getState().soundVolume).toBe(1);
+    useSettings.getState().setSoundVolume(-1);
+    expect(useSettings.getState().soundVolume).toBe(0);
+    useSettings.getState().setMusicVolume(Number.NaN);
+    expect(useSettings.getState().musicVolume).toBe(1);
+  });
+
+  it("keeps the level across a mute, so unmuting returns to where it was", () => {
+    useSettings.getState().setSoundVolume(0.3);
+    useSettings.getState().setSound(false);
+    useSettings.getState().setSound(true);
+    expect(useSettings.getState().soundVolume).toBe(0.3);
+  });
+
+  it("gives an upgrading player full volume without disturbing their toggles", () => {
+    // Someone who has played for months has no volume stored. Defaulting them
+    // to anything but full would be a change they never asked for.
+    const migrated = migrateSettings({ soundOn: false, musicOn: true, motionPref: "reduced" }, 2) as {
+      soundOn: boolean;
+      motionPref: string;
+      soundVolume: number;
+      musicVolume: number;
+    };
+    expect(migrated.soundOn).toBe(false);
+    expect(migrated.motionPref).toBe("reduced");
+    expect(migrated.soundVolume).toBe(1);
+    expect(migrated.musicVolume).toBe(1);
+  });
+
+  it("carries a v1 profile all the way forward", () => {
+    // v1 skips a version; the chain has to apply both steps, not just the last.
+    const migrated = migrateSettings({ soundOn: false }, 1) as {
+      soundOn: boolean;
+      motionPref: string;
+      soundVolume: number;
+    };
+    expect(migrated.soundOn).toBe(false);
+    expect(migrated.motionPref).toBe("auto");
+    expect(migrated.soundVolume).toBe(1);
+  });
+
+  it("leaves a v3 profile's stored levels alone", () => {
+    const migrated = migrateSettings({ soundVolume: 0.2, musicVolume: 0 }, 3) as {
+      soundVolume: number;
+      musicVolume: number;
+    };
+    expect(migrated.soundVolume).toBe(0.2);
+    expect(migrated.musicVolume).toBe(0);
+  });
+});
