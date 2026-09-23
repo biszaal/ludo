@@ -287,6 +287,37 @@ export interface BoardTheme {
   /** The disc inside an empty yard slot. Omitted = derived from `slotEmpty`. */
   slotFill?: string;
   /**
+   * The yard tile as a slab with thickness, rather than a coloured square with
+   * a lighter square inside it.
+   *
+   * The four yards are about a third of the board and the biggest flat areas on
+   * it, so whatever they read as is most of what the board reads as. Every
+   * board before this drew them as two stacked rectangles and one white lip,
+   * which is a diagram of a tile rather than a tile: the same tone everywhere,
+   * no light with a direction, and an inner plate that sits at exactly the same
+   * apparent height as the plate around it.
+   *
+   * With this set, the tile is lit from the top-left and built as one: a face
+   * that falls off toward its far corner, a specular sweep across it, a lit
+   * upper bevel against a cut-away lower one, and — the piece that does the
+   * most — an inner plate that is genuinely SUNK, its near wall in shadow and
+   * its far wall catching light, floored in a deeper cut of the same tint. All
+   * of it derives from the seat colour, so a seat is still a seat at a glance.
+   *
+   * Reserved for materials with a body to see into. On an enamel counter or a
+   * printed plate there is no depth to show, and faking it there is what makes
+   * a board look like a render of a board.
+   */
+  yardGlass?: {
+    /**
+     * How deep the inner plate is cut, 0..1 — scales the well's shadow, its
+     * light catch, and how much further the floor's tint is taken down.
+     */
+    depth: number;
+    /** The specular sweep across the slab's face, 0..1. */
+    gloss: number;
+  };
+  /**
    * Ornament placed by hand in the frame — a frond across a corner, moss in the
    * rail, a bubble caught in the resin (render/boardArt.ts's frameDecor).
    *
@@ -1192,6 +1223,12 @@ export const BOARD_THEMES: Record<BoardThemeId, BoardTheme> = {
     // seats went to smoke on the device. 0.6 is still the lowest in the
     // catalog by a distance, and still unmistakably tinted glass.
     plateTint: 0.6,
+    // The yards were the one place the glass stopped being glass: four flat
+    // tinted squares, each with a flatter square inside it. They are cut as
+    // slabs now — lit corner, sunk inner plate, a floor a few shades deeper
+    // for the extra glass the light has to cross. Nothing else on the board
+    // asks for this, which is why it is a flag and not the default.
+    yardGlass: { depth: 1, gloss: 0.9 },
     slotEmpty: "#1B2440",
     slotRing: "rgba(255,255,255,0.55)",
     slotFill: "#2A3A60",

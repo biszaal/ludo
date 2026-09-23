@@ -382,6 +382,11 @@ export function BoardSurface({ size, theme, ornament = true }: { size: number; t
   // layer, and every board that has ever shipped drew these without one.
   const tint = theme.plateTint === undefined || theme.plateTint >= 1 ? undefined : theme.plateTint;
   const yardPlate = theme.yardPlate ?? theme.boardBase;
+  // The yard slab (boardThemes.ts's yardGlass). Off for every board that does
+  // not ask for it, which is all of them but Glacier Optic — and off for the
+  // disc and ring yards whatever they ask for, since those build the tile out
+  // of the board's own material and light it their own way.
+  const glass = theme.yardStyle && theme.yardStyle !== "solid" ? null : theme.yardGlass ?? null;
   const sheen = theme.sheen ?? 0.05;
   // The material and the worked edge (render/boardArt.ts). Both are plain
   // geometry generated from a per-theme seed, so they cost one pass through the
@@ -479,9 +484,19 @@ export function BoardSurface({ size, theme, ornament = true }: { size: number; t
         const y = b.row * cell + pad;
         const ix = b.col * cell + cell * 0.9;
         const iy = b.row * cell + cell * 0.9;
+        const wellBevel = Math.max(1, iw * 0.016);
         return (
           <Group key={`yard-${color}`}>
-            <RoundedRect x={x} y={y + yardDrop} width={w} height={w} r={yardR} color="rgba(0,0,0,0.18)" />
+            <RoundedRect x={x} y={y + yardDrop} width={w} height={w} r={yardR} color={glass ? "rgba(0,0,0,0.42)" : "rgba(0,0,0,0.18)"} />
+            {/* The slab's own side, between the face and its contact shadow —
+                the darkest, most saturated tint on the tile, because it is the
+                longest path the light takes through the material. Offset half
+                as far as the shadow, so the tile's footprint does not grow:
+                the clearance below a yard is ~0.16 cells (pad + cellInset) and
+                the shadow already spends most of it. */}
+            {glass ? (
+              <RoundedRect x={x} y={y + yardDrop * 0.55} width={w} height={w} r={yardR} color={shade(team, -0.62)} />
+            ) : null}
             {theme.yardStyle === "disc" ? (
               <Group>
                 {/* A round bed set into the board's material, with the tile's
@@ -559,6 +574,78 @@ export function BoardSurface({ size, theme, ornament = true }: { size: number; t
                 />
                 <RoundedRect x={x + lipInset} y={y + lipInset} width={w - lipInset * 2} height={w - lipInset * 2} r={yardLipR} color="rgba(255,255,255,0.18)" style="stroke" strokeWidth={1.5} />
               </Group>
+            ) : glass ? (
+              <Group>
+                {/* A slab with a light over its top-left shoulder. The wash runs
+                    diagonally and ends two stops darker than the old vertical
+                    one: a face that only falls off by 18% is a coloured square,
+                    however cleanly it is drawn. */}
+                <Group opacity={tint}>
+                  <RoundedRect x={x} y={y} width={w} height={w} r={yardR}>
+                    <LinearGradient
+                      start={vec(x, y)}
+                      end={vec(x + w * 0.55, y + w)}
+                      colors={[shade(team, 0.3), team, shade(team, -0.3), shade(team, -0.46)]}
+                      positions={[0, 0.4, 0.82, 1]}
+                    />
+                  </RoundedRect>
+                </Group>
+                {/* Specular. Outside the tint group on purpose: plateTint says
+                    how deep the SEAT COLOUR is laid into the material, and a
+                    highlight is not the seat's colour, it is the room's. Kept
+                    short and weak — a sweep that reaches the middle of the tile
+                    stops being light on glass and becomes a white smear on
+                    plastic, and it takes the seat's colour with it. */}
+                <RoundedRect x={x} y={y} width={w} height={w} r={yardR}>
+                  <LinearGradient
+                    start={vec(x, y)}
+                    end={vec(x + w * 0.8, y + w * 0.8)}
+                    colors={[
+                      `rgba(255,255,255,${(0.2 * glass.gloss).toFixed(3)})`,
+                      `rgba(255,255,255,${(0.05 * glass.gloss).toFixed(3)})`,
+                      "rgba(255,255,255,0)",
+                    ]}
+                    positions={[0, 0.24, 0.52]}
+                  />
+                </RoundedRect>
+                {/* A continuous hairline so the tile's edge never breaks, then
+                    the two halves of the bevel over it. */}
+                <RoundedRect x={x + lipInset} y={y + lipInset} width={w - lipInset * 2} height={w - lipInset * 2} r={yardLipR} color="rgba(255,255,255,0.12)" style="stroke" strokeWidth={1} />
+                {/* Bevel. The white lip every other board draws runs the whole
+                    way round, which is a light source in four places at once —
+                    the one thing that most reliably flattens a raised edge.
+                    Here the upper half is lit and the lower half is cut away.
+                    Each half is painted with a radial centred on ITS corner, so
+                    the two fade out before they meet: a bevel that stops dead
+                    halfway along an edge is read as a drawn line, which is the
+                    whole thing this is trying not to be. */}
+                <Path
+                  path={bevelUpper(x + lipInset, y + lipInset, w - lipInset * 2, yardLipR)}
+                  style="stroke"
+                  strokeWidth={Math.max(1.2, w * 0.011)}
+                  strokeCap="round"
+                >
+                  <RadialGradient
+                    c={vec(x, y)}
+                    r={w * 0.95}
+                    colors={["rgba(255,255,255,0.72)", "rgba(255,255,255,0.28)", "rgba(255,255,255,0)"]}
+                    positions={[0.18, 0.6, 1]}
+                  />
+                </Path>
+                <Path
+                  path={bevelLower(x + lipInset, y + lipInset, w - lipInset * 2, yardLipR)}
+                  style="stroke"
+                  strokeWidth={Math.max(1.2, w * 0.011)}
+                  strokeCap="round"
+                >
+                  <RadialGradient
+                    c={vec(x + w, y + w)}
+                    r={w * 0.95}
+                    colors={["rgba(6,12,28,0.62)", "rgba(6,12,28,0.24)", "rgba(6,12,28,0)"]}
+                    positions={[0.18, 0.6, 1]}
+                  />
+                </Path>
+              </Group>
             ) : (
               <Group opacity={tint}>
                 <RoundedRect x={x} y={y} width={w} height={w} r={yardR}>
@@ -567,6 +654,23 @@ export function BoardSurface({ size, theme, ornament = true }: { size: number; t
                 <RoundedRect x={x + lipInset} y={y + lipInset} width={w - lipInset * 2} height={w - lipInset * 2} r={yardLipR} color="rgba(255,255,255,0.35)" style="stroke" strokeWidth={2} />
               </Group>
             )}
+            {/* A floor under the inner plate, for the boards whose yards are
+                cut rather than printed. The plate is sunk, so the light crosses
+                more material to reach it and the same tint comes back deeper —
+                which is the only honest reason an inner plate should be a
+                different colour from the tile around it. Tinted, so it is still
+                the seat's own colour that got deeper. */}
+            {glass ? (
+              <Group opacity={tint}>
+                <RoundedRect x={ix} y={iy} width={iw} height={iw} r={yardInnerR}>
+                  <LinearGradient
+                    start={vec(ix, iy)}
+                    end={vec(ix, iy + iw)}
+                    colors={[shade(team, -0.3 - 0.22 * glass.depth), shade(team, -0.16 - 0.1 * glass.depth)]}
+                  />
+                </RoundedRect>
+              </Group>
+            ) : null}
             {theme.yardStyle === "disc" ? (
               <Circle cx={x + w / 2} cy={y + w / 2} r={w * 0.4} color={theme.cellFill} />
             ) : (
@@ -599,6 +703,51 @@ export function BoardSurface({ size, theme, ornament = true }: { size: number; t
             ) : (
               <RoundedRect x={ix} y={iy} width={iw} height={iw} r={yardInnerR} color={shade(team, -0.3)} opacity={0.35} style="stroke" strokeWidth={1.5} />
             )}
+            {/* What actually makes the plate sunk rather than merely darker:
+                the near wall throws a shadow across the top-left of the floor,
+                and the far wall catches the light the near one blocked. Drawn
+                over the emblem and the cut line, because an occlusion is the
+                last thing light does to a surface, not the first. Same two
+                paths as the slab's bevel with the tones swapped — a recess is
+                a raised tile turned inside out. */}
+            {glass ? (
+              <Group>
+                <Path
+                  path={bevelUpper(ix + wellBevel / 2, iy + wellBevel / 2, iw - wellBevel, yardInnerR)}
+                  style="stroke"
+                  strokeWidth={wellBevel}
+                  strokeCap="round"
+                >
+                  <RadialGradient
+                    c={vec(ix, iy)}
+                    r={iw}
+                    colors={[
+                      `rgba(4,10,24,${(0.6 * glass.depth).toFixed(3)})`,
+                      `rgba(4,10,24,${(0.22 * glass.depth).toFixed(3)})`,
+                      "rgba(4,10,24,0)",
+                    ]}
+                    positions={[0.15, 0.62, 1]}
+                  />
+                </Path>
+                <Path
+                  path={bevelLower(ix + wellBevel / 2, iy + wellBevel / 2, iw - wellBevel, yardInnerR)}
+                  style="stroke"
+                  strokeWidth={wellBevel * 0.75}
+                  strokeCap="round"
+                >
+                  <RadialGradient
+                    c={vec(ix + iw, iy + iw)}
+                    r={iw}
+                    colors={[
+                      `rgba(255,255,255,${(0.34 * glass.depth).toFixed(3)})`,
+                      `rgba(255,255,255,${(0.12 * glass.depth).toFixed(3)})`,
+                      "rgba(255,255,255,0)",
+                    ]}
+                    positions={[0.15, 0.62, 1]}
+                  />
+                </Path>
+              </Group>
+            ) : null}
             {YARD_SLOTS[color].map(([gx, gy], i) => {
               const cx = gx * cell;
               const cy = gy * cell;
@@ -807,6 +956,32 @@ function ColorCell({
  */
 function cellInset(cell: number): number {
   return Math.max(0.5, cell * 0.045);
+}
+
+/**
+ * Half a rounded square's perimeter: the top and left edges, and the corner
+ * between them. Stroked light on a raised tile and dark inside a sunk one —
+ * the whole difference between "there is an edge here" and "the edge faces the
+ * light". A stroke all the way round says the light comes from four places at
+ * once, which is why the boards that draw one read as printed.
+ */
+function bevelUpper(x: number, y: number, w: number, r: number) {
+  const p = Skia.Path.Make();
+  p.moveTo(x, y + w - r);
+  p.lineTo(x, y + r);
+  p.arcToTangent(x, y, x + r, y, r);
+  p.lineTo(x + w - r, y);
+  return p;
+}
+
+/** The other half — the right and bottom edges. See bevelUpper. */
+function bevelLower(x: number, y: number, w: number, r: number) {
+  const p = Skia.Path.Make();
+  p.moveTo(x + w, y + r);
+  p.lineTo(x + w, y + w - r);
+  p.arcToTangent(x + w, y + w, x + w - r, y + w, r);
+  p.lineTo(x + r, y + w);
+  return p;
 }
 
 /** Stroke path along a circle's top half — the slot recess's inner shadow. */
