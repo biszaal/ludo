@@ -191,9 +191,14 @@ export const DICE_SKINS: Record<DiceSkinId, DiceSkin> = {
     id: "marble",
     label: "Marble",
     price: 2000,
-    face: { type: "linear", colors: ["#F7F5F0", "#B7B5C2"] },
-    pip: { color: "#2A2C33", shape: "dot" },
-    edge: "#8E8C99",
+    // Warm stone, on a three-stop sweep. The old two-stop run ended on a
+    // lavender grey, which put it in the same pastel family as the gem tier's
+    // pale skins — marble is not a pastel, it is a white rock that goes to
+    // shadow. The veining it needed was a fix in the overlay, not here: see
+    // pipShapes.ts's `veins`.
+    face: { type: "linear", colors: ["#FBF9F5", "#DDD9D2", "#A8A49C"], stops: [0, 0.5, 1] },
+    pip: { color: "#35332E", shape: "dot" },
+    edge: "#7E7A72",
     overlay: "veins",
   },
   neon: {
@@ -242,7 +247,11 @@ export const DICE_SKINS: Record<DiceSkinId, DiceSkin> = {
     face: { type: "linear", colors: ["#25292E", "#15181B"] },
     pip: { color: "#9BE83C", shape: "dot", glow: "#9BE83C" },
     edge: "#0B0C0E",
-    overlay: "grain",
+    // Woven, matching the board of the same name (boardThemes.carbon, which
+    // has used `twill` since it shipped). This wore `grain` — the WOOD
+    // overlay — so a set sold as one material was carbon on the board and
+    // timber on the die, in the lime of the tracer.
+    overlay: "twill",
   },
   diamond: {
     id: "diamond",
@@ -360,7 +369,11 @@ export const DICE_SKINS: Record<DiceSkinId, DiceSkin> = {
     pip: { color: "#1A1C20", shape: "dot" },
     edge: "#2A2D33",
     frame: "#C9A870",
-    overlay: "grain",
+    // Machined, not sawn. This wore "grain" — the wood overlay, four wavy
+    // lines down the face — so the one die in the catalog that is a milled
+    // metal billet was the one wearing timber. `brushed` is the finish the
+    // matching board deck has always had (boardThemes.titanium's texture).
+    overlay: "brushed",
     sheen: 0.35,
   },
   herbarium: {
@@ -382,7 +395,10 @@ export const DICE_SKINS: Record<DiceSkinId, DiceSkin> = {
     pip: { color: "#E8C77A", shape: "numeral", glow: "#F2D89A" },
     edge: "#0C0D11",
     frame: "#C9A227",
-    overlay: "grain", // brushed striations, in the numeral's own gold
+    // "Brushed striations, in the numeral's own gold" is what this always
+    // meant to be and what `grain` could never draw — same wood-on-metal slip
+    // as titanium above.
+    overlay: "brushed",
     sheen: 0.55,
   },
   // The ornamented top of the line. Material alone runs out of ways to look
@@ -436,16 +452,35 @@ export const DICE_SKINS: Record<DiceSkinId, DiceSkin> = {
     sheen: 0.5,
     motif: { kind: "deco", color: "#F0D08A", alpha: 0.78, scale: 0.46 },
   },
+  /**
+   * A slab of optic ice, and — until this was fixed — the flagship that looked
+   * like the cheapest gem skin in the catalog.
+   *
+   * It shared all four of Prism's tells: a pale face, a near-white frame, a
+   * glowing white diamond, and the SAME `facets` cut, whose only per-skin
+   * variation was a rotation of a figure symmetric under rotation. Two dice
+   * eleven gem-prices apart were one die in two tints of pastel.
+   *
+   * What separates them now is depth. Prism is a dispersion — light split
+   * across a thin pastel face — so it stays light and keeps the gem cut.
+   * Glacier is a thick, sunlit crest over blue depth, fractured through rather
+   * than cut, which is also the material the matching board is made of
+   * (boardThemes.glacier: cast glass over a dark deck).
+   */
   glacier: {
     id: "glacier",
     label: "Glacier Optic",
     price: 560,
     currency: "gems",
-    face: { type: "linear", colors: ["#E2F0FF", "#96BEF0", "#E6F5FF"], stops: [0, 0.45, 1] },
-    pip: { color: "#FFFFFF", shape: "diamond", glow: "#5D8FD6" },
-    edge: "#5D8FD6",
-    frame: "#FFFFFF",
-    overlay: "facets",
+    face: { type: "linear", colors: ["#F4FBFF", "#8CC0EC", "#2A5E9E"], stops: [0, 0.38, 1] },
+    // A cold, near-white glow. The old one was the face's own mid blue, which
+    // over deep ice is invisible — a glow has to be lighter than what it sits on.
+    pip: { color: "#FFFFFF", shape: "diamond", glow: "#BFE4FF" },
+    edge: "#1E4878",
+    // Ice-white rather than paper-white, so the rim is not the same stroke
+    // Prism's is at the size a die is actually read.
+    frame: "#CFE7FF",
+    overlay: "ice",
     sheen: 0.55,
   },
   sovereign: {

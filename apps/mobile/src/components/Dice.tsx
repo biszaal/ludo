@@ -558,6 +558,18 @@ export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = f
           strokePaint.setStyle(PaintStyle.Stroke);
           strokePaint.setStrokeCap(StrokeCap.Round);
           strokePaint.setColor(mix(sp.pipRGB, 0));
+          // The lit half of a texture (see OverlayStroke.light): brushed metal
+          // is bright and shadowed hairlines together, and a fracture inside
+          // ice is brighter than the ice. Inking those in the mark colour like
+          // everything else drew them as damage to the face. A second paint
+          // rather than a per-stroke setColor, because the worklet may not
+          // allocate and must not carry one branch's style into the next —
+          // the same rule `ink` is kept inline for.
+          const lightPaint = Skia.Paint();
+          lightPaint.setAntiAlias(true);
+          lightPaint.setStyle(PaintStyle.Stroke);
+          lightPaint.setStrokeCap(StrokeCap.Round);
+          lightPaint.setColor(Skia.Color("#FFFFFF"));
           const art = overlayArt(sp.overlay, sp.overlaySeed);
           // Built here, once per skin: the worklet used to Path.Make one of
           // these per stroke on every frame of the settle squash.
@@ -569,7 +581,7 @@ export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = f
             });
             return path;
           });
-          return { art, strokePaths, dotPaint, strokePaint };
+          return { art, strokePaths, dotPaint, strokePaint, lightPaint };
         })()
       : null;
 
@@ -927,7 +939,7 @@ export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = f
       // Overlay: a cheap deterministic texture pass (grain/veins/stars/facets),
       // clipped to the face. The tumble never touches it.
       if (landedKit.overlay) {
-        const { art, strokePaths, dotPaint, strokePaint } = landedKit.overlay;
+        const { art, strokePaths, dotPaint, strokePaint, lightPaint } = landedKit.overlay;
         canvas.save();
         canvas.clipRRect(faceRRect, ClipOp.Intersect, true);
         for (const d of art.dots) {
@@ -936,9 +948,10 @@ export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = f
         }
         for (let i = 0; i < art.strokes.length; i++) {
           const st = art.strokes[i]!;
-          strokePaint.setAlphaf(st.a);
-          strokePaint.setStrokeWidth(st.w * size);
-          canvas.drawPath(strokePaths[i]!, strokePaint);
+          const ink = st.light ? lightPaint : strokePaint;
+          ink.setAlphaf(st.a);
+          ink.setStrokeWidth(st.w * size);
+          canvas.drawPath(strokePaths[i]!, ink);
         }
         canvas.restore();
       }
