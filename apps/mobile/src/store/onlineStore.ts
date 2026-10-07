@@ -21,7 +21,7 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 import * as api from "../net/api";
 import { pushProfile } from "../net/profileSync";
 import { acceptChatPayload, applyChatEvent, CHAT_MAX_LEN, type ChatEvent } from "../lib/chat";
-import { ROLL_PACING_MS, stateAnimationMs } from "../lib/moveTiming";
+import { ROLL_PACING_MS, dieHandoverMs, stateAnimationMs } from "../lib/moveTiming";
 import { BUST_HOLD_MS, bustedRollDice, colorOf, isBustHandoff, project } from "../lib/projection";
 import { isOverdue, readProposal, type Proposal, type RematchVote } from "../lib/rematch";
 import { useNav } from "./navStore";
@@ -36,6 +36,9 @@ const AUTO_MOVE_DELAY = 600;
 /** Pace of autopilot actions on the local seat — outlasts the ~700ms die
  *  tumble so each rolled number lands before the bot acts on it. */
 const PILOT_DELAY = 900;
+/** How long after the die reaches this seat's corner the autopilot rolls it —
+ *  a beat to see it arrive, the way a player would have to. See armAutoPilot. */
+const PILOT_AFTER_DIE_MS = 300;
 /** Retry pace when an autopilot action produced no write (declined or failed).
  *  Longer than PILOT_DELAY so a call still in flight isn't hammered. */
 const PILOT_RETRY_MS = 4000;
@@ -1312,9 +1315,20 @@ function clearPilotTimer(): void {
   timers.clear("pilot");
 }
 
-/** Re-armed on every authoritative write (the server refreshes the deadline
- *  the same way): a fresh idle clock off autopilot, the next bot step on it. */
-function armAutoPilot(active: boolean): void {
+/**
+ * Re-armed on every authoritative write (the server refreshes the deadline the
+ * same way): a fresh idle clock off autopilot, the next bot step on it.
+ *
+ * `dieArrivesMs` is how long the die stays at the previous roller's corner
+ * after this write (moveTiming.dieHandoverMs — the same rule useDieHandover
+ * holds it by). The bot must not roll before then. A player cannot — the die
+ * is not at their corner to tap — but the bot rolled a fixed PILOT_DELAY after
+ * the turn arrived, and when the opponent's walk outlasted that, the roll began
+ * with the die still across the board. It then jumped to this corner as a
+ * freshly mounted Dice, which skips a roll it mounts into, so the player's die
+ * never tumbled while the bot played for them.
+ */
+function armAutoPilot(active: boolean, dieArrivesMs = 0): void {
   clearPilotTimer();
   const st = useOnlineStore.getState();
   if (!active) {
@@ -1323,7 +1337,7 @@ function armAutoPilot(active: boolean): void {
   }
   if (st.state?.currentTurnPlayerId !== st.myPlayerId) return;
   if (st.autoPilot) {
-    timers.set("pilot", autoPilotStep, PILOT_DELAY);
+    timers.set("pilot", autoPilotStep, Math.max(PILOT_DELAY, dieArrivesMs + PILOT_AFTER_DIE_MS));
   } else {
     timers.set(
       "pilot",
@@ -1768,7 +1782,9 @@ function applyStateNow(
     turnSeconds: clockReset ? clockSeconds(deadlineAt, watched && !!prev) : st.turnSeconds,
   });
   scheduleTimeout(active, deadlineAt);
-  armAutoPilot(active);
+  // `st` is the store as it was before this write, so its lastRoll is the
+  // previous roller's number — the one the die is held showing.
+  armAutoPilot(active, prev ? dieHandoverMs(prev, state, st.lastRoll) : 0);
   // Enter the game screen; replace a lobby entry so back never returns to a
   // dead lobby. A 2-player quick table can be dealt outright from the Home
   // setup sheet (no lobby stop) — that lands in the push branch.
