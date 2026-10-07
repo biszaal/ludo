@@ -10,10 +10,11 @@
  */
 
 import { memo, useEffect, useMemo } from "react";
-import { Pressable, Text, View } from "react-native";
+import { PixelRatio, Pressable, Text, View } from "react-native";
 import Animated, {
   cancelAnimation,
   Easing,
+  useAnimatedReaction,
   useAnimatedStyle,
   useDerivedValue,
   useSharedValue,
@@ -23,6 +24,7 @@ import Animated, {
   type SharedValue,
 } from "react-native-reanimated";
 import { useFullMotion } from "../lib/useMotion";
+import { clockSteps, steppedProgress } from "../lib/clockSteps";
 import { Canvas, Path, Skia } from "@shopify/react-native-skia";
 import { TOKENS_PER_PLAYER, type PlayerState } from "@ludo/engine";
 import { AvatarGlyph } from "./Avatar";
@@ -34,6 +36,12 @@ import { useT } from "../i18n";
 const AVATAR = 48;
 const RING_BOX = AVATAR + 14; // outer container; the ring hugs the frame inside it
 const RING_STROKE = 3.5;
+/** Where the ring's centreline sits inside RING_BOX, and its corner radius. */
+const RING_INSET = RING_STROKE / 2 + 0.5;
+const RING_RADIUS = radius.md + 1;
+/** The ring's path length in dp: a rounded square — four straight runs and
+ *  four quarter circles. Decides how many steps the countdown is drawn in. */
+const RING_LENGTH = 4 * (RING_BOX - RING_INSET * 2 - RING_RADIUS * 2) + 2 * Math.PI * RING_RADIUS;
 
 /**
  * Memoized, which it could not always be.
@@ -208,10 +216,19 @@ function BotBadge() {
  * match: a turn clock runs for up to thirty seconds of every turn, on the seat
  * everyone is already looking at, and whatever draws it is asked for a frame
  * the whole time.
+ *
+ * Neither presentation reads the driver directly. They read `shown`, the
+ * driver snapped to whole steps (lib/clockSteps), which only changes when the
+ * clock has visibly moved: about twenty times a second on a 30s turn instead
+ * of every display frame. Profiled on a Galaxy S26 Ultra, the unsnapped ring
+ * was one Skia redraw per frame for the entire match.
  */
 function TurnRing({ seq, seconds, color }: { seq: number; seconds: number; color: string }) {
   const fullMotion = useFullMotion();
   const progress = useSharedValue(1);
+  const shown = useSharedValue(1);
+  // One step per physical pixel of whichever presentation is drawn.
+  const steps = clockSteps((fullMotion ? RING_LENGTH : RING_BOX) * PixelRatio.get(), seconds);
 
   useEffect(() => {
     progress.value = 1;
@@ -219,9 +236,20 @@ function TurnRing({ seq, seconds, color }: { seq: number; seconds: number; color
     return () => cancelAnimation(progress);
   }, [seq, seconds, progress]);
 
+  // Written only when the step changes. The comparison is the point: a shared
+  // value assigned every frame wakes every canvas and style reading it, equal
+  // or not.
+  useAnimatedReaction(
+    () => steppedProgress(progress.value, steps),
+    (now, prev) => {
+      if (now !== prev) shown.value = now;
+    },
+    [steps],
+  );
+
   // Same clock, two presentations. Kept as sibling components rather than a
   // branch inside one, so each tier's hooks belong to the tier that uses them.
-  return fullMotion ? <RingTrim progress={progress} color={color} /> : <DrainBar progress={progress} color={color} />;
+  return fullMotion ? <RingTrim progress={shown} color={color} /> : <DrainBar progress={shown} color={color} />;
 }
 
 /**
@@ -229,24 +257,22 @@ function TurnRing({ seq, seconds, color }: { seq: number; seconds: number; color
  * an animated `end` so the ring visibly recedes in one direction (from the path
  * start, clockwise) as the turn's time drains.
  *
- * A Skia canvas re-rasterizes whenever a shared value inside it moves, and both
- * values here move every frame — `ringColor` writes a string per frame even
- * though it only ever holds two — so this asks for a repaint at display rate
- * for the length of the turn clock. That is affordable on a device with the
- * budget for it, and it is the shape the game is designed around.
+ * A Skia canvas re-rasterizes whenever a shared value inside it moves — and on
+ * Android that is a GPU draw and a buffer swap on the main thread. `progress`
+ * arrives already snapped to whole steps, so this repaints once per pixel of
+ * ring that drains rather than once per display frame, and `ringColor` is only
+ * recomputed on those same steps.
  */
 function RingTrim({ progress, color }: { progress: SharedValue<number>; color: string }) {
-  const end = useDerivedValue(() => Math.max(0, Math.min(1, progress.value)));
   const ringColor = useDerivedValue(() => (progress.value > 0.3 ? color : teamColor.red));
 
   const path = useMemo(() => {
-    const inset = RING_STROKE / 2 + 0.5;
     const p = Skia.Path.Make();
     p.addRRect(
       Skia.RRectXY(
-        Skia.XYWHRect(inset, inset, RING_BOX - inset * 2, RING_BOX - inset * 2),
-        radius.md + 1,
-        radius.md + 1,
+        Skia.XYWHRect(RING_INSET, RING_INSET, RING_BOX - RING_INSET * 2, RING_BOX - RING_INSET * 2),
+        RING_RADIUS,
+        RING_RADIUS,
       ),
     );
     return p;
@@ -254,7 +280,7 @@ function RingTrim({ progress, color }: { progress: SharedValue<number>; color: s
 
   return (
     <Canvas pointerEvents="none" style={{ position: "absolute", left: 0, top: 0, width: RING_BOX, height: RING_BOX }}>
-      <Path path={path} style="stroke" strokeWidth={RING_STROKE} strokeCap="round" color={ringColor} start={0} end={end} />
+      <Path path={path} style="stroke" strokeWidth={RING_STROKE} strokeCap="round" color={ringColor} start={0} end={progress} />
     </Canvas>
   );
 }
@@ -263,9 +289,10 @@ function RingTrim({ progress, color }: { progress: SharedValue<number>; color: s
  * Reduced tier: the same clock as a bar draining along the bottom of the frame.
  *
  * No canvas. A `scaleX` on a plain View is applied to the native view and
- * composited, so the thirty seconds cost the compositor a transform per frame
- * and cost the rasterizer nothing at all — where the ring above re-rasters its
- * whole surface every frame for the same information.
+ * composited, so each step costs the compositor a transform and the rasterizer
+ * nothing at all. Stepped like the ring (see TurnRing): even a transform is a
+ * whole-window frame on Android, and the bar is only ~170px wide, so it moves
+ * a few times a second rather than every frame.
  *
  * The colour is deliberately a step and not a ramp. Reanimated only forwards
  * style props that actually changed, so two constant colours either side of the
