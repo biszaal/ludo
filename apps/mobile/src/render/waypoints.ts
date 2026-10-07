@@ -16,9 +16,21 @@ import {
   type TokenPosition,
 } from "@ludo/engine";
 import { tokenCenterPx, type Point } from "./boardLayout";
+import { HOP_AIR, HOP_SOUND_AT } from "./walkPath";
+import { measuredSoundLead } from "../lib/soundSync";
 
-/** Per-cell hop duration (ms) for an ordinary forward move. */
-export const HOP_STEP_MS = 150;
+/**
+ * Per-cell hop duration (ms) for an ordinary forward move: a jump and a short
+ * sit on the cell (render/walkPath.HOP_AIR).
+ *
+ * Tuned by eye on a Galaxy S26 Ultra, 2026-09-27. 150 with no sit read as
+ * gliding; 190 with the sit, a higher jump and a shadow left on the board read
+ * as hopping but slow; 160 keeps it a hop and quicker. Everything that paces a
+ * move reads this constant, so the move clock, the capture wait and the state
+ * pacing all follow — and so does the hop sound, which is cut to the length of
+ * the jump's fall (scripts/gen-hop-sound.mjs): change one, regenerate the other.
+ */
+export const HOP_STEP_MS = 160;
 /** Single-fly duration (ms) for a move with no walkable path (yard exits). */
 export const FLY_MS = 240;
 
@@ -47,6 +59,27 @@ export interface Walk {
   /** A capture retrace. The Board glides these rather than hopping them, and
    *  mutes the per-cell thock over them. */
   retrace: boolean;
+  /** How long the pawn holds before its first hop, so the first hop's sound can
+   *  be asked for in time on a phone whose sound arrives late. See
+   *  hopPreRollMs. 0 for a fly and a retrace. */
+  preRollMs: number;
+}
+
+/**
+ * The pause before a hopping move's first hop, on this phone.
+ *
+ * Every hop's sound is asked for the measured audio delay ahead of the moment
+ * it should be heard (the top of the jump, walkPath.HOP_SOUND_AT) — and for the
+ * first hop that moment can be sooner than the delay allows. On a Galaxy S26
+ * Ultra the delay is ~200ms and the first apex arrives ~56ms into the move, so
+ * its sound would be heard a hop late, on top of the second hop's own. So the
+ * pawn waits for the difference. On a phone whose sound is quicker than the
+ * first apex, and before the delay has been measured, it waits for nothing.
+ */
+export function hopPreRollMs(stepMs: number): number {
+  const lead = measuredSoundLead();
+  if (lead === null) return 0;
+  return Math.max(0, lead - HOP_AIR * HOP_SOUND_AT * stepMs);
 }
 
 /**
@@ -61,7 +94,7 @@ export function positionKey(p: TokenPosition): string {
   return typeof p === "string" ? p : `${p.type}${p.index}`;
 }
 
-const fly = (dest: Point): Walk => ({ points: [dest], walk: false, stepMs: FLY_MS, retrace: false });
+const fly = (dest: Point): Walk => ({ points: [dest], walk: false, stepMs: FLY_MS, retrace: false, preRollMs: 0 });
 
 /**
  * Pixel waypoints from a token's previous position to its new seat.
@@ -98,6 +131,7 @@ export function computeWaypoints(
       walk: true,
       stepMs: Math.max(RETURN_MIN_STEP_MS, Math.round(RETURN_TOTAL_MS / pts.length)),
       retrace: true,
+      preRollMs: 0,
     };
   }
 
@@ -109,7 +143,7 @@ export function computeWaypoints(
       pts.push(tokenCenterPx(color, fromRelativeIndex(color, rel), 0, cell));
     }
     pts.push(dest);
-    return { points: pts, walk: true, stepMs: HOP_STEP_MS, retrace: false };
+    return { points: pts, walk: true, stepMs: HOP_STEP_MS, retrace: false, preRollMs: hopPreRollMs(HOP_STEP_MS) };
   }
 
   return fly(dest);
@@ -118,7 +152,21 @@ export function computeWaypoints(
 /** How long {@link computeWaypoints} takes for this transition. */
 export function walkDurationMs(color: Color, was: TokenPosition, now: TokenPosition): number {
   const w = computeWaypoints(color, was, now, { x: 0, y: 0 }, 1);
-  return w.walk ? w.points.length * w.stepMs : FLY_MS;
+  return w.walk ? w.preRollMs + w.points.length * w.stepMs : FLY_MS;
+}
+
+/**
+ * When the pawn touches down on its destination, which for a hop is BEFORE the
+ * walk ends: the last step closes with a sit on the cell (walkPath.HOP_AIR). A
+ * sound owed to the landing — a capture, a safe-square chime — belongs to the
+ * touchdown, not to the end of the sit. A fly and a captured pawn's glide have
+ * no sit, so for them the two are the same moment.
+ */
+export function touchdownMs(color: Color, was: TokenPosition, now: TokenPosition): number {
+  const w = computeWaypoints(color, was, now, { x: 0, y: 0 }, 1);
+  if (!w.walk) return FLY_MS;
+  const total = w.preRollMs + w.points.length * w.stepMs;
+  return w.retrace ? total : total - (1 - HOP_AIR) * w.stepMs;
 }
 
 /**

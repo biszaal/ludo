@@ -8,14 +8,22 @@
  * 20ms of the 150ms hop step, so any start-up lag on the device ran one hop into
  * the next, and the cut end clicked. If DUR changes, change `ms` for "hop" in
  * src/lib/sound.ts to match — the pool tracks finished players by it.
+ *
+ * SPEED plays the same boing faster without changing its note: the glide spans
+ * the same 900→520 Hz, the envelope keeps its shape, and all of it happens in
+ * 1/SPEED of the time. It is set so the clip lasts exactly the FALL of a hop —
+ * it is heard from the top of the jump (walkPath.HOP_SOUND_AT) and should end
+ * as the pawn lands: HOP_STEP_MS x HOP_AIR x (1 - HOP_SOUND_AT) = 160 x 0.7 x
+ * 0.5 = 56ms, against the original 70ms. Change HOP_STEP_MS and this goes with it.
  */
 import { writeFileSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const SR = 44100;
-const DUR = 0.07; // seconds
-const FADE = 0.012; // seconds of linear fade-out, landing on an exact zero
+const SPEED = 1.25; // 70ms -> 56ms, same note
+const DUR = 0.07 / SPEED; // seconds
+const FADE = 0.012 / SPEED; // seconds of linear fade-out, landing on an exact zero
 const N = Math.floor(SR * DUR);
 
 const data = Buffer.alloc(N * 2); // 16-bit mono
@@ -26,7 +34,7 @@ for (let n = 0; n < N; n++) {
   phase += (2 * Math.PI * freq) / SR;
   const attack = Math.min(1, t / 0.004);
   const release = Math.min(1, (N - 1 - n) / (SR * FADE));
-  const env = Math.exp(-t * 45) * attack * release;
+  const env = Math.exp(-t * 45 * SPEED) * attack * release;
   const sample = (Math.sin(phase) + 0.18 * Math.sin(2 * phase)) * 0.5 * env;
   const int16 = Math.max(-1, Math.min(1, sample)) * 32767;
   data.writeInt16LE(int16 | 0, n * 2);

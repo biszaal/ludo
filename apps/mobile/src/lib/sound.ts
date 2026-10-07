@@ -33,7 +33,8 @@
 
 import { Platform } from "react-native";
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from "expo-audio";
-import { effectiveVolume, freshSlot, pickSlot, rewindLandsBeforePlay, type Slot } from "./soundPool";
+import { effectiveVolume, freshSlot, latencyFromTrial, leadFromLatencies, pickSlot, rewindLandsBeforePlay, type Slot } from "./soundPool";
+import { setMeasuredSoundLead } from "./soundSync";
 import { useSettings } from "../store/settingsStore";
 
 export type SoundName =
@@ -55,7 +56,7 @@ export type SoundName =
  * itself at all.
  */
 const SPECS: Record<SoundName, { source: number; pool: number; volume: number; ms: number }> = {
-  hop: { source: require("../../assets/audio/sfx/hop.wav"), pool: 2, volume: 0.5, ms: 70 },
+  hop: { source: require("../../assets/audio/sfx/hop.wav"), pool: 2, volume: 0.5, ms: 56 },
   dice: { source: require("../../assets/audio/sfx/dice.wav"), pool: 1, volume: 0.6, ms: 360 },
   capture: { source: require("../../assets/audio/sfx/capture.wav"), pool: 1, volume: 0.55, ms: 320 },
   finish: { source: require("../../assets/audio/sfx/finish.wav"), pool: 1, volume: 0.5, ms: 450 },
@@ -317,6 +318,91 @@ export async function initSound(): Promise<void> {
     }
   });
   syncMusic();
+  // Once the launch has settled — nothing is hopping yet, and calibrating
+  // during startup would compete with it for the main thread.
+  setTimeout(() => void calibrateLead(), CALIBRATION_DELAY_MS);
+}
+
+/** Trials per measurement; the median of three shrugs off one bad one. */
+const CALIBRATION_TRIALS = 3;
+/**
+ * When to read the player's position after starting it. Late enough for its
+ * clock to have locked onto the audio output (which it only does once the
+ * output reports real timestamps), early enough to still be inside the clip.
+ */
+const CALIBRATION_READ_MS = 600;
+const CALIBRATION_DELAY_MS = 1500;
+let calibrating = false;
+
+/**
+ * Measure this phone's sound delay, and publish it for the timing code
+ * (lib/soundSync) — moveTiming's fixed SFX_LEAD_MS can be right on one kind of
+ * phone at most: the delay is ~200ms on a Galaxy S26 Ultra, whose media audio
+ * goes through a deep buffer, and a fraction of that on most phones.
+ *
+ * How: play a clip SILENTLY, through the very same kind of player and the same
+ * start-up as a real effect, wait, and read how far the player says it has
+ * got. The player's position is what has been heard —
+ * both platforms keep it on the output's clock, which is how video stays in
+ * step with its sound — so the gap between asking and the start of what has
+ * been heard is the delay (soundPool.latencyFromTrial).
+ *
+ * Run a moment after launch and again whenever the app comes back to the front,
+ * because the delay moves with the output: plugging in headphones or connecting
+ * Bluetooth changes it by hundreds of milliseconds.
+ */
+async function calibrateLead(): Promise<void> {
+  if (calibrating || !ready) return;
+  calibrating = true;
+  let player: AudioPlayer | null = null;
+  try {
+    // The win fanfare: 1.1s, so it is still playing when it is read.
+    player = createAudioPlayer(SPECS.win.source, { updateInterval: STATUS_INTERVAL_MS });
+    player.volume = 0;
+    for (let waited = 0; !player.isLoaded && waited < 2000; waited += 50) await sleep(50);
+    const latencies: number[] = [];
+    for (let i = 0; i < CALIBRATION_TRIALS; i++) {
+      const ms = await calibrationTrial(player);
+      if (ms !== null) latencies.push(ms);
+    }
+    const lead = leadFromLatencies(latencies);
+    // A failed measurement keeps whatever was known before it.
+    if (lead !== null) setMeasuredSoundLead(lead);
+    if (SOUND_DEBUG) debugLog(`calibrated lead=${lead}ms from [${latencies.map(Math.round).join(", ")}]`);
+  } catch (err) {
+    if (SOUND_DEBUG) debugLog(`calibration FAILED ${String(err)}`);
+  } finally {
+    try {
+      player?.remove();
+    } catch {
+      // already gone
+    }
+    calibrating = false;
+  }
+}
+
+/** One silent play, started exactly the way playSound starts an effect. */
+async function calibrationTrial(player: AudioPlayer): Promise<number | null> {
+  const askedAt = Date.now();
+  if (rewindLandsBeforePlay(Platform.OS)) {
+    void player.seekTo(0).catch(() => {});
+    player.play();
+  } else {
+    await player.seekTo(0).catch(() => {});
+    player.play();
+  }
+  await sleep(CALIBRATION_READ_MS);
+  const before = Date.now();
+  const position = player.currentTime;
+  // The read crosses to the native player and back; take the middle of it.
+  const readAt = (before + Date.now()) / 2;
+  player.pause();
+  await sleep(100);
+  return position > 0 ? latencyFromTrial(askedAt, readAt, position) : null;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /** Play a one-shot effect (no-op when sound is off or audio failed to load). */
@@ -391,8 +477,12 @@ export const playDiceRoll = (): void => playSound("dice");
 
 /** Called from the AppState listener: pause music in background, resume in front. */
 export function setMusicActive(active: boolean): void {
+  const wasActive = appActive;
   appActive = active;
   syncMusic();
+  // Back in front: headphones or Bluetooth may have come or gone while away,
+  // and the sound delay with them. Measure again.
+  if (active && !wasActive) setTimeout(() => void calibrateLead(), CALIBRATION_DELAY_MS);
 }
 
 function syncMusic(): void {

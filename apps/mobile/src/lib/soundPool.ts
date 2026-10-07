@@ -125,3 +125,42 @@ export function effectiveVolume(base: number, master: number): number {
   if (!Number.isFinite(master)) return base;
   return Math.min(1, Math.max(0, base * master));
 }
+
+/**
+ * How long the picture itself takes to reach the screen after a frame is drawn:
+ * a frame or two of the display pipeline. A sound only has to be early by the
+ * difference between its own delay and this.
+ */
+export const DISPLAY_LATENCY_MS = 20;
+
+/**
+ * The most a sound will ever be asked for ahead of its beat. Bluetooth
+ * headphones reach ~300ms; a measurement past this is a failed one, and asking
+ * that far ahead would put the thock on the hop before.
+ */
+export const MAX_SOUND_LEAD_MS = 400;
+
+/**
+ * One calibration trial: a clip was asked to play at `askedAtMs`, and at
+ * `readAtMs` the player reported `positionSec` of it played. What it has played
+ * is what has been HEARD — both players keep their clocks on the audio output,
+ * which is how video stays in sync with sound — so sound began at
+ * `readAtMs - positionSec`, and the difference from the ask is the delay.
+ */
+export function latencyFromTrial(askedAtMs: number, readAtMs: number, positionSec: number): number {
+  return readAtMs - positionSec * 1000 - askedAtMs;
+}
+
+/**
+ * The lead to use, from a handful of calibration trials: the median delay (one
+ * slow trial — a cold start, a hiccup — cannot move it), less the picture's own
+ * delay, clamped to 0..MAX_SOUND_LEAD_MS. Trials that measured nothing
+ * believable are dropped; with none left there is no measurement, and null says
+ * so.
+ */
+export function leadFromLatencies(latenciesMs: readonly number[]): number | null {
+  const valid = latenciesMs.filter((ms) => Number.isFinite(ms) && ms > 0 && ms < 1000).sort((a, b) => a - b);
+  if (valid.length === 0) return null;
+  const median = valid[Math.floor(valid.length / 2)]!;
+  return Math.max(0, Math.min(MAX_SOUND_LEAD_MS, Math.round(median - DISPLAY_LATENCY_MS)));
+}

@@ -60,6 +60,7 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { useFullMotion } from "../lib/useMotion";
+import { HighFrameRate } from "../../modules/high-frame-rate";
 import { playDiceRoll } from "../lib/sound";
 import { diceSettle } from "../lib/haptics";
 import {
@@ -1057,9 +1058,15 @@ export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = f
           pointerEvents="none"
           style={[{ position: "absolute", left: -pad, top: -pad, width: canvasSide, height: canvasSide }, wiggleStyle]}
         >
-          <Canvas style={{ width: canvasSide, height: canvasSide }}>
-            <Picture picture={picture} />
-          </Canvas>
+          {/* The tumble is the fastest motion in the game — three turns in about
+              half a second — and on Android's adaptive refresh an opponent's
+              roll otherwise renders at 60Hz. Full tier only: a phone on the
+              reduced budget keeps whatever rate Android picks. */}
+          <HighFrameRate enabled={fullMotion} style={{ width: canvasSide, height: canvasSide }}>
+            <Canvas style={{ width: canvasSide, height: canvasSide }}>
+              <Picture picture={picture} />
+            </Canvas>
+          </HighFrameRate>
         </Animated.View>
       </View>
     </Pressable>

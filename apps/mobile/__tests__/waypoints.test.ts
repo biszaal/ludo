@@ -4,7 +4,7 @@
  * the yard) take different branches and only one of them can hop.
  */
 
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect } from "vitest";
 import { applyMove, createGame, fromRelativeIndex, type GameState, type TokenPosition } from "@ludo/engine";
 import { tokenCenterPx } from "../src/render/boardLayout";
 import {
@@ -13,7 +13,12 @@ import {
   HOP_STEP_MS,
   originsFromLastAction,
   RETURN_TOTAL_MS,
+  hopPreRollMs,
+  touchdownMs,
+  walkDurationMs,
 } from "../src/render/waypoints";
+import { HOP_AIR, HOP_SOUND_AT } from "../src/render/walkPath";
+import { setMeasuredSoundLead } from "../src/lib/soundSync";
 
 const CELL = 20;
 const dest = { x: 0, y: 0 };
@@ -176,5 +181,63 @@ describe("originsFromLastAction", () => {
       const w = computeWaypoints("red", origin, next.tokens.find((t) => t.id === "red-0")!.position, dest, CELL);
       expect(w.points.length).toBe(dice);
     }
+  });
+});
+
+describe("touchdownMs", () => {
+  it("lands a hop before its move ends: the last step closes with a sit", () => {
+    const was = fromRelativeIndex("red", 5);
+    const now = fromRelativeIndex("red", 8);
+    expect(walkDurationMs("red", was, now)).toBe(3 * HOP_STEP_MS);
+    expect(touchdownMs("red", was, now)).toBeCloseTo(2 * HOP_STEP_MS + HOP_AIR * HOP_STEP_MS, 9);
+  });
+
+  it("lands a fly at its end — it has no sit", () => {
+    expect(touchdownMs("yellow", "home", fromRelativeIndex("yellow", 0))).toBe(FLY_MS);
+  });
+
+  it("lands a captured pawn's glide home at its end — no sit there either", () => {
+    const was = fromRelativeIndex("blue", 20);
+    expect(touchdownMs("blue", was, "home")).toBe(walkDurationMs("blue", was, "home"));
+  });
+});
+
+/**
+ * The pre-roll: on a phone whose sound arrives late, the pawn waits that much
+ * before its first hop, so the first hop's sound can be asked for in time.
+ */
+describe("hopPreRollMs", () => {
+  afterEach(() => setMeasuredSoundLead(null));
+  const firstSoundMs = HOP_AIR * HOP_SOUND_AT * HOP_STEP_MS;
+
+  it("is nothing until the phone's delay has been measured", () => {
+    expect(hopPreRollMs(HOP_STEP_MS)).toBe(0);
+  });
+
+  it("is nothing on a phone quick enough to reach the first hop anyway", () => {
+    setMeasuredSoundLead(firstSoundMs - 10);
+    expect(hopPreRollMs(HOP_STEP_MS)).toBe(0);
+  });
+
+  it("covers exactly the part of a long delay the first hop cannot", () => {
+    setMeasuredSoundLead(180);
+    expect(hopPreRollMs(HOP_STEP_MS)).toBeCloseTo(180 - firstSoundMs, 9);
+  });
+
+  it("is part of a hopping move's length, and of when it lands", () => {
+    setMeasuredSoundLead(180);
+    const was = fromRelativeIndex("red", 5);
+    const now = fromRelativeIndex("red", 8);
+    const pre = hopPreRollMs(HOP_STEP_MS);
+    expect(computeWaypoints("red", was, now, dest, CELL).preRollMs).toBeCloseTo(pre, 9);
+    expect(walkDurationMs("red", was, now)).toBeCloseTo(pre + 3 * HOP_STEP_MS, 9);
+    expect(touchdownMs("red", was, now)).toBeCloseTo(pre + 2 * HOP_STEP_MS + HOP_AIR * HOP_STEP_MS, 9);
+  });
+
+  it("never holds back a fly or a captured pawn's glide — neither has a hop to meet", () => {
+    setMeasuredSoundLead(180);
+    expect(computeWaypoints("yellow", "home", fromRelativeIndex("yellow", 0), dest, CELL).preRollMs).toBe(0);
+    expect(computeWaypoints("blue", fromRelativeIndex("blue", 20), "home", dest, CELL).preRollMs).toBe(0);
+    expect(touchdownMs("yellow", "home", fromRelativeIndex("yellow", 0))).toBe(FLY_MS);
   });
 });

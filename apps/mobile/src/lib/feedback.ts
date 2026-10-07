@@ -19,7 +19,7 @@ import { useOnlineStore } from "../store/onlineStore";
 import { useProfile } from "../store/profileStore";
 import { useStats } from "../store/statsStore";
 import { computeStandings } from "./standings";
-import { SFX_LEAD_MS, moveDurationMs } from "./moveTiming";
+import { moveTouchdownMs, soundLeadMs } from "./moveTiming";
 import { resolveEmoji } from "./emoji";
 import { playSound } from "./sound";
 import * as haptics from "./haptics";
@@ -56,8 +56,9 @@ function diffAndFire(prev: GameState | null, next: GameState | null, myPlayerId:
       if (t.position.type === "homePath" && typeof was === "object" && was.type === "track") reachedSafety = true;
     }
     // The mover (captured tokens fly home separately, after the mover lands).
+    // Its touchdown, not the end of its move: a hop ends with a sit on the cell.
     if (t.playerId === prev.currentTurnPlayerId && t.position !== "home") {
-      arrivalMs = moveDurationMs(t.color, was, t.position);
+      arrivalMs = moveTouchdownMs(t.color, was, t.position);
     }
   }
 
@@ -69,11 +70,11 @@ function diffAndFire(prev: GameState | null, next: GameState | null, myPlayerId:
     return;
   }
 
-  // Sounds are asked for SFX_LEAD_MS before the pawn arrives so they are HEARD
+  // Sounds are asked for soundLeadMs() before the pawn arrives so they are HEARD
   // as it arrives (see lib/moveTiming); haptics keep the arrival itself, their
   // own delay being a fraction of the audio pipeline's. Two timers rather than
   // one, because they are now two different moments.
-  after(arrivalMs - SFX_LEAD_MS, () => {
+  after(arrivalMs - soundLeadMs(), () => {
     if (captured) {
       playSound("capture");
       // Streak flair: back-to-back captures in the room get a sparkle on top.

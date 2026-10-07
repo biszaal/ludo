@@ -13,15 +13,19 @@
  */
 
 import type { Color, GameState, TokenPosition } from "@ludo/engine";
-import { positionKey, walkDurationMs } from "../render/waypoints";
+import { positionKey, touchdownMs, walkDurationMs } from "../render/waypoints";
+import { measuredSoundLead } from "./soundSync";
 import { BUST_HOLD_MS, isBustHandoff } from "./projection";
 
 export { FLY_MS, HOP_STEP_MS } from "../render/waypoints";
 
 /**
  * How far AHEAD of the visible landing a sound must be asked for to be heard ON
- * it. The one dial for audio sync — raise it if sounds still lag the picture,
- * lower it if they now anticipate it.
+ * it — as a STARTING estimate. lib/sound measures the real delay on the device
+ * a moment after launch and hands out that instead (`soundLeadMs()`), because it
+ * varies too much between phones for any one number: ~200ms on a Galaxy S26
+ * Ultra. This stands only until that first measurement lands, and wherever it
+ * fails.
  *
  * There is no API that plays a sound now. `playSound` returns once expo-audio's
  * `play()` has crossed to the Android main thread (it is `runBlocking` on that
@@ -45,6 +49,12 @@ export { FLY_MS, HOP_STEP_MS } from "../render/waypoints";
  */
 export const SFX_LEAD_MS = 90;
 
+/** The lead in force on this device: the measured one (lib/soundSync) once
+ *  lib/sound has taken it, SFX_LEAD_MS until then. */
+export function soundLeadMs(): number {
+  return measuredSoundLead() ?? SFX_LEAD_MS;
+}
+
 /**
  * Segment durations for a move's sound clock — the run of timings whose
  * completion callbacks ask for the thocks.
@@ -54,14 +64,14 @@ export const SFX_LEAD_MS = 90;
  * when the first of them touches down, `everyMs` the cadence after that.
  *
  * Only the FIRST segment is shortened. That is the whole trick: it shifts the
- * entire train of callbacks SFX_LEAD_MS earlier while leaving the spacing
+ * entire train of callbacks `leadMs` earlier while leaving the spacing
  * identical to the pawn's, so the sounds keep the rhythm of the hops instead of
  * drifting against them. Clamped at 0 for the case where the lead is longer than
  * the run-up — the sound is then as early as it can be, which is at once.
  */
-export function cueDurations(cells: number, firstLandingMs: number, everyMs: number): number[] {
+export function cueDurations(cells: number, firstLandingMs: number, everyMs: number, leadMs: number = SFX_LEAD_MS): number[] {
   return Array.from({ length: Math.max(cells, 0) }, (_, i) =>
-    i === 0 ? Math.max(firstLandingMs - SFX_LEAD_MS, 0) : everyMs,
+    i === 0 ? Math.max(firstLandingMs - leadMs, 0) : everyMs,
   );
 }
 
@@ -280,6 +290,12 @@ function rolled(prev: GameState, next: GameState): boolean {
 /** How long the Board animates a token from `was` to `now`. */
 export function moveDurationMs(color: Color, was: TokenPosition, now: TokenPosition): number {
   return walkDurationMs(color, was, now);
+}
+
+/** When the mover touches down — the moment a landing sound belongs to. See
+ *  render/waypoints.touchdownMs: for a hop this is before the move ends. */
+export function moveTouchdownMs(color: Color, was: TokenPosition, now: TokenPosition): number {
+  return touchdownMs(color, was, now);
 }
 
 /**

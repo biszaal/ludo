@@ -16,14 +16,16 @@ import {
   cancelAnimation,
   Easing,
   runOnJS,
+  runOnUI,
+  useAnimatedReaction,
   useDerivedValue,
   useSharedValue,
   withDelay,
   withRepeat,
-  withSequence,
   withTiming,
 } from "react-native-reanimated";
 import { useFullMotion } from "../lib/useMotion";
+import { HighFrameRate } from "../../modules/high-frame-rate";
 import {
   SAFE_SQUARES,
   type Color as PlayerColor,
@@ -33,8 +35,9 @@ import {
 } from "@ludo/engine";
 import { playHop } from "../lib/sound";
 import { hopTick } from "../lib/haptics";
-import { cueDurations } from "../lib/moveTiming";
+import { cueDurations, soundLeadMs } from "../lib/moveTiming";
 import { FLY_MS, computeWaypoints, originsFromLastAction, positionKey, walkDurationMs } from "../render/waypoints";
+import { HOP_AIR, cuesBy, hopHeight, landingsBy, walkPoint, type WalkPt } from "../render/walkPath";
 import { shade } from "../theme";
 import type { BoardTheme, PlateWash } from "../render/boardThemes";
 import { appendGlyph } from "../render/boardGlyphs";
@@ -73,16 +76,16 @@ const BOARD_INTERIOR_SCALE = 0.94;
  *
  * Both are driven from the animation's own clock (not a setTimeout), so they
  * stay locked to the visible hop regardless of JS-thread load. What changed is
- * WHICH beat each one is locked to: the sound is asked for SFX_LEAD_MS before
+ * WHICH beat each one is locked to: the sound is asked for soundLeadMs() before
  * the pawn touches down, because a sound is not audible when it is asked for
  * (see lib/moveTiming), while the haptic keeps the landing itself — the
  * vibrator's own delay is a fraction of the audio pipeline's, and leading a buzz
- * by the same 90ms would put it plainly ahead of the picture.
+ * by the sound's lead would put it plainly ahead of the picture.
  *
  * Separate throttles for the same reason: they are now separate events. Each
  * collapses the case where several pawns land on the same frame — a move that
  * also sends a captured pawn home — into one thock instead of a smeared
- * overlap. HOP_STEP_MS (150) is well above the gate, so genuine per-cell hops
+ * overlap. HOP_STEP_MS (160) is well above the gate, so genuine per-cell hops
  * are never dropped.
  */
 const FEEDBACK_GATE_MS = 70;
@@ -212,6 +215,7 @@ export const Board = memo(function Board({ size, state, theme, isMovable, onSele
           walk: walked.walk,
           stepMs: walked.stepMs,
           retrace: walked.retrace,
+          preRollMs: walked.preRollMs,
         };
       }),
     [state.tokens, layout, origins, cell, rotatePt, insetPt],
@@ -229,6 +233,10 @@ export const Board = memo(function Board({ size, state, theme, isMovable, onSele
     }
     return out;
   }, [renderData]);
+
+  // The local player has pawns to pick from — the tap layer is live, and the
+  // movable pawns are bobbing.
+  const choosing = renderData.some(({ token }) => isMovable(token.id));
 
   // Painter's order: pawns lower on screen draw over the ones above, so a tall
   // piece overlapping the cell behind it reads as standing depth.
@@ -280,31 +288,40 @@ export const Board = memo(function Board({ size, state, theme, isMovable, onSele
           drawn shifted by +pad to compensate. Pawn seats are already rotated
           into screen space in JS (rotatePt/insetPt), so unlike the plate this
           layer needs no rotation of its own. */}
-      <Canvas
+      {/* Hops at the display's full rate on Android's adaptive refresh, where
+          an opponent's move otherwise renders at 60Hz. Not while the player is
+          choosing: the only thing moving then is the slow "tap me" bob, which
+          60 carries perfectly well, and a player can sit deliberating for a
+          while. Full tier only, like every other motion cost. */}
+      <HighFrameRate
+        enabled={fullMotion && !choosing}
         pointerEvents="none"
         style={{ position: "absolute", left: -pad, top: -pad, width: size + pad * 2, height: size + pad * 2 }}
       >
-        <Group transform={[{ translateX: pad }, { translateY: pad }]}>
-          {painted
-            .map(({ token, spot, prev, waypoints, walk, stepMs, retrace }) => (
-              <AnimatedPawn
-                key={token.id}
-                waypoints={waypoints}
-                walk={walk}
-                stepMs={stepMs}
-                retrace={retrace}
-                posKey={positionKey(token.position)}
-                r={spot.r}
-                color={theme.team[token.color]}
-                stroke={theme.pawnStroke}
-                delay={capturedDelay(token, prev, moverHopMs)}
-                movable={isMovable(token.id)}
-                phase={tokenIndex(token.id) % 4}
-                fullMotion={fullMotion}
-              />
-            ))}
-        </Group>
-      </Canvas>
+        <Canvas style={{ width: size + pad * 2, height: size + pad * 2 }}>
+          <Group transform={[{ translateX: pad }, { translateY: pad }]}>
+            {painted
+              .map(({ token, spot, prev, waypoints, walk, stepMs, retrace, preRollMs }) => (
+                <AnimatedPawn
+                  key={token.id}
+                  waypoints={waypoints}
+                  walk={walk}
+                  stepMs={stepMs}
+                  retrace={retrace}
+                  preRollMs={preRollMs}
+                  posKey={positionKey(token.position)}
+                  r={spot.r}
+                  color={theme.team[token.color]}
+                  stroke={theme.pawnStroke}
+                  delay={capturedDelay(token, prev, moverHopMs)}
+                  movable={isMovable(token.id)}
+                  phase={tokenIndex(token.id) % 4}
+                  fullMotion={fullMotion}
+                />
+              ))}
+          </Group>
+        </Canvas>
+      </HighFrameRate>
 
       {/* The tap-me cue lives inside each movable pawn now (a gentle vertical
           bob + squashing ground shadow, in AnimatedPawn) — it rides the same
@@ -314,7 +331,7 @@ export const Board = memo(function Board({ size, state, theme, isMovable, onSele
       {/* Single tap layer: selects the movable token NEAREST the tap, so fanned
           tokens sharing a cell are disambiguated precisely (no overlapping hit
           boxes stealing the touch). */}
-      {renderData.some(({ token }) => isMovable(token.id)) && (
+      {choosing && (
         <Pressable
           accessibilityLabel={t("game.boardA11y")}
           style={{ position: "absolute", left: 0, top: 0, width: size, height: size }}
@@ -1004,6 +1021,9 @@ interface AnimatedPawnProps {
    *  continuous slide rather than hopping it, and sounds one thock on arrival
    *  instead of 50. */
   retrace: boolean;
+  /** Hold before the first hop so its sound can be asked for in time on a
+   *  phone whose sound arrives late (render/waypoints.hopPreRollMs). */
+  preRollMs: number;
   posKey: string;
   r: number;
   color: string;
@@ -1024,6 +1044,24 @@ interface Spot2 {
   y: number;
 }
 
+/** A walk in flight, as the UI thread needs it: where it set off from, the
+ *  cells it lands on, whether it hops (a retrace glides), how much of each
+ *  step is spent in the air (the rest sits on the cell), and how far ahead of
+ *  each landing its thock is asked for, in cells of this walk. */
+interface WalkRoute {
+  from: WalkPt;
+  points: WalkPt[];
+  hops: boolean;
+  air: number;
+  retrace: boolean;
+  leadCells: number;
+}
+
+/** A hop's peak, as a share of the pawn's radius. 0.5 was the old height;
+ *  with the slower, calmer hop it read as a skim, and 0.65 was asked for on
+ *  device as "a little higher" (2026-09-27). */
+const HOP_LIFT_R = 0.65;
+
 /**
  * Memoized. `waypoints` now comes from Board's memoized `renderData`, so on a
  * re-render that only flips the movable set (roll → awaiting-move) the pawns
@@ -1031,7 +1069,7 @@ interface Spot2 {
  * referentially equal is a no-op for the intent/prev refs below — equal props
  * mean an unchanged `posKey`, which is the only thing they latch on.
  */
-const AnimatedPawn = memo(function AnimatedPawn({ waypoints, walk, stepMs, retrace, posKey, r, color, stroke, delay, movable, phase, fullMotion }: AnimatedPawnProps) {
+const AnimatedPawn = memo(function AnimatedPawn({ waypoints, walk, stepMs, retrace, preRollMs, posKey, r, color, stroke, delay, movable, phase, fullMotion }: AnimatedPawnProps) {
   const last = waypoints[waypoints.length - 1]!;
   const tx = useSharedValue(last.x);
   const ty = useSharedValue(last.y);
@@ -1040,18 +1078,32 @@ const AnimatedPawn = memo(function AnimatedPawn({ waypoints, walk, stepMs, retra
   const bob = useSharedValue(0);
   const cue = useSharedValue(0);
   /**
-   * The sound clock: a shared value nothing draws with, animated purely so its
-   * completion callbacks land SFX_LEAD_MS before the pawn's. It exists because a
-   * `withSequence` can only call back at a segment boundary, and the boundary
-   * the thock is owed is not one the visible hop has — the sound has to be
-   * asked for on the way DOWN, partway through the descent it belongs to.
-   * Running the schedule separately buys that beat without splitting the hop's
-   * easing into pieces that would change the shape of the bounce.
+   * The fly's sound clock: a shared value nothing draws with, animated purely
+   * so its completion callback lands the sound's lead before the pawn does — the
+   * thock is owed partway through the fly, at no boundary the fly itself has.
+   * Being unread by any Skia node, it never re-records the canvas picture.
    *
-   * Being unread by any Skia node, it costs one UI-thread animation on a moving
-   * pawn and never re-records the canvas picture.
+   * A walk does not use it: its thocks are read off the walk clock below.
    */
   const sfxClock = useSharedValue(0);
+  /**
+   * The walk clock: cells walked, up to the route's length, on ONE linear
+   * timing for the whole move — from below zero when the move has a pre-roll. Position, lift, landing buzz and thock are all read off
+   * it, so none of them can drift against another — see render/walkPath for
+   * the per-cell timing chains this replaced and the ~40ms-per-landing lag they
+   * built up at 60Hz. `route` is what the clock walks along.
+   */
+  const walkT = useSharedValue(0);
+  const route = useSharedValue<WalkRoute | null>(null);
+  /** Off the ground, 0..1 of the hop's peak. Read off the walk clock and kept
+   *  apart from ty, so the shadow can stay on the board while the pawn leaves
+   *  it. */
+  const hop = useSharedValue(0);
+  /** Landings buzzed and thocks played so far this walk. Counted rather than
+   *  fired on a change: a thock already due on the walk's first frame never
+   *  changes (see walkPath.cuesBy), and that silenced every move's first hop. */
+  const landed = useSharedValue(0);
+  const cued = useSharedValue(0);
   const mounted = useRef(false);
   const prevKey = useRef(posKey);
   const prevSpot = useRef(last);
@@ -1063,11 +1115,38 @@ const AnimatedPawn = memo(function AnimatedPawn({ waypoints, walk, stepMs, retra
   // bug. Keying by posKey preserves the cell-by-cell intent even if React
   // defers this effect until after that recompute.
   const intentKey = useRef(posKey);
-  const intent = useRef({ waypoints, walk, stepMs, retrace, delay });
+  const intent = useRef({ waypoints, walk, stepMs, retrace, preRollMs, delay });
   if (posKey !== intentKey.current) {
     intentKey.current = posKey;
-    intent.current = { waypoints, walk, stepMs, retrace, delay };
+    intent.current = { waypoints, walk, stepMs, retrace, preRollMs, delay };
   }
+
+  // Every frame of a walk: stand the pawn where the clock says, and ask for
+  // the landing buzz and the thock on the frame the clock crosses them. Runs
+  // only while the clock moves — never for a pawn at rest, nor for a captured
+  // pawn still waiting out its delay.
+  useAnimatedReaction(
+    () => walkT.value,
+    (t) => {
+      const w = route.value;
+      if (w === null) return;
+      const n = w.points.length;
+      const p = walkPoint(w.from, w.points, t, w.air);
+      tx.value = p.x;
+      ty.value = p.y;
+      hop.value = w.hops ? hopHeight(t, n, w.air) : 0;
+      const nowLanded = landingsBy(t, n, w.retrace, w.air);
+      if (nowLanded > landed.value) {
+        landed.value = nowLanded;
+        runOnJS(hopHaptic)();
+      }
+      const nowCued = cuesBy(t, n, w.retrace, w.leadCells, w.air);
+      if (nowCued > cued.value) {
+        cued.value = nowCued;
+        runOnJS(hopSound)();
+      }
+    },
+  );
 
   // Animate ONLY on a real position/spot change. Everything else (re-renders
   // from toasts, highlight toggles, unrelated store writes) must leave the
@@ -1087,7 +1166,7 @@ const AnimatedPawn = memo(function AnimatedPawn({ waypoints, walk, stepMs, retra
     if (posKey !== prevKey.current) {
       prevKey.current = posKey;
       prevSpot.current = last;
-      const { waypoints: wps, walk: doWalk, stepMs: step, retrace: isRetrace, delay: startDelay } = intent.current;
+      const { waypoints: wps, walk: doWalk, stepMs: step, retrace: isRetrace, preRollMs: preRoll, delay: startDelay } = intent.current;
       const target = wps[wps.length - 1]!;
       // The landing haptic, on the frame the pawn actually touches down.
       // `finished` guards against interrupted moves.
@@ -1095,7 +1174,7 @@ const AnimatedPawn = memo(function AnimatedPawn({ waypoints, walk, stepMs, retra
         "worklet";
         if (finished) runOnJS(hopHaptic)();
       };
-      // The same beat, SFX_LEAD_MS earlier, for the thock. Driven by sfxClock
+      // The same beat, the sound's lead earlier, for the thock. Driven by sfxClock
       // below rather than by the hop, so both stay on the animation's clock and
       // neither needs a setTimeout that would drift when several pawns move at
       // once.
@@ -1103,70 +1182,69 @@ const AnimatedPawn = memo(function AnimatedPawn({ waypoints, walk, stepMs, retra
         "worklet";
         if (finished) runOnJS(hopSound)();
       };
-      // Run the thock schedule (lib/moveTiming.cueDurations) on sfxClock. The
-      // value it counts to is meaningless — only the callbacks matter.
-      const cueSounds = (cells: number, firstMs: number, everyMs: number) => {
+      if (!doWalk) {
+        // A fly is one segment on each axis, so it keeps its own timings: there
+        // is no chain to drift. It does take over from any walk still running,
+        // setting the pawn down if it was caught mid-hop.
+        cancelAnimation(walkT);
+        hop.value = 0;
+        tx.value = withDelay(startDelay, withTiming(target.x, { duration: FLY_MS, easing: Easing.out(Easing.cubic) }));
+        ty.value = withDelay(startDelay, withTiming(target.y, { duration: FLY_MS, easing: Easing.out(Easing.cubic) }, onLand));
+        // The thock, on sfxClock. The value it counts to is meaningless — only
+        // the callback matters.
         cancelAnimation(sfxClock);
         sfxClock.value = 0;
         sfxClock.value = withDelay(
           startDelay,
-          withSequence(
-            ...cueDurations(cells, firstMs, everyMs).map((duration, i) =>
-              withTiming(i + 1, { duration, easing: Easing.linear }, onCue),
-            ),
-          ),
+          withTiming(1, { duration: cueDurations(1, FLY_MS, FLY_MS, soundLeadMs())[0]!, easing: Easing.linear }, onCue),
         );
-      };
-      // A retrace's intermediate cells get no haptic — it slides home, it does
-      // not bounce fifty times. Only its arrival buzzes.
-      const silent = () => {
-        "worklet";
-      };
-      if (!doWalk) {
-        tx.value = withDelay(startDelay, withTiming(target.x, { duration: FLY_MS, easing: Easing.out(Easing.cubic) }));
-        ty.value = withDelay(startDelay, withTiming(target.y, { duration: FLY_MS, easing: Easing.out(Easing.cubic) }, onLand));
-        cueSounds(1, FLY_MS, FLY_MS);
       } else {
-        const lastIndex = wps.length - 1;
-        // A retrace can cross 50 cells; thocking each one is a machine-gun, so
-        // only the arrival in the yard sounds.
-        cueSounds(isRetrace ? 1 : wps.length, isRetrace ? wps.length * step : step, step);
-        tx.value = withDelay(startDelay, withSequence(...wps.map((p) => withTiming(p.x, { duration: step, easing: Easing.linear }))));
-        ty.value = withDelay(
-          startDelay,
-          isRetrace
-            ? // A captured pawn glides its route home instead of hopping it. Both
-              // axes run linearly through the same cells, so the pawn tracks the
-              // path as one continuous slide — including around the board's
-              // corners — rather than bouncing 50 times on the way back. Only the
-              // cell list and the step duration decide the route, so the trip
-              // still takes exactly as long as it did (walkDurationMs is
-              // unchanged) and still lands on the same frame.
-              withSequence(
-                ...wps.map((p, i) =>
-                  withTiming(
-                    p.y,
-                    { duration: step, easing: Easing.linear },
-                    i < lastIndex ? silent : onLand,
-                  ),
-                ),
-              )
-            : // Forward moves keep the hop — it is the move's whole character.
-              withSequence(
-                ...wps.flatMap((p) => [
-                  withTiming(p.y - r * 0.5, { duration: step / 2, easing: Easing.out(Easing.quad) }),
-                  withTiming(p.y, { duration: step / 2, easing: Easing.in(Easing.quad) }, onLand),
-                ]),
-              ),
-        );
+        // Forward moves hop — it is the move's whole character — and sit on
+        // each cell for a beat before the next (walkPath.HOP_AIR). A captured
+        // pawn glides its route home instead (no lift, no sit), tracking the
+        // path round the board's corners as one continuous slide rather than
+        // bouncing fifty times; only its arrival buzzes and thocks.
+        // Either way the trip takes exactly cells × step — walkDurationMs, which
+        // the capture wait and the state pacing are both built on.
+        const walkRoute: WalkRoute = {
+          // Stamped on the UI thread below, from wherever the pawn really is.
+          from: { x: 0, y: 0 },
+          points: wps.map((p) => ({ x: p.x, y: p.y })),
+          hops: !isRetrace,
+          air: isRetrace ? 1 : HOP_AIR,
+          retrace: isRetrace,
+          leadCells: soundLeadMs() / step,
+        };
+        const cells = wps.length;
+        // The pre-roll, in steps: the clock starts that far below zero, so the
+        // pawn stands still for it while the first hop's sound — due at the
+        // clock's start — is on its way (walkPath.cuesBy).
+        const pre = preRoll / step;
+        cancelAnimation(sfxClock); // a fly's thock still pending is not this move's
+        runOnUI(() => {
+          "worklet";
+          // From the live position rather than the last resting spot, so a walk
+          // that interrupts a fan shift (or a resync that interrupts a walk)
+          // carries on from where the pawn is instead of jumping first.
+          landed.value = 0;
+          cued.value = 0;
+          route.value = { ...walkRoute, from: { x: tx.value, y: ty.value } };
+          walkT.value = -pre;
+          walkT.value = withDelay(
+            startDelay,
+            withTiming(cells, { duration: (cells + pre) * step, easing: Easing.linear }),
+          );
+        })();
       }
     } else if (last.x !== prevSpot.current.x || last.y !== prevSpot.current.y) {
       // Same cell, fan offset shifted (a co-located token came or went).
       prevSpot.current = last;
+      cancelAnimation(walkT);
+      hop.value = 0;
       tx.value = withTiming(last.x, { duration: 200 });
       ty.value = withTiming(last.y, { duration: 200 });
     }
-  }, [posKey, last.x, last.y, tx, ty, sfxClock]);
+  }, [posKey, last.x, last.y, tx, ty, sfxClock, walkT, route, hop, landed, cued]);
 
   // Drive the bob only while this pawn is a legal move. It's a transform-only
   // animation on the Skia Group (the same cheap path the hop uses), so an idle
@@ -1202,16 +1280,22 @@ const AnimatedPawn = memo(function AnimatedPawn({ waypoints, walk, stepMs, retra
     };
   }, [movable, phase, bob, cue, fullMotion]);
 
-  // Pawn: hop/fly position (tx/ty) plus the cued vertical lift.
-  const transform = useDerivedValue(() => [{ translateX: tx.value }, { translateY: ty.value - bob.value * cue.value * (r * 0.4) }]);
+  // Pawn: foot position (tx/ty), lifted by the hop and by the "tap me" bob.
+  const transform = useDerivedValue(() => [
+    { translateX: tx.value },
+    { translateY: ty.value - hop.value * r * HOP_LIFT_R - bob.value * cue.value * (r * 0.4) },
+  ]);
 
-  // Ground shadow: sits at the pawn's foot (not lifted), squashed into an
-  // ellipse, and shrinks + fades a touch as the pawn rises.
+  // Ground shadow: stays on the board under the pawn's foot — never lifted —
+  // squashed into an ellipse, and shrinks as the pawn rises. It shows for the
+  // "tap me" lift and for every hop: a pawn and a shadow parting company is
+  // what makes a hop read as leaving the board rather than gliding along an
+  // arc (the pawn's own foot shadow rides up with it).
   const shadowTransform = useDerivedValue(() => {
-    const s = 1 - bob.value * cue.value * 0.18;
+    const s = 1 - bob.value * cue.value * 0.18 - hop.value * 0.3;
     return [{ translateX: tx.value }, { translateY: ty.value + r * 0.5 }, { scaleX: s }, { scaleY: 0.32 * s }];
   });
-  const shadowOpacity = useDerivedValue(() => cue.value * (1 - bob.value * cue.value * 0.4));
+  const shadowOpacity = useDerivedValue(() => Math.max(cue.value * (1 - bob.value * cue.value * 0.4), hop.value * 0.8));
 
   return (
     <Group>

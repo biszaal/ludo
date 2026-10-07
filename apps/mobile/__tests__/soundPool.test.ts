@@ -18,7 +18,17 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { effectiveVolume, freshSlot, pickSlot, rewindLandsBeforePlay, type Slot } from "../src/lib/soundPool";
+import {
+  DISPLAY_LATENCY_MS,
+  MAX_SOUND_LEAD_MS,
+  effectiveVolume,
+  freshSlot,
+  latencyFromTrial,
+  leadFromLatencies,
+  pickSlot,
+  rewindLandsBeforePlay,
+  type Slot,
+} from "../src/lib/soundPool";
 
 const NOW = 10_000;
 
@@ -178,5 +188,46 @@ describe("effectiveVolume", () => {
     expect(effectiveVolume(0.6, 5)).toBe(1);
     expect(effectiveVolume(0.6, -2)).toBe(0);
     expect(effectiveVolume(0.6, Number.NaN)).toBe(0.6);
+  });
+});
+
+/**
+ * The sound's lead, measured on the phone it runs on.
+ *
+ * A thock is asked for early by however long the phone takes to sound it. That
+ * delay is not one number: ~200ms on a Galaxy S26 Ultra, whose media audio goes
+ * through a deep buffer, and a fraction of that on most other phones. A fixed
+ * lead is right on one of them at most, so the delay is measured at launch by
+ * playing a clip silently and reading where the player says it has got to.
+ */
+describe("latencyFromTrial", () => {
+  it("is the time the first sample took to be heard", () => {
+    // Asked at 1000; at 1600 the player reports 0.4s played — so sound began at
+    // 1200, 200ms after it was asked for.
+    expect(latencyFromTrial(1000, 1600, 0.4)).toBe(200);
+  });
+});
+
+describe("leadFromLatencies", () => {
+  it("leads by the measured delay, less the picture's own trip to the screen", () => {
+    expect(leadFromLatencies([200])).toBe(200 - DISPLAY_LATENCY_MS);
+  });
+
+  it("takes the median, so one slow trial cannot skew it", () => {
+    expect(leadFromLatencies([198, 202, 420])).toBe(202 - DISPLAY_LATENCY_MS);
+  });
+
+  it("ignores trials that measured nothing believable", () => {
+    expect(leadFromLatencies([Number.NaN, -40, 5000, 180])).toBe(180 - DISPLAY_LATENCY_MS);
+  });
+
+  it("is no measurement at all when no trial succeeded", () => {
+    expect(leadFromLatencies([])).toBeNull();
+    expect(leadFromLatencies([Number.NaN, -1])).toBeNull();
+  });
+
+  it("never leads by less than nothing, nor by more than a sane ceiling", () => {
+    expect(leadFromLatencies([5])).toBe(0);
+    expect(leadFromLatencies([900])).toBe(MAX_SOUND_LEAD_MS);
   });
 });

@@ -441,15 +441,15 @@ describe("the die hand-off, driven as the hook drives it", () => {
     const afterSix = { ...moved(start, "red-0", 11), currentTurnPlayerId: "p1", diceValue: null };
     expect(w.apply(afterSix, 1, null)).toBeNull(); // turn kept — the die is already home
 
-    w.render(2, 3);
-    const handed = { ...moved(afterSix, "red-0", 14), currentTurnPlayerId: "p2", diceValue: null };
+    w.render(2, 2);
+    const handed = { ...moved(afterSix, "red-0", 13), currentTurnPlayerId: "p2", diceValue: null };
     const hold = w.apply(handed, 2, null);
-    expect(hold).toMatchObject({ playerId: "p1", value: 3 });
-    // Three cells is 450ms of hopping, which is now SHORTER than the half
-    // second a landed number is owed — so the floor wins and the die waits for
-    // the reader rather than for the pawn.
+    expect(hold).toMatchObject({ playerId: "p1", value: 2 });
+    // Two cells of hopping is SHORTER than the half second a landed number is
+    // owed — so the floor wins and the die waits for the reader rather than for
+    // the pawn.
     expect(hold!.ms).toBe(500);
-    expect(hold!.ms).toBeGreaterThan(3 * HOP_STEP_MS);
+    expect(hold!.ms).toBeGreaterThan(2 * HOP_STEP_MS);
   });
 
   it("still works on the written path, where the state carries the die", () => {
