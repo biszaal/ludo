@@ -72,6 +72,7 @@ import {
   DICE_TURNS_Y,
   diceLandingMs,
   diceLandingTarget,
+  rollsOnMount,
 } from "../lib/moveTiming";
 import type { BoardTheme } from "../render/boardThemes";
 import { diceRenderParams, type DiceSkin } from "../render/diceSkins";
@@ -143,6 +144,13 @@ interface DiceProps {
   onRollPress?: (() => void) | null;
   /** Accessibility label while tappable (differs for roll vs bot-reclaim). */
   pressLabel?: string;
+  /**
+   * The last spinSeq any die at this table animated, shared across the corners
+   * the die moves between (it remounts at each). Lets a die that mounts into a
+   * roll nobody has played yet play it instead of skipping it — see
+   * moveTiming.rollsOnMount. Omitted, a mount never plays a roll.
+   */
+  rollLedger?: { current: number };
 }
 
 /**
@@ -152,7 +160,7 @@ interface DiceProps {
  * and timer traffic, and each of those used to re-run the derived value below
  * — which is a full picture re-record — for a die that had not changed.
  */
-export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = false, theme, skin, onRollPress = null, pressLabel }: DiceProps) {
+export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = false, theme, skin, onRollPress = null, pressLabel, rollLedger }: DiceProps) {
   const t = useT();
   /**
    * The roll, as one number.
@@ -300,16 +308,20 @@ export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = f
   useEffect(() => {
     if (!mounted.current) {
       mounted.current = true;
-      return;
-    }
-    if (!spinSeq) return;
+      // A remount at another seat is usually the die catching up with a roll it
+      // already played there. But a roll can start in the same render that
+      // moves the die, and then nothing has played it: skipping it here is what
+      // left a roll with no tumble at all.
+      if (!rollLedger || !rollsOnMount(spinSeq, rollLedger.current)) return;
+    } else if (!spinSeq) return;
+    if (rollLedger) rollLedger.current = spinSeq;
     startRoll();
     return clearCap;
     // `value` is read through latestValue inside startRoll; this effect must NOT
     // re-run when it changes — that is the effect below, and restarting the roll
     // on a value change is the double-roll bug.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [spinSeq, startRoll, clearCap]);
+  }, [spinSeq, startRoll, clearCap, rollLedger]);
 
   // The answer arrived. Land on it — or, if the die has already given up and
   // stopped, roll again so the number arrives the way every number does rather

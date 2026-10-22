@@ -4,13 +4,16 @@
  */
 
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { createSeededRng } from "@ludo/engine";
+import { createSeededRng, getValidMoves, type GameState } from "@ludo/engine";
 import { useGameStore } from "../src/store/gameStore";
+import { dieHandoverMs } from "../src/lib/moveTiming";
+import { setMeasuredSoundLead } from "../src/lib/soundSync";
 
 const store = useGameStore;
 
 afterEach(() => {
   store.getState().leaveGame();
+  setMeasuredSoundLead(null);
   vi.restoreAllMocks();
   vi.useRealTimers();
 });
@@ -77,5 +80,49 @@ describe("bot auto-play loop", () => {
 
     expect(handOffs.length).toBeGreaterThan(2);
     expect(new Set(handOffs)).toEqual(new Set(["p1", "p2"]));
+  });
+
+  /**
+   * The same race the autopilot had (autopilotDie.test), in vs-AI. After a
+   * human's move the die stays at the human's corner until their pawn lands
+   * (useDieHandover), but the bot rolled a fixed BOT_DELAY later. A walk longer
+   * than that meant the roll began with the die across the board; it then
+   * jumped to the bot's corner as a freshly mounted Dice and the tumble never
+   * showed. Reported 2026-10-09 on iPhone: "die roll animation not showing
+   * sometimes".
+   */
+  it("lets the die reach the bot's corner before the bot rolls it", () => {
+    vi.useFakeTimers();
+    // A phone whose sound arrives late pre-rolls the pawn, which is what makes
+    // an ordinary five-cell walk outlast BOT_DELAY. A capture does the same.
+    setMeasuredSoundLead(400);
+
+    store.getState().newLocalGame({ players: 2, bots: 1 });
+    const dealt = store.getState().state!;
+    const human = dealt.players[0]!;
+    const pawn = `${human.color}-0`;
+    const before: GameState = {
+      ...dealt,
+      currentTurnPlayerId: human.id,
+      phase: "awaiting-move",
+      diceValue: 5,
+      tokens: dealt.tokens.map((t) => (t.id === pawn ? { ...t, position: { type: "track", index: 10 } } : t)),
+    };
+    store.setState({ state: before, validMoves: getValidMoves(before, human.id) });
+
+    store.getState().selectToken(pawn);
+    const after = store.getState().state!;
+    expect(after.currentTurnPlayerId).not.toBe(human.id);
+    const handover = dieHandoverMs(before, after);
+    expect(handover).toBeGreaterThan(900); // longer than BOT_DELAY: the racing case
+    const seq = store.getState().rollSeq;
+
+    // The die is still at the human's corner: the bot must not have rolled.
+    vi.advanceTimersByTime(handover - 50);
+    expect(store.getState().rollSeq).toBe(seq);
+
+    // It has arrived, and a beat later the bot rolls it.
+    vi.advanceTimersByTime(1000);
+    expect(store.getState().rollSeq).toBe(seq + 1);
   });
 });

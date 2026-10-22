@@ -16,12 +16,13 @@
  *
  * The hold is deliberately not a freeze. The board hops, chips update, the
  * clock runs; only the die's ownership lags, and only for as long as the pawn
- * it belongs to is moving.
+ * it belongs to is moving — or until the next roll starts, whichever is first
+ * (see moveTiming.standingHold).
  */
 
 import { useEffect, useRef, useState } from "react";
 import type { GameState } from "@ludo/engine";
-import { dieHoldFor, latchRoll, type RollLatch } from "./moveTiming";
+import { dieHoldFor, latchRoll, standingHold, type RollLatch } from "./moveTiming";
 
 /** The seat the die is still sitting at, and the number on its face. */
 export interface HeldDie {
@@ -34,7 +35,8 @@ export function useDieHandover(
   lastRoll: number | null,
   rollSeq: number,
 ): HeldDie | null {
-  const [held, setHeld] = useState<HeldDie | null>(null);
+  /** `seq` is the roll this hold belongs to: a newer one ends it on sight. */
+  const [held, setHeld] = useState<(HeldDie & { seq: number }) | null>(null);
   const prev = useRef<GameState | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -71,7 +73,7 @@ export function useDieHandover(
       return;
     }
 
-    setHeld({ playerId: hold.playerId, value: hold.value });
+    setHeld({ playerId: hold.playerId, value: hold.value, seq: latch.current.seq });
     timer.current = setTimeout(() => {
       timer.current = null;
       setHeld(null);
@@ -88,5 +90,5 @@ export function useDieHandover(
     [],
   );
 
-  return held;
+  return standingHold(held, rollSeq);
 }

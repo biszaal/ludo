@@ -282,6 +282,37 @@ export function dieHoldFor(prev: GameState, next: GameState, rolled: number | nu
   return { playerId: prev.currentTurnPlayerId, value, ms };
 }
 
+/**
+ * The hold as of this render: none once a newer roll has started.
+ *
+ * A hold keeps the LAST roll's die at its roller's corner. The next roll needs
+ * the die, so the hold has to end in the very render that starts it — a hold
+ * that lets go one render later starts the tumble at the old corner and then
+ * remounts the die mid-roll. Two timers made that common online: the row hold
+ * and useDieHandover's own timer are both dieHandoverMs long, but the store
+ * arms its timer first, so a parked roll broadcast fired a few ms early.
+ */
+export function standingHold(
+  held: { playerId: string; value: number; seq: number } | null,
+  rollSeq: number,
+): { playerId: string; value: number } | null {
+  if (!held || held.seq !== rollSeq) return null;
+  return { playerId: held.playerId, value: held.value };
+}
+
+/**
+ * Whether a die that has just mounted should play the roll it was handed.
+ *
+ * Moving the die to another seat remounts it. Usually it is catching up with a
+ * roll it already played at the last corner and must not replay it — but when
+ * the roll and the move land in the same render, no die has played it yet, and
+ * skipping it is the "die roll animation not showing sometimes" bug.
+ * `playedSeq` is the last spinSeq any die at this table animated.
+ */
+export function rollsOnMount(spinSeq: number, playedSeq: number): boolean {
+  return spinSeq !== 0 && spinSeq !== playedSeq;
+}
+
 /** Did `prev -> next` include a new roll landing on the board? */
 function rolled(prev: GameState, next: GameState): boolean {
   return next.diceValue != null && prev.diceValue !== next.diceValue;

@@ -24,7 +24,7 @@ import {
 } from "@ludo/engine";
 import { chooseMove } from "@ludo/bot";
 import { BUST_HOLD_MS } from "../lib/projection";
-import { DICE_ROLL_MS } from "../lib/moveTiming";
+import { DICE_ROLL_MS, dieHandoverMs } from "../lib/moveTiming";
 import { resetGameClock } from "../lib/gameClock";
 import { ordinal } from "../lib/standings";
 import { useNav } from "./navStore";
@@ -38,6 +38,24 @@ import { colorLabel, t } from "../i18n";
  * what it had rolled.
  */
 const BOT_DELAY = DICE_ROLL_MS + 200;
+/**
+ * How long after the die reaches a bot's corner the bot rolls it — the same
+ * beat onlineStore's autopilot waits (PILOT_AFTER_DIE_MS), for the same reason.
+ *
+ * After a turn-ending move the die stays at the mover's corner until their pawn
+ * lands (useDieHandover, timed by moveTiming.dieHandoverMs). BOT_DELAY alone was
+ * shorter than a long walk or a capture, so the bot's roll began with the die
+ * still across the board; the die then remounted at the bot's corner, and a
+ * freshly mounted Dice used to skip the roll it mounted into.
+ */
+const BOT_AFTER_DIE_MS = 300;
+
+/** When the next bot step may run after `prev -> next`: never before the die
+ *  has had time to reach the next seat. */
+function botStepDelay(prev: GameState | null, next: GameState | null): number {
+  const handover = prev && next ? dieHandoverMs(prev, next) : 0;
+  return handover > 0 ? Math.max(BOT_DELAY, handover + BOT_AFTER_DIE_MS) : BOT_DELAY;
+}
 /** Pause before auto-passing a no-move roll: the tumble runs, then the number
  *  needs a beat to be read. */
 const AUTO_PASS_DELAY = DICE_ROLL_MS + 300;
@@ -209,7 +227,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       lastRoll: next.diceValue,
       message: t("status.toRoll", { color: colorLabel(playerColor(next, next.currentTurnPlayerId)) }),
     });
-    kickBots();
+    kickBots(botStepDelay(state, next));
   },
 
   selectToken: (tokenId) => {
@@ -251,7 +269,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
           ? placed + t("status.rollsAgain", { color: colorLabel(nowColor) })
           : placed + t("status.toRoll", { color: colorLabel(nowColor) }),
     });
-    kickBots();
+    kickBots(botStepDelay(state, next));
   },
 
   leaveGame: () => {
@@ -353,7 +371,8 @@ function scheduleHumanAuto(): void {
 let botLoopActive = false;
 let botTimer: ReturnType<typeof setTimeout> | null = null;
 
-function kickBots(): void {
+/** `delayMs`: when the first step may run — see botStepDelay. */
+function kickBots(delayMs: number = BOT_DELAY): void {
   const state = useGameStore.getState().state;
   if (
     botLoopActive ||
@@ -363,7 +382,7 @@ function kickBots(): void {
   )
     return;
   botLoopActive = true;
-  botTimer = setTimeout(stepBots, BOT_DELAY);
+  botTimer = setTimeout(stepBots, delayMs);
 }
 
 function stepBots(): void {
@@ -397,7 +416,9 @@ function stepBots(): void {
     s.selectToken(move.tokenId);
   }
 
-  botTimer = setTimeout(stepBots, BOT_DELAY);
+  // A bot handing over to another bot needs the same wait as a human handing
+  // over to one: the die is still at this bot's corner while its pawn walks.
+  botTimer = setTimeout(stepBots, botStepDelay(state, useGameStore.getState().state));
 }
 
 function stopBots(): void {

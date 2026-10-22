@@ -205,6 +205,14 @@ export function GameView({
    * board, the chips and the turn ring all follow the real current player.
    */
   const heldDie = useDieHandover(state, lastRoll, rollSeq);
+  /**
+   * The last roll any die at this table has animated. The die remounts every
+   * time it changes corner, and this is how the new one knows whether the roll
+   * it is handed is one it must play or one it is only catching up with (see
+   * moveTiming.rollsOnMount). Seeded with the roll already on screen, so
+   * opening a game mid-turn does not replay it.
+   */
+  const rollLedger = useRef(rollSeq);
   const dieSeatId = heldDie?.playerId ?? state.currentTurnPlayerId;
   const dieValue = heldDie ? heldDie.value : state.diceValue ?? lastRoll;
 
@@ -517,6 +525,7 @@ export function GameView({
             skin={resolveDiceSkin(diceSkinFor?.(p.id) ?? null)}
             onRollPress={heldDie ? null : canRoll ? rollStable : pilot ? autoPilot?.onTakeControl ?? null : null}
             pressLabel={canRoll ? t("game.rollTheDice") : t("game.autopilotShort")}
+            rollLedger={rollLedger}
           />
         ) : null}
       </View>
@@ -650,6 +659,7 @@ export function GameView({
         skin={resolveDiceSkin(diceSkinFor?.(dieSeat.id) ?? null)}
         onRollPress={heldDie ? null : canRollNow ? rollStable : activeIsPilot ? autoPilot?.onTakeControl ?? null : null}
         pressLabel={canRollNow ? t("game.rollTheDice") : t("game.autopilotShort")}
+        rollLedger={rollLedger}
       />
     ) : null;
 
