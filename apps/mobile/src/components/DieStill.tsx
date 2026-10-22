@@ -6,7 +6,7 @@
 
 import { Circle, Group, RoundedRect } from "@shopify/react-native-skia";
 import type { BoardTheme } from "../render/boardThemes";
-import { DEFAULT_DIE, type DiceSkin } from "../render/diceSkins";
+import { DEFAULT_DIE, hexRGB, type DiceSkin } from "../render/diceSkins";
 
 /** Pip centers on a unit face for a rolled 6 (mirrors Dice.tsx PIP_XY). */
 const SIX_PIPS: [number, number][] = [
@@ -16,7 +16,9 @@ const SIX_PIPS: [number, number][] = [
 /** Flat face/pip colors for a still die: the equipped skin's colors when set,
  *  else the default die. Deliberately independent of the board theme — see
  *  DEFAULT_DIE. `theme` is kept in the signature so callers reading a themed
- *  surface don't have to change; it no longer affects the die. */
+ *  surface don't have to change; it no longer affects the die. A clear skin's
+ *  face comes back translucent (DiceSkin.clarity) — a glass die drawn solid
+ *  would be a white block with white pips on it. */
 export function stillDieColors(
   diceSkin: DiceSkin | undefined,
   _theme?: BoardTheme,
@@ -27,6 +29,10 @@ export function stillDieColors(
       : diceSkin.face.colors[0]!
     : DEFAULT_DIE.face;
   const pip = diceSkin?.pip?.color ?? DEFAULT_DIE.pip;
+  if (diceSkin?.clarity) {
+    const [r, g, b] = hexRGB(face);
+    return { face: `rgba(${r},${g},${b},${1 - diceSkin.clarity})`, pip };
+  }
   return { face, pip };
 }
 

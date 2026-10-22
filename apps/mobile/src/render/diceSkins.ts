@@ -134,6 +134,18 @@ export interface DiceSkin {
    * rather than competing with it.
    */
   motif?: { kind: MotifKind; color: string; alpha: number; scale: number };
+  /**
+   * A clear body, 0..1: how much of the table shows through the die. Omitted =
+   * opaque, which is every die but glass.
+   *
+   * Only the BODY clears — the face, its lip and the tumbling cube's core are
+   * drawn opaque into one layer and that layer is laid down translucent, so the
+   * faces overlapping mid-roll never stack into darker seams. Everything that
+   * says "polished glass" rather than "tinted plastic" goes on top at full
+   * strength: the sheen's light sweep, the lit rim, the frame, and the numeral,
+   * which has to stay readable over whatever table it lands on.
+   */
+  clarity?: number;
 }
 
 // Declared cheap → prestige; __tests__/diceSkins.test.ts asserts this order
@@ -453,35 +465,30 @@ export const DICE_SKINS: Record<DiceSkinId, DiceSkin> = {
     motif: { kind: "deco", color: "#F0D08A", alpha: 0.78, scale: 0.46 },
   },
   /**
-   * A slab of optic ice, and — until this was fixed — the flagship that looked
-   * like the cheapest gem skin in the catalog.
+   * Optic glass, near clear — the table shows through the die.
    *
-   * It shared all four of Prism's tells: a pale face, a near-white frame, a
-   * glowing white diamond, and the SAME `facets` cut, whose only per-skin
-   * variation was a rotation of a figure symmetric under rotation. Two dice
-   * eleven gem-prices apart were one die in two tints of pastel.
+   * Asked for on 2026-10-09 as "almost clear glass, like the liquid glass
+   * design", with numbers instead of dots. It was a thick blue slab with
+   * glowing diamond pips, which at die size read as dots, under an `ice`
+   * fracture texture. Liquid glass is the opposite of fractured: a clean body
+   * that is mostly whatever is behind it, given its shape by light on its
+   * edges. So the body is a pale cold tint laid down at a quarter strength
+   * (`clarity`), and the sheen, the lit rim and a white frame do the rest.
    *
-   * What separates them now is depth. Prism is a dispersion — light split
-   * across a thin pastel face — so it stays light and keeps the gem cut.
-   * Glacier is a thick, sunlit crest over blue depth, fractured through rather
-   * than cut, which is also the material the matching board is made of
-   * (boardThemes.glacier: cast glass over a dark deck).
+   * The numeral is white over a cold glow: on a dark table the white carries
+   * it, on a pale one the keyline and glow do.
    */
   glacier: {
     id: "glacier",
     label: "Glacier Optic",
     price: 560,
     currency: "gems",
-    face: { type: "linear", colors: ["#F4FBFF", "#8CC0EC", "#2A5E9E"], stops: [0, 0.38, 1] },
-    // A cold, near-white glow. The old one was the face's own mid blue, which
-    // over deep ice is invisible — a glow has to be lighter than what it sits on.
-    pip: { color: "#FFFFFF", shape: "diamond", glow: "#BFE4FF" },
-    edge: "#1E4878",
-    // Ice-white rather than paper-white, so the rim is not the same stroke
-    // Prism's is at the size a die is actually read.
-    frame: "#CFE7FF",
-    overlay: "ice",
-    sheen: 0.55,
+    face: { type: "linear", colors: ["#FFFFFF", "#D3EBFF", "#86B9EA"], stops: [0, 0.45, 1] },
+    pip: { color: "#FFFFFF", shape: "numeral", glow: "#5FA8F0" },
+    edge: "#6FA3D8",
+    frame: "#F4FAFF",
+    sheen: 0.9,
+    clarity: 0.72,
   },
   sovereign: {
     id: "sovereign",
@@ -542,6 +549,9 @@ export interface DiceRenderParams {
   /** Stable per-skin seed for the deterministic overlay pass — independent of
    *  the viewer's board theme, so the same skin always textures the same way. */
   overlaySeed: number;
+  /** How much of the table shows through the body; 0 for every opaque die.
+   *  See DiceSkin.clarity. */
+  clarity: number;
 }
 
 /** FNV-1a string hash — deterministic, tiny, no collisions that matter for a
@@ -579,5 +589,6 @@ export function diceRenderParams(skin: DiceSkin | undefined, _theme?: BoardTheme
     sheen: skin?.sheen ?? 0,
     motif: skin?.motif ?? null,
     overlaySeed: skin ? hashSeed(skin.id) : 0,
+    clarity: skin?.clarity ?? 0,
   };
 }

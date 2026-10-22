@@ -480,8 +480,15 @@ export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = f
     swirlPaint.setStrokeJoin(StrokeJoin.Round);
     swirlPaint.setColor(mix(sp.pipRGB, 0));
 
+    // A clear body (DiceSkin.clarity): the cores and faces are drawn opaque into
+    // one layer, and this lays the whole layer down translucent. Fading each
+    // face instead would let the overlapping cores show through as darker seams.
+    const bodyLayer = sp.clarity > 0 ? Skia.Paint() : null;
+    bodyLayer?.setAlphaf(1 - sp.clarity);
+
     return {
       shadow,
+      bodyLayer,
       core,
       facePaint,
       pipPaint,
@@ -740,8 +747,13 @@ export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = f
     pipOutline.setStrokeJoin(StrokeJoin.Round);
     pipOutline.setColor(mix(sp.pipRGB, -0.45));
 
+    // The landed face's half of the clear body — see `kit.bodyLayer`.
+    const bodyLayer = sp.clarity > 0 ? Skia.Paint() : null;
+    bodyLayer?.setAlphaf(1 - sp.clarity);
+
     return {
       edge,
+      bodyLayer,
       facePaint,
       overlay,
       x,
@@ -847,6 +859,12 @@ export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = f
       }
       const visibleCount = visible.length;
 
+      // A clear body goes down as one translucent layer (see `kit.bodyLayer`);
+      // its polish and its numbers are drawn after, at full strength, so they
+      // read as light on glass rather than as part of the tint.
+      const glass = kit.bodyLayer;
+      if (glass) canvas.saveLayer(glass);
+
       // Pass 1 — slightly oversized dark cores behind the faces, so the gaps
       // left by rounded face corners read as the die's darker edges. Core
       // rounding matches the faces so the silhouette stays curved — the
@@ -862,6 +880,55 @@ export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = f
           canvas.restore();
         }
       }
+
+      // The gloss and the marks on one face, in its own local units.
+      const finishFace = (face: (typeof visible)[number]["face"], lam: number) => {
+        if (kit.glossShader) {
+          // Scaled by the face's own lambert term so the cube's polish turns
+          // with it, instead of every side glinting equally. The gradient runs
+          // full white to clear, so this alpha reproduces exactly what baking
+          // it into the gradient's colors used to.
+          glossPaint.setShader(kit.glossShader);
+          glossPaint.setAlphaf(sp.sheen * (0.35 + 0.65 * lam));
+          canvas.drawRRect(kit.faceRRect, glossPaint);
+        }
+        // INK ONLY WHAT IS TRUE. Blank while the roll is still waiting on its
+        // number, so the only face the player can ever read is a real one.
+        //
+        // This guard has been described here since c4450a5 and was never
+        // actually written — the pips below were painted unconditionally, over
+        // faces laid out around `value ?? 1`. Since every lap eases out to
+        // camera-on, that is the whole of the "die lands on 1, then rolls again
+        // and gets the actual number" report. A bare tumbling cube reads as a
+        // die that is still going, which is exactly what it is.
+        if (inkValue === null) {
+          // Waiting on the server: the swirl, not a number and not nothing. See
+          // dieMath.swirlPoints.
+          canvas.drawPath(kit.swirlPath, kit.swirlPaint);
+        } else if (sp.pipShape === "dot") {
+          for (const [px, py] of PIP_XY[face.value]!) {
+            canvas.drawCircle((px - 0.5) * 1.84, (py - 0.5) * 1.84, 0.17, pipPaint);
+          }
+        } else if (sp.pipShape === "numeral") {
+          // One figure per face, at the same cap height the landed face uses
+          // (0.29 of the die, and a face spans 2 local units). Stroked, so the
+          // rim trick above becomes a plain wider under-stroke rather than an
+          // outline around a fill. The path is face-local, so it is the same
+          // one on every face and every frame showing this value.
+          const nr = NUMERAL_FACE_R;
+          const numeral = kit.pipPathFor[face.value - 1]!;
+          numeralPaint.setStrokeWidth(nr * NUMERAL_STROKE * NUMERAL_KEYLINE);
+          numeralPaint.setColor(kit.numeralKeyColor);
+          canvas.drawPath(numeral, numeralPaint);
+          numeralPaint.setStrokeWidth(nr * NUMERAL_STROKE);
+          numeralPaint.setColor(kit.numeralInkColor);
+          canvas.drawPath(numeral, numeralPaint);
+        } else {
+          const facePips = kit.pipPathFor[face.value - 1]!;
+          canvas.drawPath(facePips, outlinePaint);
+          canvas.drawPath(facePips, pipPaint);
+        }
+      };
 
       // Pass 2 — lit faces with their pips (face-local geometry comes out as
       // properly foreshortened shapes through the same matrix). Corner radius
@@ -885,54 +952,19 @@ export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = f
           facePaint.setColor(mix(sp.faceRGB, -0.46 + 0.62 * lam));
         }
         canvas.drawRRect(kit.faceRRect, facePaint);
-        if (kit.glossShader) {
-          // Scaled by the face's own lambert term so the cube's polish turns
-          // with it, instead of every side glinting equally. The gradient runs
-          // full white to clear, so this alpha reproduces exactly what baking
-          // it into the gradient's colors used to.
-          glossPaint.setShader(kit.glossShader);
-          glossPaint.setAlphaf(sp.sheen * (0.35 + 0.65 * lam));
-          canvas.drawRRect(kit.faceRRect, glossPaint);
-        }
-        // INK ONLY WHAT IS TRUE. Blank while the roll is still waiting on its
-        // number, so the only face the player can ever read is a real one.
-        //
-        // This guard has been described here since c4450a5 and was never
-        // actually written — the pips below were painted unconditionally, over
-        // faces laid out around `value ?? 1`. Since every lap eases out to
-        // camera-on, that is the whole of the "die lands on 1, then rolls again
-        // and gets the actual number" report. A bare tumbling cube reads as a
-        // die that is still going, which is exactly what it is.
-        if (inkValue === null) {
-          // Waiting on the server: the swirl, not a number and not nothing. See
-          // dieMath.swirlPoints.
-          canvas.drawPath(kit.swirlPath, kit.swirlPaint);
-        } else {
-          if (sp.pipShape === "dot") {
-            for (const [px, py] of PIP_XY[face.value]!) {
-              canvas.drawCircle((px - 0.5) * 1.84, (py - 0.5) * 1.84, 0.17, pipPaint);
-            }
-          } else if (sp.pipShape === "numeral") {
-            // One figure per face, at the same cap height the landed face uses
-            // (0.29 of the die, and a face spans 2 local units). Stroked, so the
-            // rim trick above becomes a plain wider under-stroke rather than an
-            // outline around a fill. The path is face-local, so it is the same
-            // one on every face and every frame showing this value.
-            const nr = NUMERAL_FACE_R;
-            const numeral = kit.pipPathFor[face.value - 1]!;
-            numeralPaint.setStrokeWidth(nr * NUMERAL_STROKE * NUMERAL_KEYLINE);
-            numeralPaint.setColor(kit.numeralKeyColor);
-            canvas.drawPath(numeral, numeralPaint);
-            numeralPaint.setStrokeWidth(nr * NUMERAL_STROKE);
-            numeralPaint.setColor(kit.numeralInkColor);
-            canvas.drawPath(numeral, numeralPaint);
-          } else {
-            const facePips = kit.pipPathFor[face.value - 1]!;
-            canvas.drawPath(facePips, outlinePaint);
-            canvas.drawPath(facePips, pipPaint);
-          }
-        }
+        if (!glass) finishFace(face, lam);
         canvas.restore();
+      }
+
+      if (glass) {
+        canvas.restore();
+        for (let i = 0; i < visibleCount; i++) {
+          const { face, lam, m } = visible[i]!;
+          canvas.save();
+          canvas.concat(m);
+          finishFace(face, lam);
+          canvas.restore();
+        }
       }
     } else {
       // Settled flat face with the landing squash (pivoting at the die's base).
@@ -946,8 +978,11 @@ export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = f
       // skin. Only the squash matrix above and a few colors are per-frame work.
       const { x, y, faceH, faceRRect } = landedKit;
 
+      // A clear body goes down as one translucent layer — see `kit.bodyLayer`.
+      if (landedKit.bodyLayer) canvas.saveLayer(landedKit.bodyLayer);
       canvas.drawRRect(landedKit.edgeRRect, landedKit.edge);
       canvas.drawRRect(faceRRect, landedKit.facePaint);
+      if (landedKit.bodyLayer) canvas.restore();
 
       // Overlay: a cheap deterministic texture pass (grain/veins/stars/facets),
       // clipped to the face. The tumble never touches it.

@@ -15,7 +15,7 @@ import { DEFAULT_DICE_SKIN, DEFAULT_DIE, DICE_SKINS, diceRenderParams, resolveDi
 
 const HEX = /^#[0-9A-Fa-f]{6}$/;
 const ALLOWED_KEYS = ["id", "label", "price", "currency", "face",
-  "faceTop", "pip", "edge", "frame", "overlay", "sheen", "motif"];
+  "faceTop", "pip", "edge", "frame", "overlay", "sheen", "motif", "clarity"];
 
 /** Independent of the implementation's own hexRGB — just parses a literal. */
 function rgbOf(hex: string): [number, number, number] {
@@ -125,6 +125,29 @@ describe("dice skin registry", () => {
     }
   });
 
+  it("keeps a clear body clear but never invisible, and only on the gem tier", () => {
+    for (const skin of Object.values(DICE_SKINS)) {
+      if (skin.clarity === undefined) continue;
+      // 1 would be no die at all; the body is still what says "glass".
+      expect(skin.clarity, skin.id).toBeGreaterThan(0);
+      expect(skin.clarity, skin.id).toBeLessThan(0.9);
+      expect(skin.currency, skin.id).toBe("gems");
+      // Whatever shows through the body, the number has to sit on top of it.
+      expect(skin.pip?.shape, skin.id).toBe("numeral");
+    }
+  });
+
+  it("cuts Glacier Optic as near-clear glass that wears numerals", () => {
+    // Asked for 2026-10-09: "numbers instead of dots... almost clear glass,
+    // like the liquid glass design". Its diamonds read as dots at die size.
+    const g = DICE_SKINS.glacier;
+    expect(g.pip?.shape).toBe("numeral");
+    expect(g.clarity).toBeGreaterThanOrEqual(0.6);
+    // Liquid glass is a clean body with lit edges: no fracture texture over it.
+    expect(g.overlay).toBeUndefined();
+    expect(g.frame).toBeDefined();
+  });
+
   it("gives every non-classic skin its own face/pip treatment (no accidental duplicates)", () => {
     const nonClassic = Object.values(DICE_SKINS).filter((s) => s.id !== "classic");
     const signatures = new Set(nonClassic.map((s) => JSON.stringify([s.face, s.pip])));
@@ -202,6 +225,12 @@ describe("diceRenderParams", () => {
     expect(p.frame).toBe(king.frame);
     expect(p.overlay).toBe(king.overlay);
     expect(p.edgeRGB).toEqual(rgbOf(king.edge!));
+  });
+
+  it("carries clarity through, and leaves every other skin opaque", () => {
+    expect(diceRenderParams(DICE_SKINS.glacier).clarity).toBe(DICE_SKINS.glacier.clarity);
+    expect(diceRenderParams(DICE_SKINS.prism).clarity).toBe(0);
+    expect(diceRenderParams(undefined).clarity).toBe(0);
   });
 
   it("gives every skin a stable overlay seed, independent of the viewer's board theme", () => {

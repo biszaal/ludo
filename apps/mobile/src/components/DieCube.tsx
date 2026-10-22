@@ -36,7 +36,7 @@ import {
   type SkPicture,
 } from "@shopify/react-native-skia";
 import { diceRenderParams, type DiceSkin } from "../render/diceSkins";
-import { cubeFaces, faceMatrix, lambert, rotateVec } from "../render/dieMath";
+import { cubeFaces, faceMatrix, lambert, rotateVec, type Vec3 } from "../render/dieMath";
 import { appendNumeral, NUMERAL_FACE_R, NUMERAL_KEYLINE, NUMERAL_STROKE, type Numeral } from "../render/dieNumerals";
 import { appendMotif, motifStyle } from "../render/faceMotifs";
 import { appendPip } from "../render/pipShapes";
@@ -111,6 +111,15 @@ function dieCubePicture(skin: DiceSkin, size: number): SkPicture {
     ? visible.reduce((a, b) => (b.n.y < a.n.y ? b : a)).face
     : null;
 
+  // A clear body (DiceSkin.clarity): cores and faces go down opaque into one
+  // layer, laid down translucent, so the overlapping cores never show through
+  // as darker seams. The finish and the marks go on top at full strength.
+  const glass = sp.clarity > 0 ? Skia.Paint() : null;
+  if (glass) {
+    glass.setAlphaf(1 - sp.clarity);
+    canvas.saveLayer(glass);
+  }
+
   // Pass 1 — oversized dark cores behind the faces, so the wedges left by the
   // rounded face corners read as the die's own edges instead of as a gap
   // between three separate tiles. 1.17 with a tighter corner is what it takes
@@ -142,34 +151,9 @@ function dieCubePicture(skin: DiceSkin, size: number): SkPicture {
 
   const faceRect = Skia.RRectXY(Skia.XYWHRect(-1, -1, 2, 2), 0.48, 0.48);
 
-  for (const { face, n, u, v } of visible) {
-    canvas.save();
-    canvas.concat(Skia.Matrix(faceMatrix(u, v, n, H, cx, cy)));
-
-    const lid = face === topFace;
-    const grad = lid && sp.topGradient ? sp.topGradient : sp.gradient;
-    const flat = lid && sp.topFaceRGB ? hex(sp.topFaceRGB) : faceHex;
-    if (grad && !(lid && !sp.topGradient && sp.topFaceRGB)) {
-      facePaint.setShader(
-        Skia.Shader.MakeLinearGradient(
-          { x: -1, y: -1 },
-          { x: 1, y: 1 },
-          grad.colors.map((cc) => Skia.Color(cc)),
-          grad.stops,
-          TileMode.Clamp,
-        ),
-      );
-      // The shader replaces per-face lambert shading, so fake back a hint of it
-      // via alpha — otherwise a gradient skin's cube looks flat next to a
-      // solid-color one's.
-      facePaint.setAlphaf(0.72 + 0.28 * lambert(n));
-    } else {
-      facePaint.setShader(null);
-      facePaint.setAlphaf(1);
-      facePaint.setColor(Skia.Color(shade(flat, -0.46 + 0.62 * lambert(n))));
-    }
-    canvas.drawRRect(faceRect, facePaint);
-
+  // Everything drawn over a face's fill: ornament, finish, frame and marks,
+  // in face-local units. Its own pass for a clear body (see `glass`).
+  const finishFace = (face: (typeof visible)[number]["face"], n: Vec3) => {
     // Ornament behind the numeral, clipped to the face. `scale` is a fraction
     // of the die's WIDTH, and a face spans 2 local units, hence the doubling.
     if (sp.motif) {
@@ -292,8 +276,47 @@ function dieCubePicture(skin: DiceSkin, size: number): SkPicture {
       canvas.drawPath(pips, outline);
       canvas.drawPath(pips, markFill);
     }
+  };
 
+  for (const { face, n, u, v } of visible) {
+    canvas.save();
+    canvas.concat(Skia.Matrix(faceMatrix(u, v, n, H, cx, cy)));
+
+    const lid = face === topFace;
+    const grad = lid && sp.topGradient ? sp.topGradient : sp.gradient;
+    const flat = lid && sp.topFaceRGB ? hex(sp.topFaceRGB) : faceHex;
+    if (grad && !(lid && !sp.topGradient && sp.topFaceRGB)) {
+      facePaint.setShader(
+        Skia.Shader.MakeLinearGradient(
+          { x: -1, y: -1 },
+          { x: 1, y: 1 },
+          grad.colors.map((cc) => Skia.Color(cc)),
+          grad.stops,
+          TileMode.Clamp,
+        ),
+      );
+      // The shader replaces per-face lambert shading, so fake back a hint of it
+      // via alpha — otherwise a gradient skin's cube looks flat next to a
+      // solid-color one's.
+      facePaint.setAlphaf(0.72 + 0.28 * lambert(n));
+    } else {
+      facePaint.setShader(null);
+      facePaint.setAlphaf(1);
+      facePaint.setColor(Skia.Color(shade(flat, -0.46 + 0.62 * lambert(n))));
+    }
+    canvas.drawRRect(faceRect, facePaint);
+    if (!glass) finishFace(face, n);
     canvas.restore();
+  }
+
+  if (glass) {
+    canvas.restore();
+    for (const { face, n, u, v } of visible) {
+      canvas.save();
+      canvas.concat(Skia.Matrix(faceMatrix(u, v, n, H, cx, cy)));
+      finishFace(face, n);
+      canvas.restore();
+    }
   }
 
   return rec.finishRecordingAsPicture();
