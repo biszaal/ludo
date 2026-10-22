@@ -31,6 +31,8 @@ import { useWallet } from "../store/walletStore";
 import { font, palette, radius, space } from "../theme";
 
 import { APP_VERSION } from "../lib/appVersion";
+import { adsDiagnostics } from "../lib/ads/provider";
+import { describeAdsDiagnostics } from "../lib/ads/diagnostics";
 
 export function SettingsScreen() {
   const settings = useSettings();
@@ -40,6 +42,9 @@ export function SettingsScreen() {
   const activeLocale = useLocale((s) => s.locale);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [languageOpen, setLanguageOpen] = useState(false);
+  // What the ad stack last said (lib/ads/diagnostics), read when revealed —
+  // a snapshot, so long-press again to refresh it.
+  const [adsReport, setAdsReport] = useState<string[] | null>(null);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: palette.tableBlue }}>
@@ -182,9 +187,20 @@ export function SettingsScreen() {
             <ChevronGlyph size={16} />
           </Pressable>
           <Hairline />
-          <View style={{ minHeight: 44, justifyContent: "center" }}>
+          {/* Long-press: the ad diagnostics. Unlabelled on purpose — it is for
+              reading why ads are not showing on a real phone, not for players. */}
+          <Pressable
+            onLongPress={() => setAdsReport(describeAdsDiagnostics(adsDiagnostics()))}
+            delayLongPress={800}
+            style={{ minHeight: 44, justifyContent: "center", paddingVertical: space.xs }}
+          >
             <Text style={{ fontFamily: font.mono, fontSize: 12, color: palette.mutedSteel }}>Ludo · v{APP_VERSION}</Text>
-          </View>
+            {adsReport ? (
+              <Text selectable style={{ fontFamily: font.mono, fontSize: 11, color: palette.mutedSteel, marginTop: space.xs }}>
+                {adsReport.join("\n")}
+              </Text>
+            ) : null}
+          </Pressable>
         </Tray>
       </ContentColumn>
       </ScrollView>

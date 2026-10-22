@@ -16,9 +16,26 @@ import type { InterstitialAd } from "react-native-google-mobile-ads";
 import { getTrackingPermissionsAsync, requestTrackingPermissionsAsync } from "expo-tracking-transparency";
 import { adsSdk } from "./native";
 import { interstitialUnitId, rewardedUnitId, TEST_DEVICE_IDS } from "./units";
+import { emptyAdsDiagnostics, errorText, noteAdErrorIn, type AdFormat, type AdsDiagnostics } from "./diagnostics";
 
 let initialized = false;
 let canRequestAds = false;
+
+/** What the ad stack last said — see lib/ads/diagnostics. */
+let diag: AdsDiagnostics = { ...emptyAdsDiagnostics(), sdk: adsSdk !== null };
+
+export function adsDiagnostics(): AdsDiagnostics {
+  return diag;
+}
+
+/** Keep a failed ad's error for the diagnostics readout. Never throws. */
+export function noteAdError(format: AdFormat, err: unknown): void {
+  try {
+    diag = noteAdErrorIn(diag, format, err);
+  } catch {
+    // Diagnostics must never be the thing that breaks an ad path.
+  }
+}
 
 /**
  * Readiness is asynchronous — UMP consent, the ATT prompt and SDK startup can
@@ -66,10 +83,12 @@ export async function initAds(): Promise<void> {
       const info = await sdk.AdsConsent.gatherConsent({
         testDeviceIdentifiers: TEST_DEVICE_IDS,
       });
+      diag = { ...diag, consent: { status: String(info.status), canRequestAds: info.canRequestAds, error: null } };
       setReady({ canRequestAds: info.canRequestAds });
-    } catch {
+    } catch (err) {
       // Consent flow unavailable (offline, misconfigured form). Fall back to
       // requesting ads without personalization rather than showing nothing.
+      diag = { ...diag, consent: { status: "UNAVAILABLE", canRequestAds: true, error: errorText(err) } };
       setReady({ canRequestAds: true });
     }
 
@@ -89,10 +108,12 @@ export async function initAds(): Promise<void> {
       await sdk.default().setRequestConfiguration({ testDeviceIdentifiers: TEST_DEVICE_IDS });
     }
     await sdk.default().initialize();
+    diag = { ...diag, initialized: true, initError: null };
     setReady({ initialized: true });
     // Warm the first interstitial now that requests are legal.
     preloadInterstitial();
-  } catch {
+  } catch (err) {
+    diag = { ...diag, initialized: false, initError: errorText(err) };
     setReady({ initialized: false });
   }
 }
@@ -114,7 +135,8 @@ export function preloadInterstitial(): void {
     const offLoaded = ad.addAdEventListener(sdk.AdEventType.LOADED, () => {
       interstitialLoaded = true;
     });
-    const offError = ad.addAdEventListener(sdk.AdEventType.ERROR, () => {
+    const offError = ad.addAdEventListener(sdk.AdEventType.ERROR, (err) => {
+      noteAdError("interstitial", err);
       interstitialLoaded = false;
       interstitial = null;
       offLoaded();
@@ -153,7 +175,8 @@ export function showInterstitial(): Promise<boolean> {
         offClosed();
         finish(true);
       });
-      const offError = ad.addAdEventListener(sdk.AdEventType.ERROR, () => {
+      const offError = ad.addAdEventListener(sdk.AdEventType.ERROR, (err) => {
+        noteAdError("interstitial", err);
         offError();
         finish(false);
       });
@@ -178,7 +201,10 @@ export type RewardedOutcome = "earned" | "dismissed" | "failed";
  */
 export function showRewarded(nonce: string, userId: string): Promise<RewardedOutcome> {
   const sdk = adsSdk;
-  if (!sdk || !adsReady()) return Promise.resolve("failed");
+  if (!sdk || !adsReady()) {
+    noteAdError("rewarded", sdk ? "not requested: ads not ready (consent or start-up)" : "not requested: no SDK");
+    return Promise.resolve("failed");
+  }
   return new Promise<RewardedOutcome>((resolve) => {
     let earned = false;
     let settled = false;
@@ -205,10 +231,14 @@ export function showRewarded(nonce: string, userId: string): Promise<RewardedOut
         earned = true;
       });
       ad.addAdEventListener(sdk.AdEventType.CLOSED, () => finish(earned ? "earned" : "dismissed"));
-      ad.addAdEventListener(sdk.AdEventType.ERROR, () => finish("failed"));
+      ad.addAdEventListener(sdk.AdEventType.ERROR, (err) => {
+        noteAdError("rewarded", err);
+        finish("failed");
+      });
 
       ad.load();
-    } catch {
+    } catch (err) {
+      noteAdError("rewarded", err);
       finish("failed");
     }
   });

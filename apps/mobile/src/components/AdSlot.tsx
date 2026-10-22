@@ -15,6 +15,7 @@ import { StyleSheet, View, useWindowDimensions } from "react-native";
 import { adsSdk } from "../lib/ads/native";
 import { bannerUnitId, type BannerSlot } from "../lib/ads/units";
 import { useAdsReady } from "../lib/ads/useAdsReady";
+import { noteAdError } from "../lib/ads/provider";
 import { useT } from "../i18n";
 import { radius } from "../theme";
 import { useConfig } from "../store/configStore";
@@ -115,7 +116,8 @@ export function AdSlot({ slot }: AdSlotProps) {
           // that has to share space with the play cards.
           size={rect ? BannerAdSize.MEDIUM_RECTANGLE : BannerAdSize.ANCHORED_ADAPTIVE_BANNER}
           onAdLoaded={() => setLoaded(true)}
-          onAdFailedToLoad={() => {
+          onAdFailedToLoad={(err) => {
+            noteAdError("banner", err);
             setLoaded(false);
             setWaiting(true);
           }}
