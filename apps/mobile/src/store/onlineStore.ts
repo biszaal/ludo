@@ -874,8 +874,24 @@ function unwindPrediction(): void {
  * Apply a turn op's HTTP response, reconciling any optimistic prediction.
  * The realtime echo may have arrived first — versions decide, not timing.
  */
+/**
+ * Whether an answer about `gameId` still belongs on screen.
+ *
+ * Every request can outlive the room it was sent for: leave() resets the store
+ * and pops to Home, but a resync fetch or a roll already on the wire still
+ * resolves afterwards. Applying it re-filled the board AND navigated back to
+ * the game (applyStateNow pushes the game screen), so a player who confirmed
+ * Leave sat on a seatless table with the clock running. It also recorded the
+ * stale version, which the next room's first states would then lose to.
+ */
+function isCurrentGame(gameId: string | null | undefined): boolean {
+  const current = useOnlineStore.getState().gameId;
+  return current !== null && current === gameId;
+}
+
 function applyTurnResult(res: api.TurnResult, rolled: boolean): void {
   const { state, v } = res;
+  if (!isCurrentGame(state.gameId)) return; // left (or moved rooms) while it was in flight
   /**
    * A folding table answers the ROLL at the version it was sent at.
    *
@@ -1806,6 +1822,9 @@ function applyStateNow(
 }
 
 function applyGameRow(row: GameSnapshot, watched: boolean): void {
+  // See isCurrentGame. A waiting row carries no state to name its room by, so
+  // for that one "are we still in a room at all" is the whole check.
+  if (row.state ? !isCurrentGame(row.state.gameId) : useOnlineStore.getState().gameId === null) return;
   if (!row.state || row.status === "waiting") {
     useOnlineStore.setState({ status: "lobby" });
     return;
