@@ -1,0 +1,16 @@
+# Added to @expo/fingerprint's defaults (which already skip android/build and .gradle).
+#
+# VS Code's Java/Gradle extension imports a generated android/ project and writes
+# Eclipse/Buildship and Kotlin files into every native package it touches, under
+# node_modules — and keeps writing them back after they are deleted. No clean install
+# ever has them, so they made this machine's fingerprint disagree with the one EAS
+# computes, and the build failed at "Configure expo-updates" with a runtime version
+# mismatch (1.2.2 build 30, 1.2.3 build 32). None of them is source.
+**/.settings/**/*
+**/.project
+**/.classpath
+**/.kotlin/**/*
+**/android/**/bin/**/*
+**/*-gradle-plugin/**/bin/**/*
+**/*-gradle-plugin/**/build/**/*
+**/*-gradle-plugin/**/.gradle/**/*
