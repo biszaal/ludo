@@ -7,6 +7,9 @@ node_modules/
 dist/
 build/
 *.tsbuildinfo
+# Gradle's per-project cache — written into apps/mobile/modules/*/android by
+# any local build or IDE import, and it changes the module's runtime fingerprint.
+.gradle/
 # ...except the shared packages' compiled output, which the mobile app imports
 # at runtime. EAS clones a clean tree (no local build), so this must be present
 # for the Metro bundle to resolve @ludo/engine + @ludo/bot. The eas-build-post-
