@@ -13,6 +13,9 @@ export function skipTurn(state: GameState, options: TransitionOptions = {}): Gam
   if (state.status !== "active") {
     throw new Error(`Cannot skip turn: game is not active (status: ${state.status}).`);
   }
+  if (state.frenzy) {
+    throw new Error("Cannot skip turn: a Frenzy game has no turns.");
+  }
   const next = cloneState(state);
   next.lastAction = makeAction("endTurn", { playerId: state.currentTurnPlayerId, skipped: true }, options.now);
   handOff(next);

@@ -18,5 +18,6 @@ export { endTurn } from "./endTurn.js";
 export { skipTurn } from "./skipTurn.js";
 export { leaveGame } from "./leaveGame.js";
 export { checkWin, type WinResult } from "./checkWin.js";
+export { frenzyRoll, frenzyPass, type FrenzyRollResult } from "./frenzy.js";
 export { getCurrentPlayer, getPlayerTokens, hasPlayerWon, inPlayPlayers } from "./internal.js";
 //# sourceMappingURL=index.d.ts.map

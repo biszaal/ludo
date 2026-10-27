@@ -14,6 +14,8 @@ export interface CreateGameOptions {
   gameId?: string;
   rules?: Partial<RuleConfig>;
   now?: number;
+  /** Deal a Frenzy game: no turns, a die per seat (see {@link GameState.frenzy}). */
+  frenzy?: boolean;
 }
 
 /**
@@ -59,6 +61,7 @@ export function createGame(players: PlayerInput[], options: CreateGameOptions = 
     winnerPlayerId: null,
     finishedOrder: [],
     lastAction: { type: "createGame", payload: { players: playerStates.length }, timestamp: options.now ?? 0 },
+    ...(options.frenzy ? { frenzy: { dice: Object.fromEntries(playerStates.map((p) => [p.id, null])) } } : {}),
   };
 }
 

@@ -3,6 +3,8 @@ export interface CreateGameOptions {
     gameId?: string;
     rules?: Partial<RuleConfig>;
     now?: number;
+    /** Deal a Frenzy game: no turns, a die per seat (see {@link GameState.frenzy}). */
+    frenzy?: boolean;
 }
 /**
  * Build the initial, ready-to-play {@link GameState} for 2–4 players.

@@ -18,6 +18,7 @@ export { endTurn } from "./endTurn.js";
 export { skipTurn } from "./skipTurn.js";
 export { leaveGame } from "./leaveGame.js";
 export { checkWin } from "./checkWin.js";
+export { frenzyRoll, frenzyPass } from "./frenzy.js";
 // Read-only helpers handy for clients/bots projecting the state.
 export { getCurrentPlayer, getPlayerTokens, hasPlayerWon, inPlayPlayers } from "./internal.js";
 //# sourceMappingURL=index.js.map

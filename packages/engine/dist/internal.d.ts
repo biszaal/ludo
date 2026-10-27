@@ -9,7 +9,10 @@ export declare function getPlayer(state: GameState, playerId: string): PlayerSta
 export declare function getCurrentPlayer(state: GameState): PlayerState;
 export declare function getPlayerTokens(state: GameState, playerId: string): Token[];
 export declare function getToken(state: GameState, tokenId: string): Token | undefined;
-/** True if all of a player's tokens have finished. */
+/**
+ * True once a player has brought home as many tokens as the game asks for: all
+ * of them in classic, `rules.tokensToWin` in Blitz.
+ */
 export declare function hasPlayerWon(state: GameState, playerId: string): boolean;
 /**
  * Players still racing: neither placed in `finishedOrder` nor departed.
@@ -30,6 +33,14 @@ export declare function inPlayPlayers(state: GameState): PlayerState[];
  * Mutates the passed (already-cloned) state.
  */
 export declare function endIfComplete(state: GameState): boolean;
+/**
+ * Give a player who has just brought home enough tokens their placement.
+ *
+ * Blitz places a player before all their tokens are home. The rest leave the
+ * board, as a leaver's do, so they neither block nor feed captures in the race
+ * for the places still open. Mutates the passed (already-cloned) state.
+ */
+export declare function placePlayer(state: GameState, playerId: string): void;
 /**
  * Hand the turn on, or end the game if there is nobody left to hand it to.
  * The single exit every turn hand-off goes through, so no path can advance the

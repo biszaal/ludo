@@ -27,6 +27,9 @@ export function rollDice(
   if (state.status !== "active") {
     throw new Error(`Cannot roll: game is not active (status: ${state.status}).`);
   }
+  if (state.frenzy) {
+    throw new Error("Cannot roll: a Frenzy game rolls per seat (frenzyRoll).");
+  }
   if (state.phase !== "awaiting-roll") {
     throw new Error("Cannot roll: a dice value is already pending a move.");
   }
