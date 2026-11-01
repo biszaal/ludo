@@ -1,7 +1,7 @@
 /**
- * Pre-game bottom sheet for local play: player count, seat preview, optional
- * house-rules toggles (per-launch, not persisted — house rules are a table
- * agreement, not a device setting), and the Start CTA.
+ * Pre-game bottom sheet for local play: mode, player count, seat preview,
+ * optional house-rules toggles (per-launch, not persisted — house rules are a
+ * table agreement, not a device setting), and the Start CTA.
  */
 
 import { useState } from "react";
@@ -14,21 +14,24 @@ import { SectionLabel } from "./SectionLabel";
 import { SelectTile } from "./SelectTile";
 import { SettingRow } from "./SettingRow";
 import { EXPOSED_RULES } from "../lib/exposedRules";
+import type { Variant } from "../lib/standings";
 import { font, palette, radius, space, teamColor } from "../theme";
 import { useT } from "../i18n";
 
 const COUNTS = [2, 3, 4] as const;
+const VARIANTS: Variant[] = ["classic", "blitz"];
 
 export type PlayMode = "ai" | "pass";
 
 interface PlaySetupSheetProps {
   mode: PlayMode;
-  onStart: (players: number, bots: number, rules: Partial<RuleConfig>) => void;
+  onStart: (players: number, bots: number, rules: Partial<RuleConfig>, variant: Variant) => void;
   onClose: () => void;
 }
 
 export function PlaySetupSheet({ mode, onStart, onClose }: PlaySetupSheetProps) {
   const t = useT();
+  const [variant, setVariant] = useState<Variant>("classic");
   const [count, setCount] = useState<number>(2);
   const [rules, setRules] = useState<Partial<RuleConfig>>({});
   const [showRules, setShowRules] = useState(false);
@@ -37,6 +40,16 @@ export function PlaySetupSheet({ mode, onStart, onClose }: PlaySetupSheetProps) 
 
   return (
     <Sheet onClose={onClose} title={mode === "ai" ? t("home.playVsAiLong") : t("home.passAndPlay")}>
+      <SectionLabel>{t("mode.label")}</SectionLabel>
+      <View style={{ flexDirection: "row", gap: space.sm }}>
+        {VARIANTS.map((v) => (
+          <SelectTile key={v} label={t(`mode.${v}`)} selected={v === variant} onPress={() => setVariant(v)} />
+        ))}
+      </View>
+      <Text style={{ fontFamily: font.medium, fontSize: 13, color: palette.mutedSteel, paddingLeft: space.xs }}>
+        {t(`mode.${variant}Hint`)}
+      </Text>
+
       <SectionLabel>{mode === "ai" ? t("game.playersYouPlusAi") : t("game.players")}</SectionLabel>
       <View style={{ flexDirection: "row", gap: space.sm }}>
         {COUNTS.map((n) => (
@@ -73,7 +86,7 @@ export function PlaySetupSheet({ mode, onStart, onClose }: PlaySetupSheetProps) 
         </Animated.View>
       )}
 
-      <Button label={t("lobby.startGame")} onPress={() => onStart(count, mode === "ai" ? count - 1 : 0, rules)} />
+      <Button label={t("lobby.startGame")} onPress={() => onStart(count, mode === "ai" ? count - 1 : 0, rules, variant)} />
     </Sheet>
   );
 }

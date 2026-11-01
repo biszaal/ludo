@@ -266,6 +266,15 @@ export const en = {
   "game.playersYouPlusAi": "Players (you + AI)",
   "game.someone": "Someone",
 
+  // --- Modes ---------------------------------------------------------------
+  "mode.label": "Mode",
+  "mode.classic": "Classic",
+  "mode.blitz": "Blitz",
+  "mode.frenzy": "Frenzy",
+  "mode.classicHint": "Bring all four pawns home to win",
+  "mode.blitzHint": "First pawn home wins",
+  "mode.frenzyHint": "No turns: everyone rolls at once",
+
   // --- Rules (How to play) --------------------------------------------------
   "rules.title": "How to play",
   "rules.goal": "The goal",

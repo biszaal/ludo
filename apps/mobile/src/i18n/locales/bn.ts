@@ -244,6 +244,14 @@ export const bn: Strings = {
   "game.playersYouPlusAi": "খেলোয়াড় (আপনি + AI)",
   "game.someone": "কেউ",
 
+  "mode.label": "মোড",
+  "mode.classic": "ক্লাসিক",
+  "mode.blitz": "ব্লিৎজ",
+  "mode.frenzy": "হুলুস্থুল",
+  "mode.classicHint": "জিততে চারটি গুটিই মাঝখানে পৌঁছান",
+  "mode.blitzHint": "যার প্রথম গুটি মাঝখানে পৌঁছায়, সে-ই জেতে",
+  "mode.frenzyHint": "পালা নেই — সবাই একসাথে ছক্কা ফেলে",
+
   "rules.title": "কীভাবে খেলবেন",
   "rules.goal": "লক্ষ্য",
   "rules.goalBody":

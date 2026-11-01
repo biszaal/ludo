@@ -46,6 +46,7 @@ import { useSettings } from "../store/settingsStore";
 import { payoutSplit, potFor } from "../lib/economy";
 import { clockStartFor, elapsedSeconds, formatElapsed } from "../lib/gameClock";
 import { matchOverForSeat, seatFinish } from "../lib/seatFinish";
+import { tokensToWin, variantOf } from "../lib/standings";
 import { useDieHandover } from "../lib/useDieHandover";
 import { useAds, canShowInterstitial } from "../store/adsStore";
 import { useConfig } from "../store/configStore";
@@ -236,6 +237,8 @@ export function GameView({
   // below is that.
   const dieIdle = !heldDie && !rollInFlight && state.phase === "awaiting-roll" && !bustHold;
   const finished = state.status === "finished";
+  const goal = tokensToWin(state);
+  const variant = variantOf(state);
   // Every seat's entry, bot seats included — matches what the server pays out.
   const pot = potFor(stake, state.players.length);
   // Seat each player's profile at the board corner nearest their yard.
@@ -494,6 +497,7 @@ export function GameView({
           <PlayerChip
             seatColor={p.color}
             finished={finishedByPlayer.get(p.id) ?? 0}
+            goal={goal}
             active={isActive}
             label={nameFor?.(p.id) ?? undefined}
             avatarId={avatarFor?.(p.id) ?? null}
@@ -534,7 +538,17 @@ export function GameView({
 
   const topBar = (
     <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-      <Text style={{ fontFamily: font.display, fontSize: Math.round(22 * scale), color: palette.porcelain }}>Ludo</Text>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
+        <Text style={{ fontFamily: font.display, fontSize: Math.round(22 * scale), color: palette.porcelain }}>Ludo</Text>
+        {variant !== "classic" ? (
+          <View
+            accessibilityLabel={`${t(`mode.${variant}`)}: ${t(`mode.${variant}Hint`)}`}
+            style={{ paddingHorizontal: space.sm, paddingVertical: 3, borderRadius: radius.pill, borderWidth: 1, borderColor: palette.hairline }}
+          >
+            <Text style={{ fontFamily: font.semibold, fontSize: 12, color: palette.porcelain }}>{t(`mode.${variant}`).toUpperCase()}</Text>
+          </View>
+        ) : null}
+      </View>
       <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
         {stake > 0 ? (
           <View

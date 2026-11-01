@@ -264,9 +264,9 @@ export function HomeScreen() {
         <PlaySetupSheet
           mode={sheetMode}
           onClose={() => setSheetMode(null)}
-          onStart={(players, bots, rules) => {
+          onStart={(players, bots, rules, variant) => {
             setSheetMode(null);
-            newLocalGame({ players, bots, rules });
+            newLocalGame({ players, bots, rules, variant: variant === "blitz" ? "blitz" : undefined });
           }}
         />
       )}

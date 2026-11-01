@@ -70,6 +70,8 @@ export interface LocalGameConfig {
   bots?: number;
   /** House-rule overrides; omitted keys fall back to DEFAULT_RULES. */
   rules?: Partial<RuleConfig>;
+  /** Blitz: the first token home places its player. Absent = classic. */
+  variant?: "classic" | "blitz";
 }
 
 interface GameStore {
@@ -138,7 +140,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
       userId: `local-${i + 1}`,
       color: colors[i]!,
     }));
-    const state = createGame(players, { rules: config.rules });
+    const rules = config.variant === "blitz" ? { ...config.rules, tokensToWin: 1 } : config.rules;
+    const state = createGame(players, { rules });
     const botIds = players.slice(numPlayers - numBots).map((p) => p.id);
     set({
       state,

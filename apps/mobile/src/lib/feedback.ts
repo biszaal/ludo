@@ -18,7 +18,7 @@ import { useGameStore } from "../store/gameStore";
 import { useOnlineStore } from "../store/onlineStore";
 import { useProfile } from "../store/profileStore";
 import { useStats } from "../store/statsStore";
-import { computeStandings } from "./standings";
+import { computeStandings, variantOf } from "./standings";
 import { moveTouchdownMs, soundLeadMs } from "./moveTiming";
 import { resolveEmoji } from "./emoji";
 import { playSound } from "./sound";
@@ -131,6 +131,7 @@ function recordLocal(state: GameState, botIds: string[]): void {
     winnerLabel: humanWon ? useProfile.getState().displayName : colorLabel(winner.color),
     winnerColor: winner.color,
     didWin: vsAI ? humanWon : null,
+    variant: variantOf(state),
   });
 }
 
@@ -145,6 +146,7 @@ function recordOnline(state: GameState, myPlayerId: string | null): void {
     winnerLabel: didWin ? useProfile.getState().displayName : colorLabel(winner.color),
     winnerColor: winner.color,
     didWin,
+    variant: variantOf(state),
   });
 }
 

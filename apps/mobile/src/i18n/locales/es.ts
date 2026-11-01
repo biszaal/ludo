@@ -247,6 +247,14 @@ export const es: Strings = {
   "game.playersYouPlusAi": "Jugadores (tú + IA)",
   "game.someone": "Alguien",
 
+  "mode.label": "Modo",
+  "mode.classic": "Clásico",
+  "mode.blitz": "Blitz",
+  "mode.frenzy": "Frenesí",
+  "mode.classicHint": "Lleva las cuatro fichas al centro para ganar",
+  "mode.blitzHint": "Gana la primera ficha que llegue al centro",
+  "mode.frenzyHint": "Sin turnos: todos lanzan el dado a la vez",
+
   "rules.title": "Cómo se juega",
   "rules.goal": "El objetivo",
   "rules.goalBody":

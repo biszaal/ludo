@@ -245,6 +245,14 @@ export const ptBR: Strings = {
   "game.playersYouPlusAi": "Jogadores (você + IA)",
   "game.someone": "Alguém",
 
+  "mode.label": "Modo",
+  "mode.classic": "Clássico",
+  "mode.blitz": "Blitz",
+  "mode.frenzy": "Frenesi",
+  "mode.classicHint": "Leve os quatro peões ao centro para vencer",
+  "mode.blitzHint": "Vence o primeiro peão que chegar ao centro",
+  "mode.frenzyHint": "Sem esperar a vez: todos jogam o dado ao mesmo tempo",
+
   "rules.title": "Como jogar",
   "rules.goal": "O objetivo",
   "rules.goalBody":

@@ -249,6 +249,14 @@ export const hi: Strings = {
   "game.playersYouPlusAi": "खिलाड़ी (आप + AI)",
   "game.someone": "कोई",
 
+  "mode.label": "मोड",
+  "mode.classic": "क्लासिक",
+  "mode.blitz": "ब्लिट्ज़",
+  "mode.frenzy": "धमाचौकड़ी",
+  "mode.classicHint": "जीतने के लिए चारों गोटियाँ बीच में पहुँचाएँ",
+  "mode.blitzHint": "जिसकी पहली गोटी बीच में पहुँचे, वही जीते",
+  "mode.frenzyHint": "कोई बारी नहीं — सब एक साथ पासा फेंकते हैं",
+
   "rules.title": "कैसे खेलें",
   "rules.goal": "लक्ष्य",
   "rules.goalBody":

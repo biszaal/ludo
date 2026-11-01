@@ -64,8 +64,10 @@ const RING_LENGTH = 4 * (RING_BOX - RING_INSET * 2 - RING_RADIUS * 2) + 2 * Math
  */
 interface PlayerChipProps {
   seatColor: PlayerState["color"];
-  /** Tokens this seat has brought home (of TOKENS_PER_PLAYER). */
+  /** Tokens this seat has brought home (of `goal`). */
   finished: number;
+  /** Tokens a seat needs home to place: all four, or one in Blitz. */
+  goal?: number;
   active: boolean;
   label?: string;
   avatarId?: string | null;
@@ -86,6 +88,7 @@ interface PlayerChipProps {
 export const PlayerChip = memo(function PlayerChip({
   seatColor,
   finished,
+  goal = TOKENS_PER_PLAYER,
   active,
   label,
   avatarId,
@@ -180,7 +183,7 @@ export const PlayerChip = memo(function PlayerChip({
           color: palette.mutedSteel,
         }}
       >
-        {finished}/{TOKENS_PER_PLAYER} home
+        {finished}/{goal} home
       </Text>
     </Pressable>
   );

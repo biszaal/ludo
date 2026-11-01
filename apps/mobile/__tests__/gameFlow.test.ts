@@ -9,18 +9,18 @@
 
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { createSeededRng } from "@ludo/engine";
-import { useGameStore } from "../src/store/gameStore";
+import { useGameStore, type LocalGameConfig } from "../src/store/gameStore";
 import { useNav } from "../src/store/navStore";
 import { BUST_HOLD_MS } from "../src/lib/projection";
 
 const store = useGameStore;
 
-function playFullGame(seed: number, numPlayers: number) {
+function playFullGame(seed: number, numPlayers: number, variant?: LocalGameConfig["variant"]) {
   const rng = createSeededRng(seed);
   vi.spyOn(Math, "random").mockImplementation(() => rng());
   vi.useFakeTimers();
 
-  store.getState().newLocalGame({ players: numPlayers });
+  store.getState().newLocalGame({ players: numPlayers, variant });
 
   for (let steps = 0; steps < 200_000; steps++) {
     const s = store.getState();
@@ -82,6 +82,23 @@ describe("client store — full hot-seat game", () => {
     expect(s.lastRoll).toBe(1);
     expect(s.validMoves.length).toBeGreaterThan(0); // default rules would give zero moves on a 1
     expect(s.lastConfig).toEqual({ players: 2, rules: { leaveYardOnSix: false } });
+  });
+
+  it("deals a Blitz game and keeps the mode for a rematch", () => {
+    store.getState().newLocalGame({ players: 4, variant: "blitz" });
+    const s = store.getState();
+    expect(s.state?.rules.tokensToWin).toBe(1);
+    expect(s.lastConfig).toEqual({ players: 4, variant: "blitz" });
+  });
+
+  it("plays a 4-player Blitz game to full standings, one token home each", () => {
+    const s = playFullGame(11, 4, "blitz");
+    const game = s.state!;
+    expect(game.status).toBe("finished");
+    expect(game.finishedOrder).toHaveLength(4);
+    for (const id of game.finishedOrder.slice(0, 3)) {
+      expect(game.tokens.filter((t) => t.playerId === id).map((t) => t.position)).toEqual(["finished"]);
+    }
   });
 
   /**

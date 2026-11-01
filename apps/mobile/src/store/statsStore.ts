@@ -8,6 +8,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import type { Color } from "@ludo/engine";
 import { kvStorage } from "../lib/storage";
+import type { Variant } from "../lib/standings";
 
 export type MatchMode = "ai" | "pass" | "online";
 
@@ -20,6 +21,8 @@ export interface MatchRecord {
   winnerColor: Color;
   /** Did the local player win? null when there is no local "me" (pass & play). */
   didWin: boolean | null;
+  /** Classic, Blitz or Frenzy. Absent on records made before modes existed. */
+  variant?: Variant;
 }
 
 const HISTORY_CAP = 30;

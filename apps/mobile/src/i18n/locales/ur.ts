@@ -248,6 +248,14 @@ export const ur: Strings = {
   "game.playersYouPlusAi": "کھلاڑی (آپ + AI)",
   "game.someone": "کوئی",
 
+  "mode.label": "موڈ",
+  "mode.classic": "کلاسک",
+  "mode.blitz": "بلٹز",
+  "mode.frenzy": "دھما چوکڑی",
+  "mode.classicHint": "جیتنے کے لیے چاروں گوٹیاں درمیان میں پہنچائیں",
+  "mode.blitzHint": "جس کی پہلی گوٹی درمیان میں پہنچے، وہی جیتے",
+  "mode.frenzyHint": "کوئی باری نہیں — سب ایک ساتھ پانسہ پھینکتے ہیں",
+
   "rules.title": "کیسے کھیلیں",
   "rules.goal": "مقصد",
   "rules.goalBody":

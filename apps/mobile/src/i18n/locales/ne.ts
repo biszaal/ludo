@@ -245,6 +245,14 @@ export const ne: Strings = {
   "game.playersYouPlusAi": "खेलाडी (तपाईं + AI)",
   "game.someone": "कोही",
 
+  "mode.label": "मोड",
+  "mode.classic": "क्लासिक",
+  "mode.blitz": "ब्लिट्ज",
+  "mode.frenzy": "हल्लाखल्ला",
+  "mode.classicHint": "जित्न चारै गोटी बीचमा पुर्‍याउनुहोस्",
+  "mode.blitzHint": "जसको पहिलो गोटी बीचमा पुग्छ, उही जित्छ",
+  "mode.frenzyHint": "पालो छैन — सबैले एकैसाथ डाइस फाल्छन्",
+
   "rules.title": "कसरी खेल्ने",
   "rules.goal": "लक्ष्य",
   "rules.goalBody":
