@@ -98,6 +98,45 @@ const MOBILITY_CAP = 3;
 const HUNT_WEIGHT = 0.5;
 
 /**
+ * Share of its value a BACKUP token carries in Blitz, where the first
+ * `rules.tokensToWin` tokens home win. A seat is only as far along as its lead
+ * runners; the rest are insurance against the leader being knocked back.
+ * Enough that a backup is still worth opening, never enough to outbid the
+ * leader's next roll — which is what made the classic weighting spread its
+ * progress and race nobody home.
+ */
+const BACKUP_WEIGHT = 0.25;
+
+/**
+ * Per-token weight on its progress value, or null for a classic game (every
+ * token counts in full). In Blitz each seat's `tokensToWin` most advanced
+ * tokens count in full and the rest at {@link BACKUP_WEIGHT}.
+ */
+function leadWeights(state: GameState, values: number[]): number[] | null {
+  const need = state.rules.tokensToWin;
+  if (need === undefined) return null;
+  const weights = new Array<number>(values.length).fill(BACKUP_WEIGHT);
+  const byOwner = new Map<string, number[]>();
+  state.tokens.forEach((t, k) => {
+    const list = byOwner.get(t.playerId);
+    if (list) list.push(k);
+    else byOwner.set(t.playerId, [k]);
+  });
+  for (const list of byOwner.values()) {
+    list.sort((a, b) => values[b]! - values[a]!);
+    for (let i = 0; i < Math.min(need, list.length); i++) weights[list[i]!] = 1;
+  }
+  return weights;
+}
+
+/** Every token's weighted progress value, in `state.tokens` order. */
+function weightedValues(state: GameState): number[] {
+  const values = state.tokens.map((t) => tokenProgressValue(toRelativeIndex(t.color, t.position)));
+  const weights = leadWeights(state, values);
+  return weights ? values.map((v, k) => v * weights[k]!) : values;
+}
+
+/**
  * Weight on the strongest opponent versus the field. The `max` term is what
  * makes the bot hunt the leader without a special rule for it: anything that
  * knocks the front-runner back raises this score more than the same damage done
@@ -138,8 +177,10 @@ function allStrengths(state: GameState, risk: number, index: TrackIndex): number
   // Each seat's position in the track index, resolved once for the whole pass.
   const slots = new Array<number>(n);
   for (let i = 0; i < n; i++) slots[i] = slotOf(index, state.players[i]!.id);
+  const values = weightedValues(state);
 
-  for (const t of state.tokens) {
+  for (let k = 0; k < state.tokens.length; k++) {
+    const t = state.tokens[k]!;
     let owner = -1;
     for (let i = 0; i < n; i++) {
       if (state.players[i]!.id === t.playerId) {
@@ -149,7 +190,7 @@ function allStrengths(state: GameState, risk: number, index: TrackIndex): number
     }
     if (owner < 0) continue; // a token with no seat — nothing to attribute it to
 
-    const value = tokenProgressValue(toRelativeIndex(t.color, t.position));
+    const value = values[k]!;
     progress[owner]! += value;
 
     // Only tokens on the shared track can be taken, so everything below is
@@ -200,12 +241,13 @@ function allStrengths(state: GameState, risk: number, index: TrackIndex): number
 export function riskAppetite(state: GameState, playerId: string): number {
   let mine = 0;
   let best = 0;
+  const values = weightedValues(state);
   for (const p of state.players) {
     if (!inPlay(state, p) && p.id !== playerId) continue;
     let sum = 0;
-    for (const t of state.tokens) {
-      if (t.playerId !== p.id) continue;
-      sum += tokenProgressValue(toRelativeIndex(t.color, t.position));
+    for (let k = 0; k < state.tokens.length; k++) {
+      if (state.tokens[k]!.playerId !== p.id) continue;
+      sum += values[k]!;
     }
     if (p.id === playerId) mine = sum;
     else if (sum > best) best = sum;
