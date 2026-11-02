@@ -22,6 +22,7 @@ import {
   type Json,
   type SupabaseClient,
 } from "./lib.ts";
+import { MODE_UNAVAILABLE, modeColumns, modeOpen, parseMode } from "./modes.ts";
 import { seatBots } from "./bots.ts";
 import { startGameNow } from "./deal.ts";
 import { walletApply } from "./wallet.ts";
@@ -39,9 +40,13 @@ export async function opQuickMatch(
   rawSize: number,
   rawStake: number | null,
   appVersion: string | null,
+  rawMode: unknown = null,
 ): Promise<Response> {
   if (!(await rateOk(admin, userId, "quickMatch", LIMITS.quickMatch))) return rateLimited();
   const size = rawSize === 4 ? 4 : 2;
+
+  const mode = parseMode(rawMode);
+  if (mode === null || !(await modeOpen(admin, mode))) return json({ error: MODE_UNAVAILABLE });
 
   // Tier must be on the server's list — a hacked client can't invent a pool.
   // Old clients send no stake and get the default tier, unchanged behavior.
@@ -61,21 +66,23 @@ export async function opQuickMatch(
   // size it was opened for — one search at a time).
   const { data: mine } = await admin
     .from("players")
-    .select("id, game_id, games!inner(status, is_quick, quick_size, stake)")
+    .select("id, game_id, games!inner(status, is_quick, quick_size, stake, mode)")
     .eq("user_id", userId)
     .eq("games.status", "waiting")
     .eq("games.is_quick", true)
     .limit(1)
     .maybeSingle();
   if (mine) {
-    const g = mine.games as unknown as { quick_size: number | null; stake: number | null };
-    return json({ gameId: mine.game_id, playerId: mine.id, waiting: true, size: g?.quick_size ?? 2, stake: g?.stake ?? QUICK_STAKE });
+    const g = mine.games as unknown as { quick_size: number | null; stake: number | null; mode: string | null };
+    return json({ gameId: mine.game_id, playerId: mine.id, waiting: true, size: g?.quick_size ?? 2, stake: g?.stake ?? QUICK_STAKE, mode: g?.mode ?? "classic" });
   }
 
   const { data: claimed, error: claimErr } = await admin.rpc("quick_match_claim", {
     p_user: userId,
     p_size: size,
     p_stake: stake,
+    // Classic keeps the 3-arg call: that overload is its whole pool (0074).
+    ...(mode === "classic" ? {} : { p_mode: mode }),
   });
   if (claimErr) return json({ error: claimErr.message });
   if (claimed) {
@@ -99,7 +106,7 @@ export async function opQuickMatch(
       // happens in this request, so the stamp has until somebody else fills the
       // room to land, and deferring it keeps the searching UI's response quick.
       afterResponse(stamp);
-      return json({ gameId, playerId, waiting: true, size, stake });
+      return json({ gameId, playerId, waiting: true, size, stake, mode });
     }
     // This claim FILLED the room, so the deal is about to run in this very
     // request — and the deal is what reads app_version to set the fold gate
@@ -117,7 +124,7 @@ export async function opQuickMatch(
     await stamp;
     const started = await startGameNow(admin, gameId);
     if ("error" in started) return json({ error: started.error });
-    return json({ gameId, playerId, state: started.state, v: started.v, size, stake });
+    return json({ gameId, playerId, state: started.state, v: started.v, size, stake, mode });
   }
 
   const debited = await walletApply(admin, userId, -stake, "stake", null);
@@ -125,7 +132,7 @@ export async function opQuickMatch(
 
   const game = await insertGameWithCode(
     admin,
-    { host_user_id: userId, status: "waiting", is_quick: true, quick_size: size, stake },
+    { host_user_id: userId, status: "waiting", is_quick: true, quick_size: size, stake, ...modeColumns(mode) },
     "quick.create",
   );
   if ("error" in game) {
@@ -145,7 +152,7 @@ export async function opQuickMatch(
     return json({ error: pErr?.message ?? "Could not start matchmaking." });
   }
 
-  return json({ gameId: game.id, playerId: player.id, waiting: true, size, stake });
+  return json({ gameId: game.id, playerId: player.id, waiting: true, size, stake, mode });
 }
 
 /**

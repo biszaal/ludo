@@ -7,6 +7,7 @@
 // @deno-types="../_shared/engine/index.d.ts"
 import { createGame as engineCreateGame, type GameState } from "../_shared/engine/index.js";
 import { afterResponse, foldAllowed, seatColors, turnDeadline, type SupabaseClient, WRITE_FAILED } from "./lib.ts";
+import { parseMode, rulesForMode } from "./modes.ts";
 import { walletApply } from "./wallet.ts";
 import { afterGameWrite } from "./bots.ts";
 
@@ -82,7 +83,7 @@ export async function collectStakes(
 export async function startGameNow(admin: SupabaseClient, gameId: string): Promise<StartResult> {
   const { data: game } = await admin
     .from("games")
-    .select("id, status, has_bots, state, state_version, is_quick, stake")
+    .select("id, status, has_bots, state, state_version, is_quick, stake, mode")
     .eq("id", gameId)
     .single();
   if (!game) return { error: "Game not found." };
@@ -115,7 +116,7 @@ export async function startGameNow(admin: SupabaseClient, gameId: string): Promi
 
   const colors = seatColors(lobby.length, gameId);
   const players = lobby.map((p, i) => ({ id: p.id, userId: p.user_id, color: colors[i]! }));
-  const state = engineCreateGame(players, { gameId });
+  const state = engineCreateGame(players, { gameId, rules: rulesForMode(parseMode(game.mode) ?? "classic") });
 
   const { data: updated, error } = await admin
     .from("games")

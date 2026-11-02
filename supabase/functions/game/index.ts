@@ -118,9 +118,9 @@ Deno.serve(async (req: Request) => {
 
     switch (body.op) {
       case "create":
-        return await opCreate(admin, userId, body.stake == null ? null : Number(body.stake), appVersion);
+        return await opCreate(admin, userId, body.stake == null ? null : Number(body.stake), appVersion, body.mode);
       case "join":
-        return await opJoin(admin, userId, String(body.code ?? ""), appVersion);
+        return await opJoin(admin, userId, String(body.code ?? ""), appVersion, body.features);
       case "start":
         return await opStart(admin, userId, String(body.gameId), body.fill === true);
       case "prepareRoll":
@@ -149,6 +149,7 @@ Deno.serve(async (req: Request) => {
           Number(body.size ?? 2),
           body.stake == null ? null : Number(body.stake),
           appVersion,
+          body.mode,
         );
       case "quickBotFill":
         return await opQuickBotFill(admin, userId, String(body.gameId));

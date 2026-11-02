@@ -28,6 +28,7 @@ import {
   type SupabaseClient,
   WRITE_FAILED,
 } from "./lib.ts";
+import { canSit, MODE_UNAVAILABLE, modeColumns, modeOfState, modeOpen, parseMode, rulesForMode } from "./modes.ts";
 import { afterGameWrite, seatBots } from "./bots.ts";
 import { startGameNow } from "./deal.ts";
 import { endIfNoHumansLeft, recordFinishStats, settleIfFinished } from "./finish.ts";
@@ -58,8 +59,12 @@ export async function opCreate(
   userId: string,
   rawStake: number | null,
   appVersion: string | null,
+  rawMode: unknown = null,
 ): Promise<Response> {
   if (!(await rateOk(admin, userId, "roomCreate", LIMITS.roomCreate))) return rateLimited();
+
+  const mode = parseMode(rawMode);
+  if (mode === null || !(await modeOpen(admin, mode))) return json({ error: MODE_UNAVAILABLE });
 
   const stake = await validRoomStake(admin, rawStake);
   if (stake === null) return json({ error: "That entry isn't available." });
@@ -70,7 +75,7 @@ export async function opCreate(
   // deal.ts collects from every seat at start instead.
   const game = await insertGameWithCode(
     admin,
-    { host_user_id: userId, status: "waiting", stake },
+    { host_user_id: userId, status: "waiting", stake, ...modeColumns(mode) },
     "room.create",
   );
   if ("error" in game) return json({ error: game.error });
@@ -86,7 +91,7 @@ export async function opCreate(
     .single();
   if (pErr || !player) return safeError("room.seatHost", pErr, "Could not seat host.");
 
-  return json({ gameId: game.id, roomCode: game.roomCode, playerId: player.id, stake });
+  return json({ gameId: game.id, roomCode: game.roomCode, playerId: player.id, stake, mode });
 }
 
 export async function opJoin(
@@ -94,6 +99,7 @@ export async function opJoin(
   userId: string,
   rawCode: string,
   appVersion: string | null,
+  features: unknown = null,
 ): Promise<Response> {
   if (!(await rateOk(admin, userId, "roomJoin", LIMITS.roomJoin))) return rateLimited();
   const roomCode = rawCode.trim().toUpperCase();
@@ -112,17 +118,21 @@ export async function opJoin(
 
   const { data: game } = await admin
     .from("games")
-    .select("id, status, stake")
+    .select("id, status, stake, mode")
     .eq("room_code", roomCode)
     .maybeSingle();
   if (!game) return noRoom;
   if (game.status !== "waiting") return noRoom;
   const stake = (game.stake as number | null) ?? 0;
+  const mode = parseMode(game.mode) ?? "classic";
 
   const { data: existing } = await admin.from("players").select("id, user_id, seat").eq("game_id", game.id).order("seat");
   const mine = existing?.find((p) => p.user_id === userId);
-  if (mine) return json({ gameId: game.id, roomCode, playerId: mine.id, stake });
+  if (mine) return json({ gameId: game.id, roomCode, playerId: mine.id, stake, mode });
   if ((existing?.length ?? 0) >= 4) return noRoom;
+  // Only here, where a join would otherwise succeed: anywhere earlier this would
+  // tell a code sweep something the one refusal above exists not to.
+  if (!canSit(mode, features)) return json({ error: "Update the app to join this Blitz room." });
 
   const seat = existing?.length ?? 0;
   const { data: player, error } = await admin
@@ -132,7 +142,7 @@ export async function opJoin(
     .single();
   if (error || !player) return json({ error: error?.message ?? "Could not join." });
 
-  return json({ gameId: game.id, roomCode, playerId: player.id, stake });
+  return json({ gameId: game.id, roomCode, playerId: player.id, stake, mode });
 }
 
 /**
@@ -421,7 +431,7 @@ async function startRematch(
   }
 
   const players = seats.map((p) => ({ id: p.id, userId: p.userId, color: p.color }));
-  const next = engineCreateGame(players, { gameId });
+  const next = engineCreateGame(players, { gameId, rules: rulesForMode(modeOfState(prev)) });
 
   const { data: updated, error } = await admin
     .from("games")

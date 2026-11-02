@@ -211,6 +211,27 @@ Deno.test("two accepters deal a fresh board and drop everyone else", async () =>
   assertEquals(f.row.state.players.map((p) => p.id).sort(), ["p1", "p2"]);
 });
 
+Deno.test("a rematch of a Blitz game is still Blitz", async () => {
+  const blitz = createGame(
+    [
+      { id: "p1", userId: A, color: "red" },
+      { id: "p2", userId: B, color: "yellow" },
+    ],
+    { gameId: GAME, rules: { tokensToWin: 1 } },
+  );
+  const f = fake(overGame(blitz), { votes: [voteRow(A, "yes", 2000), voteRow(B)] });
+  await opRematchVote(f.admin, B, GAME, "yes");
+
+  assertEquals(f.row.state.rules.tokensToWin, 1);
+});
+
+Deno.test("a rematch of a classic game grows no new key", async () => {
+  const f = fake(overGame(), { votes: [voteRow(A, "yes", 2000), voteRow(B), voteRow(C, "no", 1000)] });
+  await opRematchVote(f.admin, B, GAME, "yes");
+
+  assertEquals("tokensToWin" in f.row.state.rules, false);
+});
+
 Deno.test("the pot does not ride on a rematch", async () => {
   // The previous game already paid out; re-staking seated players would be a
   // charge nobody agreed to.
