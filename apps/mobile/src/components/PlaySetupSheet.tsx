@@ -19,7 +19,8 @@ import { font, palette, radius, space, teamColor } from "../theme";
 import { useT } from "../i18n";
 
 const COUNTS = [2, 3, 4] as const;
-const VARIANTS: Variant[] = ["classic", "blitz"];
+/** Frenzy is vs AI only: on one shared phone nobody could reach their own die. */
+const VARIANTS: Record<PlayMode, Variant[]> = { ai: ["classic", "blitz", "frenzy"], pass: ["classic", "blitz"] };
 
 export type PlayMode = "ai" | "pass";
 
@@ -42,7 +43,7 @@ export function PlaySetupSheet({ mode, onStart, onClose }: PlaySetupSheetProps) 
     <Sheet onClose={onClose} title={mode === "ai" ? t("home.playVsAiLong") : t("home.passAndPlay")}>
       <SectionLabel>{t("mode.label")}</SectionLabel>
       <View style={{ flexDirection: "row", gap: space.sm }}>
-        {VARIANTS.map((v) => (
+        {VARIANTS[mode].map((v) => (
           <SelectTile key={v} label={t(`mode.${v}`)} selected={v === variant} onPress={() => setVariant(v)} />
         ))}
       </View>
@@ -62,17 +63,20 @@ export function PlaySetupSheet({ mode, onStart, onClose }: PlaySetupSheetProps) 
         ))}
       </View>
 
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={t("game.houseRules")}
-        onPress={() => setShowRules((v) => !v)}
-        style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", minHeight: 44, opacity: pressed ? 0.85 : 1 })}
-      >
-        <Text style={{ flex: 1, fontFamily: font.medium, fontSize: 15, color: palette.porcelain }}>{t("game.houseRules")}</Text>
-        <Text style={{ fontFamily: font.semibold, fontSize: 17, color: palette.mutedSteel }}>{showRules ? "−" : "+"}</Text>
-      </Pressable>
+      {/* Frenzy plays fixed rules — most of the house rules are about turns. */}
+      {variant !== "frenzy" && (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t("game.houseRules")}
+          onPress={() => setShowRules((v) => !v)}
+          style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", minHeight: 44, opacity: pressed ? 0.85 : 1 })}
+        >
+          <Text style={{ flex: 1, fontFamily: font.medium, fontSize: 15, color: palette.porcelain }}>{t("game.houseRules")}</Text>
+          <Text style={{ fontFamily: font.semibold, fontSize: 17, color: palette.mutedSteel }}>{showRules ? "−" : "+"}</Text>
+        </Pressable>
+      )}
 
-      {showRules && (
+      {showRules && variant !== "frenzy" && (
         <Animated.View entering={FadeIn.duration(140)} style={{ gap: 2 }}>
           {EXPOSED_RULES.map((rule) => (
             <SettingRow

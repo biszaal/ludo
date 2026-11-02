@@ -151,6 +151,8 @@ interface DiceProps {
    * moveTiming.rollsOnMount. Omitted, a mount never plays a roll.
    */
   rollLedger?: { current: number };
+  /** Roll without the rattle — Frenzy's other seats, which roll all the time. */
+  muted?: boolean;
 }
 
 /**
@@ -160,7 +162,7 @@ interface DiceProps {
  * and timer traffic, and each of those used to re-run the derived value below
  * — which is a full picture re-record — for a die that had not changed.
  */
-export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = false, theme, skin, onRollPress = null, pressLabel, rollLedger }: DiceProps) {
+export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = false, theme, skin, onRollPress = null, pressLabel, rollLedger, muted = false }: DiceProps) {
   const t = useT();
   /**
    * The roll, as one number.
@@ -272,7 +274,7 @@ export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = f
    * takes, which is what it looked like it should do all along.
    */
   const startRoll = useCallback(() => {
-    playDiceRoll();
+    if (!muted) playDiceRoll();
     // A die that is already rolling is not asking to be tapped. The roll leaves
     // `onRollPress` set for as long as the server takes to answer (the phase is
     // still awaiting-roll until then), so without this the whole canvas rocked
@@ -302,7 +304,7 @@ export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = f
       gaveUp.current = true;
       beginLanding(true);
     }, DICE_MAX_ROLL_MS);
-  }, [spin, settle, lift, spinDir, stopWiggle, clearCap, beginLanding]);
+  }, [spin, settle, lift, spinDir, stopWiggle, clearCap, beginLanding, muted]);
 
   // Start a roll when the store says one began.
   useEffect(() => {

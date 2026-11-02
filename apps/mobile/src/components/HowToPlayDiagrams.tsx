@@ -81,6 +81,29 @@ function star(cx: number, cy: number, outer: number, inner: number, color: strin
 /** The die is theme-independent (DEFAULT_DIE), so this one takes no theme. */
 function die(x: number, y: number, size: number, value: number) {
   const PIPS: Record<number, [number, number][]> = {
+    1: [[0.5, 0.5]],
+    2: [
+      [0.28, 0.28],
+      [0.72, 0.72],
+    ],
+    3: [
+      [0.28, 0.28],
+      [0.5, 0.5],
+      [0.72, 0.72],
+    ],
+    4: [
+      [0.28, 0.28],
+      [0.72, 0.28],
+      [0.28, 0.72],
+      [0.72, 0.72],
+    ],
+    5: [
+      [0.28, 0.28],
+      [0.72, 0.28],
+      [0.5, 0.5],
+      [0.28, 0.72],
+      [0.72, 0.72],
+    ],
     6: [
       [0.28, 0.24],
       [0.72, 0.24],
@@ -89,7 +112,6 @@ function die(x: number, y: number, size: number, value: number) {
       [0.28, 0.76],
       [0.72, 0.76],
     ],
-    1: [[0.5, 0.5]],
   };
   return (
     <Group>
@@ -207,6 +229,56 @@ export function WinDiagram({ width, theme }: DiagramProps) {
       {pawnAt(cx, baseY - 60, 14, theme.team.red, theme)}
       {pawnAt(cx + stepW + 6, baseY - 32, 12, theme.team.blue, theme)}
       {star(cx, 20, 11, 4.5, theme.team.yellow)}
+    </Canvas>
+  );
+}
+
+/** Blitz: one pawn into the center takes first place. */
+export function BlitzDiagram({ width, theme }: DiagramProps) {
+  const y = DIAGRAM_HEIGHT / 2 - CELL / 2 + 10;
+  const rowW = CELL * 4 + 30;
+  const x0 = (width - rowW) / 2;
+  const triX = x0 + CELL * 4 + 4;
+  const tri = Skia.Path.Make();
+  tri.moveTo(triX, y - 6);
+  tri.lineTo(triX + 30, y + CELL / 2);
+  tri.lineTo(triX, y + CELL + 5);
+  tri.close();
+  const lastX = x0 + CELL * 3 + CELL / 2;
+  return (
+    <Canvas style={{ width, height: DIAGRAM_HEIGHT }}>
+      {cellsRow(x0, y, 4, theme, { 0: theme.team.red, 1: theme.team.red, 2: theme.team.red, 3: theme.team.red })}
+      <Path path={tri} color={theme.team.red} />
+      {pawnAt(lastX, y + CELL / 2 - 4, 11, theme.team.red, theme)}
+      {arrow(lastX + 8, y - 8, triX + 14, y + 2, palette.mutedSteel, 16)}
+      {star(triX + 12, 18, 11, 4.5, theme.team.yellow)}
+    </Canvas>
+  );
+}
+
+/** Frenzy: every player rolls their own die at once. */
+export function FrenzyDiagram({ width, theme }: DiagramProps) {
+  const size = 40;
+  const gap = 18;
+  const seats = [
+    { color: theme.team.red, value: 6 },
+    { color: theme.team.green, value: 3 },
+    { color: theme.team.yellow, value: 5 },
+    { color: theme.team.blue, value: 2 },
+  ];
+  const x0 = (width - (size * seats.length + gap * (seats.length - 1))) / 2;
+  const dieY = 18;
+  return (
+    <Canvas style={{ width, height: DIAGRAM_HEIGHT }}>
+      {seats.map(({ color, value }, i) => {
+        const x = x0 + i * (size + gap);
+        return (
+          <Group key={color}>
+            {die(x, dieY, size, value)}
+            {pawnAt(x + size / 2, dieY + size + 30, 11, color, theme)}
+          </Group>
+        );
+      })}
     </Canvas>
   );
 }

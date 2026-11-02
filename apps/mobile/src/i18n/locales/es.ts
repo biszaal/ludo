@@ -254,6 +254,8 @@ export const es: Strings = {
   "mode.classicHint": "Lleva las cuatro fichas al centro para ganar",
   "mode.blitzHint": "Gana la primera ficha que llegue al centro",
   "mode.frenzyHint": "Sin turnos: todos lanzan el dado a la vez",
+  "frenzy.recharging": "Recargando…",
+  "frenzy.watching": "Viendo la carrera",
 
   "rules.title": "Cómo se juega",
   "rules.goal": "El objetivo",
@@ -274,6 +276,12 @@ export const es: Strings = {
   "rules.winning": "Ganar",
   "rules.winningBody":
     "Gana quien lleve primero sus cuatro fichas al centro. Terminar una ficha también da un lanzamiento extra.",
+  "rules.blitz": "Blitz",
+  "rules.blitzBody":
+    "Gana quien lleve primero una ficha al centro. Sus otras fichas salen del tablero y los demás siguen jugando por el segundo y el tercer puesto.",
+  "rules.frenzy": "Frenesí",
+  "rules.frenzyBody":
+    "Sin turnos: cada jugador tiene su propio dado y lo lanza cuando está listo. Cuando tu ficha llega, tu dado se recarga un momento; un seis, una captura o terminar una ficha se saltan la espera. Gana quien lleve primero sus cuatro fichas al centro.",
   "rules.sixToLeave": "Un seis para salir",
   "rules.extraRollOnSix": "Lanzamiento extra con un seis",
   "rules.threeSixes": "Tres seises, turno perdido",

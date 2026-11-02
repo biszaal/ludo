@@ -252,6 +252,8 @@ export const ptBR: Strings = {
   "mode.classicHint": "Leve os quatro peões ao centro para vencer",
   "mode.blitzHint": "Vence o primeiro peão que chegar ao centro",
   "mode.frenzyHint": "Sem esperar a vez: todos jogam o dado ao mesmo tempo",
+  "frenzy.recharging": "Recarregando…",
+  "frenzy.watching": "Assistindo à corrida",
 
   "rules.title": "Como jogar",
   "rules.goal": "O objetivo",
@@ -272,6 +274,12 @@ export const ptBR: Strings = {
   "rules.winning": "Vencer",
   "rules.winningBody":
     "Vence quem levar primeiro os quatro peões ao centro. Terminar um peão também dá uma jogada extra.",
+  "rules.blitz": "Blitz",
+  "rules.blitzBody":
+    "Vence quem levar primeiro um peão ao centro. Os outros peões dele saem do tabuleiro, e os demais continuam jogando pelo segundo e terceiro lugar.",
+  "rules.frenzy": "Frenesi",
+  "rules.frenzyBody":
+    "Sem esperar a vez: cada jogador tem o próprio dado e joga quando ele está pronto. Quando seu peão chega, o dado recarrega por um instante — um seis, uma captura ou terminar um peão pulam a espera. Vence quem levar primeiro os quatro peões ao centro.",
   "rules.sixToLeave": "Um seis para sair",
   "rules.extraRollOnSix": "Jogada extra no seis",
   "rules.threeSixes": "Três seis, vez perdida",

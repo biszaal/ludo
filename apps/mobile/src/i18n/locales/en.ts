@@ -274,6 +274,8 @@ export const en = {
   "mode.classicHint": "Bring all four pawns home to win",
   "mode.blitzHint": "First pawn home wins",
   "mode.frenzyHint": "No turns: everyone rolls at once",
+  "frenzy.recharging": "Recharging…",
+  "frenzy.watching": "Watching the race",
 
   // --- Rules (How to play) --------------------------------------------------
   "rules.title": "How to play",
@@ -295,6 +297,12 @@ export const en = {
   "rules.winning": "Winning",
   "rules.winningBody":
     "The first player to bring all four pawns to the center wins the game. Finishing a pawn also earns a bonus roll.",
+  "rules.blitz": "Blitz",
+  "rules.blitzBody":
+    "The first player to bring one pawn to the center wins. Their other pawns leave the board, and everyone else plays on for second and third.",
+  "rules.frenzy": "Frenzy",
+  "rules.frenzyBody":
+    "No turns: every player has their own die and rolls it whenever it is ready. Once your pawn lands, your die recharges for a moment — a six, a capture or a finish skips the wait. The first to bring all four pawns to the center wins.",
   "rules.sixToLeave": "Six to leave the yard",
   "rules.extraRollOnSix": "Extra roll on a six",
   "rules.threeSixes": "Three sixes forfeit",

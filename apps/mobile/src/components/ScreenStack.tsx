@@ -18,6 +18,7 @@ import { BackHandler, View } from "react-native";
 import Animated, { Easing, withTiming } from "react-native-reanimated";
 import { HomeScreen } from "../screens/HomeScreen";
 import { GameScreen } from "../screens/GameScreen";
+import { FrenzyGameScreen } from "../screens/FrenzyGameScreen";
 import { LobbyScreen } from "../screens/LobbyScreen";
 import { OnlineGameScreen } from "../screens/OnlineGameScreen";
 import { SettingsScreen } from "../screens/SettingsScreen";
@@ -36,6 +37,7 @@ import { palette } from "../theme";
 const SCREENS: Partial<Record<ScreenName, ComponentType>> = {
   home: HomeScreen,
   localGame: GameScreen,
+  frenzyGame: FrenzyGameScreen,
   lobby: LobbyScreen,
   onlineGame: OnlineGameScreen,
   settings: SettingsScreen,

@@ -125,8 +125,8 @@ describe("catalogs", () => {
     const PROPER_NOUNS = new Set(["account.google", "account.apple", "shop.avatar", "lobby.bot"]);
     const LOANWORDS: Partial<Record<Locale, string[]>> = {
       // "Blitz" is the chess word, borrowed as-is in Portuguese and Spanish.
-      "pt-BR": ["friends.online", "friends.offline", "stats.modeOnline", "mode.blitz"],
-      es: ["mode.blitz"],
+      "pt-BR": ["friends.online", "friends.offline", "stats.modeOnline", "mode.blitz", "rules.blitz"],
+      es: ["mode.blitz", "rules.blitz"],
       // "AI" is said and written as AI in all four — Spanish and Portuguese
       // are the ones that localise it (IA), and they are not listed here.
       hi: ["status.aiSeat"],

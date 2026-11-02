@@ -118,6 +118,12 @@ interface BoardProps {
    * in the same, easy-to-reach corner. Omit for a fixed default orientation.
    */
   viewColor?: PlayerColor;
+  /**
+   * Frenzy: only this color's pawns make hop sounds and hop ticks. Every seat
+   * moves at once there, and four seats hopping together is a din that buries
+   * your own pawn. Omitted, every pawn sounds (turn-based play: one mover).
+   */
+  soundColor?: PlayerColor;
 }
 
 /** Quarter-turns (90° CW) needed to bring each yard to the bottom-left. */
@@ -136,7 +142,7 @@ interface Spot {
  * Skia picture. Callers must keep `isMovable`/`onSelectToken` stable for this
  * to bite (GameView does).
  */
-export const Board = memo(function Board({ size, state, theme, isMovable, onSelectToken, viewColor }: BoardProps) {
+export const Board = memo(function Board({ size, state, theme, isMovable, onSelectToken, viewColor, soundColor }: BoardProps) {
   const t = useT();
   // Read once here, not per pawn. The movable-pawn bob is the single largest
   // sustained cost in normal play: a Skia canvas rasterizes in FULL whenever any
@@ -317,6 +323,7 @@ export const Board = memo(function Board({ size, state, theme, isMovable, onSele
                   movable={isMovable(token.id)}
                   phase={tokenIndex(token.id) % 4}
                   fullMotion={fullMotion}
+                  quiet={soundColor !== undefined && token.color !== soundColor}
                 />
               ))}
           </Group>
@@ -1037,6 +1044,8 @@ interface AnimatedPawnProps {
   /** False on a device that cannot afford the repeating bob — the lift is then
    *  held still, which leaves this canvas with nothing animating at all. */
   fullMotion: boolean;
+  /** Hops without the sound and the tick (see BoardProps.soundColor). */
+  quiet: boolean;
 }
 
 interface Spot2 {
@@ -1069,7 +1078,7 @@ const HOP_LIFT_R = 0.65;
  * referentially equal is a no-op for the intent/prev refs below — equal props
  * mean an unchanged `posKey`, which is the only thing they latch on.
  */
-const AnimatedPawn = memo(function AnimatedPawn({ waypoints, walk, stepMs, retrace, preRollMs, posKey, r, color, stroke, delay, movable, phase, fullMotion }: AnimatedPawnProps) {
+const AnimatedPawn = memo(function AnimatedPawn({ waypoints, walk, stepMs, retrace, preRollMs, posKey, r, color, stroke, delay, movable, phase, fullMotion, quiet }: AnimatedPawnProps) {
   const last = waypoints[waypoints.length - 1]!;
   const tx = useSharedValue(last.x);
   const ty = useSharedValue(last.y);
@@ -1138,12 +1147,12 @@ const AnimatedPawn = memo(function AnimatedPawn({ waypoints, walk, stepMs, retra
       const nowLanded = landingsBy(t, n, w.retrace, w.air);
       if (nowLanded > landed.value) {
         landed.value = nowLanded;
-        runOnJS(hopHaptic)();
+        if (!quiet) runOnJS(hopHaptic)();
       }
       const nowCued = cuesBy(t, n, w.retrace, w.leadCells, w.air);
       if (nowCued > cued.value) {
         cued.value = nowCued;
-        runOnJS(hopSound)();
+        if (!quiet) runOnJS(hopSound)();
       }
     },
   );
@@ -1180,7 +1189,7 @@ const AnimatedPawn = memo(function AnimatedPawn({ waypoints, walk, stepMs, retra
       // once.
       const onCue = (finished?: boolean) => {
         "worklet";
-        if (finished) runOnJS(hopSound)();
+        if (finished && !quiet) runOnJS(hopSound)();
       };
       if (!doWalk) {
         // A fly is one segment on each axis, so it keeps its own timings: there

@@ -23,6 +23,7 @@ import { ReactionBar } from "./ReactionBar";
 import { ChatBubble } from "./ChatBubble";
 import { ResultsOverlay, type RematchVoting } from "./ResultsOverlay";
 import { WinnerCelebration } from "./WinnerCelebration";
+import { RechargeMeter } from "./RechargeMeter";
 import { FinishedPrompt } from "./FinishedPrompt";
 import { RemovedPrompt } from "./RemovedPrompt";
 import { TableBackground } from "./TableBackground";
@@ -38,6 +39,7 @@ import {
   stackedBoardSize,
 } from "../lib/layout";
 import type { ChatEvent } from "../store/onlineStore";
+import type { SeatDie } from "../store/frenzyStore";
 import { font, palette, radius, space, teamColor } from "../theme";
 import { resolveBoardTheme } from "../render/boardThemes";
 import { resolveDiceSkin } from "../render/diceSkins";
@@ -120,6 +122,24 @@ interface GameViewProps {
   viewColor?: Color;
   /** In-room reactions + chat (online only; local play omits it). */
   chat?: GameChat;
+  /**
+   * Frenzy: no turns, so no single table die handed between corners — every
+   * seat shows its own die at its chip, and `onRoll` rolls the local seat's.
+   */
+  frenzy?: FrenzyView;
+  /** Replaces the computed hint under the status line (Frenzy has no turn
+   *  phase for it to be computed from). */
+  hint?: string;
+  /** Controlled pause, for a game whose clocks must stop with the menu
+   *  (Frenzy). Omitted, the view keeps its own. */
+  paused?: boolean;
+  onPausedChange?: (paused: boolean) => void;
+}
+
+export interface FrenzyView {
+  /** The local seat. */
+  me: string | null;
+  seats: Record<string, SeatDie>;
 }
 
 export interface GameChat {
@@ -177,12 +197,26 @@ export function GameView({
   stake = 0,
   viewColor,
   chat,
+  frenzy,
+  hint,
+  paused: pausedProp,
+  onPausedChange,
 }: GameViewProps) {
   const t = useT();
   const { width, height } = useWindowDimensions();
   const { tier, scale, insets } = useLayout();
   const theme = resolveBoardTheme(useSettings((s) => s.boardThemeId));
-  const [paused, setPaused] = useState(false);
+  const [ownPaused, setOwnPaused] = useState(false);
+  const paused = pausedProp ?? ownPaused;
+  const pausedRef = useRef(paused);
+  pausedRef.current = paused;
+  const onPausedChangeRef = useRef(onPausedChange);
+  onPausedChangeRef.current = onPausedChange;
+  const setPaused = useCallback((next: boolean | ((was: boolean) => boolean)) => {
+    const value = typeof next === "function" ? next(pausedRef.current) : next;
+    if (onPausedChangeRef.current) onPausedChangeRef.current(value);
+    else setOwnPaused(value);
+  }, []);
   const [reactionsOpen, setReactionsOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   // Landscape flips the game screen into its railed form — board flanked by two
@@ -214,6 +248,17 @@ export function GameView({
    * opening a game mid-turn does not replay it.
    */
   const rollLedger = useRef(rollSeq);
+  // Frenzy's dice never change corners, but each still needs its own ledger:
+  // seeded with the roll on show, so opening the screen does not replay it.
+  const frenzyLedgers = useRef(new Map<string, { current: number }>());
+  const ledgerFor = (playerId: string, seq: number) => {
+    let ledger = frenzyLedgers.current.get(playerId);
+    if (!ledger) {
+      ledger = { current: seq };
+      frenzyLedgers.current.set(playerId, ledger);
+    }
+    return ledger;
+  };
   const dieSeatId = heldDie?.playerId ?? state.currentTurnPlayerId;
   const dieValue = heldDie ? heldDie.value : state.diceValue ?? lastRoll;
 
@@ -473,6 +518,41 @@ export function GameView({
   // The die rides next to whoever is active — by the local user when it's their
   // turn (bottom-left), matching Ludo Club — and IS the roll control: when the
   // local user may roll, the die wiggles and tapping it rolls.
+  // One seat's die in Frenzy. Only the local seat's is tappable, rattles, and
+  // shows its recharge; the others roll silently on their own clocks.
+  const frenzyDie = (playerId: string, color: TeamColor, seat: SeatDie) => {
+    const mine = playerId === frenzy?.me;
+    const recharging = !seat.ready && seat.held === null;
+    const canRoll = mine && seat.ready && seat.held === null && !paused;
+    return (
+      <View style={{ alignItems: "center", gap: space.xs }}>
+        <View style={{ opacity: recharging ? 0.55 : 1 }}>
+          <Dice
+            value={seat.face}
+            spinSeq={seat.rollSeq}
+            size={diceSize}
+            idle={seat.ready && seat.held === null}
+            theme={theme}
+            skin={resolveDiceSkin(diceSkinFor?.(playerId) ?? null)}
+            onRollPress={canRoll ? rollStable : null}
+            pressLabel={t("game.rollTheDice")}
+            rollLedger={ledgerFor(playerId, seat.rollSeq)}
+            muted={!mine}
+          />
+        </View>
+        {mine ? (
+          <RechargeMeter
+            from={seat.rechargeFrom}
+            until={seat.readyAt}
+            visible={recharging}
+            width={diceSize}
+            color={teamColor[color]}
+          />
+        ) : null}
+      </View>
+    );
+  };
+
   const cornerChip = (screen: number, { withDice = true }: { withDice?: boolean } = {}) => {
     const align = screen === TL || screen === BL ? "left" : "right";
     // Bubbles always pop toward the board: top chips downward (never over the
@@ -480,7 +560,8 @@ export function GameView({
     const vAlign = screen === TL || screen === TR ? "below" : "above";
     const p = byColor.get(colorAtCorner(screen));
     if (!p) return <View style={{ width: CHIP_COLUMN }} />;
-    const isActive = p.id === state.currentTurnPlayerId && !finished;
+    // Frenzy has no turn: nobody's chip is "active".
+    const isActive = !frenzy && p.id === state.currentTurnPlayerId && !finished;
     const gone = leftFor?.(p.id) ?? false;
     const bubble = gone ? undefined : chat?.latestBubbles[p.userId];
     const canRoll = isActive && canAct && !paused && state.phase === "awaiting-roll";
@@ -491,8 +572,18 @@ export function GameView({
     // not tappable — there is no human behind it to hand control back to.
     const filledBot = !pilot && (botFor?.(p.id) ?? false);
     const showTimer = isActive && !pilot && !filledBot && !!turnTimer;
+    const seatDie = frenzy ? frenzy.seats[p.id] : undefined;
+    // Railed chip columns are too narrow for a die beside the chip, so a Frenzy
+    // die stacks on the board side of it instead.
+    const stack = !!frenzy && railed;
     return (
-      <View style={{ flexDirection: align === "left" ? "row" : "row-reverse", alignItems: "center", gap: space.md }}>
+      <View
+        style={{
+          flexDirection: stack ? (vAlign === "below" ? "column" : "column-reverse") : align === "left" ? "row" : "row-reverse",
+          alignItems: stack ? (align === "left" ? "flex-start" : "flex-end") : "center",
+          gap: space.md,
+        }}
+      >
         <View>
           <PlayerChip
             seatColor={p.color}
@@ -511,7 +602,9 @@ export function GameView({
           />
           {bubble ? <ChatBubble value={bubble.value} kind={bubble.kind} seq={bubble.seq} align={align} vAlign={vAlign} /> : null}
         </View>
-        {p.id === dieSeatId && withDice ? (
+        {frenzy ? (
+          seatDie && !finished && !state.finishedOrder.includes(p.id) && !p.hasLeft ? frenzyDie(p.id, p.color, seatDie) : null
+        ) : p.id === dieSeatId && withDice ? (
           // Constant size — resizing mid-roll made the face flicker/jump.
           // On an autopilot seat the die stays tappable too: tapping it (like
           // tapping the avatar) hands control back to the human.
@@ -583,6 +676,7 @@ export function GameView({
           isMovable={movable}
           onSelectToken={boardTappable ? selectTokenStable : NOOP}
           viewColor={viewColor}
+          soundColor={frenzy ? viewColor : undefined}
         />
         {toast ? (
           <Animated.View
@@ -614,7 +708,9 @@ export function GameView({
       <Text style={{ fontFamily: font.medium, fontSize: Math.round(13 * scale), color: palette.mutedSteel, textAlign: "center" }}>
         {finished
           ? " "
-          : !canAct
+          : hint !== undefined
+            ? hint
+            : !canAct
             ? waitingLabel ?? t("common.waiting")
             : state.phase === "awaiting-roll"
               ? t("game.tapDieToRoll")
@@ -663,7 +759,7 @@ export function GameView({
   // number on it, until their pawn lands. Same reasoning as the corner chips.
   const dieSeat = state.players.find((p) => p.id === dieSeatId) ?? activeSeat;
   const railDie =
-    dieSeat && !finished ? (
+    dieSeat && !finished && !frenzy ? (
       <Dice
         value={dieValue}
         spinSeq={rollSeq}

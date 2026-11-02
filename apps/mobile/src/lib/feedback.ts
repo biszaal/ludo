@@ -1,6 +1,6 @@
 /**
- * Game-event feedback: one observer that diffs consecutive GameStates from both
- * stores and fires sounds/haptics (and, later, stats recording). Living here —
+ * Game-event feedback: one observer that diffs consecutive GameStates from the
+ * game stores and fires sounds/haptics (and, later, stats recording). Living here —
  * not in the stores — keeps gameStore/onlineStore free of native imports so the
  * Node test suite stays runnable. Import this ONLY from App.tsx.
  *
@@ -14,6 +14,7 @@
 import { SAFE_SQUARES, type Color, type GameState } from "@ludo/engine";
 import { START_CELL_INDEX } from "../render/boardLayout";
 import { positionKey } from "../render/waypoints";
+import { useFrenzyStore } from "../store/frenzyStore";
 import { useGameStore } from "../store/gameStore";
 import { useOnlineStore } from "../store/onlineStore";
 import { useProfile } from "../store/profileStore";
@@ -42,6 +43,10 @@ function diffAndFire(prev: GameState | null, next: GameState | null, myPlayerId:
   // The Board animates the mover to its cell before anything lands; sounds
   // for what happens ON arrival must wait just as long.
   let arrivalMs = 0;
+  // Frenzy has no turn: the mover is whoever the move says moved.
+  const mover = next.frenzy
+    ? (next.lastAction?.payload as { playerId?: string } | null)?.playerId
+    : prev.currentTurnPlayerId;
   const prevPos = new Map(prev.tokens.map((t) => [t.id, t.position]));
   for (const t of next.tokens) {
     const was = prevPos.get(t.id);
@@ -57,10 +62,14 @@ function diffAndFire(prev: GameState | null, next: GameState | null, myPlayerId:
     }
     // The mover (captured tokens fly home separately, after the mover lands).
     // Its touchdown, not the end of its move: a hop ends with a sit on the cell.
-    if (t.playerId === prev.currentTurnPlayerId && t.position !== "home") {
+    if (t.playerId === mover && t.position !== "home") {
       arrivalMs = moveTouchdownMs(t.color, was, t.position);
     }
   }
+
+  // Every seat moves at once in Frenzy, so only your own landings chime — the
+  // star cells would otherwise ring all game.
+  if (next.frenzy && mover !== myPlayerId) reachedSafety = false;
 
   // Win outranks everything (a finishing move also set `finished`). Fires
   // immediately — it accompanies the results overlay, not a landing.
@@ -150,10 +159,14 @@ function recordOnline(state: GameState, myPlayerId: string | null): void {
   });
 }
 
-/** Subscribe to both stores. Call once from App.tsx; returns an unsubscribe. */
+/** Subscribe to the game stores. Call once from App.tsx; returns an unsubscribe. */
 export function initFeedback(): () => void {
   const unLocal = useGameStore.subscribe((s, prevS) => {
     diffAndFire(prevS.state, s.state, null);
+    if (justFinished(prevS.state, s.state)) recordLocal(s.state, s.botIds);
+  });
+  const unFrenzy = useFrenzyStore.subscribe((s, prevS) => {
+    diffAndFire(prevS.state, s.state, s.me);
     if (justFinished(prevS.state, s.state)) recordLocal(s.state, s.botIds);
   });
   const unOnline = useOnlineStore.subscribe((s, prevS) => {
@@ -176,6 +189,7 @@ export function initFeedback(): () => void {
   });
   return () => {
     unLocal();
+    unFrenzy();
     unOnline();
   };
 }

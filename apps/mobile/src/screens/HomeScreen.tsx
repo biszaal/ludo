@@ -45,6 +45,7 @@ import { useConfig } from "../store/configStore";
 import { resolveBoardTheme, type BoardTheme } from "../render/boardThemes";
 import { resolveDiceSkin } from "../render/diceSkins";
 import { useGameStore } from "../store/gameStore";
+import { useFrenzyStore } from "../store/frenzyStore";
 import { useOnlineStore } from "../store/onlineStore";
 import { pollPresence, useFriends } from "../store/friendsStore";
 import { useNav } from "../store/navStore";
@@ -266,7 +267,8 @@ export function HomeScreen() {
           onClose={() => setSheetMode(null)}
           onStart={(players, bots, rules, variant) => {
             setSheetMode(null);
-            newLocalGame({ players, bots, rules, variant: variant === "blitz" ? "blitz" : undefined });
+            if (variant === "frenzy") useFrenzyStore.getState().newFrenzyGame({ players });
+            else newLocalGame({ players, bots, rules, variant: variant === "blitz" ? "blitz" : undefined });
           }}
         />
       )}
