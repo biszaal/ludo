@@ -69,6 +69,9 @@ export interface AppConfig {
     stakeTiers: number[];
   };
   shop: { enabled: boolean; coinPacksEnabled: boolean };
+  /** Online modes the server has opened (0074). Off by default: a build must
+   *  not offer what an older function would silently deal as classic. */
+  modes: { blitzOnline: boolean };
   gems: {
     enabled: boolean;
     /** Real-money purchases live (0027). The stub provider stays locked off
@@ -112,6 +115,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     stakeTiers: [100, 1000, 10000],
   },
   shop: { enabled: true, coinPacksEnabled: false },
+  modes: { blitzOnline: false },
   gems: {
     enabled: true,
     purchasesEnabled: true,

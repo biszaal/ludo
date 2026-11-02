@@ -5,7 +5,7 @@
 
 import { describe, it, expect } from "vitest";
 import { createGame, type CreateGameOptions, type GameState, type TokenPosition } from "@ludo/engine";
-import { computeStandings, tokensToWin, variantOf } from "../src/lib/standings";
+import { computeStandings, onlineModes, tokensToWin, variantOf } from "../src/lib/standings";
 
 function game(options: CreateGameOptions = {}): GameState {
   return createGame(
@@ -74,6 +74,11 @@ describe("game variant", () => {
     expect(variantOf(game())).toBe("classic");
     expect(variantOf(game({ rules: { tokensToWin: 1 } }))).toBe("blitz");
     expect(variantOf(game({ frenzy: true }))).toBe("frenzy");
+  });
+
+  it("offers Blitz online only once the server has opened it", () => {
+    expect(onlineModes(false)).toEqual(["classic"]);
+    expect(onlineModes(true)).toEqual(["classic", "blitz"]);
   });
 
   it("says how many tokens a seat needs home", () => {

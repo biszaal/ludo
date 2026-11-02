@@ -7,6 +7,7 @@
  * stay direct, gated by RLS.
  */
 
+import type { OnlineMode } from "../lib/standings";
 import type { Color, GameState } from "@ludo/engine";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { getSupabase } from "../lib/supabase";
@@ -103,6 +104,8 @@ export interface Membership {
   myPlayerId: string;
   /** Coins each seat pays when the game starts (0 = friendly). */
   stake?: number;
+  /** Absent on old servers: classic. */
+  mode?: OnlineMode;
 }
 
 /**
@@ -276,16 +279,18 @@ async function callGame<T>(
 
 /** Open a private room. `stake` is the per-seat pot (0 = friendly); the server
  *  validates it against its tier list and collects it at start, not now. */
-export async function createGame(stake = 0): Promise<Membership> {
+export async function createGame(stake = 0, mode: OnlineMode = "classic"): Promise<Membership> {
   const userId = await ensureSignedIn();
-  const res = await callGame<RoomResult>("create", { stake });
-  return { gameId: res.gameId, roomCode: res.roomCode, userId, myPlayerId: res.playerId, stake: res.stake ?? 0 };
+  const res = await callGame<RoomResult>("create", mode === "classic" ? { stake } : { stake, mode });
+  return { gameId: res.gameId, roomCode: res.roomCode, userId, myPlayerId: res.playerId, stake: res.stake ?? 0, mode: res.mode };
 }
 
 export async function joinGame(rawCode: string): Promise<Membership> {
   const userId = await ensureSignedIn();
-  const res = await callGame<RoomResult>("join", { code: rawCode });
-  return { gameId: res.gameId, roomCode: res.roomCode, userId, myPlayerId: res.playerId, stake: res.stake ?? 0 };
+  // `features` is how the server knows this build can sit at a Blitz table. A
+  // capability rather than a version, because JS can ship over the air.
+  const res = await callGame<RoomResult>("join", { code: rawCode, features: ["blitz"] });
+  return { gameId: res.gameId, roomCode: res.roomCode, userId, myPlayerId: res.playerId, stake: res.stake ?? 0, mode: res.mode };
 }
 
 interface RoomResult {
@@ -294,6 +299,8 @@ interface RoomResult {
   playerId: string;
   /** Per-seat entry. Absent on old servers; treat as a friendly game. */
   stake?: number;
+  /** Absent on old servers: classic. */
+  mode?: OnlineMode;
 }
 
 /**
@@ -412,6 +419,8 @@ export interface QuickMatchResult {
   v?: number | null;
   /** Entry coins debited for this match. */
   stake?: number;
+  /** The mode of the room this actually seated you in. Absent on old servers. */
+  mode?: OnlineMode;
   /** The room's table size (2 = 1v1, 4 = free-for-all). */
   size?: number;
 }
@@ -463,7 +472,7 @@ async function idempotentCall<T>(
  *  Laddered: a cold edge worker turns the first tap of a quiet evening into a
  *  502, and pressing PLAY is the worst possible moment to hand someone a dead
  *  end. Safe to re-ask — the server hands back the room already claimed. */
-export async function quickMatch(size: 2 | 4, stake?: number): Promise<QuickMatchResult> {
+export async function quickMatch(size: 2 | 4, stake?: number, mode: OnlineMode = "classic"): Promise<QuickMatchResult> {
   const userId = await ensureSignedIn();
   const res = await idempotentCall<{
     gameId: string;
@@ -473,7 +482,8 @@ export async function quickMatch(size: 2 | 4, stake?: number): Promise<QuickMatc
     v?: number | null;
     stake?: number;
     size?: number;
-  }>("quickMatch", stake == null ? { size } : { size, stake });
+    mode?: OnlineMode;
+  }>("quickMatch", { size, ...(stake == null ? {} : { stake }), ...(mode === "classic" ? {} : { mode }) });
   return {
     gameId: res.gameId,
     userId,
@@ -483,6 +493,7 @@ export async function quickMatch(size: 2 | 4, stake?: number): Promise<QuickMatc
     v: res.v ?? null,
     stake: res.stake,
     size: res.size,
+    mode: res.mode,
   };
 }
 

@@ -6,6 +6,7 @@
  * reconnect. The client computes valid moves only for display/highlighting.
  */
 
+import type { OnlineMode } from "../lib/standings";
 import { create } from "zustand";
 import {
   applyMove,
@@ -69,6 +70,9 @@ interface OnlineStore {
   isQuick: boolean;
   /** Quick-match table size (2 = 1v1, 4 = free-for-all) — drives the lobby copy. */
   quickSize: number;
+  /** The room's mode, for the lobby. In game, read variantOf(state) instead:
+   *  a table reloaded from the database has only its state to go on. */
+  mode: OnlineMode;
   /** Coins each seat staked (0 = friendly). Winner takes stake × 2. */
   stake: number;
   lobby: api.LobbyPlayer[];
@@ -122,10 +126,10 @@ interface OnlineStore {
   reportPlayer: (targetUserId: string, message?: string) => Promise<void>;
 
   /** Open a room. `stake` is the per-seat pot; 0 (default) is a friendly game. */
-  create: (stake?: number) => Promise<void>;
+  create: (stake?: number, mode?: OnlineMode) => Promise<void>;
   join: (code: string) => Promise<void>;
   /** Play online: pair into a 2- or 4-player table (hidden bots fill a dry queue). */
-  quickMatch: (size: 2 | 4, stake?: number) => Promise<void>;
+  quickMatch: (size: 2 | 4, stake?: number, mode?: OnlineMode) => Promise<void>;
   /** Host-only. `fill` seats bots in the empty chairs before dealing. */
   start: (fill?: boolean) => Promise<void>;
   roll: () => Promise<void>;
@@ -166,6 +170,7 @@ const INITIAL = {
   starting: false,
   isQuick: false,
   quickSize: 2,
+  mode: "classic" as OnlineMode,
   rematchProposal: null as Proposal | null,
   rematchNotice: null as string | null,
   stake: 0,
@@ -196,10 +201,10 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
   // Reloaded from the server at sign-in (loadMuted).
   mutedUserIds: [] as string[],
 
-  create: async (stake = 0) => {
+  create: async (stake = 0, mode = "classic") => {
     set({ status: "connecting", error: null });
     try {
-      const m = await api.createGame(stake);
+      const m = mode === "classic" ? await api.createGame(stake) : await api.createGame(stake, mode);
       const synced = syncMyProfile();
       subscribe(m.gameId);
       const lobby = await api.getLobby(m.gameId);
@@ -211,6 +216,7 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
         isHost: true,
         lobby,
         stake: m.stake ?? 0,
+        mode: m.mode ?? "classic",
         status: "lobby",
       });
       void syncThenFetchProfiles(synced, lobby);
@@ -236,6 +242,7 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
         isHost: me?.is_host ?? false,
         lobby,
         stake: m.stake ?? 0,
+        mode: m.mode ?? "classic",
       });
       void syncThenFetchProfiles(synced, lobby);
       const row = await api.fetchGame(m.gameId);
@@ -251,10 +258,10 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
     }
   },
 
-  quickMatch: async (size, stake) => {
+  quickMatch: async (size, stake, mode = "classic") => {
     set({ status: "connecting", error: null });
     try {
-      const m = await api.quickMatch(size, stake);
+      const m = mode === "classic" ? await api.quickMatch(size, stake) : await api.quickMatch(size, stake, mode);
       const synced = syncMyProfile();
       subscribe(m.gameId);
       const lobby = await api.getLobby(m.gameId);
@@ -267,6 +274,7 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
         isHost: me?.is_host ?? false,
         isQuick: true,
         quickSize: m.size ?? size,
+        mode: m.mode ?? "classic",
         stake: m.stake ?? 0,
         lobby,
         status: "lobby",

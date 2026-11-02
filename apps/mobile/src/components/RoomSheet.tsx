@@ -32,6 +32,8 @@ import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { Button } from "./Button";
 import { Sheet } from "./Sheet";
+import { ModePicker } from "./ModePicker";
+import { onlineModes, type OnlineMode } from "../lib/standings";
 import { Field } from "./Field";
 import { SelectTile } from "./SelectTile";
 import { SectionLabel } from "./SectionLabel";
@@ -60,6 +62,8 @@ export function RoomSheet({ onClose }: { onClose: () => void }) {
   const tiers = useConfig((s) => s.config.economy.stakeTiers);
   const balance = useWallet((s) => s.balance);
   const [stake, setStake] = useState(0);
+  const modes = onlineModes(useConfig((s) => s.config.modes.blitzOnline));
+  const [mode, setMode] = useState<OnlineMode>("classic");
 
   return (
     <Sheet onClose={onClose} title={t("home.playWithFriends")} keyboardAvoiding variant="popup">
@@ -100,6 +104,8 @@ export function RoomSheet({ onClose }: { onClose: () => void }) {
         <View style={{ flex: 1, height: 1, backgroundColor: palette.hairline }} />
       </View>
 
+      <ModePicker options={modes} value={mode} onChange={setMode} />
+
       <SectionLabel>{t("home.playFor")}</SectionLabel>
       <View style={{ flexDirection: "row", gap: space.sm }}>
         <SelectTile label="Free" selected={stake === 0} onPress={() => setStake(0)} />
@@ -130,7 +136,7 @@ export function RoomSheet({ onClose }: { onClose: () => void }) {
       <Button
         label={connecting ? t("common.creating") : t("lobby.createRoom")}
         variant="ghost"
-        onPress={() => void create(stake)}
+        onPress={() => void create(stake, mode)}
       />
 
       <Pressable

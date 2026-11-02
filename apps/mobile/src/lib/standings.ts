@@ -9,6 +9,13 @@
 import { TOKENS_PER_PLAYER, toRelativeIndex, type Color, type GameState } from "@ludo/engine";
 
 export type Variant = "classic" | "blitz" | "frenzy";
+/** The modes a server can run. Frenzy is vs AI only. */
+export type OnlineMode = Exclude<Variant, "frenzy">;
+
+/** What an online setup sheet may offer, given the server's `modes.blitzOnline`. */
+export function onlineModes(blitzOnline: boolean): OnlineMode[] {
+  return blitzOnline ? ["classic", "blitz"] : ["classic"];
+}
 
 /** Which mode a game is, read off the state itself (it carries its own rules). */
 export function variantOf(state: GameState): Variant {

@@ -98,6 +98,51 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+describe("online modes", () => {
+  it("asks the server for Blitz, and remembers it for the lobby", async () => {
+    vi.mocked(api.quickMatch).mockResolvedValue({ gameId: "g1", userId: "u1", myPlayerId: "p1", waiting: true, mode: "blitz" });
+    vi.mocked(api.subscribeGame).mockReturnValue({} as RealtimeChannel);
+
+    await store.getState().quickMatch(2, 100, "blitz");
+
+    expect(api.quickMatch).toHaveBeenCalledWith(2, 100, "blitz");
+    expect(store.getState().mode).toBe("blitz");
+  });
+
+  it("believes the server over the request", async () => {
+    // A re-tap while already searching hands back the room you are in, whatever
+    // you asked for this time, so the lobby must show what that room really is.
+    vi.mocked(api.quickMatch).mockResolvedValue({ gameId: "g1", userId: "u1", myPlayerId: "p1", waiting: true, mode: "classic" });
+    vi.mocked(api.subscribeGame).mockReturnValue({} as RealtimeChannel);
+
+    await store.getState().quickMatch(2, 100, "blitz");
+
+    expect(store.getState().mode).toBe("classic");
+  });
+
+  it("creates a Blitz room, and forgets the mode on leaving", async () => {
+    vi.mocked(api.createGame).mockResolvedValue({ gameId: "g1", roomCode: "ABCD", userId: "u1", myPlayerId: "p1", mode: "blitz" });
+    vi.mocked(api.subscribeGame).mockReturnValue({} as RealtimeChannel);
+
+    await store.getState().create(0, "blitz");
+    expect(api.createGame).toHaveBeenCalledWith(0, "blitz");
+    expect(store.getState().mode).toBe("blitz");
+
+    store.getState().leave();
+    expect(store.getState().mode).toBe("classic");
+  });
+
+  it("learns the mode of a room it joins by code", async () => {
+    vi.mocked(api.joinGame).mockResolvedValue({ gameId: "g1", roomCode: "ABCD", userId: "u1", myPlayerId: "p2", mode: "blitz" });
+    vi.mocked(api.subscribeGame).mockReturnValue({} as RealtimeChannel);
+    vi.mocked(api.fetchGame).mockResolvedValue({ ...row(dealtGame(), 0), status: "waiting", state: null } as unknown as api.GameRow);
+
+    await store.getState().join("ABCD");
+
+    expect(store.getState().mode).toBe("blitz");
+  });
+});
+
 describe("quick match", () => {
   it("fills with a hidden bot after the wait window", async () => {
     vi.useFakeTimers();

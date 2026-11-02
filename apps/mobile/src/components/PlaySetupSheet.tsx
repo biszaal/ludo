@@ -9,6 +9,7 @@ import { Pressable, Text, View } from "react-native";
 import Animated, { FadeIn } from "react-native-reanimated";
 import { DEFAULT_RULES, seatColors, type RuleConfig } from "@ludo/engine";
 import { Button } from "./Button";
+import { ModePicker } from "./ModePicker";
 import { Sheet } from "./Sheet";
 import { SectionLabel } from "./SectionLabel";
 import { SelectTile } from "./SelectTile";
@@ -41,15 +42,7 @@ export function PlaySetupSheet({ mode, onStart, onClose }: PlaySetupSheetProps) 
 
   return (
     <Sheet onClose={onClose} title={mode === "ai" ? t("home.playVsAiLong") : t("home.passAndPlay")}>
-      <SectionLabel>{t("mode.label")}</SectionLabel>
-      <View style={{ flexDirection: "row", gap: space.sm }}>
-        {VARIANTS[mode].map((v) => (
-          <SelectTile key={v} label={t(`mode.${v}`)} selected={v === variant} onPress={() => setVariant(v)} />
-        ))}
-      </View>
-      <Text style={{ fontFamily: font.medium, fontSize: 13, color: palette.mutedSteel, paddingLeft: space.xs }}>
-        {t(`mode.${variant}Hint`)}
-      </Text>
+      <ModePicker options={VARIANTS[mode]} value={variant} onChange={setVariant} />
 
       <SectionLabel>{mode === "ai" ? t("game.playersYouPlusAi") : t("game.players")}</SectionLabel>
       <View style={{ flexDirection: "row", gap: space.sm }}>

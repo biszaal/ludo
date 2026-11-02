@@ -24,6 +24,7 @@ import { ChatBubble } from "./ChatBubble";
 import { ResultsOverlay, type RematchVoting } from "./ResultsOverlay";
 import { WinnerCelebration } from "./WinnerCelebration";
 import { RechargeMeter } from "./RechargeMeter";
+import { ModeBadge } from "./ModeBadge";
 import { FinishedPrompt } from "./FinishedPrompt";
 import { RemovedPrompt } from "./RemovedPrompt";
 import { TableBackground } from "./TableBackground";
@@ -633,14 +634,7 @@ export function GameView({
     <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
         <Text style={{ fontFamily: font.display, fontSize: Math.round(22 * scale), color: palette.porcelain }}>Ludo</Text>
-        {variant !== "classic" ? (
-          <View
-            accessibilityLabel={`${t(`mode.${variant}`)}: ${t(`mode.${variant}Hint`)}`}
-            style={{ paddingHorizontal: space.sm, paddingVertical: 3, borderRadius: radius.pill, borderWidth: 1, borderColor: palette.hairline }}
-          >
-            <Text style={{ fontFamily: font.semibold, fontSize: 12, color: palette.porcelain }}>{t(`mode.${variant}`).toUpperCase()}</Text>
-          </View>
-        ) : null}
+        <ModeBadge variant={variant} />
       </View>
       <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
         {stake > 0 ? (
