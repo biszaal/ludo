@@ -360,9 +360,10 @@ export async function opLeave(
     // practice the leaver's own autopilot roll, or a bot turn. Every client
     // sends Leave once and is already on Home, so answering with the fresh
     // state here silently dropped the leave: the seat stayed in the match and
-    // the next quick-match tap was handed straight back into it (seen in the
-    // 2026-11-15 rehearsal, twice in a row). Re-read and re-apply instead,
-    // a bounded number of times.
+    // the next quick-match tap was handed straight back into it. Seen in the
+    // 2026-11-15 rehearsal: the leave's write and a turn write both targeted
+    // the same state_version 35ms apart, and the leave lost. Re-read and
+    // re-apply instead, a bounded number of times.
     if (attempt < LEAVE_RETRIES) return await opLeave(admin, userId, gameId, waitingOnly, attempt + 1);
     return await freshState(admin, gameId, state);
   }

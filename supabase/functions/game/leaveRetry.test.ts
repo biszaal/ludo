@@ -2,8 +2,9 @@
  * Deno tests for a mid-game Leave that loses the state_version race (room.ts).
  *
  * Found in the 2026-11-15 rehearsal: a player tapped Leave in a live quick match
- * while another write to the same game was in flight (their own app's autopilot
- * roll). opLeave's conditional update matched no row, it answered with the fresh
+ * while a turn write to the same game was in flight — the edge logs show both
+ * writes targeting state_version 16, 35ms apart. opLeave's conditional update
+ * matched no row, it answered with the fresh
  * state, and the leave was simply gone — the app was already on Home, the seat
  * stayed in the game, and the next quick-match tap was handed straight back into
  * that match. Production's opLeave has the same shape.
