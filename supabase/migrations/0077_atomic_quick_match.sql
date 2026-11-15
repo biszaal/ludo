@@ -1,5 +1,6 @@
 -- Apply after 0076. Drain legacy quick queues and old workers before cutover.
--- Updated clients send a request key; old clients receive an upgrade message.
+-- Updated clients send a request key. Keyless (pre-key) apps are admitted by
+-- 0080 through this same funded transaction rather than refused.
 alter table public.games add column atomic_quick boolean not null default false;
 
 -- No game/seat FK: cancellation deletes those rows, but replay and refund

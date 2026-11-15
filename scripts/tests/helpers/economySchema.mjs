@@ -14,7 +14,7 @@ export async function economySchema() {
     alter table players add app_version text, add is_bot boolean not null default false;
     create table game_bots(game_id uuid, user_id uuid, can_chat boolean not null default true, primary key(game_id,user_id));
     create table rate_limits(window_start timestamptz);`);
-  for (const name of ['0010_coins.sql', '0013_economy.sql', '0016_player_stats.sql', '0076_atomic_game_economy.sql', '0077_atomic_quick_match.sql']) {
+  for (const name of ['0010_coins.sql', '0013_economy.sql', '0016_player_stats.sql', '0076_atomic_game_economy.sql', '0077_atomic_quick_match.sql', '0080_legacy_quick_entry.sql']) {
     parts.push(await sql(name));
   }
   return parts.join('\n');

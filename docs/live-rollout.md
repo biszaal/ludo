@@ -8,14 +8,19 @@ local 0074–0079 remain unapplied. Recheck immediately before a release.
 
 ## Release blockers
 
-1. The proposed game function requires a matchmaking request ID. Installed
-   clients without it receive “Update the app to start quick match safely.”
-   Migration 0077 also isolates atomic rooms from legacy queues. This is a
-   coordinated client/server cutover, not a compatible server patch. Do not
-   deploy it while assuming existing clients keep working. Validate an explicit
-   supported-client policy, store availability and adoption before cutover;
-   otherwise implement and test a safe legacy protocol first. Generating a new
-   server request key for each retry is not an idempotency solution.
+1. ~~The proposed game function requires a matchmaking request ID.~~
+   Resolved 2026-11-15 by migration 0080 and `quick.ts`: a request with no key
+   (every installed build up to 1.2.3, about one online player in five that
+   week) enters through the same funded `quick_match_enter` transaction and the
+   same pool as new apps. Its retries are guarded by the existing
+   "already seated in a quick room" resume, which is what the pre-0077 server
+   relied on; the entry is recorded as `legacy:<player_id>`, derived from the
+   seat it created, never a fresh key per retry. A present-but-malformed key is
+   still refused. Covered by PGlite contract tests and real-Postgres races
+   (keyless retries, mixed old/new entry). Remaining cutover edge: a player
+   sitting in a pre-0077 waiting room at the moment of cutover is told to
+   finish or cancel it; the reaper refunds and clears those within 15 minutes.
+   Making keys mandatory later needs an in-app update prompt first.
 2. Migration 0075 enables online Blitz before the later economy changes in a
    bulk push. Its own prerequisites require a mode-aware function already
    deployed and smoke-tested. Build a rehearsed migration/flag sequence in a

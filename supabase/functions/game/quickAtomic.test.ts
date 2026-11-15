@@ -74,3 +74,29 @@ Deno.test('waiting-only cancellation does not disclose an active match to a nonp
   assertEquals((await body(await opLeave(f.admin,BOT,GAME,true))).error,'You are not in this game.');
   assertEquals(f.calls,[]);
 });
+
+// Installed apps up to 1.2.3 send quickMatch with no request key (0080).
+function enterFake(entry: unknown) {
+  const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
+  const admin = {
+    rpc: (name: string, args: Record<string, unknown>) => {
+      calls.push({ name, args });
+      return Promise.resolve(name === 'rate_limit_hit' ? { data: true, error: null } : { data: entry, error: null });
+    },
+  } as unknown as SupabaseClient;
+  return { admin, calls };
+}
+Deno.test('an old app with no request key still enters through the funded transaction', async () => {
+  const f = enterFake({ gameId: GAME, playerId: 'p1', waiting: true, seated: 1, size: 2, stake: 100 });
+  const res = await body(await opQuickMatch(f.admin, USER, 2, null, '1.2.3', null, undefined));
+  assertEquals(res.error, undefined);
+  assertEquals(res.gameId, GAME);
+  const enter = f.calls.find((c) => c.name === 'quick_match_enter');
+  assertEquals(enter?.args.p_request, null);
+});
+Deno.test('a request key that is present but malformed is still refused', async () => {
+  const f = enterFake(null);
+  const res = await body(await opQuickMatch(f.admin, USER, 2, null, '1.4.0', 'classic', 'short'));
+  assertEquals(typeof res.error, 'string');
+  assertEquals(f.calls.some((c) => c.name === 'quick_match_enter'), false);
+});

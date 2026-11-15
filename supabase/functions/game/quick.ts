@@ -56,12 +56,17 @@ export async function opQuickMatch(
     stake = rawStake;
   }
 
-  if (!requestId || requestId.length < 8 || requestId.length > 128) {
+  // No key at all is an installed app from before request keys (up to 1.2.3),
+  // and it enters through the same funded transaction as everyone else: the
+  // "already seated" resume inside quick_match_enter is what stops its retries
+  // charging twice (0080). A key that IS present but malformed is a bug in a
+  // current client, and is refused rather than silently treated as keyless.
+  if (requestId !== undefined && (requestId.length < 8 || requestId.length > 128)) {
     return json({ error: "Update the app to start quick match safely." });
   }
   const { data: entry, error } = await admin.rpc("quick_match_enter", {
     p_user: userId, p_size: size, p_stake: stake, p_mode: mode,
-    p_app_version: appVersion, p_request: requestId,
+    p_app_version: appVersion, p_request: requestId ?? null,
   });
   if (error) {
     if (error.code === "LD002") return json({ error: "Not enough coins for this match." });

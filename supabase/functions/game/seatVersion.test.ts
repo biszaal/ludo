@@ -146,9 +146,15 @@ Deno.test("a full room starts only after the atomic entry has returned", async (
   await opQuickMatch(f.admin,USER,2,null,"1.4.0","classic","request-one");
   assertEquals(f.order,["entry","deal"]);
 });
-Deno.test("missing request keys cannot reach money-changing matchmaking calls", async () => {
+Deno.test("a missing request key reaches money only through the funded transaction", async () => {
+  // Installed apps up to 1.2.3 send no key, and refusing them would switch quick
+  // match off for every player who has not updated (0080). What must still hold
+  // is that the ONLY money-changing call they reach is quick_match_enter, whose
+  // already-seated resume stops their retries charging twice.
   const f=quickFake(1,4);
   const result=await (await opQuickMatch(f.admin,USER,4,null,"1.0.0")).json();
-  assertEquals(result.error,"Update the app to start quick match safely.");
-  assertEquals(f.order,[]);
+  assertEquals(result.error,undefined);
+  assertEquals(f.order,["entry"]);
+  assertEquals(f.calls.filter(c=>c.name!=="rate_limit_hit").map(c=>c.name),["quick_match_enter"]);
+  assertEquals(f.calls.find(c=>c.name==="quick_match_enter")!.args.p_request,null);
 });

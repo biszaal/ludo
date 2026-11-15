@@ -193,6 +193,37 @@ test('quick entry creates a funded seat and version in one transaction; retries 
   const seat=(await query('select app_version from players where id=$1',[a.playerId]))[0];
   assert.equal(seat.app_version,'1.4.0');assert.equal(a.v,1);
 });
+// --- installed apps that predate request keys (0080) ----------------------------
+// Builds up to 1.2.3 send quickMatch with no key. They must keep matching, through
+// the same funded transaction and the same pool, without ever being charged twice.
+const legacyEnter = async (user=1, size=4) => (await query(
+  'select quick_match_enter($1,$2,100,$3,$4,null) result',[uid(user),size,'classic','1.2.3']))[0].result;
+test('a keyless entry from an old app is funded once; its retries resume the same seat',async()=>{
+  const a=await legacyEnter();const retry=await legacyEnter();
+  assert.equal(a.error,undefined);
+  assert.equal(retry.playerId,a.playerId);assert.equal(retry.gameId,a.gameId);
+  assert.equal((await balances())[0].balance,900);
+  assert.equal((await query('select * from quick_entries')).length,1);
+  // Recorded under a key derived from the seat it created, never a fresh random one.
+  const keys=(await query('select request_key from quick_match_requests')).map(r=>r.request_key);
+  assert.deepEqual(keys,['legacy:'+a.playerId]);
+});
+test('old and new apps share one pool',async()=>{
+  const old=await legacyEnter(1);const fresh=await enter(2,'new-app-request');
+  assert.equal(fresh.gameId,old.gameId);
+  assert.equal((await query('select count(*)::int n from players where game_id=$1',[old.gameId]))[0].n,2);
+});
+test('an old app that cancelled can search again, and is refunded each time',async()=>{
+  const a=await legacyEnter(1);await legacyEnter(2);
+  await cancel(a.gameId,2);
+  assert.equal((await balances())[1].balance,1000);
+  const again=await legacyEnter(2);
+  assert.equal(again.error,undefined);assert.equal(again.gameId,a.gameId);
+  assert.equal((await balances())[1].balance,900);
+});
+test('a key that is present must still be well formed',async()=>{
+  await assert.rejects(enter(1,'short'),/Invalid matchmaking request/);
+});
 test('insufficient quick-entry funds leave no game, seat, request or ledger write',async()=>{
   await query('update wallets set balance=0,purchased_balance=0 where user_id=$1',[uid(1)]);
   for(let i=0;i<2;i++) await assert.rejects(enter(), /Not enough coins/);
