@@ -27,28 +27,38 @@ export interface MountedSheet {
   /** Stable per Sheet instance (React's useId). */
   id: string;
   node: ReactNode;
+  onClose?: () => void;
 }
 
 interface SheetHostState {
   /** Open sheets, back to front. */
   sheets: MountedSheet[];
   /** Mount a sheet's card, or refresh one already mounted. */
-  present: (id: string, node: ReactNode) => void;
+  present: (id: string, node: ReactNode, onClose?: () => void) => void;
+  /** Request closure through the owner; consume Back even if closure is deferred. */
+  closeTop: () => boolean;
   /** Take it back down. Unknown ids are ignored — a cleanup can outlive a reset. */
   dismiss: (id: string) => void;
 }
 
-export const useSheetHost = create<SheetHostState>((set) => ({
+export const useSheetHost = create<SheetHostState>((set, get) => ({
   sheets: [],
 
-  present: (id, node) =>
+  present: (id, node, onClose) =>
     set((s) => {
       const at = s.sheets.findIndex((entry) => entry.id === id);
-      if (at === -1) return { sheets: [...s.sheets, { id, node }] };
+      if (at === -1) return { sheets: [...s.sheets, { id, node, onClose }] };
       const sheets = s.sheets.slice();
-      sheets[at] = { id, node };
+      sheets[at] = { id, node, onClose };
       return { sheets };
     }),
+
+  closeTop: () => {
+    const top = get().sheets.at(-1);
+    if (!top) return false;
+    top.onClose?.();
+    return true;
+  },
 
   dismiss: (id) =>
     set((s) => (s.sheets.some((entry) => entry.id === id) ? { sheets: s.sheets.filter((e) => e.id !== id) } : s)),

@@ -1,3 +1,4 @@
+import { trackProductEvent } from "../lib/analytics";
 /**
  * Online multiplayer store (server-authoritative). Turn actions call the `game`
  * Edge Function, which generates the dice and validates moves; the function
@@ -128,7 +129,7 @@ interface OnlineStore {
   /** Open a room. `stake` is the per-seat pot; 0 (default) is a friendly game. */
   create: (stake?: number, mode?: OnlineMode) => Promise<void>;
   join: (code: string) => Promise<void>;
-  /** Play online: pair into a 2- or 4-player table (hidden bots fill a dry queue). */
+  /** Play online: pair into a 2- or 4-player table (labelled bots can fill an empty queue). */
   quickMatch: (size: 2 | 4, stake?: number, mode?: OnlineMode) => Promise<void>;
   /** Host-only. `fill` seats bots in the empty chairs before dealing. */
   start: (fill?: boolean) => Promise<void>;
@@ -149,7 +150,7 @@ interface OnlineStore {
   /** Answer the standing proposal. Declining doesn't sink it — the others can
    *  still play without you. */
   answerRematch: (accept: boolean) => Promise<void>;
-  leave: () => void;
+  leave: (waitingOnly?: boolean) => Promise<void>;
   clearError: () => void;
   resync: () => Promise<void>;
   /** Flag own presence when the app backgrounds/foregrounds (best-effort). */
@@ -505,8 +506,32 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
     armAutoPilot(get().state?.status === "active"); // restart the idle clock
   },
 
-  leave: () => {
-    const { gameId } = get();
+  leave: async (waitingOnly = false) => {
+    const { gameId, isQuick, status } = get();
+    if (gameId && isQuick && (waitingOnly || status === "lobby")) {
+      cancelledSearch = gameId;
+      timers.clear("quickFill");
+      try {
+        const result = await api.leaveAction(gameId, true);
+        if (get().gameId !== gameId) return;
+        if (result?.cancelled === false && result.state) {
+          applyTurnResult({ state: result.state, v: result.v ?? null }, false);
+          return;
+        }
+        if (result?.cancelled !== true && result?.ok !== true) {
+          throw new Error("Could not confirm cancellation. Please try again.");
+        }
+      } catch (error) {
+        if (get().gameId === gameId) set({ error: errorText(error) });
+        return;
+      }
+      trackProductEvent("matchmaking_cancelled");
+      disposeSession();
+      set({ ...INITIAL });
+      useNav.getState().popTo("home");
+      void useWallet.getState().refresh();
+      return;
+    }
     disposeSession();
     // Tell the server we're gone for good: active game → our tokens come off
     // the board and turns skip us; waiting lobby → the seat frees up.
@@ -619,13 +644,13 @@ type TimerName =
   | "resync";
 
 const timers = new TimerSet<TimerName>();
+let cancelledSearch: string | null = null;
 
 
 // --- Quick-match fill --------------------------------------------------------
 // If nobody claims the seat while we wait, ask the server to fill it. The
-// window is jittered so "found an opponent" doesn't land on a suspiciously
-// exact clock; a real human joining first flips the game active via realtime
-// and the fired timer no-ops on the status check.
+// jitter spreads concurrent fill requests. A human joining first flips the
+// game active via realtime and the timer no-ops on the status check.
 
 const QUICK_FILL_MIN_MS = 8000;
 const QUICK_FILL_JITTER_MS = 6000;
@@ -639,21 +664,27 @@ function armQuickFill(gameId: string): void {
     () =>
       void (async () => {
       const st = useOnlineStore.getState();
-      if (st.gameId !== gameId || st.status !== "lobby") return;
+      if (st.gameId !== gameId || st.status !== "lobby" || cancelledSearch === gameId) return;
       try {
         const res = await api.quickBotFill(gameId);
         // The bot just seated is a fresh row fetchProfiles has never seen —
         // pull it in now, so its (server-assigned) name/avatar/dice skin are
         // ready by the time this client's own GameView mounts, rather than
         // waiting on the `players` realtime event to refresh them.
+        if (useOnlineStore.getState().gameId !== gameId) return;
         const freshLobby = await api.getLobby(gameId);
+        if (useOnlineStore.getState().gameId !== gameId) return;
         useOnlineStore.setState({ lobby: freshLobby });
         void fetchProfiles(freshLobby);
         applyTurnResult(res, false);
       } catch {
         // The server refused (raced start, network blip) — the realtime row or
         // a resync will surface the truth.
-        scheduleResync(gameId);
+        const current = useOnlineStore.getState();
+        if (current.gameId === gameId) {
+          scheduleResync(gameId);
+          if (current.status === "lobby" && cancelledSearch !== gameId) armQuickFill(gameId);
+        }
       }
       })(),
     QUICK_FILL_MIN_MS + Math.random() * QUICK_FILL_JITTER_MS,
@@ -1018,6 +1049,7 @@ function disposeSession(): void {
 }
 
 function resetSyncState(): void {
+  cancelledSearch = null;
   stopKeepWarm();
   clearBustHold();
   dealReady();

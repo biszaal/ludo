@@ -445,8 +445,8 @@ const PLATFORM_BACKOFF_MS = [400, 900];
  * ONLY safe for ops that can be asked twice with no second effect — the retry
  * fires precisely when we cannot know whether the first attempt ran, so an op
  * that would act twice must not use this. `quickMatch` qualifies because the
- * server answers a re-tap with the room the caller is already waiting in
- * (see quick.ts) rather than opening a second one.
+ * payload carries a persistent request key. Retrying after cancellation
+ * cannot open a second room or charge again.
  *
  * A verdict still throws on the first attempt, exactly as before.
  */
@@ -483,7 +483,7 @@ export async function quickMatch(size: 2 | 4, stake?: number, mode: OnlineMode =
     stake?: number;
     size?: number;
     mode?: OnlineMode;
-  }>("quickMatch", { size, ...(stake == null ? {} : { stake }), ...(mode === "classic" ? {} : { mode }) });
+  }>("quickMatch", { size, requestId: newActionId(), ...(stake == null ? {} : { stake }), ...(mode === "classic" ? {} : { mode }) });
   return {
     gameId: res.gameId,
     userId,
@@ -861,8 +861,10 @@ export async function rematchClose(gameId: string): Promise<TurnResult> {
 
 /** Quit the room for good: active game → tokens removed and turns skipped;
  *  waiting lobby → the seat is freed. Fire-and-forget on the way out. */
-export async function leaveAction(gameId: string): Promise<void> {
-  await callGame<unknown>("leave", { gameId });
+export async function leaveAction(gameId: string, waitingOnly = false): Promise<{ ok?: boolean; cancelled?: boolean; state?: GameState; v?: number } | void> {
+  return waitingOnly
+    ? await idempotentCall("leave", { gameId, waitingOnly: true })
+    : await callGame("leave", { gameId });
 }
 
 export interface Profile {
@@ -1351,4 +1353,36 @@ export function lobbyEqual(a: LobbyPlayer[], b: LobbyPlayer[]): boolean {
 
 export function unsubscribe(channel: RealtimeChannel): void {
   getSupabase().removeChannel(channel);
+}
+
+
+/** A receipt is proof of this transaction, independent of spending or other credits. */
+export async function getGemPurchaseDelivery(receipt: import("../lib/purchases").GemReceipt): Promise<number | null> {
+  if (await ensureSignedIn() !== receipt.userId) return null;
+  const { data, error } = await getSupabase().from("iap_purchases")
+    .select("gems")
+    .eq("user_id", receipt.userId)
+    .eq("product_id", receipt.productId)
+    .eq("provider_txn_id", receipt.transactionId)
+    .eq("status", "credited")
+    .eq("fulfillment_verified", true)
+    .maybeSingle();
+  if (error) throw error;
+  // Recheck after I/O: an auth transition must not adopt another user's receipt.
+  if (await ensureSignedIn() !== receipt.userId) return null;
+  return typeof data?.gems === "number" ? data.gems : null;
+}
+
+
+export async function setProductAnalyticsConsent(enabled: boolean): Promise<void> {
+  await ensureSignedIn();
+  const { error } = await getSupabase().rpc("set_product_analytics_consent", { p_enabled: enabled });
+  if (error) throw error;
+}
+export async function recordProductEvent(name: import("../lib/analytics").ProductEvent, key: string): Promise<void> {
+  // Do not create accounts merely to collect analytics.
+  const { data } = await getSupabase().auth.getSession();
+  if (!data.session) return;
+  const { error } = await getSupabase().rpc("record_product_event", { p_name: name, p_key: key });
+  if (error) throw error;
 }

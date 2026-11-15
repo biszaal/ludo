@@ -1,3 +1,4 @@
+import { trackProductEvent } from "../lib/analytics";
 /**
  * Presentational game view shared by local and online play. It renders the
  * board, players, dice and the context action from props alone — the local and
@@ -10,7 +11,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Pressable, Text, View, useWindowDimensions } from "react-native";
+import { Text, View, useWindowDimensions } from "react-native";
 import Animated, { Easing, FadeOut, ZoomIn } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { Color, GameState, Move } from "@ludo/engine";
@@ -47,7 +48,7 @@ import { resolveDiceSkin } from "../render/diceSkins";
 import { setBackInterceptor } from "../store/navStore";
 import { useSettings } from "../store/settingsStore";
 import { payoutSplit, potFor } from "../lib/economy";
-import { clockStartFor, elapsedSeconds, formatElapsed } from "../lib/gameClock";
+import { GameClock, IconButton, MenuButton } from "./GameControls";
 import { matchOverForSeat, seatFinish } from "../lib/seatFinish";
 import { tokensToWin, variantOf } from "../lib/standings";
 import { useDieHandover } from "../lib/useDieHandover";
@@ -204,6 +205,10 @@ export function GameView({
   onPausedChange,
 }: GameViewProps) {
   const t = useT();
+  useEffect(() => {
+    if (state.status === "active") trackProductEvent("match_started", `start:${state.gameId}`);
+    if (state.status === "finished") trackProductEvent("match_completed", `finish:${state.gameId}`);
+  }, [state.gameId, state.status]);
   const { width, height } = useWindowDimensions();
   const { tier, scale, insets } = useLayout();
   const theme = resolveBoardTheme(useSettings((s) => s.boardThemeId));
@@ -476,7 +481,7 @@ export function GameView({
     () => (canAct ? new Set(validMoves.map((m) => m.tokenId)) : null),
     [canAct, validMoves],
   );
-  const movable = useCallback((id: string) => movableIds?.has(id) ?? false, [movableIds]);
+  const movable = useCallback((id: string) => canAct && !paused && (movableIds?.has(id) ?? false), [movableIds, canAct, paused]);
 
   // Board is memoized, so its callback props must not churn. The screens pass
   // fresh arrow functions (`onSelectToken={(id) => void selectToken(id)}`), so
@@ -511,6 +516,7 @@ export function GameView({
     if (chat && userId === chat.myUserId) return "You";
     const pl = state.players.find((p) => p.userId === userId);
     if (!pl) return t("game.player");
+    if (botFor?.(pl.id)) return `${t("lobby.bot")} · ${colorLabel(pl.color)}`;
     return nameFor?.(pl.id) ?? colorLabel(pl.color);
   };
 
@@ -569,7 +575,7 @@ export function GameView({
     // Autopilot seat: BOT badge, tap reclaims, and no countdown ring — the bot
     // acts long before any deadline, so a ticking ring would be noise.
     const pilot = autoPilot?.playerId === p.id;
-    // A host-filled bot wears the same badge (it says the same thing) but is
+    // A computer opponent wears the same badge (it says the same thing) but is
     // not tappable — there is no human behind it to hand control back to.
     const filledBot = !pilot && (botFor?.(p.id) ?? false);
     const showTimer = isActive && !pilot && !filledBot && !!turnTimer;
@@ -698,7 +704,7 @@ export function GameView({
 
   const messageBlock = (
     <View style={{ gap: space.xs, marginBottom: space.sm, alignItems: "center" }}>
-      <Text style={{ fontFamily: font.medium, fontSize: Math.round(16 * scale), color: palette.porcelain, textAlign: "center" }}>{message}</Text>
+      <Text accessibilityLiveRegion="polite" style={{ fontFamily: font.medium, fontSize: Math.round(16 * scale), color: palette.porcelain, textAlign: "center" }}>{message}</Text>
       <Text style={{ fontFamily: font.medium, fontSize: Math.round(13 * scale), color: palette.mutedSteel, textAlign: "center" }}>
         {finished
           ? " "
@@ -942,120 +948,5 @@ export function GameView({
         />
       )}
     </SafeAreaView>
-  );
-}
-
-/**
- * How long this game has been running, in the top bar.
- *
- * The clock keeps ticking on an opponent's turn — it's the match's age, not
- * anybody's shot clock (the turn countdown lives on the active seat's panel) —
- * and stops on the last word of the game so the results screen isn't sitting
- * over a number that's still climbing.
- */
-function GameClock({ gameId, running }: { gameId: string; running: boolean }) {
-  const startedAt = clockStartFor(gameId);
-  const [seconds, setSeconds] = useState(() => elapsedSeconds(startedAt));
-  useEffect(() => {
-    setSeconds(elapsedSeconds(startedAt));
-    if (!running) return;
-    // Twice a second: the displayed value floors the real elapsed time, so a
-    // 1s interval out of phase with it shows each number up to a second late.
-    const id = setInterval(() => setSeconds(elapsedSeconds(startedAt)), 500);
-    return () => clearInterval(id);
-  }, [startedAt, running]);
-
-  return (
-    <View
-      accessibilityLabel={`Game time ${formatElapsed(seconds)}`}
-      style={{
-        paddingHorizontal: space.sm,
-        paddingVertical: 4,
-        borderRadius: radius.pill,
-        backgroundColor: palette.liftedSlate,
-        borderTopWidth: 1,
-        borderTopColor: "rgba(255,255,255,0.10)",
-      }}
-    >
-      <Text
-        style={{
-          fontFamily: font.mono,
-          fontSize: 13,
-          color: palette.mutedSteel,
-          // Digits change every second; a fixed width keeps the pill from
-          // twitching as 9→10 or 59→1:00 changes the string's length.
-          minWidth: 34,
-          textAlign: "center",
-        }}
-      >
-        {formatElapsed(seconds)}
-      </Text>
-    </View>
-  );
-}
-
-/** Round emoji-glyph button in the game top bar (reactions, chat). */
-function IconButton({ label, glyph, onPress, showDot = false }: { label: string; glyph: string; onPress: () => void; showDot?: boolean }) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      onPress={onPress}
-      style={({ pressed }) => ({
-        width: 44,
-        height: 44,
-        borderRadius: radius.md,
-        backgroundColor: palette.raisedSlate,
-        borderWidth: 1,
-        borderColor: palette.hairline,
-        borderTopColor: "rgba(255,255,255,0.10)",
-        alignItems: "center",
-        justifyContent: "center",
-        transform: [{ scale: pressed ? 0.94 : 1 }],
-      })}
-    >
-      <Text style={{ fontSize: 20 }}>{glyph}</Text>
-      {showDot ? (
-        <View
-          style={{
-            position: "absolute",
-            top: 6,
-            right: 6,
-            width: 9,
-            height: 9,
-            borderRadius: radius.pill,
-            backgroundColor: teamColor.red,
-          }}
-        />
-      ) : null}
-    </Pressable>
-  );
-}
-
-/** Drawn ≡ menu glyph — 44px target, no icon fonts. */
-function MenuButton({ onPress }: { onPress: () => void }) {
-  const t = useT();
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={t("game.gameMenu")}
-      onPress={onPress}
-      style={({ pressed }) => ({
-        width: 44,
-        height: 44,
-        borderRadius: radius.md,
-        backgroundColor: palette.raisedSlate,
-        borderWidth: 1,
-        borderColor: palette.hairline,
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 4,
-        transform: [{ scale: pressed ? 0.94 : 1 }],
-      })}
-    >
-      {[0, 1, 2].map((i) => (
-        <View key={i} style={{ width: 18, height: 2, borderRadius: 1, backgroundColor: palette.porcelain }} />
-      ))}
-    </Pressable>
   );
 }

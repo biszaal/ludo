@@ -51,7 +51,11 @@ export function Button({
           tapLight();
         }}
         disabled={disabled}
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        accessibilityState={{ disabled }}
         style={({ pressed }) => ({
+          minWidth: 44,
           minHeight: faceHeight + depth.edge, // match a fill button's total height
           paddingHorizontal: padX,
           borderRadius: radius.md,
@@ -82,7 +86,11 @@ export function Button({
         playSound("tap");
         tapLight();
       }}
+      style={{ minWidth: 44, minHeight: 44 }}
       disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled }}
     >
       {({ pressed }) => {
         const down = pressed && !disabled;

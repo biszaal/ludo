@@ -39,17 +39,16 @@ function pawnAt(x: number, y: number, r: number, color: string, theme: BoardThem
 }
 
 function arrow(fromX: number, fromY: number, toX: number, toY: number, color: string, curve = 0) {
-  const p = Skia.Path.Make();
+  const p = Skia.PathBuilder.Make();
   p.moveTo(fromX, fromY);
   const mx = (fromX + toX) / 2;
   const my = (fromY + toY) / 2 - curve;
   p.quadTo(mx, my, toX, toY);
-  const stroked = p.copy();
-  stroked.stroke({ width: 2.5 });
+  const shaft = p.detach();
 
   // Arrowhead oriented along the end tangent.
   const angle = Math.atan2(toY - my, toX - mx);
-  const head = Skia.Path.Make();
+  const head = Skia.PathBuilder.Make();
   const size = 9;
   head.moveTo(toX, toY);
   head.lineTo(toX - size * Math.cos(angle - 0.5), toY - size * Math.sin(angle - 0.5));
@@ -58,14 +57,14 @@ function arrow(fromX: number, fromY: number, toX: number, toY: number, color: st
 
   return (
     <Group>
-      <Path path={stroked} color={color} />
-      <Path path={head} color={color} />
+      <Path path={shaft} style="stroke" strokeWidth={2.5} color={color} />
+      <Path path={head.detach()} color={color} />
     </Group>
   );
 }
 
 function star(cx: number, cy: number, outer: number, inner: number, color: string) {
-  const p = Skia.Path.Make();
+  const p = Skia.PathBuilder.Make();
   for (let i = 0; i < 10; i++) {
     const radius = i % 2 === 0 ? outer : inner;
     const a = (Math.PI * i) / 5 - Math.PI / 2;
@@ -75,7 +74,7 @@ function star(cx: number, cy: number, outer: number, inner: number, color: strin
     else p.lineTo(x, y);
   }
   p.close();
-  return <Path path={p} color={color} />;
+  return <Path path={p.detach()} color={color} />;
 }
 
 /** The die is theme-independent (DEFAULT_DIE), so this one takes no theme. */
@@ -200,7 +199,7 @@ export function HomeColumnDiagram({ width, theme }: DiagramProps) {
   const rowW = CELL * 5 + 30;
   const x0 = (width - rowW) / 2;
   const triX = x0 + CELL * 5 + 4;
-  const tri = Skia.Path.Make();
+  const tri = Skia.PathBuilder.Make();
   tri.moveTo(triX, y - 6);
   tri.lineTo(triX + 30, y + CELL / 2);
   tri.lineTo(triX, y + CELL + 5);
@@ -208,7 +207,7 @@ export function HomeColumnDiagram({ width, theme }: DiagramProps) {
   return (
     <Canvas style={{ width, height: DIAGRAM_HEIGHT }}>
       {cellsRow(x0, y, 5, theme, { 0: theme.team.red, 1: theme.team.red, 2: theme.team.red, 3: theme.team.red, 4: theme.team.red })}
-      <Path path={tri} color={theme.team.red} />
+      <Path path={tri.detach()} color={theme.team.red} />
       {pawnAt(x0 + CELL * 2 + CELL / 2, y + CELL / 2 - 4, 11, theme.team.red, theme)}
     </Canvas>
   );
@@ -239,7 +238,7 @@ export function BlitzDiagram({ width, theme }: DiagramProps) {
   const rowW = CELL * 4 + 30;
   const x0 = (width - rowW) / 2;
   const triX = x0 + CELL * 4 + 4;
-  const tri = Skia.Path.Make();
+  const tri = Skia.PathBuilder.Make();
   tri.moveTo(triX, y - 6);
   tri.lineTo(triX + 30, y + CELL / 2);
   tri.lineTo(triX, y + CELL + 5);
@@ -248,7 +247,7 @@ export function BlitzDiagram({ width, theme }: DiagramProps) {
   return (
     <Canvas style={{ width, height: DIAGRAM_HEIGHT }}>
       {cellsRow(x0, y, 4, theme, { 0: theme.team.red, 1: theme.team.red, 2: theme.team.red, 3: theme.team.red })}
-      <Path path={tri} color={theme.team.red} />
+      <Path path={tri.detach()} color={theme.team.red} />
       {pawnAt(lastX, y + CELL / 2 - 4, 11, theme.team.red, theme)}
       {arrow(lastX + 8, y - 8, triX + 14, y + 2, palette.mutedSteel, 16)}
       {star(triX + 12, 18, 11, 4.5, theme.team.yellow)}

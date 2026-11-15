@@ -13,6 +13,7 @@
  * otherwise pop, and let the OS exit the app at the root.
  */
 
+import { dismissTopOverlay } from "../lib/dismissTopOverlay";
 import { useEffect, type ComponentType } from "react";
 import { BackHandler, View } from "react-native";
 import Animated, { Easing, withTiming } from "react-native-reanimated";
@@ -56,6 +57,7 @@ export function ScreenStack() {
 
   useEffect(() => {
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (dismissTopOverlay()) return true;
       if (getBackInterceptor()?.()) return true;
       const nav = useNav.getState();
       if (nav.stack.length > 1) {

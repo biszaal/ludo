@@ -12,6 +12,8 @@ import type { MotionPref } from "../lib/motionTier";
 import type { BoardThemeId } from "../render/boardThemes";
 
 interface SettingsState {
+  analyticsOn: boolean;
+  setAnalytics: (enabled: boolean) => void;
   soundOn: boolean;
   musicOn: boolean;
   hapticsOn: boolean;
@@ -83,6 +85,8 @@ export function migrateSettings(persisted: unknown, version: number): unknown {
 export const useSettings = create<SettingsState>()(
   persist(
     (set) => ({
+      analyticsOn: false,
+      setAnalytics: (enabled) => set({ analyticsOn: enabled }),
       soundOn: true,
       musicOn: true,
       hapticsOn: true,

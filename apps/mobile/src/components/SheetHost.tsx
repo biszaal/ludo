@@ -8,16 +8,31 @@
  * front: a sheet opened later paints over one already up.
  */
 
-import { Fragment } from "react";
+import { StyleSheet, View } from "react-native";
+import { useConfirm } from "../store/confirmStore";
 import { useSheetHost } from "../store/sheetHost";
 
 export function SheetHost() {
   const sheets = useSheetHost((s) => s.sheets);
+  const confirming = useConfirm((s) => s.request !== null);
   return (
     <>
-      {sheets.map(({ id, node }) => (
-        <Fragment key={id}>{node}</Fragment>
-      ))}
+      {sheets.map(({ id, node }, index) => {
+        const active = !confirming && index === sheets.length - 1;
+        return (
+          <View
+            key={id}
+            collapsable={false}
+            style={StyleSheet.absoluteFill}
+            pointerEvents={active ? "box-none" : "none"}
+            accessibilityViewIsModal={active}
+            accessibilityElementsHidden={!active}
+            importantForAccessibility={active ? "auto" : "no-hide-descendants"}
+          >
+            {node}
+          </View>
+        );
+      })}
     </>
   );
 }

@@ -141,7 +141,7 @@ Deno.serve(async (req: Request) => {
       case "rematchClose":
         return await opRematchClose(admin, userId, String(body.gameId));
       case "leave":
-        return await opLeave(admin, userId, String(body.gameId));
+        return await opLeave(admin, userId, String(body.gameId), body.waitingOnly === true);
       case "quickMatch":
         return await opQuickMatch(
           admin,
@@ -150,6 +150,7 @@ Deno.serve(async (req: Request) => {
           body.stake == null ? null : Number(body.stake),
           appVersion,
           body.mode,
+          typeof body.requestId === "string" ? body.requestId : undefined,
         );
       case "quickBotFill":
         return await opQuickBotFill(admin, userId, String(body.gameId));

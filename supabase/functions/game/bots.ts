@@ -41,7 +41,7 @@ import {
   TURN_SECONDS,
   type SupabaseClient,
 } from "./lib.ts";
-import { recordFinishStats, settleIfFinished } from "./finish.ts";
+import { settleIfFinished } from "./finish.ts";
 import { broadcastToRoom, relayChat } from "./chat.ts";
 import {
   classifyEvent,
@@ -248,19 +248,10 @@ async function claimOrCreateBotIdentity(
 /**
  * Seat bots into the given chairs.
  *
- * Shared by quick match (hidden fill-in when nobody shows up) and friend rooms
- * (the host explicitly asked to fill). `visible` decides three things at once,
- * and they all follow from one rule — the disguise lives in matchmaking only,
- * so nothing a player learns from a labelled seat can be turned on a
- * quick-match opponent (0062):
- *
- *   players.is_bot      the client's BOT tag. Quick match must pass false or
- *                       the camouflage is gone (0035).
- *   which pool          labelled seats draw from the visible identities, which
- *                       carry no profile row and so render as their colour.
- *   game_bots.can_chat  only hidden seats talk. A tagged seat has nothing to
- *                       hide, and its chatter would teach a player what a bot
- *                       sounds like before they ever meet one in matchmaking.
+ * Shared by quick match and friend rooms. Both use visible identities, a BOT
+ * label and no simulated player chat. The hidden-identity branch remains only
+ * for compatibility with existing server helpers; new fills pass visible=true.
+ * Migration 0077 registers visible seats in game_bots atomically with insertion.
  *
  * The chairs are a list rather than a range because a friend room does not
  * always fill left to right: two humans at a four-handed table take the
@@ -294,7 +285,7 @@ export async function seatBots(
     }
     // Awaited: the insert's trigger is what sets games.has_bots (0022), and the
     // caller's startGameNow reads that flag to decide whether to drive a bot.
-    await admin.from("game_bots").insert({ game_id: gameId, user_id: botUserId, can_chat: !visible });
+    if (!visible) await admin.from("game_bots").insert({ game_id: gameId, user_id: botUserId, can_chat: true });
     added++;
   }
   return added;
@@ -646,7 +637,6 @@ async function driveLoop(
       reactions.push(maybeBotChat(admin, gameId, seats, cur, next, {}).catch(() => {}));
       if (next.status !== "active") {
         await settleIfFinished(admin, gameId, next);
-        recordFinishStats(admin, gameId, next);
         await admin.from("bot_identities").update({ in_use_game_id: null }).eq("in_use_game_id", gameId);
         return;
       }

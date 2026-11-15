@@ -42,7 +42,7 @@ function stubClient(counts: { granted: number; pending: number }): SupabaseClien
       return {
         select: () => ({
           eq: () => ({
-            eq: () => ({ gt: () => ({ limit: () => Promise.resolve({ data: [], error: null }) }) }),
+            or: () => ({ order: () => ({ limit: () => Promise.resolve({ data: [], error: null }) }) }),
             not: () => ({
               lt: () => ({ order: () => ({ limit: () => Promise.resolve({ data: [], error: null }) }) }),
             }),

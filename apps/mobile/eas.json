@@ -22,20 +22,20 @@
       "environment": "preview",
       "channel": "preview",
       "env": { "SENTRY_DISABLE_AUTO_UPLOAD": "true" },
-      "ios": { "simulator": true, "image": "macos-tahoe-26.4-xcode-26.4" },
+      "ios": { "simulator": true, "image": "sdk-58" },
       "android": { "buildType": "apk" }
     },
     "preview-audiodebug": {
       "extends": "preview",
       "env": { "EXPO_PUBLIC_SOUND_DEBUG": "1", "SENTRY_DISABLE_AUTO_UPLOAD": "true" },
-      "ios": { "simulator": true, "image": "macos-tahoe-26.4-xcode-26.4" },
+      "ios": { "simulator": true, "image": "sdk-58" },
       "android": { "buildType": "apk" }
     },
     "production": {
       "autoIncrement": true,
       "environment": "production",
       "channel": "production",
-      "ios": { "image": "macos-tahoe-26.4-xcode-26.4" }
+      "ios": { "image": "sdk-58" }
     }
   },
   "submit": {

@@ -1,3 +1,4 @@
+import { useSettings } from "../store/settingsStore";
 /**
  * Account durability — turning a guest into a recoverable account, and back.
  *
@@ -259,14 +260,7 @@ function resetLocalIdentity(): void {
   p.resetSavePrompt();
   p.setAvatar("leo");
   p.setDiceSkin("classic");
-  useWallet.setState({
-    balance: null,
-    gems: null,
-    purchasedBalance: 0,
-    streakDay: 0,
-    bonusClaimable: false,
-    pityAvailable: false,
-  });
+  useWallet.getState().reset();
   useEntitlements.setState({ owned: [], prices: {}, currencies: {}, buying: null });
 }
 
@@ -275,6 +269,10 @@ function resetLocalIdentity(): void {
 async function rehydrateAfterAuth(previousUserId: string | null): Promise<void> {
   const { data } = await getSupabase().auth.getSession();
   const uid = data.session?.user.id ?? null;
+  if (uid !== previousUserId) {
+    useWallet.getState().reset();
+    useSettings.getState().setAnalytics(false);
+  }
   await Promise.allSettled([
     useWallet.getState().refresh(),
     useEntitlements.getState().refresh(),

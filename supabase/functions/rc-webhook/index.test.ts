@@ -44,9 +44,9 @@ Deno.test("the environment check is case-insensitive and fails closed", () => {
   // turn crediting back on.
   assertEquals(creditable("sandbox", {}), false);
   assertEquals(creditable("Sandbox", {}), false);
-  // An environment we don't recognise is treated as production — RC always
-  // sends one, and refusing every unknown value would stop real purchases.
-  assertEquals(creditable("", {}), true);
+  // Unknown environments must not mint currency.
+  assertEquals(creditable("", {}), false);
+  assertEquals(creditable("UNKNOWN", { creditSandboxPurchases: true }), false);
 });
 
 Deno.test("server config overrides the built-in product map", () => {

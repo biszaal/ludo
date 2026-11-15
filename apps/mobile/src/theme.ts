@@ -12,7 +12,7 @@ export const palette = {
   liftedSlate: "#242932",
   hairline: "rgba(255,255,255,0.08)",
   porcelain: "#F4F6F8",
-  mutedSteel: "#9BA3AF",
+  mutedSteel: "#A7AFBB",
   ivoryCell: "#ECE9DF",
   // Deep-blue game table (the Ludo Club look): the board floats on this, over a
   // faint dotted texture. `tableBlueDeep` is the vignette edge for the gradient.

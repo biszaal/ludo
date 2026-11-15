@@ -1,3 +1,4 @@
+import { trackProductEvent } from "./analytics";
 /**
  * Wire the connection store to the device and to the network layer.
  *
@@ -35,7 +36,9 @@ export function initConnection(): () => void {
     });
 
   const sub = Network.addNetworkStateListener((s) => {
+    const wasOffline = useConnection.getState().link === "offline";
     useConnection.getState().setReachable(reachableFrom(s));
+    if (wasOffline && useConnection.getState().link !== "offline") trackProductEvent("reconnect");
   });
 
   return () => {

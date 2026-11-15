@@ -7,13 +7,14 @@ Monorepo (npm workspaces):
 
 | Package | What it is | Status |
 | --- | --- | --- |
-| `packages/engine` | Pure, deterministic TypeScript rules engine. No UI, no I/O. | ✅ done, 56 tests |
-| `apps/mobile` | Expo + React Native + Skia client (local hot-seat). | ✅ playable, on-device verification pending |
-| `supabase/` | Postgres + realtime + Edge Functions (online play). | ⏳ planned |
+| `packages/engine` | Pure, deterministic TypeScript rules engine. No UI, no I/O. | Implemented and tested |
+| `packages/bot` | Bot move selection and simulation. | Implemented and tested |
+| `apps/mobile` | Expo + React Native + Skia client: local and online play, accounts, cosmetics and purchases. | Native release checks required |
+| `supabase/` | Postgres, realtime and Edge Functions for authoritative online play and economy. | Implemented; migration and deployment required |
 
 ## Prerequisites
 
-- Node 20+ (`.nvmrc` pins 22)
+- Node 22.13+ on the 22.x line (`.nvmrc` selects 22), or Node 24.3+
 - For the mobile app: **Xcode** (iOS) or **Android Studio** (Android). The app uses
   `@shopify/react-native-skia`, a native module, so it needs a **development build**
   — Expo Go will not work.
@@ -21,21 +22,28 @@ Monorepo (npm workspaces):
 ## Install
 
 ```bash
-npm install
-npm run build:engine   # the app consumes the engine's built output
+npm ci
+npm run build:packages   # the app consumes the shared packages' built output
 ```
 
 ## Test (no device needed)
 
 ```bash
-npm test              # engine (56) + client store flow (7), all in Node
+npm run build:edge    # generate the shared modules consumed by server tests
+npm test              # engine, bot, mobile, Deno server and PostgreSQL tests
+npm run test:db       # focused PostgreSQL transaction regressions (no Docker)
 npm run test:engine   # engine only
 npm run typecheck     # type-check every workspace
 npm run typecheck:edge # type-check the Deno edge functions (downloads deno on first run)
 ```
 
-The store tests drive a full hot-seat game through the exact UI intents
-(`roll` / `selectToken` / `pass`) with a seeded dice source.
+The store tests drive game flows through the same UI intents as the app. The
+PostgreSQL tests run real wallet, statistics and settlement functions in PGlite.
+They do not replace full Supabase migration/RLS checks or concurrent-client and
+native purchase tests. CI runs the builds, both type checks and all test suites.
+
+See [the remediation plan](docs/remediation-plan.md) for priorities, acceptance
+criteria, current limitations and the required server/client rollout order.
 
 ## Run the app (device / simulator)
 
@@ -110,3 +118,5 @@ The engine ([packages/engine/src](packages/engine/src)) exposes `createGame`,
 `rollDice`, `getValidMoves`, `validateMove`, `applyMove`, `endTurn`, `checkWin`.
 Rendering coordinates live only in [apps/mobile/src/render/boardLayout.ts](apps/mobile/src/render/boardLayout.ts);
 the engine never knows about pixels. Visual language: [apps/mobile/DESIGN.md](apps/mobile/DESIGN.md).
+
+For the live user base, follow [the production rollout gates](docs/live-rollout.md) before applying pending migrations or releasing the SDK upgrade.

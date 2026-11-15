@@ -1,3 +1,6 @@
+import { configureAnalytics, trackProductEvent } from "./src/lib/analytics";
+import { recordProductEvent } from "./src/net/api";
+import { useSettings } from "./src/store/settingsStore";
 import { useCallback, useEffect, useState } from "react";
 import { AppState, Platform } from "react-native";
 import { StatusBar } from "expo-status-bar";
@@ -12,6 +15,7 @@ import {
 } from "@expo-google-fonts/outfit";
 import { JetBrainsMono_500Medium } from "@expo-google-fonts/jetbrains-mono";
 import { ScreenStack } from "./src/components/ScreenStack";
+import { OverlayBackground } from "./src/components/OverlayBackground";
 import { SheetHost } from "./src/components/SheetHost";
 import { InviteBanner } from "./src/components/InviteBanner";
 import { ConfirmDialog } from "./src/components/ConfirmDialog";
@@ -93,7 +97,7 @@ export default function App() {
       default: undefined,
     });
     if (rcKey) {
-      void initPurchases(rcKey)
+      void initPurchases(rcKey, ensureSignedIn)
         .then(() => ensureSignedIn())
         .then(syncPurchasesUser)
         .catch(() => {});
@@ -111,6 +115,8 @@ export default function App() {
     // Before anything that makes a request: the network layer consults this to
     // decide whether a retry is worth sending, and a call made before it is
     // installed simply falls back to the old fixed cadence.
+    const stopAnalytics = configureAnalytics(recordProductEvent, () => useSettings.getState().analyticsOn === true);
+    trackProductEvent("session_started");
     const stopConnection = initConnection();
     const stopFeedback = initFeedback();
     const stopProfileSync = initProfileSync();
@@ -128,6 +134,7 @@ export default function App() {
     // start normally first.
     const stopUpdates = initUpdates();
     return () => {
+      stopAnalytics();
       stopConnection();
       stopFeedback();
       stopProfileSync();
@@ -190,12 +197,14 @@ export default function App() {
       <StatusBar style="light" />
       {ready && (
         <ErrorBoundary onReset={recoverFromCrash}>
-          <ScreenStack />
+          <OverlayBackground>
+            <ScreenStack />
+            <InviteBanner />
+          </OverlayBackground>
           {/* Bottom sheets draw here, not where they are declared — above the
               screens and the floating dock, anchored to the screen rather than
               to whatever scroll view happened to contain them. */}
           <SheetHost />
-          <InviteBanner />
           {/* Above everything, including the banner: it is asked about an
               action the player just tried to take. */}
           <ConfirmDialog />

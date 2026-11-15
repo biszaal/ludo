@@ -15,6 +15,7 @@
  * "someone made the search 50x more expensive", not to police a 20% drift.
  */
 
+import { performance } from "node:perf_hooks";
 import { describe, it, expect } from "vitest";
 import {
   applyMove,

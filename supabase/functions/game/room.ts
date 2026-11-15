@@ -31,7 +31,7 @@ import {
 import { canSit, MODE_UNAVAILABLE, modeColumns, modeOfState, modeOpen, parseMode, rulesForMode } from "./modes.ts";
 import { afterGameWrite, seatBots } from "./bots.ts";
 import { startGameNow } from "./deal.ts";
-import { endIfNoHumansLeft, recordFinishStats, settleIfFinished } from "./finish.ts";
+import { endIfNoHumansLeft, settleIfFinished } from "./finish.ts";
 import { walletApply } from "./wallet.ts";
 
 /**
@@ -118,11 +118,11 @@ export async function opJoin(
 
   const { data: game } = await admin
     .from("games")
-    .select("id, status, stake, mode")
+    .select("id, status, stake, mode, is_quick")
     .eq("room_code", roomCode)
     .maybeSingle();
   if (!game) return noRoom;
-  if (game.status !== "waiting") return noRoom;
+  if (game.status !== "waiting" || game.is_quick) return noRoom;
   const stake = (game.stake as number | null) ?? 0;
   const mode = parseMode(game.mode) ?? "classic";
 
@@ -256,14 +256,26 @@ async function refundSeats(
  * Waiting lobby: the seat is freed and any quick-match entry is refunded.
  * Idempotent and safe to call as a fire-and-forget on the way out.
  */
-export async function opLeave(admin: SupabaseClient, userId: string, gameId: string): Promise<Response> {
+export async function opLeave(admin: SupabaseClient, userId: string, gameId: string, waitingOnly = false): Promise<Response> {
   const { data: game } = await admin
     .from("games")
-    .select("id, host_user_id, status, state, state_version, is_quick, has_bots, stake")
+    .select("id, host_user_id, status, state, state_version, is_quick, has_bots, stake, atomic_quick")
     .eq("id", gameId)
     .single();
-  if (!game) return json({ error: "Game not found." });
+  if (!game) return waitingOnly ? json({ cancelled: true }) : json({ error: "Game not found." });
   const v = (game.state_version as number | null) ?? 0;
+
+  // Cancelling a search never silently forfeits a match that just started.
+  if (waitingOnly && game.status !== "waiting") {
+    const snapshot = game.state as GameState | null;
+    if (!snapshot?.players.some((p) => p.userId === userId)) return json({ error: "You are not in this game." });
+    return json({ cancelled: false, state: game.state, v });
+  }
+  if (game.status === "waiting" && game.atomic_quick) {
+    const { data, error } = await admin.rpc("cancel_quick_match", { p_game: gameId, p_user: userId });
+    if (error || !data) return safeError("quick.cancel", error, WRITE_FAILED);
+    return json(data);
+  }
 
   if (game.status === "waiting") {
     if (game.is_quick && game.host_user_id === userId) {
@@ -338,7 +350,6 @@ export async function opLeave(admin: SupabaseClient, userId: string, gameId: str
 
   afterResponse(admin.from("moves").insert({ game_id: gameId, player_id: me.id, action: { action: "leave" } }));
   await settleIfFinished(admin, gameId, next);
-  recordFinishStats(admin, gameId, next);
   afterGameWrite(admin, gameId, !!game.has_bots, next, state);
   return json({ state: next, v: v + 1 });
 }
@@ -430,6 +441,9 @@ async function startRematch(
     return json({ error: "Not enough players for a rematch." });
   }
 
+  // Preserve the previous result until its rewards and statistics are durable.
+  await settleIfFinished(admin, gameId, prev);
+
   const players = seats.map((p) => ({ id: p.id, userId: p.userId, color: p.color }));
   const next = engineCreateGame(players, { gameId, rules: rulesForMode(modeOfState(prev)) });
 
@@ -438,7 +452,7 @@ async function startRematch(
     // Rematches play for fun: the previous pot is already paid out, and
     // silently re-debiting seated guests would be a hidden charge — so the
     // stake resets along with the payout latch.
-    .update({ state: next, status: "active", current_turn_player_id: next.currentTurnPlayerId, turn_deadline: turnDeadline(next), state_version: v + 1, stake: 0, payout_done: false })
+    .update({ state: next, status: "active", current_turn_player_id: next.currentTurnPlayerId, turn_deadline: turnDeadline(next), state_version: v + 1, stake: 0, payout_done: false, stats_done: false, dry_turns: {} })
     .eq("id", gameId)
     .eq("state_version", v)
     .select("id")

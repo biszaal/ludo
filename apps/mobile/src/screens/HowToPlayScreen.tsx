@@ -63,6 +63,10 @@ export function HowToPlayScreen() {
 
       <ScrollView contentContainerStyle={{ paddingTop: space.lg, paddingBottom: space.xxl, alignItems: "center" }}>
         <ContentColumn style={{ paddingHorizontal: space.xl, gap: space.lg }}>
+        <View style={{ padding: space.lg, gap: space.md, backgroundColor: palette.raisedSlate, borderRadius: radius.lg }}>
+          <Text style={{ fontFamily: font.semibold, fontSize: 17, color: palette.porcelain }}>{t("rules.onlineAssistance")}</Text>
+          <Text style={{ fontFamily: font.regular, fontSize: 15, lineHeight: 22, color: palette.porcelain }}>{t("rules.onlineAssistanceBody")}</Text>
+        </View>
         {SECTIONS.map(({ key, title, body, Diagram }) => (
           <View
             key={key}

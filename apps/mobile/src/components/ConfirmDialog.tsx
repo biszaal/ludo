@@ -32,7 +32,7 @@ export function ConfirmDialog() {
   useEffect(() => {
     if (!request) return;
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {
-      answer(false);
+      answer(!!request.notice);
       return true;
     });
     return () => sub.remove();
@@ -44,7 +44,7 @@ export function ConfirmDialog() {
   const { title, message, confirmLabel = t("common.confirm"), cancelLabel = t("common.cancel"), destructive = false, notice = false } = request;
 
   return (
-    <View style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0, alignItems: "center", justifyContent: "center" }}>
+    <View accessibilityViewIsModal onAccessibilityEscape={() => answer(notice)} style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0, alignItems: "center", justifyContent: "center" }}>
       <Animated.View
         entering={FadeIn.duration(140)}
         exiting={FadeOut.duration(140)}
@@ -53,6 +53,7 @@ export function ConfirmDialog() {
         {/* A notice has no "no", so the backdrop acknowledges rather than
             cancelling — dismissing it must not read as a refusal. */}
         <Pressable
+          accessibilityRole="button"
           accessibilityLabel={notice ? confirmLabel : cancelLabel}
           style={{ flex: 1 }}
           onPress={() => answer(notice)}
@@ -82,7 +83,7 @@ export function ConfirmDialog() {
           elevation: 16,
         }}
       >
-        <Text style={{ fontFamily: font.display, fontSize: 20, color: palette.porcelain }}>{title}</Text>
+        <Text accessibilityRole="header" style={{ fontFamily: font.display, fontSize: 20, color: palette.porcelain }}>{title}</Text>
         {message ? (
           <Text style={{ fontFamily: font.regular, fontSize: 14, lineHeight: 20, color: palette.mutedSteel }}>
             {message}

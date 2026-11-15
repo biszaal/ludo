@@ -119,7 +119,7 @@ function fake(opts: FakeOptions = {}): Fake {
     },
     rpc: (name: string, args: Record<string, unknown>) => {
       self.rpcs.push({ name, args });
-      if (name === "quick_match_claim") return Promise.resolve({ data: opts.claimed ?? null, error: null });
+      if (name === "quick_match_enter") return Promise.resolve({ data: opts.claimed ?? { gameId: GAME, playerId: "seat", seated: 1, size: args.p_size, stake: args.p_stake, mode: args.p_mode, waiting: true }, error: null });
       if (name === "wallet_apply") return Promise.resolve({ data: 500, error: null });
       if (name === "rate_limit_hit") return Promise.resolve({ data: true, error: null });
       return Promise.resolve({ data: null, error: null });
@@ -133,7 +133,7 @@ function fake(opts: FakeOptions = {}): Fake {
 // deno-lint-ignore no-explicit-any
 const body = async (res: Response): Promise<any> => await res.json();
 const debits = (f: Fake) => f.rpcs.filter((r) => r.name === "wallet_apply");
-const claims = (f: Fake) => f.rpcs.filter((r) => r.name === "quick_match_claim");
+const claims = (f: Fake) => f.rpcs.filter((r) => r.name === "quick_match_enter");
 
 // --- reading a mode -----------------------------------------------------------
 
@@ -165,7 +165,7 @@ Deno.test("a Blitz room is refused while the flag is off, and nothing is created
 
 Deno.test("a Blitz search is refused while the flag is off, before any coins move", async () => {
   const f = fake({ flag: false });
-  const res = await body(await opQuickMatch(f.admin, USER, 2, 100, "1.3.0", "blitz"));
+  const res = await body(await opQuickMatch(f.admin, USER, 2, 100, "1.3.0", "blitz", "request-one"));
 
   assertEquals(typeof res.error, "string");
   assertEquals(debits(f).length, 0);
@@ -174,7 +174,7 @@ Deno.test("a Blitz search is refused while the flag is off, before any coins mov
 
 Deno.test("an unknown mode is refused, flag or no flag", async () => {
   const f = fake({ flag: true });
-  const res = await body(await opQuickMatch(f.admin, USER, 2, 100, "1.3.0", "frenzy"));
+  const res = await body(await opQuickMatch(f.admin, USER, 2, 100, "1.3.0", "frenzy", "request-one"));
 
   assertEquals(typeof res.error, "string");
   assertEquals(debits(f).length, 0);
@@ -202,21 +202,18 @@ Deno.test("a classic room writes no mode, so the column default stays the one an
 
 Deno.test("a Blitz search claims only from the Blitz pool", async () => {
   const f = fake({ flag: true });
-  const res = await body(await opQuickMatch(f.admin, USER, 2, 100, "1.3.0", "blitz"));
+  const res = await body(await opQuickMatch(f.admin, USER, 2, 100, "1.3.0", "blitz", "request-one"));
 
-  assertEquals(claims(f)[0]!.args, { p_user: USER, p_size: 2, p_stake: 100, p_mode: "blitz" });
-  assertEquals(f.gameInserts[0]!.mode, "blitz"); // nobody to claim, so it opens a room
+  assertEquals(claims(f)[0]!.args, { p_user: USER, p_size: 2, p_stake: 100, p_mode: "blitz", p_app_version: "1.3.0", p_request: "request-one" });
+  assertEquals(f.gameInserts.length, 0); // SQL owns room creation
   assertEquals(res.mode, "blitz");
 });
 
-Deno.test("a classic search still calls the claim it always called", async () => {
-  // Old edge bundles and old clients share this call. It stays the 3-arg form,
-  // so classic quick match has no dependency on the new overload at all.
+Deno.test("classic searches explicitly select the classic atomic pool", async () => {
   const f = fake({ flag: true });
-  await opQuickMatch(f.admin, USER, 2, 100, "1.2.3");
-
-  assertEquals(claims(f)[0]!.args, { p_user: USER, p_size: 2, p_stake: 100 });
-  assertEquals("mode" in f.gameInserts[0]!, false);
+  await opQuickMatch(f.admin, USER, 2, 100, "1.4.0", "classic", "request-one");
+  assertEquals(claims(f)[0]!.args, { p_user: USER, p_size: 2, p_stake: 100, p_mode: "classic", p_app_version: "1.4.0", p_request: "request-one" });
+  assertEquals(f.gameInserts.length, 0);
 });
 
 // --- joining ------------------------------------------------------------------

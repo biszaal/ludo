@@ -127,8 +127,9 @@ export function Sheet({
     >
       {title !== undefined && (
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-          <Text style={{ fontFamily: font.display, fontSize: 20, color: palette.porcelain }}>{title}</Text>
-          <Pressable accessibilityRole="button" accessibilityLabel={t("common.close")} onPress={onClose} hitSlop={8}>
+          <Text accessibilityRole="header" style={{ flex: 1, fontFamily: font.display, fontSize: 20, color: palette.porcelain }}>{title}</Text>
+          <Pressable accessibilityRole="button" accessibilityLabel={t("common.close")} onPress={onClose}
+            style={{ minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" }}>
             <CloseGlyph size={16} />
           </Pressable>
         </View>
@@ -172,13 +173,13 @@ export function Sheet({
     : { position: "absolute" as const, left: 0, right: 0, bottom: 0, alignItems: "center" as const };
 
   const overlay = (
-    <View style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0 }}>
+    <View onAccessibilityEscape={onClose} style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0 }}>
       <Animated.View
         entering={FadeIn.duration(160)}
         exiting={FadeOut.duration(160)}
         style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0, backgroundColor: "rgba(20,23,28,0.6)" }}
       >
-        <Pressable accessibilityLabel={t("common.close")} style={{ flex: 1 }} onPress={onClose} />
+        <Pressable accessibilityRole="button" accessibilityLabel={t("common.close")} style={{ flex: 1 }} onPress={onClose} />
       </Animated.View>
 
       {/* The keyboard-controller KeyboardAvoidingView, with `behavior="padding"`
@@ -213,7 +214,7 @@ export function Sheet({
   // current if the host gets the new one. Before paint, so the sheet never
   // shows a frame of stale content.
   useLayoutEffect(() => {
-    present(id, overlay);
+    present(id, overlay, onClose);
   });
 
   // Unmounting the Sheet takes the card down — and because the HOST stays

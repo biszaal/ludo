@@ -115,152 +115,40 @@ Deno.test("a client too old to send a version seats as null, not as a guess", as
   assertEquals(f.seats[0]!.app_version, null);
 });
 
-/**
- * Quick match is the awkward one: `quick_match_claim` inserts the seat inside
- * SQL (0018), and that function's signature is deliberately versioned so an
- * already-deployed edge function keeps working across a migration. Rather than
- * add a parameter to it — and own the compatibility window that creates — the
- * caller stamps the row it was just handed.
- */
-function quickFake(claimed: Record<string, unknown> | null): {
-  admin: SupabaseClient;
-  seats: Array<Record<string, unknown>>;
-  stamps: Array<{ patch: Record<string, unknown>; id: unknown }>;
-  /** "stamp" / "deal", in the order they actually happened. */
-  order: string[];
-} {
-  const seats: Array<Record<string, unknown>> = [];
-  const stamps: Array<{ patch: Record<string, unknown>; id: unknown }> = [];
+/** Seat version and funding commit together; no second stamp request exists. */
+function quickFake(seated: number, size: number) {
+  const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
   const order: string[] = [];
-
-  // deno-lint-ignore no-explicit-any
-  const chain = (settle: () => { data?: unknown; error?: unknown }, filters: Record<string, unknown> = {}): any => {
-    // deno-lint-ignore no-explicit-any
-    const node: any = {
-      eq: (col: string, val: unknown) => chain(settle, { ...filters, [col]: val }),
-      order: () => Promise.resolve(settle()),
-      select: () => node,
-      limit: () => node,
-      maybeSingle: () => Promise.resolve(settle()),
-      single: () => Promise.resolve(settle()),
-      filters: () => filters,
-      // deno-lint-ignore no-explicit-any
-      then: (res: any, rej: any) => Promise.resolve(settle()).then(res, rej),
-    };
-    return node;
-  };
-
-  const players = {
-    insert: (row: Record<string, unknown>) => {
-      seats.push(row);
-      return chain(() => ({ data: { id: "player-new" }, error: null }));
-    },
-    select: () => chain(() => ({ data: null, error: null })),
-    update: (patch: Record<string, unknown>) => {
-      // deno-lint-ignore no-explicit-any
-      const node: any = {
-        eq: (_col: string, val: unknown) => ({
-          // Lazy on purpose: a real PostgREST builder issues no request until
-          // it is awaited, so recording the stamp in `eq` would make a
-          // deferred write look identical to an awaited one.
-          // deno-lint-ignore no-explicit-any
-          then: (res: any, rej: any) => {
-            stamps.push({ patch, id: val });
-            order.push("stamp");
-            return Promise.resolve({ data: null, error: null }).then(res, rej);
-          },
-        }),
-      };
-      return node;
-    },
-    delete: () => chain(() => ({ data: null, error: null })),
-  };
-
   const admin = {
-    from: (table: string) => {
-      if (table === "players") return players;
-      if (table === "games") {
-        return {
-          insert: () => chain(() => ({ data: { id: GAME, room_code: "WXYZ" }, error: null })),
-          // startGameNow reads this first. Answering "already started" lets the
-          // deal announce itself and then stop, which is all the ordering test
-          // needs it to do.
-          select: () => {
-            order.push("deal");
-            return chain(() => ({
-              data: { id: GAME, status: "active", state: null, state_version: 1 },
-              error: null,
-            }));
-          },
-        };
-      }
-      return chain(() => ({ data: null, error: null }));
+    rpc: (name: string, args: Record<string, unknown>) => {
+      calls.push({ name, args });
+      if (name === "rate_limit_hit") return Promise.resolve({ data: true, error: null });
+      order.push("entry");
+      return Promise.resolve({ data: { gameId: GAME, playerId: "seat", seated, size, waiting: true, stake: 100, mode: "classic" }, error: null });
     },
-    rpc: (name: string) => {
-      if (name === "quick_match_claim") return Promise.resolve({ data: claimed, error: null });
-      if (name === "wallet_apply") return Promise.resolve({ data: 500, error: null });
-      return Promise.resolve({ data: null, error: null });
-    },
-    // deno-lint-ignore no-explicit-any
-  } as any;
-
-  return { admin, seats, stamps, order };
+    from: () => ({ select: () => ({ eq: () => ({ single: () => {
+      order.push("deal");
+      return Promise.resolve({ data: { status: "active", state: { gameId: GAME }, state_version: 2 } });
+    } }) }) }),
+  } as unknown as SupabaseClient;
+  return { admin, calls, order };
 }
-
-Deno.test("a quick seat claimed in SQL gets stamped with the build that claimed it", async () => {
-  const f = quickFake({ game_id: GAME, player_id: "player-7", seated: 1 });
-
-  await opQuickMatch(f.admin, USER, 4, null, "1.1.0");
-
-  assertEquals(f.stamps.length, 1);
-  assertEquals(f.stamps[0]!.patch.app_version, "1.1.0");
-  assertEquals(f.stamps[0]!.id, "player-7");
+Deno.test("quick entry commits the app version and request key with its funded seat", async () => {
+  const f=quickFake(1,4);
+  await opQuickMatch(f.admin,USER,4,null,"1.4.0","classic","request-one");
+  const call=f.calls.find(c=>c.name==="quick_match_enter")!;
+  assertEquals(call.args.p_app_version,"1.4.0");
+  assertEquals(call.args.p_request,"request-one");
+  assertEquals(f.order,["entry"]);
 });
-
-Deno.test("opening a new quick room records the build on the seat directly", async () => {
-  const f = quickFake(null);
-
-  await opQuickMatch(f.admin, USER, 2, null, "1.1.0");
-
-  assertEquals(f.seats.length, 1);
-  assertEquals(f.seats[0]!.app_version, "1.1.0");
+Deno.test("a full room starts only after the atomic entry has returned", async () => {
+  const f=quickFake(2,2);
+  await opQuickMatch(f.admin,USER,2,null,"1.4.0","classic","request-one");
+  assertEquals(f.order,["entry","deal"]);
 });
-
-/**
- * The seat that FILLS a quick room must be stamped before the deal reads it.
- *
- * This is the one path where the stamp and the deal live in the same request:
- * `quick_match_claim` takes the last chair, so `startGameNow` runs immediately
- * afterwards — and the deal is what reads every seat's app_version to decide
- * `fold_writes` (deal.ts, foldAllowed). Deferring the stamp to `afterResponse`
- * raced that read. An unstamped seat is null, null reads as "cannot fold", and
- * ONE null switches the fold off for the whole match.
- *
- * It fails safe, which is why it stayed hidden. It is not cheap: measured over
- * 30 days of finished matches, a folded match bumped state_version 135 times
- * and an unfolded one 765, each bump pushing a ~2.1 KB document to every seat.
- * The fold was off for 37% of matches.
- *
- * The part-filled case below is the control: no deal runs in that request, so
- * the stamp has until somebody else fills the room and deferring it is free.
- */
-Deno.test("the seat that fills a quick room is stamped before the deal reads it", async () => {
-  const f = quickFake({ game_id: GAME, player_id: "player-9", seated: 2 });
-
-  await opQuickMatch(f.admin, USER, 2, null, "1.1.0");
-
-  assertEquals(f.stamps.length, 1);
-  assertEquals(f.stamps[0]!.patch.app_version, "1.1.0");
-  // The whole point: the write settles ahead of the deal, not after it.
-  assertEquals(f.order, ["stamp", "deal"]);
-});
-
-Deno.test("a seat that only part-fills a room does not wait on its stamp", async () => {
-  // Nothing reads app_version in this request, so the stamp stays deferred and
-  // the searching UI gets its answer without paying for a round trip.
-  const f = quickFake({ game_id: GAME, player_id: "player-7", seated: 1 });
-
-  await opQuickMatch(f.admin, USER, 4, null, "1.1.0");
-
-  assertEquals(f.order, ["stamp"]);
+Deno.test("missing request keys cannot reach money-changing matchmaking calls", async () => {
+  const f=quickFake(1,4);
+  const result=await (await opQuickMatch(f.admin,USER,4,null,"1.0.0")).json();
+  assertEquals(result.error,"Update the app to start quick match safely.");
+  assertEquals(f.order,[]);
 });

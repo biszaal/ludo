@@ -270,7 +270,7 @@ function RingTrim({ progress, color }: { progress: SharedValue<number>; color: s
   const ringColor = useDerivedValue(() => (progress.value > 0.3 ? color : teamColor.red));
 
   const path = useMemo(() => {
-    const p = Skia.Path.Make();
+    const p = Skia.PathBuilder.Make();
     p.addRRect(
       Skia.RRectXY(
         Skia.XYWHRect(RING_INSET, RING_INSET, RING_BOX - RING_INSET * 2, RING_BOX - RING_INSET * 2),
@@ -278,7 +278,7 @@ function RingTrim({ progress, color }: { progress: SharedValue<number>; color: s
         RING_RADIUS,
       ),
     );
-    return p;
+    return p.detach();
   }, []);
 
   return (

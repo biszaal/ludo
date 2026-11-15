@@ -1,3 +1,4 @@
+import { cleanDisplayName, MAX_DISPLAY_NAME_LENGTH } from "../lib/displayName";
 /**
  * Local player identity — display name, avatar and dice skin, persisted on
  * device. Used for local games and (from the online milestone) synced to the
@@ -13,7 +14,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { kvStorage } from "../lib/storage";
 
-export const MAX_NAME_LENGTH = 20;
+export const MAX_NAME_LENGTH = MAX_DISPLAY_NAME_LENGTH;
 
 export function makeGuestName(): string {
   return `guest${Math.floor(100000 + Math.random() * 900000)}`;
@@ -72,7 +73,7 @@ export const useProfile = create<ProfileState>()(
       avatarId: "orbit-moss",
       diceSkinId: "classic",
       setName: (name) => {
-        const trimmed = name.slice(0, MAX_NAME_LENGTH);
+        const trimmed = cleanDisplayName(name);
         set({ displayName: trimmed.trim().length === 0 ? get().guestName : trimmed });
       },
       markNamePromptSeen: () => set({ namePromptSeen: true }),

@@ -175,7 +175,11 @@
             "SKAdNetworkIdentifier": "ydx93a7ass.skadnetwork"
           }
         ]
-      }
+      },
+      "associatedDomains": [
+        "applinks:www.biszaaltech.com"
+      ],
+      "appleTeamId": "HG4G2ZMGV8"
     },
     "android": {
       "package": "com.biszaal.mobile",
@@ -190,6 +194,23 @@
         "android.permission.MODIFY_AUDIO_SETTINGS",
         "com.android.vending.BILLING",
         "com.google.android.gms.permission.AD_ID"
+      ],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "www.biszaaltech.com",
+              "path": "/games/ludo"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
       ]
     },
     "web": {

@@ -56,6 +56,9 @@ interface Fake {
   /** Users whose players row was deleted (left out of the rematch). */
   removed: string[];
   writes: number;
+  lastPatch: Record<string, unknown> | null;
+  settlementError: string | null;
+  settlements: number;
 }
 
 /**
@@ -73,6 +76,9 @@ function fake(state: GameState, opts: { votes?: PlayerRow[]; hasBots?: boolean }
       state.players.map((p) => ({ user_id: p.userId, rematch_vote: null, rematch_voted_at: null })),
     removed: [],
     writes: 0,
+    lastPatch: null,
+    settlementError: null,
+    settlements: 0,
   };
 
   // deno-lint-ignore no-explicit-any
@@ -114,6 +120,7 @@ function fake(state: GameState, opts: { votes?: PlayerRow[]; hasBots?: boolean }
           has_bots: self.row.has_bots,
         };
         self.writes += 1;
+        self.lastPatch = patch;
         return { data: { id: GAME }, error: null };
       }),
   };
@@ -149,6 +156,11 @@ function fake(state: GameState, opts: { votes?: PlayerRow[]; hasBots?: boolean }
   const gameBots = { select: () => chain({}, () => ({ data: [], error: null })) };
 
   self.admin = {
+    rpc: (name: string) => {
+      assertEquals(name, "settle_finished_game");
+      self.settlements++;
+      return Promise.resolve({ data: !self.settlementError, error: self.settlementError ? { message: self.settlementError } : null });
+    },
     from: (table: string) => {
       if (table === "games") return games;
       if (table === "players") return players;
@@ -203,6 +215,9 @@ Deno.test("two accepters deal a fresh board and drop everyone else", async () =>
   const res = await body(await opRematchVote(f.admin, B, GAME, "yes"));
 
   assertEquals(res.rematchStarted, true);
+  assertEquals(f.settlements, 1);
+  assertEquals(f.lastPatch?.stats_done, false);
+  assertEquals(f.lastPatch?.dry_turns, {});
   assertEquals(f.writes, 1);
   assertEquals(f.row.status, "active");
   assertEquals(f.row.state.players.map((p) => p.userId).sort(), [A, B].sort());
@@ -356,4 +371,14 @@ Deno.test("declining when no proposal is running is a quiet no-op", async () => 
 
   assertEquals(res.error, undefined);
   assertEquals(f.players.every((p) => p.rematch_vote === null), true);
+});
+
+Deno.test("a failed settlement preserves the previous result instead of starting a rematch", async () => {
+  const f = fake(overGame(), { votes: [voteRow(A, "yes", 2000), voteRow(B), voteRow(C, "no", 1000)] });
+  f.settlementError = "injected payout failure";
+  let failed = false;
+  try { await opRematchVote(f.admin, B, GAME, "yes"); } catch { failed = true; }
+  assertEquals(failed, true);
+  assertEquals(f.writes, 0);
+  assertEquals(f.row.status, "finished");
 });

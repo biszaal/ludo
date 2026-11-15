@@ -36,6 +36,7 @@ describe("Dice picture worklet allocations", () => {
     const body = pictureWorklet();
     expect(count(body, "Skia.Paint(")).toBe(0);
     expect(count(body, "Skia.Path.Make(")).toBe(0);
+    expect(count(body, "Skia.PathBuilder.")).toBe(0);
     expect(count(body, "Skia.Shader.")).toBe(0);
     expect(count(body, "Skia.MaskFilter.")).toBe(0);
   });

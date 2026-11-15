@@ -94,9 +94,7 @@ export function OnlineGameScreen() {
   const leftOf = (playerId: string): boolean =>
     !!state.players.find((p) => p.id === playerId)?.hasLeft;
 
-  // A bot the host filled a friend room with. Reads the same players row as
-  // presence; quick-match fill-ins are never flagged, so this stays false for
-  // them and their camouflage holds.
+  // Every computer opponent is labelled through the live players row.
   const botOf = (playerId: string): boolean => {
     const player = state.players.find((p) => p.id === playerId);
     if (!player) return false;
@@ -147,7 +145,7 @@ export function OnlineGameScreen() {
       // Local-first for my own seat: the profiles cache is fetched once per
       // user per session and skips users already cached (onlineStore's
       // fetchProfiles), so it can go stale if I re-equip a skin mid-session.
-      // Everyone else — hidden bots included, they carry an ordinary profiles
+      // Human opponents carry an ordinary profiles
       // row — resolves the same way a name or avatar does.
       diceSkinFor={(playerId) =>
         botOf(playerId) ? null : isMe(playerId) ? myDiceSkin : (profileOf(playerId)?.dice_skin ?? null)}

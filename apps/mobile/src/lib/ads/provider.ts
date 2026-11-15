@@ -15,11 +15,13 @@ import { Platform } from "react-native";
 import type { InterstitialAd } from "react-native-google-mobile-ads";
 import { getTrackingPermissionsAsync, requestTrackingPermissionsAsync } from "expo-tracking-transparency";
 import { adsSdk } from "./native";
+import { resolveConsent } from "./consent";
 import { interstitialUnitId, rewardedUnitId, TEST_DEVICE_IDS } from "./units";
 import { emptyAdsDiagnostics, errorText, noteAdErrorIn, type AdFormat, type AdsDiagnostics } from "./diagnostics";
 
 let initialized = false;
 let canRequestAds = false;
+let privacyRequired = false;
 
 /** What the ad stack last said — see lib/ads/diagnostics. */
 let diag: AdsDiagnostics = { ...emptyAdsDiagnostics(), sdk: adsSdk !== null };
@@ -49,11 +51,13 @@ export function noteAdError(format: AdFormat, err: unknown): void {
  */
 const listeners = new Set<() => void>();
 
-function setReady(next: { initialized?: boolean; canRequestAds?: boolean }): void {
+function setReady(next: { initialized?: boolean; canRequestAds?: boolean; privacyRequired?: boolean }): void {
   const was = adsReady();
+  const previousPrivacy = privacyRequired;
   if (next.initialized !== undefined) initialized = next.initialized;
   if (next.canRequestAds !== undefined) canRequestAds = next.canRequestAds;
-  if (adsReady() !== was) for (const l of listeners) l();
+  if (next.privacyRequired !== undefined) privacyRequired = next.privacyRequired;
+  if (adsReady() !== was || privacyRequired !== previousPrivacy) for (const l of listeners) l();
 }
 
 /** Subscribe to readiness changes. Pair with adsReady in useSyncExternalStore. */
@@ -79,18 +83,20 @@ export async function initAds(): Promise<void> {
   try {
     // 1. UMP: this presents the GDPR/consent form where one is required, and
     //    is a no-op elsewhere.
-    try {
-      const info = await sdk.AdsConsent.gatherConsent({
-        testDeviceIdentifiers: TEST_DEVICE_IDS,
-      });
-      diag = { ...diag, consent: { status: String(info.status), canRequestAds: info.canRequestAds, error: null } };
-      setReady({ canRequestAds: info.canRequestAds });
-    } catch (err) {
-      // Consent flow unavailable (offline, misconfigured form). Fall back to
-      // requesting ads without personalization rather than showing nothing.
-      diag = { ...diag, consent: { status: "UNAVAILABLE", canRequestAds: true, error: errorText(err) } };
-      setReady({ canRequestAds: true });
-    }
+    const consent = await resolveConsent(
+      () => sdk.AdsConsent.gatherConsent({ testDeviceIdentifiers: TEST_DEVICE_IDS }),
+      () => sdk.AdsConsent.getConsentInfo(),
+    );
+    const permitted = consent.info?.canRequestAds === true;
+    diag = { ...diag, consent: {
+      status: String(consent.info?.status ?? "UNAVAILABLE"),
+      canRequestAds: permitted,
+      error: consent.error ? errorText(consent.error) : null,
+    } };
+    setReady({ canRequestAds: permitted, privacyRequired: consent.info?.privacyOptionsRequirementStatus === "REQUIRED" });
+    // Do not initialize or preload ad requests while consent is unknown/denied.
+    // initialized stays false, allowing a later initAds call to retry.
+    if (!permitted) return;
 
     // 2. iOS ATT. UMP usually presents this itself when the AdMob console is
     //    configured to; this covers the case where it didn't.
@@ -118,12 +124,38 @@ export async function initAds(): Promise<void> {
   }
 }
 
+/** Settings subscribes to the same observable SDK state as ad surfaces. */
+export function adsPrivacyRequired(): boolean { return privacyRequired; }
+
+/** Pause requests while choices are edited, then discard previously loaded ads. */
+export async function showAdsPrivacyOptions(): Promise<boolean> {
+  const sdk = adsSdk;
+  if (!sdk || !privacyRequired) return false;
+  setReady({ canRequestAds: false });
+  disposeInterstitial();
+  interstitial = null;
+  interstitialLoaded = false;
+  try {
+    const info = await sdk.AdsConsent.showPrivacyOptionsForm();
+    setReady({ canRequestAds: info.canRequestAds, privacyRequired: info.privacyOptionsRequirementStatus === "REQUIRED" });
+    diag = { ...diag, consent: { status: String(info.status), canRequestAds: info.canRequestAds, error: null } };
+    if (!initialized && info.canRequestAds) await initAds();
+    preloadInterstitial();
+    return true;
+  } catch (error) {
+    // Leave requests paused when we cannot verify the updated decision.
+    diag = { ...diag, consent: { status: "UNAVAILABLE", canRequestAds: false, error: errorText(error) } };
+    return false;
+  }
+}
+
 // --- Interstitial ------------------------------------------------------------
 // Kept warm so the match-end seam never waits on a network round trip. Ludo
 // matches run 3-15 minutes, so there's ample time to preload.
 
 let interstitial: InterstitialAd | null = null;
 let interstitialLoaded = false;
+let disposeInterstitial = () => {};
 
 export function preloadInterstitial(): void {
   const sdk = adsSdk;
@@ -142,6 +174,7 @@ export function preloadInterstitial(): void {
       offLoaded();
       offError();
     });
+    disposeInterstitial = () => { offLoaded(); offError(); };
     ad.load();
   } catch {
     interstitial = null;

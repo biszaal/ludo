@@ -44,6 +44,7 @@ import { appendGlyph } from "../render/boardGlyphs";
 import { artSeed, frameBand, frameDecor, plateTexture, yardEmblem, type Art } from "../render/boardArt";
 import { mulberry32 } from "../render/pipShapes";
 import { appendMotif, motifStyle } from "../render/faceMotifs";
+import { useScreenReader } from "../lib/useScreenReader";
 import { useT } from "../i18n";
 import {
   HOME_CELLS,
@@ -144,6 +145,7 @@ interface Spot {
  */
 export const Board = memo(function Board({ size, state, theme, isMovable, onSelectToken, viewColor, soundColor }: BoardProps) {
   const t = useT();
+  const screenReader = useScreenReader();
   // Read once here, not per pawn. The movable-pawn bob is the single largest
   // sustained cost in normal play: a Skia canvas rasterizes in FULL whenever any
   // shared value inside it moves, so one repeating loop keeps all sixteen pawns
@@ -338,7 +340,27 @@ export const Board = memo(function Board({ size, state, theme, isMovable, onSele
       {/* Single tap layer: selects the movable token NEAREST the tap, so fanned
           tokens sharing a cell are disambiguated precisely (no overlapping hit
           boxes stealing the touch). */}
-      {choosing && (
+      {screenReader && renderData.map(({ token, spot }) => {
+        const number = state.tokens.filter(pawn => pawn.color === token.color).findIndex(pawn => pawn.id === token.id) + 1;
+        const position = token.position === "home" ? t("game.pawnYard")
+          : token.position === "finished" ? t("game.pawnFinished")
+          : t(token.position.type === "track" ? "game.pawnTrack" : "game.pawnHomeLane", { number: token.position.index + 1 });
+        const movable = isMovable(token.id);
+        return (
+          <Pressable
+            key={token.id}
+            accessible
+            accessibilityRole="button"
+            accessibilityLabel={t("game.pawnA11y", { color: t(`color.${token.color}`), number, position })}
+            accessibilityHint={movable ? t("game.movePawn") : undefined}
+            accessibilityState={{ disabled: !movable }}
+            disabled={!movable}
+            onPress={() => { if (isMovable(token.id)) onSelectToken(token.id); }}
+            style={{ position: "absolute", left: Math.max(0, Math.min(size - 44, spot.x - 22)), top: Math.max(0, Math.min(size - 44, spot.y - 22)), width: 44, height: 44 }}
+          />
+        );
+      })}
+      {choosing && !screenReader && (
         <Pressable
           accessibilityLabel={t("game.boardA11y")}
           style={{ position: "absolute", left: 0, top: 0, width: size, height: size }}
@@ -990,29 +1012,29 @@ function cellInset(cell: number): number {
  * once, which is why the boards that draw one read as printed.
  */
 function bevelUpper(x: number, y: number, w: number, r: number) {
-  const p = Skia.Path.Make();
+  const p = Skia.PathBuilder.Make();
   p.moveTo(x, y + w - r);
   p.lineTo(x, y + r);
   p.arcToTangent(x, y, x + r, y, r);
   p.lineTo(x + w - r, y);
-  return p;
+  return p.detach();
 }
 
 /** The other half — the right and bottom edges. See bevelUpper. */
 function bevelLower(x: number, y: number, w: number, r: number) {
-  const p = Skia.Path.Make();
+  const p = Skia.PathBuilder.Make();
   p.moveTo(x + w, y + r);
   p.lineTo(x + w, y + w - r);
   p.arcToTangent(x + w, y + w, x + w - r, y + w, r);
   p.lineTo(x + r, y + w);
-  return p;
+  return p.detach();
 }
 
 /** Stroke path along a circle's top half — the slot recess's inner shadow. */
 function topArc(cx: number, cy: number, r: number) {
-  const p = Skia.Path.Make();
+  const p = Skia.PathBuilder.Make();
   p.addArc(Skia.XYWHRect(cx - r, cy - r, r * 2, r * 2), 180, 180);
-  return p;
+  return p.detach();
 }
 
 // --- 3D animated pawn -------------------------------------------------------
@@ -1336,7 +1358,7 @@ export function PawnShape({ r, color, stroke }: { r: number; color: string; stro
   // Base-and-body silhouette: elliptical foot bulging to ±0.70r, sides pulling
   // in to a 0.20r-wide neck at -0.62r (the head sphere sits above it).
   const body = useMemo(() => {
-    const p = Skia.Path.Make();
+    const p = Skia.PathBuilder.Make();
     p.moveTo(-0.7 * r, 0.42 * r);
     p.quadTo(0, 0.7 * r, 0.7 * r, 0.42 * r); // foot underside
     p.quadTo(0.72 * r, 0.16 * r, 0.5 * r, 0.02 * r); // foot shoulder
@@ -1345,7 +1367,7 @@ export function PawnShape({ r, color, stroke }: { r: number; color: string; stro
     p.quadTo(-0.24 * r, -0.18 * r, -0.5 * r, 0.02 * r);
     p.quadTo(-0.72 * r, 0.16 * r, -0.7 * r, 0.42 * r);
     p.close();
-    return p;
+    return p.detach();
   }, [r]);
 
   return (
@@ -1444,12 +1466,12 @@ function startColor(idx: number, theme: BoardTheme): string {
 
 /** Lighten (amt > 0) or darken (amt < 0) a #RRGGBB color toward white/black. */
 function triangle(a: number[], b: number[], c: number[], cell: number) {
-  const p = Skia.Path.Make();
+  const p = Skia.PathBuilder.Make();
   p.moveTo(a[0]! * cell, a[1]! * cell);
   p.lineTo(b[0]! * cell, b[1]! * cell);
   p.lineTo(c[0]! * cell, c[1]! * cell);
   p.close();
-  return p;
+  return p.detach();
 }
 
 /**
@@ -1472,19 +1494,19 @@ function triangle(a: number[], b: number[], c: number[], cell: number) {
 function ArtLayer({ art, color, alpha, dx = 0, dy = 0 }: { art: Art; color: string; alpha: number; dx?: number; dy?: number }) {
   const buckets = useMemo(() => {
     const round = (a: number) => Math.round(Math.min(1, Math.max(0, a)) * 4) / 4;
-    const fills = new Map<number, ReturnType<typeof Skia.Path.Make>>();
-    const strokes = new Map<string, { path: ReturnType<typeof Skia.Path.Make>; w: number; a: number }>();
+    const fills = new Map<number, ReturnType<typeof Skia.PathBuilder.Make>>();
+    const strokes = new Map<string, { path: ReturnType<typeof Skia.PathBuilder.Make>; w: number; a: number }>();
 
     for (const d of art.dots) {
       const key = round(d.a);
       let p = fills.get(key);
-      if (!p) fills.set(key, (p = Skia.Path.Make()));
+      if (!p) fills.set(key, (p = Skia.PathBuilder.Make()));
       p.addCircle(d.x + dx, d.y + dy, d.r);
     }
     for (const m of art.marks) {
       const key = round(m.a);
       let p = fills.get(key);
-      if (!p) fills.set(key, (p = Skia.Path.Make()));
+      if (!p) fills.set(key, (p = Skia.PathBuilder.Make()));
       appendGlyph(p, m.glyph, m.x + dx, m.y + dy, m.r, m.rot, m.sx ?? 1, m.sy ?? 1);
     }
     for (const m of art.motifs) {
@@ -1495,13 +1517,13 @@ function ArtLayer({ art, color, alpha, dx = 0, dy = 0 }: { art: Art; color: stri
       if (style.style === "fill") {
         const key = round(m.a);
         let p = fills.get(key);
-        if (!p) fills.set(key, (p = Skia.Path.Make()));
+        if (!p) fills.set(key, (p = Skia.PathBuilder.Make()));
         appendMotif(p, m.kind, m.x + dx, m.y + dy, m.r);
       } else {
         const w = Math.round(style.width * m.r * 2) / 2;
         const key = `${round(m.a)}:${w}`;
         let entry = strokes.get(key);
-        if (!entry) strokes.set(key, (entry = { path: Skia.Path.Make(), w, a: round(m.a) }));
+        if (!entry) strokes.set(key, (entry = { path: Skia.PathBuilder.Make(), w, a: round(m.a) }));
         appendMotif(entry.path, m.kind, m.x + dx, m.y + dy, m.r);
       }
     }
@@ -1510,10 +1532,10 @@ function ArtLayer({ art, color, alpha, dx = 0, dy = 0 }: { art: Art; color: stri
       const w = Math.round(st.w * 2) / 2;
       const key = `${round(st.a)}:${w}`;
       let entry = strokes.get(key);
-      if (!entry) strokes.set(key, (entry = { path: Skia.Path.Make(), w, a: round(st.a) }));
+      if (!entry) strokes.set(key, (entry = { path: Skia.PathBuilder.Make(), w, a: round(st.a) }));
       st.pts.forEach(([x, y], i) => (i === 0 ? entry!.path.moveTo(x + dx, y + dy) : entry!.path.lineTo(x + dx, y + dy)));
     }
-    return { fills: [...fills.entries()], strokes: [...strokes.values()] };
+    return { fills: [...fills.entries()].map(([a, path]) => [a, path.detach()] as const), strokes: [...strokes.values()].map(({ path, ...style }) => ({ ...style, path: path.detach() })) };
   }, [art, dx, dy]);
 
   return (
@@ -1530,16 +1552,16 @@ function ArtLayer({ art, color, alpha, dx = 0, dy = 0 }: { art: Art; color: stri
 
 /** The plate's own rounded rect, as a clip for the texture pass. */
 function plateClip(size: number) {
-  const p = Skia.Path.Make();
+  const p = Skia.PathBuilder.Make();
   p.addRRect(Skia.RRectXY(Skia.XYWHRect(0, 0, size, size), 18, 18));
-  return p;
+  return p.detach();
 }
 
 /** A round yard bed, as a clip for its emblem. */
 function circleClip(cx: number, cy: number, r: number) {
-  const p = Skia.Path.Make();
+  const p = Skia.PathBuilder.Make();
   p.addCircle(cx, cy, r);
-  return p;
+  return p.detach();
 }
 
 /** A yard plate's rounded rect, as a clip for its emblem. */
@@ -1550,15 +1572,15 @@ function circleClip(cx: number, cy: number, r: number) {
  */
 function frameRing(size: number) {
   const inset = (size * (1 - BOARD_INTERIOR_SCALE)) / 2;
-  const hole = Skia.Path.Make();
+  const hole = Skia.PathBuilder.Make();
   hole.addRRect(Skia.RRectXY(Skia.XYWHRect(inset, inset, size - inset * 2, size - inset * 2), 14, 14));
-  return Skia.Path.MakeFromOp(plateClip(size), hole, 2 /* Difference */) ?? plateClip(size);
+  return Skia.Path.MakeFromOp(plateClip(size), hole.detach(), 2 /* Difference */) ?? plateClip(size);
 }
 
 function roundedClip(x: number, y: number, w: number, r: number) {
-  const p = Skia.Path.Make();
+  const p = Skia.PathBuilder.Make();
   p.addRRect(Skia.RRectXY(Skia.XYWHRect(x, y, w, w), r, r));
-  return p;
+  return p.detach();
 }
 
 /**
@@ -1572,20 +1594,20 @@ function roundedClip(x: number, y: number, w: number, r: number) {
  */
 function markPath(theme: BoardTheme, cx: number, cy: number, outer: number, inner: number) {
   if (!theme.glyph || theme.glyph === "star") return starPath(cx, cy, outer, inner);
-  const p = Skia.Path.Make();
+  const p = Skia.PathBuilder.Make();
   appendGlyph(p, theme.glyph, cx, cy, outer);
-  return p;
+  return p.detach();
 }
 
 /** The centre medallion's path (render/faceMotifs.ts ornament, board-scaled). */
 function crestPath(kind: Parameters<typeof appendMotif>[1], cx: number, cy: number, r: number) {
-  const p = Skia.Path.Make();
+  const p = Skia.PathBuilder.Make();
   appendMotif(p, kind, cx, cy, r);
-  return p;
+  return p.detach();
 }
 
 function starPath(cx: number, cy: number, outer: number, inner: number, points = 5) {
-  const p = Skia.Path.Make();
+  const p = Skia.PathBuilder.Make();
   for (let i = 0; i < points * 2; i++) {
     const radius = i % 2 === 0 ? outer : inner;
     const angle = (Math.PI * i) / points - Math.PI / 2;
@@ -1595,5 +1617,5 @@ function starPath(cx: number, cy: number, outer: number, inner: number, points =
     else p.lineTo(x, y);
   }
   p.close();
-  return p;
+  return p.detach();
 }
