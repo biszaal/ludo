@@ -256,7 +256,16 @@ async function refundSeats(
  * Waiting lobby: the seat is freed and any quick-match entry is refunded.
  * Idempotent and safe to call as a fire-and-forget on the way out.
  */
-export async function opLeave(admin: SupabaseClient, userId: string, gameId: string, waitingOnly = false): Promise<Response> {
+/** Extra attempts for a mid-game Leave that loses the state_version race. */
+const LEAVE_RETRIES = 3;
+
+export async function opLeave(
+  admin: SupabaseClient,
+  userId: string,
+  gameId: string,
+  waitingOnly = false,
+  attempt = 0,
+): Promise<Response> {
   const { data: game } = await admin
     .from("games")
     .select("id, host_user_id, status, state, state_version, is_quick, has_bots, stake, atomic_quick")
@@ -346,7 +355,17 @@ export async function opLeave(admin: SupabaseClient, userId: string, gameId: str
     .select("id")
     .maybeSingle();
   if (error) return safeError("room.write", error, WRITE_FAILED);
-  if (!updated) return await freshState(admin, gameId, state);
+  if (!updated) {
+    // Another write to this game landed between our read and our write — in
+    // practice the leaver's own autopilot roll, or a bot turn. Every client
+    // sends Leave once and is already on Home, so answering with the fresh
+    // state here silently dropped the leave: the seat stayed in the match and
+    // the next quick-match tap was handed straight back into it (seen in the
+    // 2026-11-15 rehearsal, twice in a row). Re-read and re-apply instead,
+    // a bounded number of times.
+    if (attempt < LEAVE_RETRIES) return await opLeave(admin, userId, gameId, waitingOnly, attempt + 1);
+    return await freshState(admin, gameId, state);
+  }
 
   afterResponse(admin.from("moves").insert({ game_id: gameId, player_id: me.id, action: { action: "leave" } }));
   await settleIfFinished(admin, gameId, next);
