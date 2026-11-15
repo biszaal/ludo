@@ -16,6 +16,7 @@
 
 import { afterResponse, json, LIMITS, rateLimited, rateOk, type SupabaseClient } from "./lib.ts";
 import { displayNameOf, sendPush } from "./push.ts";
+import { opLeave } from "./room.ts";
 
 const FRIEND_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const FRIEND_LOOKUPS_PER_HOUR = 40;
@@ -42,18 +43,56 @@ const ONLINE_MAX_PER_DAY = 3;
 const ONLINE_FANOUT_MAX = 10;
 
 /**
- * Permanently delete the caller's account and every trace of their data. Each
- * app table references auth.users(id) ON DELETE CASCADE, so removing the auth
- * user removes their wallet, gems, entitlements, purchases, profile, friends,
- * blocks, and seats in one transaction. Required by the App Store and Google
- * Play for any app that lets a user create an account. The caller can only ever
- * delete themselves — userId comes from the verified JWT, never the request body.
+ * Permanently delete the caller's account and every trace of their data.
+ * Required by the App Store and Google Play for any app that lets a user create
+ * an account. The caller can only ever delete themselves — userId comes from the
+ * verified JWT, never the request body.
+ *
+ * Wallet, gems, entitlements, purchases, profile, friends and blocks reference
+ * auth.users(id) ON DELETE CASCADE and go with the user. SEATS DO NOT:
+ * players.user_id and games.host_user_id have no foreign key to auth.users, so
+ * deleting the user alone left their chairs occupied by nobody — an active game
+ * waiting on a player who no longer exists until the turn clock idled them out,
+ * and a friend room hosted by a deleted account open until the 24h reap. So the
+ * seats are given up first, through the same opLeave a player's own Leave tap
+ * runs (forfeit in a live game, refunds for a quick-match queue).
+ *
+ * `leave` is injectable for the tests only.
  */
-export async function opDeleteAccount(admin: SupabaseClient, userId: string): Promise<Response> {
+export async function opDeleteAccount(
+  admin: SupabaseClient,
+  userId: string,
+  leave: (admin: SupabaseClient, userId: string, gameId: string) => Promise<Response> = opLeave,
+): Promise<Response> {
   // Irreversible, and an account can only ever delete itself once — so a low
   // ceiling costs a real user nothing and stops a retry loop from hammering the
   // Auth admin API.
   if (!(await rateOk(admin, userId, "deleteAccount", LIMITS.deleteAccount))) return rateLimited();
+
+  // Best-effort throughout. Deletion is the one thing that must not fail here:
+  // a seat that will not let go is tidied later by the turn clock and the
+  // reaper, while a refused deletion is a store-policy request we did not honour.
+  try {
+    const { data: seats, error: seatsError } = await admin
+      .from("players")
+      .select("game_id, games!inner(status)")
+      .eq("user_id", userId)
+      .in("games.status", ["waiting", "active"]);
+    // Logged, not returned: an empty list here looks exactly like "seated
+    // nowhere", and the seats it missed are the bug this block exists for.
+    if (seatsError) console.error("[account.delete.seats]", seatsError.message);
+    for (const s of seats ?? []) {
+      await leave(admin, userId, String(s.game_id)).catch(() => {});
+    }
+    // opLeave keeps a friend-room host's seat (the room is theirs), which is
+    // right for a host stepping out and wrong for one who no longer exists.
+    // Nothing is debited before a friend room starts (deal.ts), so closing it
+    // owes nobody anything.
+    await admin.from("games").delete().eq("host_user_id", userId).eq("status", "waiting").eq("is_quick", false);
+  } catch {
+    // Fall through to the deletion.
+  }
+
   const { error } = await admin.auth.admin.deleteUser(userId);
   if (error) return json({ error: "Could not delete your account. Please try again." });
   return json({ ok: true });

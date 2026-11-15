@@ -56,6 +56,8 @@ interface Fake {
   /** Users whose players row was deleted (left out of the rematch). */
   removed: string[];
   writes: number;
+  /** Rows the op tried to append to the move log. */
+  logged: Array<Record<string, unknown>>;
 }
 
 /**
@@ -73,6 +75,7 @@ function fake(state: GameState, opts: { votes?: PlayerRow[]; hasBots?: boolean }
       state.players.map((p) => ({ user_id: p.userId, rematch_vote: null, rematch_voted_at: null })),
     removed: [],
     writes: 0,
+    logged: [],
   };
 
   // deno-lint-ignore no-explicit-any
@@ -145,7 +148,14 @@ function fake(state: GameState, opts: { votes?: PlayerRow[]; hasBots?: boolean }
       }),
   };
 
-  const moves = { insert: () => Promise.resolve({ data: null, error: null }) };
+  const moves = {
+    insert: (row: Record<string, unknown>) => {
+      self.logged.push(row);
+      // moves.player_id is NOT NULL (0001); production answers a null with a 400.
+      const error = row.player_id == null ? { code: "23502", message: "null player_id" } : null;
+      return Promise.resolve({ data: null, error });
+    },
+  };
   const gameBots = { select: () => chain({}, () => ({ data: [], error: null })) };
 
   self.admin = {
@@ -209,6 +219,18 @@ Deno.test("two accepters deal a fresh board and drop everyone else", async () =>
   assertEquals(f.removed, [C]);
   // The accepters keep their chairs, so nobody's myPlayerId goes stale.
   assertEquals(f.row.state.players.map((p) => p.id).sort(), ["p1", "p2"]);
+});
+
+Deno.test("the rematch is logged against a seat, never a null player", async () => {
+  // moves.player_id is NOT NULL. A null here is a 400 on every rematch — the
+  // deal itself still lands, but the log row is lost and the error is noise.
+  const f = fake(overGame(), { votes: [voteRow(A, "yes", 2000), voteRow(B), voteRow(C, "no", 1000)] });
+  await opRematchVote(f.admin, B, GAME, "yes");
+
+  const entry = f.logged.find((r) => (r.action as { action?: string })?.action === "rematch");
+  assertEquals(entry !== undefined, true);
+  assertEquals(typeof entry!.player_id, "string");
+  assertEquals(["p1", "p2"].includes(entry!.player_id as string), true);
 });
 
 Deno.test("the pot does not ride on a rematch", async () => {

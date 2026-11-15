@@ -449,7 +449,11 @@ async function startRematch(
   );
   // Everyone who didn't accept leaves with the old game.
   afterResponse(admin.from("players").delete().eq("game_id", gameId).not("user_id", "in", `(${seatedUsers.join(",")})`));
-  afterResponse(admin.from("moves").insert({ game_id: gameId, player_id: null, action: { action: "rematch", seats: seats.length } }));
+  // moves.player_id is NOT NULL (0001), so this row was a 400 on every rematch.
+  // There is no caller to name — the bot-vote path resolves a rematch with no
+  // request behind it — so the row is pinned to the first seat dealt in, which
+  // always exists (seats.length >= 2 above) and is a real player in this game.
+  afterResponse(admin.from("moves").insert({ game_id: gameId, player_id: seats[0].id, action: { action: "rematch", seats: seats.length } }));
   afterGameWrite(admin, gameId, !!game.has_bots, next, prev);
 
   return json({ state: next, v: v + 1, rematchStarted: true });
