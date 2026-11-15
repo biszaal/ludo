@@ -46,7 +46,9 @@
       },
       "android": {
         "serviceAccountKeyPath": "./play-service-account.json",
-        "track": "production"
+        "track": "production",
+        "releaseStatus": "inProgress",
+        "rollout": 0.1
       }
     },
     "internal": {
