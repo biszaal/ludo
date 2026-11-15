@@ -78,5 +78,5 @@ describe("blitz bot", () => {
       if (order[0] === hardSeat) hardWins++;
     }
     expect(hardWins / games).toBeGreaterThan(0.52);
-  });
+  }, 60_000);
 });

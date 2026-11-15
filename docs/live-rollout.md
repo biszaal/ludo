@@ -139,3 +139,20 @@ the preview. This website release is independent of pending app/server changes.
 The app/server fixes are being published as a draft source review, without
 applying migrations, deploying functions, publishing an OTA or submitting store
 binaries. Request-ID compatibility remains a blocker for the game cutover.
+
+
+## Website published — 2026-11-15
+
+Website PR #6 was merged as 902c19175cff23806cfbc802fb8615428e529c30.
+The production www.biszaaltech.com domain now serves both association files
+with HTTP 200, application/json, the exact expected signing identities and no
+redirects. The production invite page and its deployed JavaScript were checked.
+Netlify's Git integration performed the deployment; no hosting settings or
+unrelated privacy-policy edits were changed. Native app/server source is
+published in draft https://github.com/biszaal/ludo/pull/2 ; migrations, functions,
+OTA updates and store binaries remain undeployed.
+
+The first hosted CI run exposed a default five-second timeout on the 300-game
+Blitz simulation and wall-clock contamination of the CPU benchmark. The
+simulation now has an explicit 60-second timeout; CPU measurements use process
+CPU usage, and bot files run serially. Win-rate and CPU thresholds are unchanged.

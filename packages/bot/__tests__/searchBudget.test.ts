@@ -15,7 +15,7 @@
  * "someone made the search 50x more expensive", not to police a 20% drift.
  */
 
-import { performance } from "node:perf_hooks";
+import { cpuUsage } from "node:process";
 import { describe, it, expect } from "vitest";
 import {
   applyMove,
@@ -71,9 +71,12 @@ describe("search CPU budget", () => {
     // Warm up so the measurement is of steady-state code, not the JIT.
     for (const [st, pid, moves] of points.slice(0, 100)) chooseMove(st, pid, moves, { rng });
 
-    const start = performance.now();
+    const start = cpuUsage();
     for (const [st, pid, moves] of points) chooseMove(st, pid, moves, { rng });
-    const perDecisionMs = (performance.now() - start) / points.length;
+    // Measure CPU consumed by this test process, excluding time the shared
+    // CI runner schedules another worker. The production limit is CPU time.
+    const elapsed = cpuUsage(start);
+    const perDecisionMs = (elapsed.user + elapsed.system) / 1_000 / points.length;
     const perRunMs = perDecisionMs * ACTIONS_PER_RUN;
 
     // ~23ms measured; fail only on a change of a different order.
@@ -86,9 +89,10 @@ describe("search CPU budget", () => {
     for (const [st, pid, moves] of points.slice(0, 100)) chooseMove(st, pid, moves, { rng });
 
     const time = (depth: number) => {
-      const start = performance.now();
+      const start = cpuUsage();
       for (const [st, pid, moves] of points) chooseMove(st, pid, moves, { rng, depth });
-      return performance.now() - start;
+      const elapsed = cpuUsage(start);
+      return (elapsed.user + elapsed.system) / 1_000;
     };
     time(1); // warm both paths before measuring either
     time(2);
