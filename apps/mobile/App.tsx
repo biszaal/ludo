@@ -169,6 +169,9 @@ export default function App() {
         // finishing pays out when the LAST player comes home, long after you
         // stopped watching. Re-read the balance so those coins actually show up.
         void useWallet.getState().refresh();
+        // Ads start once consent is known. If that check failed at launch, this
+        // is the moment to ask again; it is a no-op once ads are running.
+        void initAds();
         // The update floor lives in the same config document. Re-read it on
         // resume so a version retired while we were backgrounded is noticed,
         // and so a floor the owner has since lowered gets out of the way. A
