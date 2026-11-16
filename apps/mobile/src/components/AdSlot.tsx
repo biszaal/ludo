@@ -43,6 +43,24 @@ const RETRY_DELAYS_MS = [20_000, 45_000, 90_000];
 /** The lobby's fixed format: Google's medium rectangle. */
 const RECT = { width: 300, height: 250 };
 
+/**
+ * The height a slot holds from its first frame — 0 when it renders nothing (ads
+ * off, Remove Ads owned, or a client without the ads SDK).
+ *
+ * For a screen that budgets its own height around the banner: Home places the
+ * banner inside its column, above the dock, so its budget has to know the
+ * banner's size before layout rather than discover it a frame late. One
+ * definition, shared with AdSlot below, so the two cannot drift.
+ */
+export function useAdSlotHeight(slot: BannerSlot): number {
+  const config = useConfig((s) => s.config);
+  const entitled = useNoAds();
+  const { width: screenWidth } = useWindowDimensions();
+  const expected = adsSdk !== null && adsEnabled(config, entitled) && config.ads.banner[slot];
+  if (!expected) return 0;
+  return slot === "lobby" ? RECT.height : anchoredBannerHeight(screenWidth);
+}
+
 export function AdSlot({ slot }: AdSlotProps) {
   const t = useT();
   const config = useConfig((s) => s.config);
