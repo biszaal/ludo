@@ -65,8 +65,11 @@ export function initCrashReporting(): void {
  *
  * `where` is a short tag ("updates.check"), matching the convention the edge
  * function's safeError uses, so a report can be traced to one call site.
+ * Further string tags (platform, the step that failed) ride along when the
+ * call site has them; Sentry indexes tags, which is what makes "every Android
+ * token mint fails" a query rather than a stack trace to read one by one.
  */
-export function captureError(e: unknown, tags: { where: string }): void {
+export function captureError(e: unknown, tags: { where: string; [tag: string]: string }): void {
   if (!isCrashReportingConfigured) return;
   try {
     Sentry.captureException(e, { tags });

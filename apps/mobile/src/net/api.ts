@@ -608,8 +608,10 @@ export async function adRewardStatus(
  * table to clients and moved both writes to the server, which can do the
  * token-keyed write the device actually means.
  *
- * Both swallow their errors at the call site (see lib/push.ts): push is an
- * enhancement over a delivery path that already works.
+ * The call site does not surface either failure (see lib/push.ts): push is an
+ * enhancement over a delivery path that already works. registerForPush reports
+ * a thrown failure to Sentry; pushDisable stays quiet, because a missing row
+ * is the success case.
  */
 export async function pushRegister(token: string, platform: "ios" | "android"): Promise<void> {
   await ensureSignedIn();

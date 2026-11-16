@@ -64,6 +64,24 @@ npm run mobile    # expo start — open the installed dev build
 Then: pick 2–4 players → **Start game** → tap **Roll** → tap a highlighted token.
 Pass-and-play on one device.
 
+## Android push (FCM)
+
+Remote push on Android needs a Firebase Android app whose package is
+`com.biszaal.mobile`. The client file is `google-services.json`. It is
+gitignored (`apps/mobile/.gitignore`) and is not in this repo.
+
+`apps/mobile/app.config.ts` sets `android.googleServicesFile` only when a real
+file is present:
+
+- EAS file environment variable `GOOGLE_SERVICES_JSON` (the path EAS writes
+  during a build), or
+- a local `apps/mobile/google-services.json` for `expo run:android`.
+
+A build with neither keeps the static `app.json` config and still succeeds.
+Uploading the file (EAS file env var `GOOGLE_SERVICES_JSON`) and the separate
+FCM V1 service-account key (`eas credentials`) is manual, and only a new
+Android binary picks them up. An OTA update cannot carry either.
+
 ## Server setup
 
 Two one-off steps per Supabase environment. Without them the cron heartbeat

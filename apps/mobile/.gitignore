@@ -23,6 +23,12 @@ play-service-account.json
 *-service-account.json
 *.p8.json
 
+# Firebase Android client config for FCM. Supplied at build time by the EAS
+# file env var GOOGLE_SERVICES_JSON (see app.config.ts). A local copy at
+# apps/mobile/google-services.json is the fallback for `expo run:android`.
+# Do not commit it.
+google-services.json
+
 # Metro
 .metro-health-check*
 
