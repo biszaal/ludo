@@ -506,4 +506,10 @@ export const ne: Strings = {
   "error.title": "अलिकति बाँकी",
   "error.loadingLudo": "लुडो लोड हुँदैछ",
   "error.dismissInvite": "बोलावट हटाउनुहोस्",
+
+  "update.title": "कृपया अपडेट गर्नुहोस्",
+  "update.body": "लुडोको यो संस्करण अब चल्दैन। खेलिरहन नयाँ संस्करण राख्नुहोस्।",
+  "update.button": "अपडेट गर्नुहोस्",
+  "update.recommendedTitle": "नयाँ संस्करण आएको छ",
+  "update.recommendedBody": "यो संस्करण अझै चल्छ। हुँदा नयाँ संस्करण राख्नुहोस्।",
 };

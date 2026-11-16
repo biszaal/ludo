@@ -11,10 +11,18 @@ vi.mock("../src/net/api", () => ({
 }));
 
 import * as api from "../src/net/api";
+import { APP_VERSION } from "../src/lib/appVersion";
 import { useConfig, mergeConfig, DEFAULT_CONFIG } from "../src/store/configStore";
 
 afterEach(() => {
-  useConfig.setState({ config: DEFAULT_CONFIG, region: null, refreshing: false });
+  useConfig.setState({
+    config: DEFAULT_CONFIG,
+    region: null,
+    refreshing: false,
+    updateRequired: false,
+    updateSuggested: false,
+    dismissedRecommendation: null,
+  });
   vi.clearAllMocks();
 });
 
@@ -91,5 +99,125 @@ describe("config refresh", () => {
     await useConfig.getState().refresh();
     expect(useConfig.getState().config).toEqual(DEFAULT_CONFIG);
     expect(useConfig.getState().refreshing).toBe(false);
+  });
+});
+
+describe("update floor", () => {
+  it("ships with no floor, so nothing is blocked until the owner sets one", () => {
+    expect(DEFAULT_CONFIG.update).toEqual({ minVersion: "", recommendedVersion: "" });
+    expect(useConfig.getState().updateRequired).toBe(false);
+    expect(useConfig.getState().updateSuggested).toBe(false);
+  });
+
+  it("blocks only after a successful read puts this build strictly below the floor", async () => {
+    vi.mocked(api.getConfig).mockResolvedValue({
+      config: { update: { minVersion: "99.0.0" } },
+      region: "NP",
+    });
+    await useConfig.getState().refresh();
+    expect(useConfig.getState().updateRequired).toBe(true);
+    expect(useConfig.getState().updateSuggested).toBe(false);
+
+    // The same build, at the floor, is still allowed. Equal is not below.
+    vi.mocked(api.getConfig).mockResolvedValue({
+      config: { update: { minVersion: APP_VERSION } },
+      region: "NP",
+    });
+    await useConfig.getState().refresh();
+    expect(useConfig.getState().updateRequired).toBe(false);
+  });
+
+  it("does not block when the floor is older than this build", async () => {
+    vi.mocked(api.getConfig).mockResolvedValue({
+      config: { update: { minVersion: "0.0.1" } },
+      region: null,
+    });
+    await useConfig.getState().refresh();
+    expect(useConfig.getState().updateRequired).toBe(false);
+  });
+
+  it("does not block when the floor is missing, the wrong type, or not a version", async () => {
+    vi.mocked(api.getConfig).mockResolvedValue({ config: {}, region: null });
+    await useConfig.getState().refresh();
+    expect(useConfig.getState().updateRequired).toBe(false);
+
+    vi.mocked(api.getConfig).mockResolvedValue({
+      config: { update: { minVersion: 2 } },
+      region: null,
+    });
+    await useConfig.getState().refresh();
+    expect(useConfig.getState().config.update.minVersion).toBe("");
+    expect(useConfig.getState().updateRequired).toBe(false);
+
+    vi.mocked(api.getConfig).mockResolvedValue({
+      config: { update: { minVersion: "latest" } },
+      region: null,
+    });
+    await useConfig.getState().refresh();
+    expect(useConfig.getState().updateRequired).toBe(false);
+  });
+
+  it("does not block when the config fetch fails, even if a cached floor would", async () => {
+    useConfig.setState({
+      config: mergeConfig(DEFAULT_CONFIG, { update: { minVersion: "99.0.0" } }),
+    });
+    vi.mocked(api.getConfig).mockRejectedValue(new Error("offline"));
+    await useConfig.getState().refresh();
+    expect(useConfig.getState().updateRequired).toBe(false);
+    expect(useConfig.getState().updateSuggested).toBe(false);
+    // Pacing config is allowed to stay on the last document. The gate is not.
+    expect(useConfig.getState().config.update.minVersion).toBe("99.0.0");
+  });
+
+  it("keeps a gate that a successful read already raised when a later read fails", async () => {
+    vi.mocked(api.getConfig).mockResolvedValueOnce({
+      config: { update: { minVersion: "99.0.0" } },
+      region: null,
+    });
+    await useConfig.getState().refresh();
+    expect(useConfig.getState().updateRequired).toBe(true);
+
+    vi.mocked(api.getConfig).mockRejectedValueOnce(new Error("offline"));
+    await useConfig.getState().refresh();
+    expect(useConfig.getState().updateRequired).toBe(true);
+  });
+
+  it("nudges below the recommended version without blocking, and remembers a dismiss", async () => {
+    vi.mocked(api.getConfig).mockResolvedValue({
+      config: { update: { recommendedVersion: "99.0.0" } },
+      region: null,
+    });
+    await useConfig.getState().refresh();
+    expect(useConfig.getState().updateRequired).toBe(false);
+    expect(useConfig.getState().updateSuggested).toBe(true);
+
+    useConfig.getState().dismissUpdateSuggestion();
+    expect(useConfig.getState().updateSuggested).toBe(false);
+
+    await useConfig.getState().refresh();
+    expect(useConfig.getState().updateSuggested).toBe(false);
+
+    vi.mocked(api.getConfig).mockResolvedValue({
+      config: { update: { recommendedVersion: "99.1.0" } },
+      region: null,
+    });
+    await useConfig.getState().refresh();
+    expect(useConfig.getState().updateSuggested).toBe(true);
+  });
+
+  it("lets a later successful read lower the floor", async () => {
+    vi.mocked(api.getConfig).mockResolvedValueOnce({
+      config: { update: { minVersion: "99.0.0" } },
+      region: null,
+    });
+    await useConfig.getState().refresh();
+    expect(useConfig.getState().updateRequired).toBe(true);
+
+    vi.mocked(api.getConfig).mockResolvedValueOnce({
+      config: { update: { minVersion: "" } },
+      region: null,
+    });
+    await useConfig.getState().refresh();
+    expect(useConfig.getState().updateRequired).toBe(false);
   });
 });

@@ -538,4 +538,11 @@ export const en = {
   "error.title": "Almost there",
   "error.loadingLudo": "Loading Ludo",
   "error.dismissInvite": "Dismiss invite",
+
+  // --- Please update --------------------------------------------------------
+  "update.title": "Please update",
+  "update.body": "This version of Ludo is no longer supported. Install the latest one to keep playing.",
+  "update.button": "Update",
+  "update.recommendedTitle": "A newer version is ready",
+  "update.recommendedBody": "This version still works. Update when you can.",
 } as const;

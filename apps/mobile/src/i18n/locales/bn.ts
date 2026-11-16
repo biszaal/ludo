@@ -505,4 +505,10 @@ export const bn: Strings = {
   "error.title": "প্রায় হয়ে গেছে",
   "error.loadingLudo": "লুডু লোড হচ্ছে",
   "error.dismissInvite": "আমন্ত্রণ সরান",
+
+  "update.title": "অনুগ্রহ করে আপডেট করুন",
+  "update.body": "লুডুর এই সংস্করণ আর চলে না। খেলতে থাকতে নতুন সংস্করণ বসান।",
+  "update.button": "আপডেট করুন",
+  "update.recommendedTitle": "নতুন সংস্করণ এসেছে",
+  "update.recommendedBody": "এই সংস্করণ এখনও চলে। সুযোগ পেলে নতুন সংস্করণ বসান।",
 };

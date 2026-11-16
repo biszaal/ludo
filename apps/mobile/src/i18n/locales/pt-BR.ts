@@ -506,4 +506,10 @@ export const ptBR: Strings = {
   "error.title": "Quase lá",
   "error.loadingLudo": "Carregando o Ludo",
   "error.dismissInvite": "Dispensar convite",
+
+  "update.title": "Atualize o app",
+  "update.body": "Esta versão do Ludo não é mais compatível. Instale a mais recente para continuar jogando.",
+  "update.button": "Atualizar",
+  "update.recommendedTitle": "Tem uma versão mais nova",
+  "update.recommendedBody": "Esta versão ainda funciona. Atualize quando puder.",
 };

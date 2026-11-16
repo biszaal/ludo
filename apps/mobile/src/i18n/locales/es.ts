@@ -508,4 +508,10 @@ export const es: Strings = {
   "error.title": "Casi listo",
   "error.loadingLudo": "Cargando Ludo",
   "error.dismissInvite": "Descartar invitación",
+
+  "update.title": "Actualiza la app",
+  "update.body": "Esta versión de Ludo ya no es compatible. Instala la más reciente para seguir jugando.",
+  "update.button": "Actualizar",
+  "update.recommendedTitle": "Hay una versión más nueva",
+  "update.recommendedBody": "Esta versión sigue funcionando. Actualiza cuando puedas.",
 };
