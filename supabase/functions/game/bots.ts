@@ -248,10 +248,23 @@ async function claimOrCreateBotIdentity(
 /**
  * Seat bots into the given chairs.
  *
- * Shared by quick match and friend rooms. Both use visible identities, a BOT
- * label and no simulated player chat. The hidden-identity branch remains only
- * for compatibility with existing server helpers; new fills pass visible=true.
- * Migration 0077 registers visible seats in game_bots atomically with insertion.
+ * Shared by quick match (hidden fill-in when nobody shows up) and friend rooms
+ * (the host explicitly asked to fill). `visible` decides three things at once,
+ * and they all follow from one rule — the disguise lives in matchmaking only,
+ * so nothing a player learns from a labelled seat can be turned on a
+ * quick-match opponent (0062):
+ *
+ *   players.is_bot      the client's BOT tag. Quick match must pass false or
+ *                       the camouflage is gone (0035).
+ *   which pool          labelled seats draw from the visible identities, which
+ *                       carry no profile row and so render as their colour.
+ *   game_bots.can_chat  only hidden seats talk. A tagged seat has nothing to
+ *                       hide, and its chatter would teach a player what a bot
+ *                       sounds like before they ever meet one in matchmaking.
+ *
+ * 1.3.0's server briefly passed visible=true for quick match (labelled, mute
+ * fill-ins, 2026-11-16). That was not the owner's design and was reverted the
+ * same day; quick match is hidden, friend rooms are labelled.
  *
  * The chairs are a list rather than a range because a friend room does not
  * always fill left to right: two humans at a four-handed table take the
@@ -272,20 +285,35 @@ export async function seatBots(
   for (const seat of seats) {
     const botUserId = await claimOrCreateBotIdentity(admin, gameId, visible);
     if (!botUserId) break;
+    const releaseIdentity = () =>
+      afterResponse(
+        admin.from("bot_identities").update({ in_use_game_id: null }).eq("user_id", botUserId).eq("in_use_game_id", gameId),
+      );
+    // A hidden seat is registered in game_bots BEFORE it sits. The atomic deals
+    // (0076/0077) exempt a seat from funding only if that row exists, so a bot
+    // seated without it reads as an unfunded human and the game can never
+    // start. Registered-but-not-seated is harmless; the reverse is a dead room.
+    // Awaited: the insert's trigger is also what sets games.has_bots (0022),
+    // which the caller's startGameNow reads to decide whether to drive a bot.
+    // Labelled seats need no call here — 0077's trigger registers them in the
+    // same transaction as the seat.
+    if (!visible) {
+      const { error: regErr } = await admin.from("game_bots").insert({ game_id: gameId, user_id: botUserId, can_chat: true });
+      if (regErr) {
+        releaseIdentity();
+        continue;
+      }
+    }
     const { error: seatErr } = await admin
       .from("players")
       .insert({ game_id: gameId, user_id: botUserId, color: colors[seat], seat, is_bot: visible });
     if (seatErr) {
       // A human took the seat between our read and the insert — release the
       // identity; the human fills that chair instead.
-      afterResponse(
-        admin.from("bot_identities").update({ in_use_game_id: null }).eq("user_id", botUserId).eq("in_use_game_id", gameId),
-      );
+      if (!visible) afterResponse(admin.from("game_bots").delete().eq("game_id", gameId).eq("user_id", botUserId));
+      releaseIdentity();
       continue;
     }
-    // Awaited: the insert's trigger is what sets games.has_bots (0022), and the
-    // caller's startGameNow reads that flag to decide whether to drive a bot.
-    if (!visible) await admin.from("game_bots").insert({ game_id: gameId, user_id: botUserId, can_chat: true });
     added++;
   }
   return added;

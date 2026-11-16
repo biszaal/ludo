@@ -224,6 +224,42 @@ test('an old app that cancelled can search again, and is refunded each time',asy
 test('a key that is present must still be well formed',async()=>{
   await assert.rejects(enter(1,'short'),/Invalid matchmaking request/);
 });
+// --- hidden quick-match fill-ins ------------------------------------------------
+// A hidden bot seat carries no BOT flag (players.is_bot=false), so 0077's trigger
+// does not register it; the edge function writes its game_bots row itself, before
+// the seat. That row is the only thing that exempts the seat from funding.
+const hiddenBot = uid(900);
+const seatHiddenBot = async (room, register=true) => {
+  // Real bots are auth users (bots.ts mints them with createUser).
+  await query('insert into auth.users values($1) on conflict do nothing',[hiddenBot]);
+  if (register) await query('insert into game_bots(game_id,user_id,can_chat) values($1,$2,true)',[room,hiddenBot]);
+  await query("insert into players(game_id,user_id,color,seat,is_bot) values($1,$2,'yellow',1,false)",[room,hiddenBot]);
+};
+test('a registered hidden bot seat lets the room deal; only the human is charged and the bot is never paid',async()=>{
+  const a=await enter(1,'hidden-bot-room',2);
+  await seatHiddenBot(a.gameId);
+  const dealt=await dealQuick(a.gameId);
+  assert.equal(dealt.started,true);
+  assert.equal((await balances())[0].balance,900);
+  assert.equal((await query('select count(*)::int n from wallet_txns'))[0].n,1);
+  // The bot wins: the pot is not paid to a bot wallet, and settlement completes.
+  const g=(await query('select state from games where id=$1',[a.gameId]))[0];
+  const botSeat=g.state.players.find(p=>p.userId===hiddenBot).id;
+  const done={...g.state,status:'finished',winnerPlayerId:botSeat,finishedOrder:[botSeat,...g.state.players.filter(p=>p.id!==botSeat).map(p=>p.id)]};
+  await query("update games set status='finished',state=$2 where id=$1",[a.gameId,JSON.stringify(done)]);
+  await query('select settle_finished_game($1)',[a.gameId]);
+  assert.equal((await query('select count(*)::int n from wallets where user_id=$1',[hiddenBot]))[0].n,0);
+  assert.equal((await query('select count(*)::int n from wallet_txns where user_id=$1',[hiddenBot]))[0].n,0);
+  assert.equal((await query('select payout_done from games where id=$1',[a.gameId]))[0].payout_done,true);
+  assert.equal((await balances())[0].balance,900);
+});
+test('an unregistered hidden bot seat cannot start a room, and nothing is charged twice',async()=>{
+  const a=await enter(1,'unregistered-bot-room',2);
+  await seatHiddenBot(a.gameId,false);
+  await assert.rejects(dealQuick(a.gameId),/unfunded seat/i);
+  assert.equal((await query('select status from games where id=$1',[a.gameId]))[0].status,'waiting');
+  assert.equal((await balances())[0].balance,900);
+});
 test('insufficient quick-entry funds leave no game, seat, request or ledger write',async()=>{
   await query('update wallets set balance=0,purchased_balance=0 where user_id=$1',[uid(1)]);
   for(let i=0;i<2;i++) await assert.rejects(enter(), /Not enough coins/);

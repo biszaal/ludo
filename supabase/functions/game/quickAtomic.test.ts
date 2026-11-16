@@ -38,21 +38,47 @@ Deno.test('replaying cancellation after room deletion succeeds',async()=>{
   const f=leaveFake(null,true);
   assertEquals((await body(await opLeave(f.admin,USER,GAME,true))).cancelled,true);
 });
-Deno.test('quick fill uses labelled identities and fills the actual empty seat',async()=>{
+Deno.test('quick fill seats a HIDDEN bot in the actual empty seat, registered before it sits',async()=>{
+  // Quick-match fill-ins are hidden by design: an identity from the hidden pool
+  // (it has a profile, so it renders with a name and face), no BOT tag, and it
+  // may chat. The game_bots row goes in BEFORE the seat: the atomic deal (0077)
+  // exempts a seat from funding only if that row exists, so a bot must never be
+  // seated without it.
   const seats=[{id:'host',user_id:USER,seat:0},{id:'other',user_id:'other',seat:2},{id:'third',user_id:'third',seat:3}];
-  const claims:string[]=[];const inserted:Record<string,unknown>[]=[];
+  const claims:string[]=[];const writes:Array<{table:string;row:Record<string,unknown>}>=[];
   const game={id:GAME,is_quick:true,quick_size:4,status:'waiting',state:{gameId:GAME,status:'active'},state_version:1};
   // deno-lint-ignore no-explicit-any
   const chain=(read:()=>unknown):any=>{const n:any={eq:()=>n,order:()=>Promise.resolve(read()),single:()=>Promise.resolve(read()),then:(resolve:any,reject:any)=>Promise.resolve(read()).then(resolve,reject)};return n;};
   const admin={rpc:(name:string)=>{claims.push(name);return Promise.resolve({data:BOT,error:null});},from:(table:string)=>{
     if(table==='games')return {select:()=>chain(()=>({data:game}))};
     if(table==='players')return {select:()=>chain(()=>({data:seats,count:seats.length})),insert:(row:Record<string,unknown>)=>{
-      inserted.push(row);seats.push({id:'bot',user_id:BOT,seat:Number(row.seat)});game.status='active';return Promise.resolve({error:null});}};
+      writes.push({table,row});seats.push({id:'bot',user_id:BOT,seat:Number(row.seat)});game.status='active';return Promise.resolve({error:null});}};
+    if(table==='game_bots')return {insert:(row:Record<string,unknown>)=>{writes.push({table,row});return Promise.resolve({error:null});}};
     throw new Error(`Unexpected write to ${table}`);
   }} as unknown as SupabaseClient;
   await opQuickBotFill(admin,USER,GAME);
-  assertEquals(claims,['claim_visible_bot_identity']);
-  assertEquals(inserted[0].is_bot,true);assertEquals(inserted[0].seat,1);
+  assertEquals(claims,['claim_bot_identity']);
+  assertEquals(writes.map(w=>w.table),['game_bots','players']);
+  assertEquals(writes[0].row.can_chat,true);
+  assertEquals(writes[1].row.is_bot,false);assertEquals(writes[1].row.seat,1);
+});
+Deno.test('a hidden bot that cannot be registered is not seated at all',async()=>{
+  const seats=[{id:'host',user_id:USER,seat:0}];
+  let seated=0;
+  const game={id:GAME,is_quick:true,quick_size:2,status:'waiting',state:null,state_version:1};
+  // deno-lint-ignore no-explicit-any
+  const chain=(read:()=>unknown):any=>{const n:any={eq:()=>n,order:()=>Promise.resolve(read()),single:()=>Promise.resolve(read()),then:(resolve:any,reject:any)=>Promise.resolve(read()).then(resolve,reject)};return n;};
+  const admin={rpc:()=>Promise.resolve({data:BOT,error:null}),from:(table:string)=>{
+    if(table==='games')return {select:()=>chain(()=>({data:game}))};
+    if(table==='players')return {select:()=>chain(()=>({data:seats,count:seats.length})),insert:()=>{seated++;return Promise.resolve({error:null});}};
+    if(table==='game_bots')return {insert:()=>Promise.resolve({error:{message:'insert failed'}})};
+    // deno-lint-ignore no-explicit-any
+    if(table==='bot_identities'){const n:any={update:()=>n,eq:()=>n,then:(r:any)=>Promise.resolve({error:null}).then(r)};return n;}
+    throw new Error(`Unexpected write to ${table}`);
+  }} as unknown as SupabaseClient;
+  const res=await body(await opQuickBotFill(admin,USER,GAME));
+  assertEquals(seated,0);
+  assertEquals(res.error,'Could not find an opponent. Try again.');
 });
 Deno.test('a nonparticipant cannot use bot fill to read an active match',async()=>{
   // deno-lint-ignore no-explicit-any

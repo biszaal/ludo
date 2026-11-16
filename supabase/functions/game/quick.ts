@@ -103,10 +103,12 @@ export async function opQuickBotFill(admin: SupabaseClient, userId: string, game
 
 
   // Preserve unrotated lobby colors; the deal rotates all seats together.
-  // Computer opponents use visible identities and never impersonate chatters.
+  // `visible: false` is load-bearing: a quick-match fill-in is a hidden seat —
+  // a named identity with no BOT tag (bots.ts, seatBots). Friend rooms are the
+  // only place a bot is labelled.
   const colors = seatColors(size);
   const chairs = Array.from({ length: size }, (_, i) => i).filter((seat) => !seated.some((p) => p.seat === seat));
-  await seatBots(admin, gameId, chairs, colors, true);
+  await seatBots(admin, gameId, chairs, colors, false);
 
   const { count } = await admin
     .from("players")
