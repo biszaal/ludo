@@ -14,7 +14,7 @@ Monorepo (npm workspaces):
 
 ## Prerequisites
 
-- Node 22.13+ on the 22.x line (`.nvmrc` selects 22), or Node 24.3+
+- Node 22.13+ on the 22.x line (`.nvmrc` pins 22.23.5), or Node 24.3+
 - For the mobile app: **Xcode** (iOS) or **Android Studio** (Android). The app uses
   `@shopify/react-native-skia`, a native module, so it needs a **development build**
   — Expo Go will not work.
