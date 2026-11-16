@@ -97,7 +97,7 @@ export function QuickMatchSearch() {
             <Text style={{ fontFamily: font.semibold, fontSize: 18, color: palette.porcelain }}>{headline}</Text>
             <Text style={{ fontFamily: font.regular, fontSize: 14, color: palette.mutedSteel, textAlign: "center" }}>
               {size === 4 ? t("lobby.filling4") : t("match.matchingYou")}
-              {"\n"}{t("match.computerFill")}
+              {"\n"}{t("match.searchHint")}
             </Text>
             {error ? (
               <Text style={{ fontFamily: font.regular, fontSize: 13, color: teamColor.red, textAlign: "center" }}>{error}</Text>
