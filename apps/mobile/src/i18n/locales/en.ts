@@ -538,4 +538,9 @@ export const en = {
   "error.title": "Almost there",
   "error.loadingLudo": "Loading Ludo",
   "error.dismissInvite": "Dismiss invite",
+
+  "coins.neverAffectsDice":
+    "Coins are for entering matches and unlocking looks. Buying them never affects dice rolls.",
+  "gems.neverAffectsDice":
+    "Gems unlock premium looks and convert to coins. Buying them never affects dice rolls.",
 } as const;

@@ -505,4 +505,9 @@ export const bn: Strings = {
   "error.title": "প্রায় হয়ে গেছে",
   "error.loadingLudo": "লুডু লোড হচ্ছে",
   "error.dismissInvite": "আমন্ত্রণ সরান",
+
+  "coins.neverAffectsDice":
+    "কয়েন ম্যাচে ঢুকতে ও সাজ খুলতে। কিনলে ছক্কার ওপর কোনো প্রভাব পড়ে না।",
+  "gems.neverAffectsDice":
+    "রত্ন দিয়ে আলাদা সাজ খোলে এবং কয়েনে বদলানো যায়। কিনলে ছক্কার ওপর কোনো প্রভাব পড়ে না।",
 };

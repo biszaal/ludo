@@ -130,7 +130,7 @@ export function GetCoinsSheet({ onClose, onDailyBonus }: GetCoinsSheetProps) {
       ) : null}
 
       <Text style={{ fontFamily: font.regular, fontSize: 12, color: palette.mutedSteel }}>
-        Coins are for entering matches and unlocking looks. They never affect how a game plays out.
+        {t("coins.neverAffectsDice")}
       </Text>
     </Sheet>
   );

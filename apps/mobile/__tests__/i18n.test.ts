@@ -146,6 +146,19 @@ describe("catalogs", () => {
   });
 });
 
+describe("purchase footnotes", () => {
+  it("says buying coins or gems never affects dice rolls", () => {
+    expect(en["coins.neverAffectsDice"]).toBe(
+      "Coins are for entering matches and unlocking looks. Buying them never affects dice rolls.",
+    );
+    expect(en["gems.neverAffectsDice"]).toBe(
+      "Gems unlock premium looks and convert to coins. Buying them never affects dice rolls.",
+    );
+    expect(en["coins.neverAffectsDice"]).not.toMatch(/bot|assist/i);
+    expect(en["gems.neverAffectsDice"]).not.toMatch(/bot|assist/i);
+  });
+});
+
 describe("chat phrases", () => {
   it("translates a canned line for display", () => {
     // The wire value is English; what a reader sees is their own language.

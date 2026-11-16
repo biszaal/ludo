@@ -506,4 +506,9 @@ export const ptBR: Strings = {
   "error.title": "Quase lá",
   "error.loadingLudo": "Carregando o Ludo",
   "error.dismissInvite": "Dispensar convite",
+
+  "coins.neverAffectsDice":
+    "As moedas servem para entrar nas partidas e desbloquear itens. Comprá-las nunca afeta as jogadas do dado.",
+  "gems.neverAffectsDice":
+    "As gemas desbloqueiam itens especiais e viram moedas. Comprá-las nunca afeta as jogadas do dado.",
 };

@@ -508,4 +508,9 @@ export const es: Strings = {
   "error.title": "Casi listo",
   "error.loadingLudo": "Cargando Ludo",
   "error.dismissInvite": "Descartar invitación",
+
+  "coins.neverAffectsDice":
+    "Las monedas sirven para entrar a partidas y desbloquear artículos. Comprarlas nunca afecta a las tiradas del dado.",
+  "gems.neverAffectsDice":
+    "Las gemas desbloquean artículos especiales y se cambian por monedas. Comprarlas nunca afecta a las tiradas del dado.",
 };

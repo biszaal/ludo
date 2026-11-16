@@ -506,4 +506,9 @@ export const ne: Strings = {
   "error.title": "अलिकति बाँकी",
   "error.loadingLudo": "लुडो लोड हुँदैछ",
   "error.dismissInvite": "बोलावट हटाउनुहोस्",
+
+  "coins.neverAffectsDice":
+    "सिक्का खेलमा पस्न र सजावट खोल्नका लागि हुन्। किन्दा डाइसको नतिजामा असर पर्दैन।",
+  "gems.neverAffectsDice":
+    "रत्नले खास सजावट खोल्छन् र सिक्कामा साटिन्छन्। किन्दा डाइसको नतिजामा असर पर्दैन।",
 };
