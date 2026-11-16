@@ -20,6 +20,7 @@ import { SheetHost } from "./src/components/SheetHost";
 import { InviteBanner } from "./src/components/InviteBanner";
 import { ConfirmDialog } from "./src/components/ConfirmDialog";
 import { UpdateRequiredScreen } from "./src/components/UpdateRequiredScreen";
+import { AppVersionGate } from "./src/lib/appVersionGate";
 import { LoadingScreen } from "./src/components/LoadingScreen";
 import { ChooseNameScreen } from "./src/components/ChooseNameScreen";
 import { ErrorBoundary } from "./src/components/ErrorBoundary";
@@ -76,6 +77,10 @@ export default function App() {
   const askName = useNamePrompt();
   const updateRequired = useConfig((s) => s.updateRequired);
   const updateSuggested = useConfig((s) => s.updateSuggested);
+  // Never over a table: the screen waits until the player is out of the match.
+  const seatedOnline = useOnlineStore((s) => s.gameId != null);
+  const atTable = useNav((s) => AppVersionGate.defersFor(s.stack.map((entry) => entry.name), seatedOnline));
+  const showUpdate = (updateRequired || updateSuggested) && !atTable;
   const onLaunched = useCallback(() => setLaunched(true), []);
 
   useEffect(() => {
@@ -221,10 +226,10 @@ export default function App() {
       {/* First launch only: asked once, above the hub so nothing behind it can
           be tapped, and below the loading screen so it never flashes during
           startup. Skipping keeps the minted guest handle. */}
-      {ready && launched && askName && !updateRequired && !updateSuggested && <ChooseNameScreen />}
+      {ready && launched && askName && !showUpdate && <ChooseNameScreen />}
       {/* The loading screen stays on top until it fades. After that, this
           covers the app. Mounted only after a successful config read. */}
-      {ready && launched && (updateRequired || updateSuggested) && <UpdateRequiredScreen />}
+      {ready && launched && showUpdate && <UpdateRequiredScreen />}
       {!launched && <LoadingScreen done={ready} onHidden={onLaunched} />}
     </SafeAreaProvider>
     </KeyboardProvider>

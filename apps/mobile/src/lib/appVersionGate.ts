@@ -65,6 +65,23 @@ export class AppVersionGate {
    * HTTPS store page for this platform. Null anywhere else, so a build we
    * don't ship never gets sent to the wrong store.
    */
+  /** Screens where a player is at a table. */
+  private static readonly playScreens: readonly string[] = ["lobby", "onlineGame", "localGame", "frenzyGame"];
+
+  /**
+   * Must the update screen wait?
+   *
+   * It covers the whole app, and config can refresh at any moment — including
+   * the middle of a match with a stake on it. Covering the board then would
+   * cost the player the game. So while they are seated online, or any play
+   * screen is on the stack, the screen is held back; it appears as soon as they
+   * are off the table, and always at the next launch.
+   */
+  static defersFor(stack: readonly string[], seatedOnline: boolean): boolean {
+    if (seatedOnline) return true;
+    return stack.some((name) => this.playScreens.includes(name));
+  }
+
   static storeUrl(platform: string): string | null {
     if (platform === "android") {
       return `https://play.google.com/store/apps/details?id=${this.playStoreId}`;

@@ -71,3 +71,22 @@ describe("AppVersionGate.storeUrl", () => {
     expect(AppVersionGate.storeUrl("")).toBeNull();
   });
 });
+
+describe("AppVersionGate.defersFor", () => {
+  it("waits while the player is seated in an online game, whatever is on screen", () => {
+    expect(AppVersionGate.defersFor(["home", "account"], true)).toBe(true);
+  });
+
+  it("waits while any play screen is on the stack", () => {
+    expect(AppVersionGate.defersFor(["home", "onlineGame"], false)).toBe(true);
+    expect(AppVersionGate.defersFor(["home", "lobby"], false)).toBe(true);
+    expect(AppVersionGate.defersFor(["home", "localGame", "settings"], false)).toBe(true);
+    expect(AppVersionGate.defersFor(["home", "frenzyGame"], false)).toBe(true);
+  });
+
+  it("does not wait anywhere else", () => {
+    expect(AppVersionGate.defersFor(["home"], false)).toBe(false);
+    expect(AppVersionGate.defersFor(["home", "shop"], false)).toBe(false);
+    expect(AppVersionGate.defersFor([], false)).toBe(false);
+  });
+});
