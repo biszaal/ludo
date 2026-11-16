@@ -389,10 +389,7 @@ export const ptBR: Strings = {
 
   "gems.purchasePending": "Compra recebida. Suas gemas ainda estão sendo entregues. Reabra a loja para atualizar; se não chegarem, contate o suporte em Configurações → Enviar feedback.",
   "gems.purchaseUnavailable": "As compras estão indisponíveis no momento. Verifique sua conexão e tente novamente.",
-  "match.fairPlayNotice": "Os dados online ajudam todos: após 6 turnos sem jogada legal, a chance de seis aumenta; após 8, a próxima rolagem é seis. Veja Como jogar.",
   "match.searchHint": "Isso costuma levar alguns segundos.",
-  "rules.onlineAssistance": "Dados assistidos",
-  "rules.onlineAssistanceBody": "Online, todos os jogadores usam dados assistidos. Após turnos consecutivos sem jogada legal nem seis, a chance de seis é de aproximadamente 44% após 6 turnos, 72% após 7 e 100% após 8 ou mais. Uma jogada legal ou um seis reinicia a contagem. Nos demais casos, cada face tem chance de 1 em 6. Compras não alteram essas chances.",
   "settings.adPrivacy": "Privacidade dos anúncios",
   "settings.adPrivacyError": "Não foi possível abrir as opções de privacidade. Os anúncios estão pausados. Tente novamente.",
   "settings.analytics": "Ajude a melhorar o Ludo",

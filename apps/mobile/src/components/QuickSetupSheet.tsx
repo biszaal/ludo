@@ -128,9 +128,6 @@ export function QuickSetupSheet({ onClose, onNeedCoins }: QuickSetupSheetProps) 
         <Text style={{ fontFamily: font.regular, fontSize: 13, color: teamColor.red, textAlign: "center" }}>{error}</Text>
       ) : null}
 
-      <Text style={{ fontFamily: font.regular, fontSize: 14, lineHeight: 20, color: palette.porcelain }}>
-        {t("match.fairPlayNotice")}
-      </Text>
       <PlayCta
         stake={stake}
         busy={connecting}

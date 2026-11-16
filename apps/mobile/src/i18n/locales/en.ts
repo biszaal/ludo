@@ -417,10 +417,7 @@ export const en = {
   // --- Settings -------------------------------------------------------------
   "gems.purchasePending": "Purchase received. Your gems are still being delivered. Reopen the shop to refresh; if they remain missing, contact support through Settings → Send feedback.",
   "gems.purchaseUnavailable": "Purchases are unavailable right now. Check your connection and try again.",
-  "match.fairPlayNotice": "Online dice help every player after repeated turns with no legal move: after 6 stuck turns, a six becomes more likely; after 8, the next roll is a six. See How to play for details.",
   "match.searchHint": "This usually takes a few seconds.",
-  "rules.onlineAssistance": "Assisted dice",
-  "rules.onlineAssistanceBody": "Online matches use assisted dice for every player. After consecutive turns with no legal move and no six, the chance of a six on the next roll is about 44% after 6 such turns, 72% after 7, and 100% after 8 or more. A roll with a legal move or a six resets the count. Otherwise, each face has its usual 1-in-6 chance. Purchases do not change these odds.",
   "settings.adPrivacy": "Ad privacy choices",
   "settings.adPrivacyError": "Could not open privacy choices. Ads are paused. Please try again.",
   "settings.analytics": "Help improve Ludo",
