@@ -8,8 +8,8 @@
  * was never seated in — a row RLS will not show, retried until it looks like
  * the game no longer exists.
  *
- * `note` is the auth listener's only hook. A change of user id releases the
- * held game so a later call that still names it is refused before it is sent,
+ * `note` is the auth listener's only hook. A different account signing in
+ * releases the held game so a later call that still names it is refused before it is sent,
  * then tells the store to drop the channel, the timers and the id. A token
  * refresh is the same user and does none of that.
  *
@@ -24,12 +24,13 @@ export class GameReleasedError extends Error {
   }
 }
 
-type AccountListener = (userId: string | null) => void;
+type AccountListener = (userId: string) => void;
 
 export class OnlineAccount {
   /** undefined — no table yet. A string is that game. null — released. */
   private static gameId: string | null | undefined;
-  private static seen: string | null | undefined;
+  /** The last account that was actually signed in. undefined — none yet. */
+  private static owner: string | undefined;
   private static generation = 0;
   private static listener: AccountListener | null = null;
 
@@ -72,32 +73,33 @@ export class OnlineAccount {
   }
 
   /**
-   * Auth-state entry. The first observation only records who is here. A later
-   * different id releases the table.
+   * Auth-state entry. The table is released when a DIFFERENT account arrives,
+   * and at no other time.
    *
-   * null → the first real user, with no table held, is the session arriving
-   * (the anonymous sign-in at launch), not an account being replaced. An
-   * in-flight create belongs to that session and must not be thrown away.
+   * A null session is not an arrival. supabase-js reports SIGNED_OUT when a
+   * refresh fails, and the app then restores the same account from the keychain
+   * (lib/identity). Tearing the table down on that null would throw a player
+   * out of a live, possibly staked, match for a blip they never saw — so a null
+   * changes nothing, and the same id coming back keeps the table. A real
+   * sign-out or deletion is always followed by another account signing in
+   * (auth.ts signs a fresh guest in straight away), and that arrival is what
+   * releases the game. In between, the session is empty and every game call
+   * fails authentication on its own.
+   *
+   * The first account seen only records who is here: it is the session
+   * arriving at launch, and an in-flight create belongs to it.
    */
   static note(userId: string | null): void {
-    const previous = OnlineAccount.seen;
-    OnlineAccount.seen = userId;
-    if (previous === undefined) {
-      OnlineAccount.listener?.(userId);
-      return;
-    }
-    if (previous !== userId) {
-      const sessionArriving =
-        previous === null && userId !== null && OnlineAccount.gameId === undefined;
-      if (!sessionArriving) OnlineAccount.release();
-    }
+    if (userId === null) return;
+    const previous = OnlineAccount.owner;
+    OnlineAccount.owner = userId;
+    if (previous !== undefined && previous !== userId) OnlineAccount.release();
     OnlineAccount.listener?.(userId);
   }
-
   /** Tests start from an unbound gate. Production never calls this. */
   static testingOnlyReset(): void {
     OnlineAccount.gameId = undefined;
-    OnlineAccount.seen = undefined;
+    OnlineAccount.owner = undefined;
     OnlineAccount.generation = 0;
   }
 }

@@ -198,6 +198,25 @@ describe("an auth identity change", () => {
     expect(api.subscribeGame).toHaveBeenCalledWith("g-new", expect.anything());
   });
 
+  it("keeps the table when the session drops and the same account comes back", async () => {
+    // A failed token refresh reports SIGNED_OUT, and the keychain then restores
+    // the SAME account. That is not an identity change: the player is still at
+    // the table, possibly with a stake on it.
+    emit("SIGNED_IN", "u1");
+    await joinGame("g-old", "u1");
+
+    emit("SIGNED_OUT", null);
+    expect(useOnlineStore.getState().gameId).toBe("g-old");
+    expect(OnlineAccount.allows("g-old")).toBe(true);
+    expect(api.unsubscribe).not.toHaveBeenCalled();
+
+    emit("SIGNED_IN", "u1");
+    expect(useOnlineStore.getState().gameId).toBe("g-old");
+    expect(useOnlineStore.getState().userId).toBe("u1");
+    expect(OnlineAccount.allows("g-old")).toBe(true);
+    expect(api.unsubscribe).not.toHaveBeenCalled();
+  });
+
   it("does not adopt a game whose entry outlived the account", async () => {
     emit("SIGNED_IN", "u1");
     let finishJoin: (value: Awaited<ReturnType<typeof api.joinGame>>) => void = () => {};
