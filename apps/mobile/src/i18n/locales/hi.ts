@@ -510,4 +510,10 @@ export const hi: Strings = {
   "error.title": "बस थोड़ा और",
   "error.loadingLudo": "लूडो लोड हो रहा है",
   "error.dismissInvite": "बुलावा हटाएँ",
+
+  "update.title": "कृपया अपडेट करें",
+  "update.body": "लूडो का यह वर्जन अब नहीं चलता। खेलते रहने के लिए नया वर्जन लगाएँ।",
+  "update.button": "अपडेट करें",
+  "update.recommendedTitle": "नया वर्जन आ गया है",
+  "update.recommendedBody": "यह वर्जन अभी चलता है। जब हो सके, नया वर्जन लगा लें।",
 };

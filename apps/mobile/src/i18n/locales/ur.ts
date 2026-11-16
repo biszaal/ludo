@@ -509,4 +509,10 @@ export const ur: Strings = {
   "error.title": "بس تھوڑا اور",
   "error.loadingLudo": "لوڈو لوڈ ہو رہا ہے",
   "error.dismissInvite": "بلاوا ہٹائیں",
+
+  "update.title": "براہ کرم اپ ڈیٹ کریں",
+  "update.body": "لوڈو کا یہ ورژن اب نہیں چلتا۔ کھیلتے رہنے کے لیے نیا ورژن لگائیں۔",
+  "update.button": "اپ ڈیٹ کریں",
+  "update.recommendedTitle": "نیا ورژن آ گیا ہے",
+  "update.recommendedBody": "یہ ورژن ابھی چلتا ہے۔ جب ہو سکے نیا ورژن لگا لیں۔",
 };

@@ -3,15 +3,24 @@
  * server so they can be tuned per-region without a store release — eCPM varies
  * roughly 10x between markets and ours is unknown until launch.
  *
- * Never blocks: the baked defaults below are always a complete document, the
- * persisted copy is served instantly on launch, and a failed refresh keeps
- * whatever we last knew. Everything here is pacing and presentation — coin
- * amounts are re-decided server-side on every grant, so a stale or tampered
- * config can change what we SHOW but never what a player actually receives.
+ * Pacing and presentation never block: the baked defaults below are always a
+ * complete document, the persisted copy is served instantly on launch, and a
+ * failed refresh keeps whatever we last knew. Everything there is pacing and
+ * presentation — coin amounts are re-decided server-side on every grant, so a
+ * stale or tampered config can change what we SHOW but never what a player
+ * actually receives.
+ *
+ * The update floor is the one value that can cover the app, and it fails open.
+ * `updateRequired` starts false, is not persisted, and flips true only inside
+ * a successful `refresh` when this build is strictly below `update.minVersion`.
+ * A failed fetch leaves the gate down, including when a cached document still
+ * carries an old floor. Old builds never see the key: their merge drops it.
  */
 
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { APP_VERSION } from "../lib/appVersion";
+import { AppVersionGate } from "../lib/appVersionGate";
 import { kvStorage } from "../lib/storage";
 import * as api from "../net/api";
 
@@ -72,6 +81,12 @@ export interface AppConfig {
   /** Online modes the server has opened (0074). Off by default: a build must
    *  not offer what an older function would silently deal as classic. */
   modes: { blitzOnline: boolean };
+  /**
+   * Store-version floor, read from the same `config` document. Both empty
+   * until the owner sets them. `minVersion` is a hard stop; `recommendedVersion`
+   * is a dismissible nudge. Dotted numeric strings only (`"1.4.0"`).
+   */
+  update: { minVersion: string; recommendedVersion: string };
   gems: {
     enabled: boolean;
     /** Real-money purchases live (0027). The stub provider stays locked off
@@ -116,6 +131,9 @@ export const DEFAULT_CONFIG: AppConfig = {
   },
   shop: { enabled: true, coinPacksEnabled: false },
   modes: { blitzOnline: false },
+  // Empty on purpose. A missing floor is not a floor: nothing is blocked
+  // until the owner writes a version into the app_config row.
+  update: { minVersion: "", recommendedVersion: "" },
   gems: {
     enabled: true,
     purchasesEnabled: true,
@@ -159,7 +177,18 @@ interface ConfigStore {
   /** Region the server resolved us to, for debugging. */
   region: string | null;
   refreshing: boolean;
+  /**
+   * Hard stop. True only after a successful config read this session put
+   * APP_VERSION strictly below `update.minVersion`. Never persisted: a cached
+   * floor must not block a launch whose refresh failed.
+   */
+  updateRequired: boolean;
+  /** Dismissible nudge for `update.recommendedVersion`. Not persisted. */
+  updateSuggested: boolean;
+  /** The recommended version the player already waved off. Persisted. */
+  dismissedRecommendation: string | null;
   refresh: () => Promise<void>;
+  dismissUpdateSuggestion: () => void;
 }
 
 export const useConfig = create<ConfigStore>()(
@@ -168,18 +197,38 @@ export const useConfig = create<ConfigStore>()(
       config: DEFAULT_CONFIG,
       region: null,
       refreshing: false,
+      updateRequired: false,
+      updateSuggested: false,
+      dismissedRecommendation: null,
 
       refresh: async () => {
         if (get().refreshing) return;
         set({ refreshing: true });
         try {
           const { config, region } = await api.getConfig();
-          set({ config: mergeConfig(DEFAULT_CONFIG, config), region });
+          const merged = mergeConfig(DEFAULT_CONFIG, config);
+          const required = AppVersionGate.below(APP_VERSION, merged.update.minVersion);
+          const recommended = merged.update.recommendedVersion;
+          const suggested =
+            !required &&
+            AppVersionGate.below(APP_VERSION, recommended) &&
+            get().dismissedRecommendation !== recommended;
+          set({ config: merged, region, updateRequired: required, updateSuggested: suggested });
         } catch {
-          // Offline or signed out — the persisted (or default) doc still stands.
+          // Offline or signed out — the persisted (or default) doc still stands
+          // for pacing. The update gate is not touched: a failed read never
+          // raises it, and a gate a successful read already raised this session
+          // stays up. A blip must not wave a retired build back in.
         } finally {
           set({ refreshing: false });
         }
+      },
+
+      dismissUpdateSuggestion: () => {
+        set({
+          updateSuggested: false,
+          dismissedRecommendation: get().config.update.recommendedVersion,
+        });
       },
     }),
     {
@@ -190,9 +239,20 @@ export const useConfig = create<ConfigStore>()(
       // missing keys this build reads.
       merge: (persisted, current) => {
         const p = persisted as Partial<ConfigStore> | undefined;
-        return { ...current, ...p, config: mergeConfig(DEFAULT_CONFIG, p?.config) };
+        const live = current as ConfigStore;
+        return {
+          ...live,
+          ...p,
+          config: mergeConfig(DEFAULT_CONFIG, p?.config),
+          // Session decisions. Disk must not raise the gate on its own, and a
+          // rehydrate must not wipe a read that already succeeded.
+          updateRequired: live.updateRequired,
+          updateSuggested: live.updateSuggested,
+          refreshing: live.refreshing,
+        };
       },
-      partialize: (s) => ({ config: s.config, region: s.region }) as unknown as ConfigStore,
+      partialize: (s) =>
+        ({ config: s.config, region: s.region, dismissedRecommendation: s.dismissedRecommendation }) as unknown as ConfigStore,
     },
   ),
 );
