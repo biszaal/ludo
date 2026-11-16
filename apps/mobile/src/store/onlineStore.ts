@@ -26,6 +26,7 @@ import { acceptChatPayload, applyChatEvent, CHAT_MAX_LEN, type ChatEvent } from 
 import { ROLL_PACING_MS, dieHandoverMs, stateAnimationMs } from "../lib/moveTiming";
 import { BUST_HOLD_MS, bustedRollDice, colorOf, isBustHandoff, project } from "../lib/projection";
 import { isOverdue, readProposal, type Proposal, type RematchVote } from "../lib/rematch";
+import { GameReleasedError, OnlineAccount } from "../lib/onlineAccount";
 import { useNav } from "./navStore";
 import { useProfile } from "./profileStore";
 import { useWallet } from "./walletStore";
@@ -203,12 +204,16 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
   mutedUserIds: [] as string[],
 
   create: async (stake = 0, mode = "classic") => {
+    const generation = OnlineAccount.generationNow();
     set({ status: "connecting", error: null });
     try {
       const m = mode === "classic" ? await api.createGame(stake) : await api.createGame(stake, mode);
+      if (accountMoved(generation)) return;
       const synced = syncMyProfile();
+      OnlineAccount.hold(m.gameId);
       subscribe(m.gameId);
       const lobby = await api.getLobby(m.gameId);
+      if (accountMoved(generation)) return;
       set({
         gameId: m.gameId,
         roomCode: m.roomCode,
@@ -223,17 +228,22 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
       void syncThenFetchProfiles(synced, lobby);
       useNav.getState().push("lobby");
     } catch (e) {
+      if (accountMoved(generation)) return;
       set({ status: "error", error: errorText(e) });
     }
   },
 
   join: async (code) => {
+    const generation = OnlineAccount.generationNow();
     set({ status: "connecting", error: null });
     try {
       const m = await api.joinGame(code);
+      if (accountMoved(generation)) return;
       const synced = syncMyProfile();
+      OnlineAccount.hold(m.gameId);
       subscribe(m.gameId);
       const lobby = await api.getLobby(m.gameId);
+      if (accountMoved(generation)) return;
       const me = lobby.find((p) => p.user_id === m.userId);
       set({
         gameId: m.gameId,
@@ -247,6 +257,7 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
       });
       void syncThenFetchProfiles(synced, lobby);
       const row = await api.fetchGame(m.gameId);
+      if (accountMoved(generation)) return;
       if (row.status === "active" && row.state) {
         // A cold snapshot: this window may be most of the way through.
         applyGameRow(row, false);
@@ -255,17 +266,22 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
         useNav.getState().push("lobby");
       }
     } catch (e) {
+      if (accountMoved(generation)) return;
       set({ status: "error", error: errorText(e) });
     }
   },
 
   quickMatch: async (size, stake, mode = "classic") => {
+    const generation = OnlineAccount.generationNow();
     set({ status: "connecting", error: null });
     try {
       const m = mode === "classic" ? await api.quickMatch(size, stake) : await api.quickMatch(size, stake, mode);
+      if (accountMoved(generation)) return;
       const synced = syncMyProfile();
+      OnlineAccount.hold(m.gameId);
       subscribe(m.gameId);
       const lobby = await api.getLobby(m.gameId);
+      if (accountMoved(generation)) return;
       const me = lobby.find((p) => p.user_id === m.userId);
       set({
         gameId: m.gameId,
@@ -291,6 +307,7 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
         applyTurnResult({ state: m.state, v: m.v ?? null }, false);
       }
     } catch (e) {
+      if (accountMoved(generation)) return;
       set({ status: "error", error: errorText(e) });
     }
   },
@@ -307,6 +324,7 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
       const res = await api.startGame(gameId, fill);
       applyTurnResult(res, false);
     } catch (e) {
+      if (!isCurrentGame(gameId)) return;
       set({ error: errorText(e), starting: false });
     }
   },
@@ -1012,6 +1030,9 @@ function cacheNextRoll(res: api.TurnResult): void {
  * has spoken, so drop the prediction and surface it immediately.
  */
 function onActionFailed(e: unknown, gameId: string): void {
+  // The account changed, or the player left, while this call was out. Scheduling
+  // a resync here would name the game we just released.
+  if (!isCurrentGame(gameId)) return;
   if (api.isTimeout(e)) {
     slowResync(gameId);
     return;
@@ -1038,14 +1059,44 @@ function onActionFailed(e: unknown, gameId: string): void {
  * and it is grouped here so there is one place to add to rather than four.
  */
 function disposeSession(): void {
-  timers.clearAll();
-  resetRowQueue();
-  resetResync();
-  resetSyncState();
+  // Unsubscribe first. A status callback can arm a timer as the socket closes,
+  // and that timer has to be inside the clear that follows it.
   if (channel) {
     api.unsubscribe(channel);
     channel = null;
   }
+  timers.clearAll();
+  resetRowQueue();
+  resetResync();
+  resetSyncState();
+  timers.clearAll();
+}
+
+/**
+ * The signed-in user changed while this entry was in flight.
+ *
+ * Returns true when the caller must not adopt the result. With no table on
+ * screen, also drop the "connecting" latch the entry set on the way out.
+ */
+function accountMoved(generation: number): boolean {
+  if (OnlineAccount.sameGeneration(generation)) return false;
+  if (useOnlineStore.getState().gameId == null) {
+    useOnlineStore.setState({ status: "idle", error: null });
+  }
+  return true;
+}
+
+/** Take lobby and online-game screens off the stack. Leave whatever is on top
+ *  (Account, for a sign-out started there) where it is. */
+function dropGameScreens(): void {
+  const nav = useNav.getState();
+  const stack = nav.stack.filter((entry) => entry.name !== "lobby" && entry.name !== "onlineGame");
+  if (stack.length === nav.stack.length) return;
+  if (stack.length === 0) {
+    nav.reset("home");
+    return;
+  }
+  useNav.setState({ stack, lastOp: "pop" });
 }
 
 function resetSyncState(): void {
@@ -1657,6 +1708,7 @@ async function castRematchVote(vote: RematchVote): Promise<void> {
   try {
     applyTurnResult(await api.rematchVote(gameId, vote), false);
   } catch (e) {
+    if (!isCurrentGame(gameId)) return;
     useOnlineStore.setState({ error: errorText(e) });
     return;
   }
@@ -1940,6 +1992,7 @@ function resetResync(): void {
  *  players list too (reconnects — seat changes were missed; action errors
  *  don't need it, the realtime lobby stream is still alive). */
 function scheduleResync(gameId: string, withLobby = false): void {
+  if (!isCurrentGame(gameId)) return;
   resyncWantsLobby ||= withLobby;
   if (resyncRunning) {
     resyncAgain = true;
@@ -1955,6 +2008,7 @@ function scheduleResync(gameId: string, withLobby = false): void {
  * very write) cancels it — there is nothing left to reconcile.
  */
 function slowResync(gameId: string): void {
+  if (!isCurrentGame(gameId)) return;
   if (timers.has("resync") || resyncRunning) return;
   // What "already reconciled" means is that a NEWER authoritative state landed
   // while we waited — not that `pending` is empty. Only moves and passes set
@@ -1985,10 +2039,13 @@ async function runResync(gameId: string): Promise<void> {
     if (userId) void api.setConnected(gameId, userId, true).catch(() => {});
     if (withLobby) {
       const lobby = await api.getLobby(gameId);
+      if (!isCurrentGame(gameId)) return;
       useOnlineStore.setState({ lobby });
       void fetchProfiles(lobby);
     }
+    if (!isCurrentGame(gameId)) return;
     const row = await api.fetchGame(gameId);
+    if (!isCurrentGame(gameId)) return;
     // The fetch is the freshest truth — anything queued, predicted or prepared
     // is older. A prepared die especially: it was derived for a version this
     // fetch may well have moved past.
@@ -2001,6 +2058,9 @@ async function runResync(gameId: string): Promise<void> {
     applyGameRow(row, false);
     resyncBackoffMs = 0;
   } catch (e) {
+    // Released with the account change. Asking again would name the old game
+    // under the new identity — the failure this reset exists to stop.
+    if (!isCurrentGame(gameId) || e instanceof GameReleasedError) return;
     if (e instanceof api.RowGoneError) {
       // The game is deleted, or we are no longer seated in it (a reaped waiting
       // room, an auto-leave). Backing off and asking again cannot change that —
@@ -2021,6 +2081,9 @@ async function runResync(gameId: string): Promise<void> {
     resyncWantsLobby ||= withLobby;
     resyncAgain = true;
   } finally {
+    // A newer table may already own these latches. Touching them after this
+    // game was released would cancel that table's resync.
+    if (!isCurrentGame(gameId)) return;
     resyncRunning = false;
     if (resyncAgain) {
       resyncAgain = false;
@@ -2028,6 +2091,24 @@ async function runResync(gameId: string): Promise<void> {
     }
   }
 }
+
+/**
+ * The auth listener's teardown. The same user — a token refresh, or linking a
+ * provider — keeps the table. A different user drops the channel, the timers,
+ * the queues and the held game id.
+ *
+ * `note` releases first when it already knew the previous user. The first
+ * event only records who is here, so this releases in that case too. Either
+ * way a retry that still holds the old id is refused before it is sent.
+ */
+OnlineAccount.bind((userId) => {
+  const { gameId, userId: seatedAs } = useOnlineStore.getState();
+  if (!gameId || seatedAs === userId) return;
+  OnlineAccount.release();
+  disposeSession();
+  useOnlineStore.setState({ ...INITIAL });
+  dropGameScreens();
+});
 
 function errorText(e: unknown): string {
   return e instanceof Error ? e.message : "Something went wrong.";
