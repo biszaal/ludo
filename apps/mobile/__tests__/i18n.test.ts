@@ -144,6 +144,25 @@ describe("catalogs", () => {
   });
 });
 
+describe("fair-play copy", () => {
+  it("states the approved English notice, and that a purchase never changes a roll", () => {
+    expect(en["match.fairPlayNotice"]).toBe(
+      "If a seat stays empty, a BOT can take it. Online dice give every player the same help if someone gets stuck.",
+    );
+    expect(en["match.howToPlayLink"]).toBe("How to play");
+    expect(en["coins.neverChangesRoll"]).toContain("never changes a roll");
+    expect(en["gems.neverChangesRoll"]).toContain("never changes a roll");
+    expect(en["coins.neverChangesRoll"]).not.toContain("plays out");
+    expect(en["gems.neverChangesRoll"]).not.toContain("plays out");
+    // Quick match can fill an empty seat, so this hint must not say bots are
+    // limited to a friendly room. The labelled case stays the friendly room.
+    expect(en["lobby.botsFriendlyOnly"]).not.toContain("only fill");
+    expect(en["lobby.botsFriendlyOnly"]).toContain("labelled BOT");
+    expect(en["rules.onlineBotsBody"]).toContain("labelled BOT");
+    expect(en["rules.onlineDiceBody"]).toContain("same help");
+  });
+});
+
 describe("chat phrases", () => {
   it("translates a canned line for display", () => {
     // The wire value is English; what a reader sees is their own language.

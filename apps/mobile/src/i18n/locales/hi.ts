@@ -190,7 +190,8 @@ export const hi: Strings = {
   "lobby.startGame": "खेल शुरू करें",
   "lobby.needTwoPlayers": "2+ खिलाड़ी चाहिए",
   "lobby.botsFillSeats": "खाली जगहें बॉट ले लेंगे।",
-  "lobby.botsFriendlyOnly": "सिक्कों वाले खेल में असली खिलाड़ी चाहिए — बॉट सिर्फ़ दोस्ताना कमरा भर सकते हैं।",
+  "lobby.botsFriendlyOnly":
+    "इस सिक्कों वाले कमरे में असली खिलाड़ी चाहिए। दोस्ताना कमरा बॉट जोड़ सकता है, और वह बॉट लिखकर दिखता है। खाली ऑनलाइन जगह भी बॉट ले सकता है।",
   "lobby.botsVisibleHint": "सबको दिखता है कि कौन बॉट है",
   "lobby.inviteFriends": "दोस्तों को बुलाएँ",
   "lobby.leave": "छोड़ें",
@@ -216,6 +217,9 @@ export const hi: Strings = {
   "match.dealingTable": "मेज़ लगाई जा रही है",
   "match.alreadyHere": "पहले से यहाँ",
   "match.slowConnection": "कनेक्शन धीमा है",
+  "match.fairPlayNotice":
+    "अगर कोई जगह खाली रह जाए, तो बॉट उसे ले सकता है। ऑनलाइन पासा अटके खिलाड़ी को वही मदद देता है, हर किसी को एक जैसी।",
+  "match.howToPlayLink": "कैसे खेलें",
 
   "game.yourTurnRoll": "आपकी बारी — पासा फेंकें",
   "game.tapToRoll": "पासा फेंकने के लिए दबाएँ",
@@ -278,6 +282,12 @@ export const hi: Strings = {
   "rules.noCapturesOnStars": "तारे वाले खानों पर कटाई नहीं",
   "rules.pawnsNeedSix": "गोटी निकालने को 6 चाहिए",
   "rules.learn": "सीखें",
+  "rules.onlineBots": "खाली जगहें",
+  "rules.onlineBotsBody":
+    "दोस्ताना कमरे में खाली जगह बॉट ले सकता है, और वह जगह बॉट लिखकर दिखती है। झटपट मैच में भी खाली रह गई जगह बॉट ले सकता है।",
+  "rules.onlineDice": "ऑनलाइन पासा",
+  "rules.onlineDiceBody":
+    "जो जगह बिना चाल के अटकी रहे, उसके ऑनलाइन पासे पर छक्का आने की संभावना बढ़ जाती है। हर जगह को वही मदद मिलती है, बॉट को भी।",
 
   "results.wellPlayed": "बढ़िया खेले",
   "results.goodGame": "अच्छा खेल",
@@ -476,4 +486,9 @@ export const hi: Strings = {
   "error.title": "बस थोड़ा और",
   "error.loadingLudo": "लूडो लोड हो रहा है",
   "error.dismissInvite": "बुलावा हटाएँ",
+
+  "coins.neverChangesRoll":
+    "सिक्के मैच में आने और सजावट खोलने के लिए हैं। इन्हें खरीदने से कोई पासा नहीं बदलता।",
+  "gems.neverChangesRoll":
+    "रत्न खास सजावट खोलते हैं और सिक्कों में बदलते हैं। इन्हें खरीदने से कोई पासा नहीं बदलता।",
 };

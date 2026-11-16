@@ -185,7 +185,8 @@ export const bn: Strings = {
   "lobby.startGame": "খেলা শুরু করুন",
   "lobby.needTwoPlayers": "২+ খেলোয়াড় লাগবে",
   "lobby.botsFillSeats": "খালি জায়গা বট নেবে।",
-  "lobby.botsFriendlyOnly": "কয়েনের খেলায় সত্যিকারের খেলোয়াড় লাগে — বট শুধু বন্ধুত্বপূর্ণ ঘর ভরতে পারে।",
+  "lobby.botsFriendlyOnly":
+    "এই কয়েনের ঘরে সত্যিকারের খেলোয়াড় লাগে। বন্ধুত্বপূর্ণ ঘরে বট যোগ করা যায়, আর সেই জায়গায় বট লেখা থাকে। খালি অনলাইন জায়গাও বট নিতে পারে।",
   "lobby.botsVisibleHint": "কে বট, সবাই দেখতে পায়",
   "lobby.inviteFriends": "বন্ধুদের আমন্ত্রণ করুন",
   "lobby.leave": "ছাড়ুন",
@@ -211,6 +212,9 @@ export const bn: Strings = {
   "match.dealingTable": "টেবিল সাজানো হচ্ছে",
   "match.alreadyHere": "আগে থেকেই এখানে",
   "match.slowConnection": "সংযোগ ধীর",
+  "match.fairPlayNotice":
+    "কোনো জায়গা খালি থাকলে বট সেটা নিতে পারে। অনলাইন ছক্কা আটকে থাকা খেলোয়াড়কে সবার জন্য একই সাহায্য দেয়।",
+  "match.howToPlayLink": "কীভাবে খেলবেন",
 
   "game.yourTurnRoll": "আপনার পালা — ছক্কা ফেলুন",
   "game.tapToRoll": "ফেলতে চাপ দিন",
@@ -273,6 +277,12 @@ export const bn: Strings = {
   "rules.noCapturesOnStars": "তারা আঁকা ঘরে কাটা যায় না",
   "rules.pawnsNeedSix": "গুটি বের করতে ৬ লাগে",
   "rules.learn": "শিখুন",
+  "rules.onlineBots": "খালি জায়গা",
+  "rules.onlineBotsBody":
+    "বন্ধুত্বপূর্ণ ঘরে খালি জায়গা বট নিতে পারে, আর সেই জায়গায় বট লেখা থাকে। দ্রুত খেলায়ও খালি থাকা জায়গা বট নিতে পারে।",
+  "rules.onlineDice": "অনলাইন ছক্কা",
+  "rules.onlineDiceBody":
+    "যে জায়গা চাল ছাড়া আটকে থাকে, তার অনলাইন ছক্কায় ছয় আসার সম্ভাবনা বাড়ে। প্রতিটি জায়গা একই সাহায্য পায়, বটও।",
 
   "results.wellPlayed": "দারুণ খেলেছেন",
   "results.goodGame": "ভালো খেলা",
@@ -471,4 +481,9 @@ export const bn: Strings = {
   "error.title": "প্রায় হয়ে গেছে",
   "error.loadingLudo": "লুডু লোড হচ্ছে",
   "error.dismissInvite": "আমন্ত্রণ সরান",
+
+  "coins.neverChangesRoll":
+    "কয়েন ম্যাচে ঢুকতে ও সাজ খুলতে। কিনলে কোনো ছক্কা বদলায় না।",
+  "gems.neverChangesRoll":
+    "রত্ন দিয়ে আলাদা সাজ খোলে এবং কয়েনে বদলানো যায়। কিনলে কোনো ছক্কা বদলায় না।",
 };

@@ -189,7 +189,8 @@ export const ur: Strings = {
   "lobby.startGame": "کھیل شروع کریں",
   "lobby.needTwoPlayers": "2+ کھلاڑی چاہئیں",
   "lobby.botsFillSeats": "خالی جگہیں بوٹ لے لیں گے۔",
-  "lobby.botsFriendlyOnly": "سکوں والے کھیل میں اصلی کھلاڑی چاہئیں — بوٹ صرف دوستانہ کمرہ بھر سکتے ہیں۔",
+  "lobby.botsFriendlyOnly":
+    "اس سکوں والے کمرے میں اصلی کھلاڑی چاہئیں۔ دوستانہ کمرہ بوٹ شامل کر سکتا ہے، اور وہ بوٹ لکھ کر دکھتا ہے۔ خالی آن لائن جگہ بھی بوٹ لے سکتا ہے۔",
   "lobby.botsVisibleHint": "سب کو نظر آتا ہے کہ کون بوٹ ہے",
   "lobby.inviteFriends": "دوستوں کو بلائیں",
   "lobby.leave": "چھوڑ دیں",
@@ -215,6 +216,9 @@ export const ur: Strings = {
   "match.dealingTable": "میز لگائی جا رہی ہے",
   "match.alreadyHere": "پہلے سے یہاں",
   "match.slowConnection": "کنکشن سست ہے",
+  "match.fairPlayNotice":
+    "اگر کوئی جگہ خالی رہ جائے تو بوٹ اسے لے سکتا ہے۔ آن لائن پانسہ اٹکے ہوئے کھلاڑی کو وہی مدد دیتا ہے، سب کو ایک جیسی۔",
+  "match.howToPlayLink": "کیسے کھیلیں",
 
   "game.yourTurnRoll": "آپ کی باری — پانسہ پھینکیں",
   "game.tapToRoll": "پھینکنے کے لیے دبائیں",
@@ -277,6 +281,12 @@ export const ur: Strings = {
   "rules.noCapturesOnStars": "ستارے والے خانوں پر کٹائی نہیں",
   "rules.pawnsNeedSix": "گوٹی نکالنے کو 6 چاہیے",
   "rules.learn": "سیکھیں",
+  "rules.onlineBots": "خالی جگہیں",
+  "rules.onlineBotsBody":
+    "دوستانہ کمرے میں خالی جگہ بوٹ لے سکتا ہے، اور وہ جگہ بوٹ لکھ کر دکھتی ہے۔ فوری میچ میں بھی خالی رہ جانے والی جگہ بوٹ لے سکتا ہے۔",
+  "rules.onlineDice": "آن لائن پانسہ",
+  "rules.onlineDiceBody":
+    "جو جگہ بغیر چال کے اٹکی رہے، اس کے آن لائن پانسی پر چھکا آنے کا امکان بڑھتا ہے۔ ہر جگہ کو وہی مدد ملتی ہے، بوٹ کو بھی۔",
 
   "results.wellPlayed": "خوب کھیلے",
   "results.goodGame": "اچھا کھیل",
@@ -475,4 +485,9 @@ export const ur: Strings = {
   "error.title": "بس تھوڑا اور",
   "error.loadingLudo": "لوڈو لوڈ ہو رہا ہے",
   "error.dismissInvite": "بلاوا ہٹائیں",
+
+  "coins.neverChangesRoll":
+    "سکے میچ میں آنے اور سجاوٹ کھولنے کے لیے ہیں۔ انہیں خریدنے سے کوئی پانسہ نہیں بدلتا۔",
+  "gems.neverChangesRoll":
+    "جواہر خاص سجاوٹ کھولتے ہیں اور سکوں میں بدل جاتے ہیں۔ انہیں خریدنے سے کوئی پانسہ نہیں بدلتا۔",
 };

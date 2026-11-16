@@ -188,7 +188,7 @@ export const es: Strings = {
   "lobby.needTwoPlayers": "Faltan jugadores (2+)",
   "lobby.botsFillSeats": "Los bots ocupan los lugares libres.",
   "lobby.botsFriendlyOnly":
-    "Las partidas con monedas necesitan jugadores reales — los bots solo llenan salas amistosas.",
+    "Esta sala de monedas necesita jugadores reales. Una sala amistosa puede añadir un BOT marcado, y un BOT puede ocupar un lugar vacío en línea.",
   "lobby.botsVisibleHint": "Todos ven quiénes son bots",
   "lobby.inviteFriends": "Invitar amigos",
   "lobby.leave": "Salir",
@@ -214,6 +214,9 @@ export const es: Strings = {
   "match.dealingTable": "Preparando la mesa",
   "match.alreadyHere": "Ya está aquí",
   "match.slowConnection": "Conexión lenta",
+  "match.fairPlayNotice":
+    "Si un lugar queda vacío, un BOT puede ocuparlo. Los dados en línea dan a todos la misma ayuda si alguien se queda atascado.",
+  "match.howToPlayLink": "Cómo se juega",
 
   "game.yourTurnRoll": "Tu turno — lanza",
   "game.tapToRoll": "Toca para lanzar",
@@ -276,6 +279,12 @@ export const es: Strings = {
   "rules.noCapturesOnStars": "Sin capturas en las casillas con estrella",
   "rules.pawnsNeedSix": "Hace falta un 6 para entrar en juego",
   "rules.learn": "Aprender",
+  "rules.onlineBots": "Lugares vacíos",
+  "rules.onlineBotsBody":
+    "En una sala amistosa, un BOT puede ocupar un lugar vacío, y ese lugar se ve marcado como BOT. En una partida rápida, un BOT también puede ocupar un lugar que se queda vacío.",
+  "rules.onlineDice": "Dados en línea",
+  "rules.onlineDiceBody":
+    "Si un lugar se queda atascado sin movimientos, su dado en línea hace más probable un seis. Todos los lugares reciben esa misma ayuda, incluido un BOT.",
 
   "results.wellPlayed": "Bien jugado",
   "results.goodGame": "Buena partida",
@@ -474,4 +483,9 @@ export const es: Strings = {
   "error.title": "Casi listo",
   "error.loadingLudo": "Cargando Ludo",
   "error.dismissInvite": "Descartar invitación",
+
+  "coins.neverChangesRoll":
+    "Las monedas sirven para entrar a partidas y desbloquear artículos. Comprarlas nunca cambia una tirada.",
+  "gems.neverChangesRoll":
+    "Las gemas desbloquean artículos especiales y se cambian por monedas. Comprarlas nunca cambia una tirada.",
 };

@@ -250,7 +250,7 @@ export function GemsSection() {
       ))}
 
       <Text style={{ fontFamily: font.regular, fontSize: 12, color: palette.mutedSteel }}>
-        Gems unlock premium looks and convert to coins. They never affect how a game plays out.
+        {t("gems.neverChangesRoll")}
       </Text>
     </View>
   );

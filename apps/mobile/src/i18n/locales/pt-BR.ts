@@ -186,7 +186,7 @@ export const ptBR: Strings = {
   "lobby.needTwoPlayers": "Faltam jogadores (2+)",
   "lobby.botsFillSeats": "Os bots ocupam os lugares vazios.",
   "lobby.botsFriendlyOnly":
-    "Partidas com moedas precisam de jogadores de verdade — bots só preenchem salas amistosas.",
+    "Esta sala de moedas precisa de jogadores de verdade. Uma sala amistosa pode adicionar um BOT marcado, e um BOT pode ocupar um lugar vazio online.",
   "lobby.botsVisibleHint": "Todo mundo vê quem é bot",
   "lobby.inviteFriends": "Convidar amigos",
   "lobby.leave": "Sair",
@@ -212,6 +212,9 @@ export const ptBR: Strings = {
   "match.dealingTable": "Preparando a mesa",
   "match.alreadyHere": "Já está aqui",
   "match.slowConnection": "Conexão lenta",
+  "match.fairPlayNotice":
+    "Se um lugar ficar vazio, um BOT pode ocupá-lo. Os dados online dão a mesma ajuda a todo mundo se alguém ficar preso.",
+  "match.howToPlayLink": "Como jogar",
 
   "game.yourTurnRoll": "Sua vez — jogue o dado",
   "game.tapToRoll": "Toque para jogar",
@@ -274,6 +277,12 @@ export const ptBR: Strings = {
   "rules.noCapturesOnStars": "Sem capturas nas casas com estrela",
   "rules.pawnsNeedSix": "Peões precisam de um 6 para entrar",
   "rules.learn": "Aprender",
+  "rules.onlineBots": "Lugares vazios",
+  "rules.onlineBotsBody":
+    "Numa sala amistosa, um BOT pode ocupar um lugar vazio, e esse lugar aparece marcado como BOT. Num jogo rápido, um BOT também pode ocupar um lugar que fica vazio.",
+  "rules.onlineDice": "Dados online",
+  "rules.onlineDiceBody":
+    "Se um lugar ficar preso sem jogada, o dado online dele fica mais propenso a um seis. Todo lugar recebe essa mesma ajuda, inclusive um BOT.",
 
   "results.wellPlayed": "Muito bem",
   "results.goodGame": "Bom jogo",
@@ -472,4 +481,9 @@ export const ptBR: Strings = {
   "error.title": "Quase lá",
   "error.loadingLudo": "Carregando o Ludo",
   "error.dismissInvite": "Dispensar convite",
+
+  "coins.neverChangesRoll":
+    "As moedas servem para entrar nas partidas e desbloquear itens. Comprá-las nunca muda um dado.",
+  "gems.neverChangesRoll":
+    "As gemas desbloqueiam itens especiais e viram moedas. Comprá-las nunca muda um dado.",
 };

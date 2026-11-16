@@ -205,7 +205,8 @@ export const en = {
   "lobby.startGame": "Start game",
   "lobby.needTwoPlayers": "Need 2+ players",
   "lobby.botsFillSeats": "Bots take the empty seats.",
-  "lobby.botsFriendlyOnly": "Coin games need real players — bots can only fill a friendly room.",
+  "lobby.botsFriendlyOnly":
+    "This coin room needs real players. A friendly room can add a labelled BOT, and a BOT can take an empty online seat.",
   "lobby.botsVisibleHint": "Everyone sees which players are bots",
   "lobby.inviteFriends": "Invite friends",
   "lobby.leave": "Leave",
@@ -232,6 +233,9 @@ export const en = {
   "match.dealingTable": "Dealing the table",
   "match.alreadyHere": "Already here",
   "match.slowConnection": "Slow connection",
+  "match.fairPlayNotice":
+    "If a seat stays empty, a BOT can take it. Online dice give every player the same help if someone gets stuck.",
+  "match.howToPlayLink": "How to play",
 
   // --- In-game --------------------------------------------------------------
   "game.yourTurnRoll": "Your turn — roll",
@@ -296,6 +300,12 @@ export const en = {
   "rules.noCapturesOnStars": "No captures on starred squares",
   "rules.pawnsNeedSix": "Pawns need a 6 to enter play",
   "rules.learn": "Learn",
+  "rules.onlineBots": "Empty seats",
+  "rules.onlineBotsBody":
+    "In a friendly room, an empty seat can be filled by a BOT, and that seat is labelled BOT. In a quick match, a BOT can take a seat that stays empty.",
+  "rules.onlineDice": "Online dice",
+  "rules.onlineDiceBody":
+    "If a seat stays stuck with no move, its online die becomes more likely to roll a six. Every seat gets that same help, including a BOT.",
 
   // --- Results / celebration ------------------------------------------------
   "results.wellPlayed": "Well played",
@@ -503,4 +513,9 @@ export const en = {
   "error.title": "Almost there",
   "error.loadingLudo": "Loading Ludo",
   "error.dismissInvite": "Dismiss invite",
+
+  "coins.neverChangesRoll":
+    "Coins are for entering matches and unlocking looks. Buying them never changes a roll.",
+  "gems.neverChangesRoll":
+    "Gems unlock premium looks and convert to coins. Buying them never changes a roll.",
 } as const;

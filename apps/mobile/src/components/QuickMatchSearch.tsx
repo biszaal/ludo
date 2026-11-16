@@ -14,7 +14,7 @@
  */
 
 import { useEffect, useRef } from "react";
-import { Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { TableBackground } from "./TableBackground";
 import { Button } from "./Button";
@@ -27,6 +27,7 @@ import { playSound } from "../lib/sound";
 import { font, palette, space, teamColor } from "../theme";
 import type { Color as PlayerColor } from "@ludo/engine";
 import { useT } from "../i18n";
+import { openOnlineRules } from "../screens/HowToPlayScreen";
 
 export function QuickMatchSearch() {
   const t = useT();
@@ -83,12 +84,14 @@ export function QuickMatchSearch() {
           <Button label={t("common.cancel")} onPress={leave} variant="ghost" />
         </View>
 
-        <View
-          style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: space.xl }}
-          accessibilityRole="progressbar"
-          accessibilityLabel={`Finding players, ${seated} of ${size} seated`}
-        >
-          <TableSeats size={size} occupants={occupants} searching boardSize={230} />
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: space.xl }}>
+          <View
+            accessible
+            accessibilityRole="progressbar"
+            accessibilityLabel={`Finding players, ${seated} of ${size} seated`}
+          >
+            <TableSeats size={size} occupants={occupants} searching boardSize={230} />
+          </View>
 
           <View style={{ alignItems: "center", gap: space.sm }}>
             <Text style={{ fontFamily: font.semibold, fontSize: 18, color: palette.porcelain }}>{headline}</Text>
@@ -96,6 +99,20 @@ export function QuickMatchSearch() {
               {size === 4 ? t("lobby.filling4") : t("match.matchingYou")}
               {"\n"}This usually takes a few seconds.
             </Text>
+            <Text style={{ fontFamily: font.regular, fontSize: 14, lineHeight: 20, color: palette.mutedSteel, textAlign: "center" }}>
+              {t("match.fairPlayNotice")}
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t("match.howToPlayLink")}
+              onPress={openOnlineRules}
+              hitSlop={8}
+              style={{ minHeight: 44, justifyContent: "center" }}
+            >
+              <Text style={{ fontFamily: font.medium, fontSize: 14, color: palette.porcelain, textDecorationLine: "underline" }}>
+                {t("match.howToPlayLink")}
+              </Text>
+            </Pressable>
             {error ? (
               <Text style={{ fontFamily: font.regular, fontSize: 13, color: teamColor.red, textAlign: "center" }}>{error}</Text>
             ) : null}

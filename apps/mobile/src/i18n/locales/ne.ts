@@ -186,7 +186,8 @@ export const ne: Strings = {
   "lobby.startGame": "खेल सुरु गर्नुहोस्",
   "lobby.needTwoPlayers": "२+ खेलाडी चाहिन्छ",
   "lobby.botsFillSeats": "खाली ठाउँ बटले लिन्छन्।",
-  "lobby.botsFriendlyOnly": "सिक्काको खेलमा साँचो खेलाडी चाहिन्छ — बटले मित्रवत् कोठा मात्र भर्न सक्छन्।",
+  "lobby.botsFriendlyOnly":
+    "यो सिक्काको कोठामा साँचो खेलाडी चाहिन्छ। मित्रवत् कोठाले बट थप्न सक्छ, र त्यो बट लेखेर देखिन्छ। खाली अनलाइन ठाउँ पनि बटले लिन सक्छ।",
   "lobby.botsVisibleHint": "कुन बट हो सबैले देख्छन्",
   "lobby.inviteFriends": "साथीहरूलाई बोलाउनुहोस्",
   "lobby.leave": "छोड्नुहोस्",
@@ -212,6 +213,9 @@ export const ne: Strings = {
   "match.dealingTable": "टेबल मिलाउँदै",
   "match.alreadyHere": "पहिल्यै यहाँ",
   "match.slowConnection": "कनेक्सन ढिलो छ",
+  "match.fairPlayNotice":
+    "कुनै ठाउँ खाली रह्यो भने बटले लिन सक्छ। अनलाइन डाइसले अल्झिएको खेलाडीलाई सबैलाई उस्तै मद्दत दिन्छ।",
+  "match.howToPlayLink": "कसरी खेल्ने",
 
   "game.yourTurnRoll": "तपाईंको पालो — डाइस फाल्नुहोस्",
   "game.tapToRoll": "फाल्न थिच्नुहोस्",
@@ -274,6 +278,12 @@ export const ne: Strings = {
   "rules.noCapturesOnStars": "तारा भएका खानामा काटिँदैन",
   "rules.pawnsNeedSix": "गोटी निकाल्न ६ चाहिन्छ",
   "rules.learn": "सिक्नुहोस्",
+  "rules.onlineBots": "खाली ठाउँ",
+  "rules.onlineBotsBody":
+    "मित्रवत् कोठामा खाली ठाउँ बटले भर्न सक्छ, र त्यो ठाउँ बट लेखेर देखिन्छ। छिटो खेलमा पनि खाली रहेको ठाउँ बटले लिन सक्छ।",
+  "rules.onlineDice": "अनलाइन डाइस",
+  "rules.onlineDiceBody":
+    "जुन ठाउँ चालबिना अल्झिरह्यो, त्यसको अनलाइन डाइसमा छक्का आउने सम्भावना बढ्छ। हरेक ठाउँलाई उही मद्दत मिल्छ, बटलाई पनि।",
 
   "results.wellPlayed": "राम्रो खेल्नुभयो",
   "results.goodGame": "राम्रो खेल",
@@ -472,4 +482,9 @@ export const ne: Strings = {
   "error.title": "अलिकति बाँकी",
   "error.loadingLudo": "लुडो लोड हुँदैछ",
   "error.dismissInvite": "बोलावट हटाउनुहोस्",
+
+  "coins.neverChangesRoll":
+    "सिक्का खेलमा पस्न र सजावट खोल्नका लागि हुन्। किन्दा डाइसको नतिजा बदलिँदैन।",
+  "gems.neverChangesRoll":
+    "रत्नले खास सजावट खोल्छन् र सिक्कामा साटिन्छन्। किन्दा डाइसको नतिजा बदलिँदैन।",
 };
