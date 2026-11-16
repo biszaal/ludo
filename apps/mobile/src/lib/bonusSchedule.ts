@@ -52,3 +52,62 @@ export function nextResetAfter(now: Date): Date {
   next.setUTCHours(24, 0, 0, 0);
   return next;
 }
+
+/**
+ * The one pending local reminder. Stable on purpose: rescheduling cancels
+ * this id and writes it again, so a claim cannot leave yesterday's ping
+ * queued behind today's.
+ */
+export const CHEST_REMINDER_ID = "daily-bonus-reminder";
+
+export interface ReminderFacts {
+  /** The settings toggle. Off means the pending one must come down. */
+  remindersOn: boolean;
+  /** OS permission already granted. This path never asks. */
+  granted: boolean;
+  /** Server says a chest is sitting unclaimed right now. */
+  claimable: boolean;
+  now: Date;
+}
+
+export interface ReminderPlan {
+  /** Always cancelled first, whether or not a new one is armed. */
+  cancelId: string;
+  /** Null when nothing should be armed (off, or not permitted). */
+  schedule: { id: string; at: Date } | null;
+}
+
+/** The two OS calls a plan needs. Tests pass a fake; the app passes expo-notifications. */
+export interface ReminderSink {
+  cancel(id: string): Promise<void>;
+  schedule(id: string, at: Date): Promise<void>;
+}
+
+/**
+ * What to do with the pending "daily chest is ready" reminder.
+ *
+ * Pure aside from {@link ChestReminder.apply}, which only walks a plan into a
+ * sink. The clock comes in as `now` — nothing here reads `Date.now()` — and the
+ * unlock time is {@link nextResetAfter}, the same UTC-midnight boundary the
+ * server uses (`daily_bonus_claim`), not a hard-coded 24h.
+ */
+export class ChestReminder {
+  static plan(facts: ReminderFacts): ReminderPlan {
+    if (!facts.remindersOn || !facts.granted) {
+      return { cancelId: CHEST_REMINDER_ID, schedule: null };
+    }
+    // Already claimable: remind about THIS chest. Otherwise the next UTC reset,
+    // which is when a claim just made opens again.
+    const unlocks = facts.claimable ? facts.now : nextResetAfter(facts.now);
+    return {
+      cancelId: CHEST_REMINDER_ID,
+      schedule: { id: CHEST_REMINDER_ID, at: reminderTime(facts.now, unlocks) },
+    };
+  }
+
+  /** Cancel the stale reminder, then arm the new one under the same id. */
+  static async apply(plan: ReminderPlan, sink: ReminderSink): Promise<void> {
+    await sink.cancel(plan.cancelId);
+    if (plan.schedule) await sink.schedule(plan.schedule.id, plan.schedule.at);
+  }
+}

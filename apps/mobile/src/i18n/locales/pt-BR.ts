@@ -429,8 +429,12 @@ export const ptBR: Strings = {
   "stats.table": "Mesa",
   "stats.empty": "Sua primeira partida vai aparecer aqui — vitórias, sequências e histórico.",
 
-  "notify.bonusTitle": "Seu bônus diário está pronto",
+  "notify.bonusTitle": "Seu baú diário está pronto",
   "notify.bonusBody": "Suas moedas grátis estão esperando. Toque para resgatar.",
+  "notify.promptTitle": "Quer um lembrete?",
+  "notify.promptBody": "Avisamos quando seu baú diário estiver pronto.",
+  "notify.promptYes": "Me avise",
+  "notify.promptNo": "Agora não",
 
   // --- In-game status line ---------------------------------------------------
   "status.wins": "{color} venceu!",

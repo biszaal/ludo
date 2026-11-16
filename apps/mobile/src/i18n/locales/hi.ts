@@ -433,8 +433,12 @@ export const hi: Strings = {
   "stats.table": "मेज़",
   "stats.empty": "आपका पहला खेल यहाँ दिखेगा — जीत, सिलसिले और इतिहास।",
 
-  "notify.bonusTitle": "आपका रोज़ का बोनस तैयार है",
+  "notify.bonusTitle": "आपका रोज़ का संदूक तैयार है",
   "notify.bonusBody": "आपके मुफ़्त सिक्के इंतज़ार कर रहे हैं। लेने के लिए दबाएँ।",
+  "notify.promptTitle": "याद दिलाएँ?",
+  "notify.promptBody": "जब आपका रोज़ का संदूक तैयार होगा, हम बता देंगे।",
+  "notify.promptYes": "याद दिलाएँ",
+  "notify.promptNo": "अभी नहीं",
 
   // --- In-game status line ---------------------------------------------------
   "status.wins": "{color} जीत गया!",

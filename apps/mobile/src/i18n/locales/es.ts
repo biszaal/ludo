@@ -431,8 +431,12 @@ export const es: Strings = {
   "stats.table": "Mesa",
   "stats.empty": "Tu primera partida aparecerá aquí — victorias, rachas e historial.",
 
-  "notify.bonusTitle": "Tu bono diario está listo",
+  "notify.bonusTitle": "Tu cofre diario está listo",
   "notify.bonusBody": "Tus monedas gratis te esperan. Toca para reclamarlas.",
+  "notify.promptTitle": "¿Quieres un aviso?",
+  "notify.promptBody": "Te avisamos cuando tu cofre diario esté listo.",
+  "notify.promptYes": "Avísame",
+  "notify.promptNo": "Ahora no",
 
   // --- In-game status line ---------------------------------------------------
   "status.wins": "¡{color} gana!",
