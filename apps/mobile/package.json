@@ -9,7 +9,7 @@
     "@ludo/engine": "*",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@sentry/react-native": "~8.28.0",
-    "@shopify/react-native-skia": "2.14.0",
+    "@shopify/react-native-skia": "npm:react-native-skia@2.15.5",
     "@supabase/supabase-js": "^2.108.2",
     "expo": "~58.0.23",
     "expo-audio": "~58.0.11",
@@ -55,6 +55,11 @@
     "gen:avatars": "node scripts/gen-avatars.mjs",
     "gen:sounds": "node scripts/gen-hop-sound.mjs && node scripts/gen-dice-sound.mjs && node scripts/gen-sfx.mjs && node scripts/gen-music.mjs",
     "eas-build-post-install": "cd ../.. && npm run build:packages"
+  },
+  "expo": {
+    "install": {
+      "exclude": ["@shopify/react-native-skia"]
+    }
   },
   "private": true
 }
