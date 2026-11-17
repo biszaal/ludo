@@ -147,15 +147,16 @@ describe("catalogs", () => {
 });
 
 describe("purchase footnotes", () => {
-  it("says buying coins or gems never affects dice rolls", () => {
-    expect(en["coins.neverAffectsDice"]).toBe(
-      "Coins are for entering matches and unlocking looks. Buying them never affects dice rolls.",
+  it("says coins and gems never affect how a game plays out", () => {
+    expect(en["coins.neverAffectsPlay"]).toBe(
+      "Coins are for entering matches and unlocking looks. They never affect how a game plays out.",
     );
-    expect(en["gems.neverAffectsDice"]).toBe(
-      "Gems unlock premium looks and convert to coins. Buying them never affects dice rolls.",
+    expect(en["gems.neverAffectsPlay"]).toBe(
+      "Gems unlock premium looks and convert to coins. They never affect how a game plays out.",
     );
-    expect(en["coins.neverAffectsDice"]).not.toMatch(/bot|assist/i);
-    expect(en["gems.neverAffectsDice"]).not.toMatch(/bot|assist/i);
+    // Nothing in the app describes bots or the dice.
+    expect(en["coins.neverAffectsPlay"]).not.toMatch(/bot|dice|assist/i);
+    expect(en["gems.neverAffectsPlay"]).not.toMatch(/bot|dice|assist/i);
   });
 });
 

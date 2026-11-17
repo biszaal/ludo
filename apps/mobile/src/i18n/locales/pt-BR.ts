@@ -507,8 +507,13 @@ export const ptBR: Strings = {
   "error.loadingLudo": "Carregando o Ludo",
   "error.dismissInvite": "Dispensar convite",
 
-  "coins.neverAffectsDice":
-    "As moedas servem para entrar nas partidas e desbloquear itens. Comprá-las nunca afeta as jogadas do dado.",
-  "gems.neverAffectsDice":
-    "As gemas desbloqueiam itens especiais e viram moedas. Comprá-las nunca afeta as jogadas do dado.",
+  "coins.neverAffectsPlay":
+    "As moedas servem para entrar nas partidas e desbloquear itens. Nunca influenciam o andamento de uma partida.",
+  "gems.neverAffectsPlay":
+    "As gemas desbloqueiam itens especiais e viram moedas. Nunca influenciam o andamento de uma partida.",
+  "update.title": "Atualize o app",
+  "update.body": "Esta versão do Ludo não é mais compatível. Instale a mais recente para continuar jogando.",
+  "update.button": "Atualizar",
+  "update.recommendedTitle": "Tem uma versão mais nova",
+  "update.recommendedBody": "Esta versão ainda funciona. Atualize quando puder.",
 };

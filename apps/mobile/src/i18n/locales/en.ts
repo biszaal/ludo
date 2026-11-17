@@ -539,8 +539,14 @@ export const en = {
   "error.loadingLudo": "Loading Ludo",
   "error.dismissInvite": "Dismiss invite",
 
-  "coins.neverAffectsDice":
-    "Coins are for entering matches and unlocking looks. Buying them never affects dice rolls.",
-  "gems.neverAffectsDice":
-    "Gems unlock premium looks and convert to coins. Buying them never affects dice rolls.",
+  "coins.neverAffectsPlay":
+    "Coins are for entering matches and unlocking looks. They never affect how a game plays out.",
+  "gems.neverAffectsPlay":
+    "Gems unlock premium looks and convert to coins. They never affect how a game plays out.",
+  // --- Please update --------------------------------------------------------
+  "update.title": "Please update",
+  "update.body": "This version of Ludo is no longer supported. Install the latest one to keep playing.",
+  "update.button": "Update",
+  "update.recommendedTitle": "A newer version is ready",
+  "update.recommendedBody": "This version still works. Update when you can.",
 } as const;

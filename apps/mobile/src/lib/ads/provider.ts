@@ -15,7 +15,7 @@ import { Platform } from "react-native";
 import type { InterstitialAd } from "react-native-google-mobile-ads";
 import { getTrackingPermissionsAsync, requestTrackingPermissionsAsync } from "expo-tracking-transparency";
 import { adsSdk } from "./native";
-import { resolveConsent } from "./consent";
+import { consentRetryDelay, resolveConsent, shouldRetryConsent } from "./consent";
 import { interstitialUnitId, rewardedUnitId, TEST_DEVICE_IDS } from "./units";
 import { emptyAdsDiagnostics, errorText, noteAdErrorIn, type AdFormat, type AdsDiagnostics } from "./diagnostics";
 
@@ -74,8 +74,28 @@ export function adsReady(): boolean {
 /**
  * Gather consent, then start the SDK. Safe to call more than once.
  */
-export async function initAds(): Promise<void> {
+/** One start-up at a time: a foreground return or a retry timer may ask while
+ *  an earlier attempt is still waiting on the consent check. */
+let starting: Promise<void> | null = null;
+let consentAttempt = 0;
+let consentRetry: ReturnType<typeof setTimeout> | null = null;
+
+export function initAds(): Promise<void> {
+  if (initialized) return Promise.resolve();
+  if (!starting) {
+    starting = startAds().finally(() => {
+      starting = null;
+    });
+  }
+  return starting;
+}
+
+async function startAds(): Promise<void> {
   if (initialized) return;
+  if (consentRetry) {
+    clearTimeout(consentRetry);
+    consentRetry = null;
+  }
   // No native module in this binary (Expo Go): stay uninitialized so adsReady()
   // reports false and every entry point below no-ops.
   const sdk = adsSdk;
@@ -95,8 +115,17 @@ export async function initAds(): Promise<void> {
     } };
     setReady({ canRequestAds: permitted, privacyRequired: consent.info?.privacyOptionsRequirementStatus === "REQUIRED" });
     // Do not initialize or preload ad requests while consent is unknown/denied.
-    // initialized stays false, allowing a later initAds call to retry.
-    if (!permitted) return;
+    // initialized stays false. If the check itself failed (offline, slow
+    // launch), ask again on a backoff and on every return to the foreground —
+    // otherwise one bad launch means no ads for the whole session.
+    if (!permitted) {
+      if (shouldRetryConsent(permitted, consent.error)) {
+        const delay = consentRetryDelay(consentAttempt++);
+        if (delay !== null) consentRetry = setTimeout(() => void initAds(), delay);
+      }
+      return;
+    }
+    consentAttempt = 0;
 
     // 2. iOS ATT. UMP usually presents this itself when the AdMob console is
     //    configured to; this covers the case where it didn't.

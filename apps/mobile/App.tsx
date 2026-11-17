@@ -19,6 +19,8 @@ import { OverlayBackground } from "./src/components/OverlayBackground";
 import { SheetHost } from "./src/components/SheetHost";
 import { InviteBanner } from "./src/components/InviteBanner";
 import { ConfirmDialog } from "./src/components/ConfirmDialog";
+import { UpdateRequiredScreen } from "./src/components/UpdateRequiredScreen";
+import { AppVersionGate } from "./src/lib/appVersionGate";
 import { LoadingScreen } from "./src/components/LoadingScreen";
 import { ChooseNameScreen } from "./src/components/ChooseNameScreen";
 import { ErrorBoundary } from "./src/components/ErrorBoundary";
@@ -73,6 +75,12 @@ export default function App() {
   // Never prompted on an existing install (profileStore v3 migrates them past
   // it), nor on an account that already has a name — see lib/namePrompt.
   const askName = useNamePrompt();
+  const updateRequired = useConfig((s) => s.updateRequired);
+  const updateSuggested = useConfig((s) => s.updateSuggested);
+  // Never over a table: the screen waits until the player is out of the match.
+  const seatedOnline = useOnlineStore((s) => s.gameId != null);
+  const atTable = useNav((s) => AppVersionGate.defersFor(s.stack.map((entry) => entry.name), seatedOnline));
+  const showUpdate = (updateRequired || updateSuggested) && !atTable;
   const onLaunched = useCallback(() => setLaunched(true), []);
 
   useEffect(() => {
@@ -161,6 +169,14 @@ export default function App() {
         // finishing pays out when the LAST player comes home, long after you
         // stopped watching. Re-read the balance so those coins actually show up.
         void useWallet.getState().refresh();
+        // Ads start once consent is known. If that check failed at launch, this
+        // is the moment to ask again; it is a no-op once ads are running.
+        void initAds();
+        // The update floor lives in the same config document. Re-read it on
+        // resume so a version retired while we were backgrounded is noticed,
+        // and so a floor the owner has since lowered gets out of the way. A
+        // failed read does not raise the gate.
+        void useConfig.getState().refresh();
       } else {
         online.setAway(true); // opponents see an "Away" badge while I'm out
       }
@@ -213,7 +229,10 @@ export default function App() {
       {/* First launch only: asked once, above the hub so nothing behind it can
           be tapped, and below the loading screen so it never flashes during
           startup. Skipping keeps the minted guest handle. */}
-      {ready && launched && askName && <ChooseNameScreen />}
+      {ready && launched && askName && !showUpdate && <ChooseNameScreen />}
+      {/* The loading screen stays on top until it fades. After that, this
+          covers the app. Mounted only after a successful config read. */}
+      {ready && launched && showUpdate && <UpdateRequiredScreen />}
       {!launched && <LoadingScreen done={ready} onHidden={onLaunched} />}
     </SafeAreaProvider>
     </KeyboardProvider>

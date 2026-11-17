@@ -130,7 +130,7 @@ export function GetCoinsSheet({ onClose, onDailyBonus }: GetCoinsSheetProps) {
       ) : null}
 
       <Text style={{ fontFamily: font.regular, fontSize: 12, color: palette.mutedSteel }}>
-        {t("coins.neverAffectsDice")}
+        {t("coins.neverAffectsPlay")}
       </Text>
     </Sheet>
   );

@@ -13,6 +13,7 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 import { getSupabase } from "../lib/supabase";
 import { getIdentity } from "../lib/identityClient";
 import { APP_VERSION } from "../lib/appVersion";
+import { GameReleasedError, OnlineAccount } from "../lib/onlineAccount";
 
 export interface GameRow {
   id: string;
@@ -233,6 +234,12 @@ async function callGame<T>(
   payload: Record<string, unknown> = {},
   timeoutMs = CALL_TIMEOUT_MS,
 ): Promise<T> {
+  // After the signed-in user changes, a retry still holds the previous game id.
+  // Refusing it here is what stops that call leaving the device at all.
+  const namedGame = payload.gameId;
+  if (typeof namedGame === "string" && !OnlineAccount.allows(namedGame)) {
+    throw new GameReleasedError();
+  }
   const supabase = getSupabase();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const startedAt = Date.now();
@@ -1134,7 +1141,7 @@ async function withRetry<T>(fn: () => Promise<T>, tries = 3, delayMs = 400): Pro
     try {
       return await fn();
     } catch (e) {
-      if (e instanceof RowGoneError) throw e;
+      if (e instanceof RowGoneError || e instanceof GameReleasedError) throw e;
       if (--tries <= 0) throw e;
       await new Promise((resolve) => setTimeout(resolve, delayMs));
       delayMs *= 2;
@@ -1143,8 +1150,9 @@ async function withRetry<T>(fn: () => Promise<T>, tries = 3, delayMs = 400): Pro
 }
 
 export async function getLobby(gameId: string): Promise<LobbyPlayer[]> {
-  const supabase = getSupabase();
   return withRetry(async () => {
+    if (!OnlineAccount.allows(gameId)) throw new GameReleasedError();
+    const supabase = getSupabase();
     const { data, error } = await supabase
       .from("players")
       .select("id, user_id, color, seat, is_host, is_connected, is_bot, rematch_vote, rematch_voted_at")
@@ -1170,8 +1178,9 @@ export async function getLobby(gameId: string): Promise<LobbyPlayer[]> {
  * than encoded in a status code.
  */
 export async function fetchGame(gameId: string): Promise<GameRow> {
-  const supabase = getSupabase();
   return withRetry(async () => {
+    if (!OnlineAccount.allows(gameId)) throw new GameReleasedError();
+    const supabase = getSupabase();
     const { data, error } = await supabase
       .from("games")
       .select("id, room_code, host_user_id, status, state, current_turn_player_id, state_version, stake, turn_deadline")
@@ -1185,6 +1194,7 @@ export async function fetchGame(gameId: string): Promise<GameRow> {
 }
 
 export async function setConnected(gameId: string, userId: string, connected: boolean): Promise<void> {
+  if (!OnlineAccount.allows(gameId)) return;
   const supabase = getSupabase();
   // Coming back also clears the idle-strike counter — proof this was a
   // minimized app, not a closed one (the server auto-leaves at 3 strikes).
@@ -1252,6 +1262,7 @@ export interface GameSubscription {
  *  a secret. supabase-js keeps the socket's JWT current on auth state change,
  *  so nothing here has to call realtime.setAuth by hand. */
 export function subscribeGame(gameId: string, handlers: GameSubscription): RealtimeChannel {
+  if (!OnlineAccount.allows(gameId)) throw new GameReleasedError();
   const supabase = getSupabase();
   let everSubscribed = false;
   return supabase

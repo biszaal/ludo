@@ -257,7 +257,7 @@ export function GemsSection() {
       ))}
 
       <Text style={{ fontFamily: font.regular, fontSize: 12, color: palette.mutedSteel }}>
-        {t("gems.neverAffectsDice")}
+        {t("gems.neverAffectsPlay")}
       </Text>
     </View>
   );
