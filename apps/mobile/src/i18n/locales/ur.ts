@@ -486,6 +486,7 @@ export const ur: Strings = {
   "game.reactions": "ری ایکشن",
 
   "coins.rewardTryAgain": "انعام آ رہا ہے — تھوڑی دیر بعد کوشش کریں",
+  "coins.watchFullAd": "انعام پانے کے لیے پورا اشتہار دیکھیں۔",
   "coins.needToEnter": "شامل ہونے کے لیے {coins} سکے چاہئیں",
   "coins.coversEntry": "آپ کا داخلہ ہو جائے گا — کھیل بالکل ویسا ہی رہے گا",
   "coins.pot": "انعام {pot}",

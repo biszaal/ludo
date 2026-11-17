@@ -65,6 +65,7 @@ export function QuickSetupSheet({ onClose, onNeedCoins }: QuickSetupSheetProps) 
       const res = await watchForReward("free-entry");
       if (res.status === "granted") setNote(t("coins.entryCovered"));
       else if (res.status === "pending") setNote(t("coins.rewardTryAgain"));
+      else if (res.status === "dismissed") setNote(t("coins.watchFullAd"));
       else if (res.status === "unavailable") setNote(res.message ?? t("coins.noAdAvailable"));
     } finally {
       setBusy(false);

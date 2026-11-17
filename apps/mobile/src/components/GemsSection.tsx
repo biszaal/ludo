@@ -194,11 +194,14 @@ export function GemsSection() {
                   setNote(t("coins.rewardOnWay"));
                   return 0;
                 }
+                if (res.status === "dismissed") setNote(t("coins.watchFullAd"));
                 if (res.status === "unavailable") setNote(res.message ?? t("coins.noAdAvailable"));
                 return 0;
               },
               (n) => `+${n} gem${n === 1 ? "" : "s"}`,
-              "",
+              // No `none`: an empty string here overwrote the note the op had
+              // just set, so "reward on its way" and "watch the whole ad" never
+              // reached the screen.
             );
           }}
         >

@@ -515,6 +515,7 @@ export const en = {
   "game.reactions": "Reactions",
 
   "coins.rewardTryAgain": "Reward on its way — try again in a moment",
+  "coins.watchFullAd": "Watch the whole ad to get your reward.",
   "coins.needToEnter": "You need {coins} coins to enter",
   "coins.coversEntry": "Covers your entry — the game itself plays exactly the same",
   "coins.pot": "Pot {pot}",

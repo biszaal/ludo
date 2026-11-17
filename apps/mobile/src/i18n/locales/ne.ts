@@ -483,6 +483,7 @@ export const ne: Strings = {
   "game.reactions": "रिएक्सन",
 
   "coins.rewardTryAgain": "इनाम आउँदैछ — केही बेरमा फेरि प्रयास गर्नुहोस्",
+  "coins.watchFullAd": "इनाम पाउन पूरा विज्ञापन हेर्नुहोस्।",
   "coins.needToEnter": "जोडिन {coins} सिक्का चाहिन्छ",
   "coins.coversEntry": "तपाईंको प्रवेश हुन्छ — खेल भने उस्तै रहन्छ",
   "coins.pot": "इनाम {pot}",

@@ -487,6 +487,7 @@ export const hi: Strings = {
   "game.reactions": "रिएक्शन",
 
   "coins.rewardTryAgain": "इनाम आ रहा है — थोड़ी देर में फिर कोशिश करें",
+  "coins.watchFullAd": "इनाम पाने के लिए पूरा विज्ञापन देखें।",
   "coins.needToEnter": "जुड़ने के लिए {coins} सिक्के चाहिए",
   "coins.coversEntry": "आपकी एंट्री हो जाएगी — खेल बिल्कुल वैसा ही रहेगा",
   "coins.pot": "इनाम {pot}",

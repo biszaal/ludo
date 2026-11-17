@@ -482,6 +482,7 @@ export const bn: Strings = {
   "game.reactions": "রিঅ্যাকশন",
 
   "coins.rewardTryAgain": "পুরস্কার আসছে — একটু পরে আবার চেষ্টা করুন",
+  "coins.watchFullAd": "পুরস্কার পেতে পুরো বিজ্ঞাপনটি দেখুন।",
   "coins.needToEnter": "ঢুকতে {coins} কয়েন লাগবে",
   "coins.coversEntry": "আপনার প্রবেশ হয়ে যাবে — খেলা ঠিক আগের মতোই",
   "coins.pot": "পুরস্কার {pot}",

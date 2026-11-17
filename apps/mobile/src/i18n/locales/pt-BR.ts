@@ -483,6 +483,7 @@ export const ptBR: Strings = {
   "game.reactions": "Reações",
 
   "coins.rewardTryAgain": "Sua recompensa está a caminho — tente de novo daqui a pouco",
+  "coins.watchFullAd": "Assista ao anúncio inteiro para receber sua recompensa.",
   "coins.needToEnter": "Você precisa de {coins} moedas para entrar",
   "coins.coversEntry": "Cobre sua entrada — a partida é jogada exatamente igual",
   "coins.pot": "Prêmio {pot}",

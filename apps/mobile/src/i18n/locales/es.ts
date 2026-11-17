@@ -485,6 +485,7 @@ export const es: Strings = {
   "game.reactions": "Reacciones",
 
   "coins.rewardTryAgain": "Tu recompensa va en camino — inténtalo en un momento",
+  "coins.watchFullAd": "Mira el anuncio completo para recibir tu recompensa.",
   "coins.needToEnter": "Necesitas {coins} monedas para entrar",
   "coins.coversEntry": "Cubre tu entrada — la partida se juega exactamente igual",
   "coins.pot": "Bote {pot}",
