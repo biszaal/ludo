@@ -11,6 +11,9 @@ export interface ValidationResult {
  * Only the `tokenId` is trusted; the destination and captures are recomputed
  * from the engine's own {@link getValidMoves}, so a tampered client `to`/
  * `captures` can never take effect. {@link applyMove} relies on this.
+ *
+ * In a Frenzy game a token always moves on its owner's die; there is no
+ * current player to check it against.
  */
 export declare function validateMove(state: GameState, move: Pick<Move, "tokenId">): ValidationResult;
 //# sourceMappingURL=validateMove.d.ts.map

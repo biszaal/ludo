@@ -25,7 +25,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const upsertMyProfile = vi.fn();
-vi.mock("../src/net/api", () => ({ upsertMyProfile: (...a: unknown[]) => upsertMyProfile(...a) }));
+vi.mock("../src/net/api", () => ({
+  upsertMyProfile: (...a: unknown[]) => upsertMyProfile(...a),
+  // The pre-write lookup answers "free" here; these cases are about the write.
+  isNameTaken: () => Promise.resolve(false),
+}));
 
 import { askForName } from "../src/lib/namePrompt";
 import { claimName } from "../src/net/profileSync";

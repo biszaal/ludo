@@ -1,5 +1,5 @@
 import type { GameState, Move } from "./types.js";
-import { getValidMoves } from "./getValidMoves.js";
+import { getValidMoves, heldDie } from "./getValidMoves.js";
 
 export interface ValidationResult {
   valid: boolean;
@@ -14,12 +14,15 @@ export interface ValidationResult {
  * Only the `tokenId` is trusted; the destination and captures are recomputed
  * from the engine's own {@link getValidMoves}, so a tampered client `to`/
  * `captures` can never take effect. {@link applyMove} relies on this.
+ *
+ * In a Frenzy game a token always moves on its owner's die; there is no
+ * current player to check it against.
  */
 export function validateMove(state: GameState, move: Pick<Move, "tokenId">): ValidationResult {
   if (state.status !== "active") {
     return { valid: false, reason: `Game is not active (status: ${state.status}).` };
   }
-  if (state.phase !== "awaiting-move" || state.diceValue === null) {
+  if (!state.frenzy && (state.phase !== "awaiting-move" || state.diceValue === null)) {
     return { valid: false, reason: "No dice has been rolled; nothing to move." };
   }
 
@@ -27,15 +30,18 @@ export function validateMove(state: GameState, move: Pick<Move, "tokenId">): Val
   if (!token) {
     return { valid: false, reason: `Unknown token: ${move.tokenId}.` };
   }
-  if (token.playerId !== state.currentTurnPlayerId) {
+  const mover = state.frenzy ? token.playerId : state.currentTurnPlayerId;
+  if (token.playerId !== mover) {
     return { valid: false, reason: "Token does not belong to the current player." };
   }
+  const dice = heldDie(state, mover);
+  if (dice === null) {
+    return { valid: false, reason: "No dice has been rolled; nothing to move." };
+  }
 
-  const resolved = getValidMoves(state, state.currentTurnPlayerId).find(
-    (m) => m.tokenId === move.tokenId,
-  );
+  const resolved = getValidMoves(state, mover).find((m) => m.tokenId === move.tokenId);
   if (!resolved) {
-    return { valid: false, reason: `Token ${move.tokenId} has no legal move with a ${state.diceValue}.` };
+    return { valid: false, reason: `Token ${move.tokenId} has no legal move with a ${dice}.` };
   }
 
   return { valid: true, resolved };

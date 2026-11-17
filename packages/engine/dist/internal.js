@@ -13,6 +13,8 @@ export function cloneState(state) {
         // `?? []` tolerates states persisted before finishedOrder existed.
         finishedOrder: [...(state.finishedOrder ?? [])],
         lastAction: state.lastAction ? { ...state.lastAction } : null,
+        // Spread only when present: a turn-based state must not grow the key.
+        ...(state.frenzy ? { frenzy: { dice: { ...state.frenzy.dice } } } : {}),
     };
 }
 function clonePosition(position) {
@@ -33,10 +35,16 @@ export function getPlayerTokens(state, playerId) {
 export function getToken(state, tokenId) {
     return state.tokens.find((t) => t.id === tokenId);
 }
-/** True if all of a player's tokens have finished. */
+/**
+ * True once a player has brought home as many tokens as the game asks for: all
+ * of them in classic, `rules.tokensToWin` in Blitz.
+ */
 export function hasPlayerWon(state, playerId) {
     const tokens = getPlayerTokens(state, playerId);
-    return tokens.length > 0 && tokens.every((t) => t.position === "finished");
+    if (tokens.length === 0)
+        return false;
+    const home = tokens.filter((t) => t.position === "finished").length;
+    return home >= Math.min(tokens.length, state.rules.tokensToWin ?? tokens.length);
 }
 /**
  * Players still racing: neither placed in `finishedOrder` nor departed.
@@ -73,7 +81,25 @@ export function endIfComplete(state) {
     state.phase = "awaiting-roll";
     state.diceValue = null;
     state.consecutiveSixes = 0;
+    if (state.frenzy) {
+        for (const id of Object.keys(state.frenzy.dice))
+            state.frenzy.dice[id] = null;
+    }
     return true;
+}
+/**
+ * Give a player who has just brought home enough tokens their placement.
+ *
+ * Blitz places a player before all their tokens are home. The rest leave the
+ * board, as a leaver's do, so they neither block nor feed captures in the race
+ * for the places still open. Mutates the passed (already-cloned) state.
+ */
+export function placePlayer(state, playerId) {
+    if (!state.finishedOrder.includes(playerId))
+        state.finishedOrder.push(playerId);
+    if (!state.winnerPlayerId)
+        state.winnerPlayerId = state.finishedOrder[0];
+    state.tokens = state.tokens.filter((t) => t.playerId !== playerId || t.position === "finished");
 }
 /**
  * Hand the turn on, or end the game if there is nobody left to hand it to.

@@ -27,6 +27,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 interface Invocation {
   op: string;
   actionId?: string;
+  requestId?: string;
 }
 
 const invocations: Invocation[] = [];
@@ -60,7 +61,7 @@ function fakeSupabase() {
   return {
     functions: {
       invoke(_name: string, opts: { body: Record<string, unknown> }) {
-        invocations.push({ op: String(opts.body.op), actionId: opts.body.actionId as string | undefined });
+        invocations.push({ op: String(opts.body.op), actionId: opts.body.actionId as string | undefined, requestId: opts.body.requestId as string | undefined });
         const step = script.shift() ?? { kind: "ok" as const, body: { state: { id: "s" }, v: 1 } };
         if (step.kind === "hang") return new Promise(() => {});
         if (step.kind === "fail") {
@@ -142,6 +143,8 @@ describe("quick match survives a 502 burst", () => {
     expect(res.gameId).toBe("g1");
     expect(invocations).toHaveLength(3);
     expect(invocations.every((i) => i.op === "quickMatch")).toBe(true);
+    expect(typeof invocations[0]!.requestId).toBe("string");
+    expect(new Set(invocations.map(i=>i.requestId)).size).toBe(1);
   });
 
   it("gives up rather than hammering a gateway that stays down", async () => {

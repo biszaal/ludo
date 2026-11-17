@@ -33,7 +33,7 @@ import { AccountSheet } from "../components/AccountSheet";
 import { GuestBanner, useGuestStrip } from "../components/GuestBanner";
 import { useSavePrompt } from "../lib/useSavePrompt";
 import { savePromptCopy } from "../lib/savePrompt";
-import { AdSlot } from "../components/AdSlot";
+import { AdSlot, useAdSlotHeight } from "../components/AdSlot";
 import { CycleGlyph, PeopleGlyph } from "../components/HomeGlyphs";
 import { ContentColumn } from "../components/ContentColumn";
 import { stillDieColors } from "../components/DieStill";
@@ -45,6 +45,7 @@ import { useConfig } from "../store/configStore";
 import { resolveBoardTheme, type BoardTheme } from "../render/boardThemes";
 import { resolveDiceSkin } from "../render/diceSkins";
 import { useGameStore } from "../store/gameStore";
+import { useFrenzyStore } from "../store/frenzyStore";
 import { useOnlineStore } from "../store/onlineStore";
 import { pollPresence, useFriends } from "../store/friendsStore";
 import { useNav } from "../store/navStore";
@@ -109,11 +110,19 @@ export function HomeScreen() {
   const guest = useGuestStrip();
   const stripH = guest.visible ? s(HOME_GUEST_STRIP) : 0;
 
-  // The tower's own box: the ad strip is a sibling below it, so this is the
-  // exact room the hub has. The window-minus-insets estimate only covers the
-  // first frame, before onLayout lands.
+  // The banner sits in the tower, just above the dock (owner request,
+  // 2026-11-16 — it used to be anchored under the dock, at the bottom edge). So
+  // like the guest strip it is furniture the budget must know about before it
+  // runs: its reserved height from the first frame, then its measured box, which
+  // also carries the gap above it and any extra points the SDK's banner takes.
+  const adReserve = useAdSlotHeight("home");
+  const [adBoxH, setAdBoxH] = useState<number | null>(null);
+  const adH = adReserve > 0 ? (adBoxH ?? adReserve) : 0;
+
+  // The tower's own box. The window-minus-insets estimate only covers the first
+  // frame, before onLayout lands.
   const [columnH, setColumnH] = useState(0);
-  const metrics = homeMetrics((columnH || windowH - insets.top - insets.bottom) - stripH, scale);
+  const metrics = homeMetrics((columnH || windowH - insets.top - insets.bottom) - stripH - adH, scale);
   // Tile art tracks the budgeted tile, so a compressed row shrinks its glyphs
   // with it instead of pressing fixed-size art against the label.
   const tileK = metrics.tile / Math.round(96 * scale);
@@ -155,8 +164,12 @@ export function HomeScreen() {
       {/* The whole hub sits in a centered column: on a tablet it holds a
           comfortable width instead of stretching chips to the far edges; on a
           phone the column is full-width (a no-op). */}
-      <ContentColumn style={{ flex: 1 }}>
+      {/* The tower is measured as one box — hub, banner and dock — so the budget
+          sees exactly the room there is. Inside it, the hub and the dock each
+          hold the centered column; the banner between them spans the full
+          width, which is what an anchored adaptive banner is sized for. */}
       <View style={{ flex: 1 }} onLayout={(e) => setColumnH(e.nativeEvent.layout.height)}>
+      <ContentColumn style={{ flex: 1 }}>
       {/* Status header — wallet left, identity + settings right. The wordmark
           is dropped here (the diorama and app icon carry the brand; the
           animated mark still opens on the loading screen), so the two edges
@@ -237,7 +250,19 @@ export function HomeScreen() {
         </View>
       )}
 
+      </ContentColumn>
+
+      {/* Banner — directly above the dock, never under it. It holds its height
+          from the first frame (and nothing at all for a player with Remove Ads),
+          so the hub's budget does not jump when an ad lands. */}
+      {adReserve > 0 && (
+        <View style={{ paddingTop: metrics.gap }} onLayout={(e) => setAdBoxH(e.nativeEvent.layout.height)}>
+          <AdSlot slot="home" />
+        </View>
+      )}
+
       {/* Dock — doorways to everything that isn't playing. */}
+      <ContentColumn>
       <View style={{ paddingHorizontal: space.lg, paddingTop: metrics.gap, paddingBottom: metrics.gap }}>
         {/* Home is the room you are already in: its item is lit, and inert. */}
         <HomeDock
@@ -252,21 +277,17 @@ export function HomeScreen() {
           height={metrics.dock}
         />
       </View>
-      </View>
       </ContentColumn>
-
-      {/* Anchored to the bottom edge: never rides over the hub. It holds the
-          banner's height from the first frame (and nothing at all for a player
-          with Remove Ads), so the hub's budget never re-runs when one lands. */}
-      <AdSlot slot="home" />
+      </View>
 
       {sheetMode && (
         <PlaySetupSheet
           mode={sheetMode}
           onClose={() => setSheetMode(null)}
-          onStart={(players, bots, rules) => {
+          onStart={(players, bots, rules, variant) => {
             setSheetMode(null);
-            newLocalGame({ players, bots, rules });
+            if (variant === "frenzy") useFrenzyStore.getState().newFrenzyGame({ players });
+            else newLocalGame({ players, bots, rules, variant: variant === "blitz" ? "blitz" : undefined });
           }}
         />
       )}

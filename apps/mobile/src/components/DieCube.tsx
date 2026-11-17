@@ -157,9 +157,10 @@ function dieCubePicture(skin: DiceSkin, size: number): SkPicture {
     // Ornament behind the numeral, clipped to the face. `scale` is a fraction
     // of the die's WIDTH, and a face spans 2 local units, hence the doubling.
     if (sp.motif) {
-      const art = Skia.Path.Make();
+      const artBuilder = Skia.PathBuilder.Make();
       const mr = sp.motif.scale * 2;
-      appendMotif(art, sp.motif.kind, 0, 0, mr);
+      appendMotif(artBuilder, sp.motif.kind, 0, 0, mr);
+      const art = artBuilder.detach();
       const style = motifStyle(sp.motif.kind);
       const paint = Skia.Paint();
       paint.setAntiAlias(true);
@@ -214,8 +215,9 @@ function dieCubePicture(skin: DiceSkin, size: number): SkPicture {
 
     if (sp.pipShape === "numeral") {
       const nr = NUMERAL_FACE_R;
-      const numeral = Skia.Path.Make();
-      appendNumeral(numeral, face.value as Numeral, 0, 0, nr);
+      const numeralBuilder = Skia.PathBuilder.Make();
+      appendNumeral(numeralBuilder, face.value as Numeral, 0, 0, nr);
+      const numeral = numeralBuilder.detach();
       const w = nr * NUMERAL_STROKE;
 
       const stroke = Skia.Paint();
@@ -256,10 +258,11 @@ function dieCubePicture(skin: DiceSkin, size: number): SkPicture {
         canvas.drawCircle((px - 0.5) * 1.84, (py - 0.5) * 1.84, 0.17, markFill);
       }
     } else {
-      const pips = Skia.Path.Make();
+      const pipsBuilder = Skia.PathBuilder.Make();
       for (const [px, py] of PIP_XY[face.value]!) {
-        appendPip(pips, sp.pipShape, (px - 0.5) * 1.84, (py - 0.5) * 1.84, 0.19);
+        appendPip(pipsBuilder, sp.pipShape, (px - 0.5) * 1.84, (py - 0.5) * 1.84, 0.19);
       }
+      const pips = pipsBuilder.detach();
       if (sp.glow) {
         const glowPaint = Skia.Paint();
         glowPaint.setAntiAlias(true);

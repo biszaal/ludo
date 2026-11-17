@@ -239,6 +239,17 @@ export const en = {
   "game.tapDieToRoll": "Tap the die to roll",
   "game.tapGlowingToken": "Tap a glowing token to move",
   "game.chooseToken": "Choose a token",
+  "game.pawnA11y": "{color} pawn {number}, {position}",
+  "game.pawnYard": "In the yard",
+  "game.pawnFinished": "Finished",
+  "game.pawnTrack": "Track square {number}",
+  "game.pawnHomeLane": "Home lane {number}",
+  "game.movePawn": "Move this pawn",
+  "game.diceA11y": "Dice",
+  "game.diceValueA11y": "Dice showing {number}",
+  "game.elapsedA11y": "Game time {time}",
+  "invite.message": "Join my Ludo game! Room code: {code}.{stake}\n{url}",
+  "invite.stake": " We’re playing for {stake} coins.",
   "game.boardA11y": "Board — tap a highlighted token to move it",
   "game.noMovesPassing": "No moves — passing…",
   "game.notYourTurn": "Not your turn",
@@ -266,6 +277,17 @@ export const en = {
   "game.playersYouPlusAi": "Players (you + AI)",
   "game.someone": "Someone",
 
+  // --- Modes ---------------------------------------------------------------
+  "mode.label": "Mode",
+  "mode.classic": "Classic",
+  "mode.blitz": "Blitz",
+  "mode.frenzy": "Frenzy",
+  "mode.classicHint": "Bring all four pawns home to win",
+  "mode.blitzHint": "First pawn home wins",
+  "mode.frenzyHint": "No turns: everyone rolls at once",
+  "frenzy.recharging": "Recharging…",
+  "frenzy.watching": "Watching the race",
+
   // --- Rules (How to play) --------------------------------------------------
   "rules.title": "How to play",
   "rules.goal": "The goal",
@@ -286,6 +308,12 @@ export const en = {
   "rules.winning": "Winning",
   "rules.winningBody":
     "The first player to bring all four pawns to the center wins the game. Finishing a pawn also earns a bonus roll.",
+  "rules.blitz": "Blitz",
+  "rules.blitzBody":
+    "The first player to bring one pawn to the center wins. Their other pawns leave the board, and everyone else plays on for second and third.",
+  "rules.frenzy": "Frenzy",
+  "rules.frenzyBody":
+    "No turns: every player has their own die and rolls it whenever it is ready. Once your pawn lands, your die recharges for a moment — a six, a capture or a finish skips the wait. The first to bring all four pawns to the center wins.",
   "rules.sixToLeave": "Six to leave the yard",
   "rules.extraRollOnSix": "Extra roll on a six",
   "rules.threeSixes": "Three sixes forfeit",
@@ -387,6 +415,13 @@ export const en = {
   "noads.unavailableHere": "Purchases aren't available on this device.",
 
   // --- Settings -------------------------------------------------------------
+  "gems.purchasePending": "Purchase received. Your gems are still being delivered. Reopen the shop to refresh; if they remain missing, contact support through Settings → Send feedback.",
+  "gems.purchaseUnavailable": "Purchases are unavailable right now. Check your connection and try again.",
+  "match.searchHint": "This usually takes a few seconds.",
+  "settings.adPrivacy": "Ad privacy choices",
+  "settings.adPrivacyError": "Could not open privacy choices. Ads are paused. Please try again.",
+  "settings.analytics": "Help improve Ludo",
+  "settings.analyticsHint": "Optional gameplay events linked to your account. No chat, names or advertising IDs. Turn off to delete collected events.",
   "settings.title": "Settings",
   "settings.soundAndFeel": "Sound & feel",
   "settings.music": "Music",
@@ -480,6 +515,7 @@ export const en = {
   "game.reactions": "Reactions",
 
   "coins.rewardTryAgain": "Reward on its way — try again in a moment",
+  "coins.watchFullAd": "Watch the whole ad to get your reward.",
   "coins.needToEnter": "You need {coins} coins to enter",
   "coins.coversEntry": "Covers your entry — the game itself plays exactly the same",
   "coins.pot": "Pot {pot}",
@@ -503,4 +539,15 @@ export const en = {
   "error.title": "Almost there",
   "error.loadingLudo": "Loading Ludo",
   "error.dismissInvite": "Dismiss invite",
+
+  "coins.neverAffectsPlay":
+    "Coins are for entering matches and unlocking looks. They never affect how a game plays out.",
+  "gems.neverAffectsPlay":
+    "Gems unlock premium looks and convert to coins. They never affect how a game plays out.",
+  // --- Please update --------------------------------------------------------
+  "update.title": "Please update",
+  "update.body": "This version of Ludo is no longer supported. Install the latest one to keep playing.",
+  "update.button": "Update",
+  "update.recommendedTitle": "A newer version is ready",
+  "update.recommendedBody": "This version still works. Update when you can.",
 } as const;

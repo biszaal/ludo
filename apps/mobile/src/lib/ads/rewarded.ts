@@ -1,3 +1,4 @@
+import { trackProductEvent } from "../analytics";
 /**
  * Rewarded-ad orchestration: the three-step dance that makes a client unable to
  * mint coins.
@@ -71,6 +72,7 @@ export async function watchForReward(
       const res = await api.adRewardStatus(nonce);
       if (res.status === "granted") {
         await useWallet.getState().refresh();
+        trackProductEvent("rewarded_ad_delivered", `ad:${nonce}`);
         return { status: "granted", coins: res.coins };
       }
       if (res.status === "expired") return { status: "unavailable" };

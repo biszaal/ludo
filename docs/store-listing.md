@@ -27,7 +27,7 @@ mechanism; divergent copy reads as two different apps.
 | Subtitle | 30 | 27 |
 | Keywords | 100 | 97 |
 | Promotional text | 170 | 167 |
-| Description | 4000 | 2492 |
+| Description | 4000 | 2908 |
 
 **App name**
 
@@ -72,7 +72,7 @@ settlement.
 | --- | --- | --- |
 | App title | 30 | 24 |
 | Short description | 80 | 73 |
-| Full description | 4000 | 2492 |
+| Full description | 4000 | 2908 |
 
 **App title**
 
@@ -96,7 +96,7 @@ Ludo is the classic board game for 2 to 4 players, rebuilt for phones and tablet
 Play it your way: offline against AI, pass and play with everyone on one device, or online in a quick match or a private room with friends.
 
 FOUR WAYS TO PLAY
-- Quick match: pick 2 or 4 players and get seated in seconds
+- Quick match: pick 2 or 4 seats; empty seats may be filled by labelled computer opponents
 - Vs AI: a complete game offline, with no internet connection
 - Pass and play: up to 4 people taking turns on one phone or tablet
 - Friends room: open a private table and share a 4-character code
@@ -106,13 +106,16 @@ Ludo the way you learned it: a six to leave the yard, an extra roll on a six, sa
 
 BUILT TO LOOK AND FEEL RIGHT
 - A board drawn as a real object: pawns hop square by square, the die tumbles and settles
-- 5 board themes and 14 dice designs to unlock
-- 15 avatars for your profile
+- Board themes and dice designs to unlock
+- A collection of avatars for your profile
 - Emoji reactions and chat with the players at your table
 - A daily chest, a coin balance, and stats that keep your record
 
 PLAY WITH PEOPLE YOU KNOW
 Add friends, see who is online, and invite them straight into a room. Send a link or read out the code, they tap it and they are seated.
+
+COMPUTER OPPONENTS AND ASSISTED DICE
+Computer opponents are labelled BOT and do not send player chat. Online dice help humans and bots equally after consecutive turns with no legal move and no six: the next roll has about a 44% chance of six after 6 such turns, 72% after 7, and 100% after 8 or more. A legal move or a six resets the count. Purchases do not change these odds.
 
 FAIR BY DESIGN
 Coins and cosmetics buy access and appearance, never outcomes. A dice skin, a board theme, or a bigger coin balance will never change a roll, a rule, or a result. Coins are virtual, have no cash value, and cannot be exchanged for money.
@@ -143,8 +146,8 @@ No. Coins are an in-game currency with no cash value and no way to cash out.
 
 Every claim maps to something reachable in one minute: the four modes to Home,
 the house rules to the play-setup sheet, the fairness line to the Get coins
-sheet, the counts to `render/boardThemes.ts` (5), `render/diceSkins.ts` (14) and
-`render/avatars.ts` (15).
+sheet, the bot/dice explanation to Quick match setup and How to Play, and the
+cosmetic selections to the Shop. Avoid fixed catalog counts in public copy.
 
 ## Web page
 

@@ -7,11 +7,13 @@
  * stay direct, gated by RLS.
  */
 
+import type { OnlineMode } from "../lib/standings";
 import type { Color, GameState } from "@ludo/engine";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { getSupabase } from "../lib/supabase";
 import { getIdentity } from "../lib/identityClient";
 import { APP_VERSION } from "../lib/appVersion";
+import { GameReleasedError, OnlineAccount } from "../lib/onlineAccount";
 
 export interface GameRow {
   id: string;
@@ -103,6 +105,8 @@ export interface Membership {
   myPlayerId: string;
   /** Coins each seat pays when the game starts (0 = friendly). */
   stake?: number;
+  /** Absent on old servers: classic. */
+  mode?: OnlineMode;
 }
 
 /**
@@ -230,6 +234,12 @@ async function callGame<T>(
   payload: Record<string, unknown> = {},
   timeoutMs = CALL_TIMEOUT_MS,
 ): Promise<T> {
+  // After the signed-in user changes, a retry still holds the previous game id.
+  // Refusing it here is what stops that call leaving the device at all.
+  const namedGame = payload.gameId;
+  if (typeof namedGame === "string" && !OnlineAccount.allows(namedGame)) {
+    throw new GameReleasedError();
+  }
   const supabase = getSupabase();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const startedAt = Date.now();
@@ -276,16 +286,18 @@ async function callGame<T>(
 
 /** Open a private room. `stake` is the per-seat pot (0 = friendly); the server
  *  validates it against its tier list and collects it at start, not now. */
-export async function createGame(stake = 0): Promise<Membership> {
+export async function createGame(stake = 0, mode: OnlineMode = "classic"): Promise<Membership> {
   const userId = await ensureSignedIn();
-  const res = await callGame<RoomResult>("create", { stake });
-  return { gameId: res.gameId, roomCode: res.roomCode, userId, myPlayerId: res.playerId, stake: res.stake ?? 0 };
+  const res = await callGame<RoomResult>("create", mode === "classic" ? { stake } : { stake, mode });
+  return { gameId: res.gameId, roomCode: res.roomCode, userId, myPlayerId: res.playerId, stake: res.stake ?? 0, mode: res.mode };
 }
 
 export async function joinGame(rawCode: string): Promise<Membership> {
   const userId = await ensureSignedIn();
-  const res = await callGame<RoomResult>("join", { code: rawCode });
-  return { gameId: res.gameId, roomCode: res.roomCode, userId, myPlayerId: res.playerId, stake: res.stake ?? 0 };
+  // `features` is how the server knows this build can sit at a Blitz table. A
+  // capability rather than a version, because JS can ship over the air.
+  const res = await callGame<RoomResult>("join", { code: rawCode, features: ["blitz"] });
+  return { gameId: res.gameId, roomCode: res.roomCode, userId, myPlayerId: res.playerId, stake: res.stake ?? 0, mode: res.mode };
 }
 
 interface RoomResult {
@@ -294,6 +306,8 @@ interface RoomResult {
   playerId: string;
   /** Per-seat entry. Absent on old servers; treat as a friendly game. */
   stake?: number;
+  /** Absent on old servers: classic. */
+  mode?: OnlineMode;
 }
 
 /**
@@ -412,6 +426,8 @@ export interface QuickMatchResult {
   v?: number | null;
   /** Entry coins debited for this match. */
   stake?: number;
+  /** The mode of the room this actually seated you in. Absent on old servers. */
+  mode?: OnlineMode;
   /** The room's table size (2 = 1v1, 4 = free-for-all). */
   size?: number;
 }
@@ -436,8 +452,8 @@ const PLATFORM_BACKOFF_MS = [400, 900];
  * ONLY safe for ops that can be asked twice with no second effect — the retry
  * fires precisely when we cannot know whether the first attempt ran, so an op
  * that would act twice must not use this. `quickMatch` qualifies because the
- * server answers a re-tap with the room the caller is already waiting in
- * (see quick.ts) rather than opening a second one.
+ * payload carries a persistent request key. Retrying after cancellation
+ * cannot open a second room or charge again.
  *
  * A verdict still throws on the first attempt, exactly as before.
  */
@@ -463,7 +479,7 @@ async function idempotentCall<T>(
  *  Laddered: a cold edge worker turns the first tap of a quiet evening into a
  *  502, and pressing PLAY is the worst possible moment to hand someone a dead
  *  end. Safe to re-ask — the server hands back the room already claimed. */
-export async function quickMatch(size: 2 | 4, stake?: number): Promise<QuickMatchResult> {
+export async function quickMatch(size: 2 | 4, stake?: number, mode: OnlineMode = "classic"): Promise<QuickMatchResult> {
   const userId = await ensureSignedIn();
   const res = await idempotentCall<{
     gameId: string;
@@ -473,7 +489,8 @@ export async function quickMatch(size: 2 | 4, stake?: number): Promise<QuickMatc
     v?: number | null;
     stake?: number;
     size?: number;
-  }>("quickMatch", stake == null ? { size } : { size, stake });
+    mode?: OnlineMode;
+  }>("quickMatch", { size, requestId: newActionId(), ...(stake == null ? {} : { stake }), ...(mode === "classic" ? {} : { mode }) });
   return {
     gameId: res.gameId,
     userId,
@@ -483,6 +500,7 @@ export async function quickMatch(size: 2 | 4, stake?: number): Promise<QuickMatc
     v: res.v ?? null,
     stake: res.stake,
     size: res.size,
+    mode: res.mode,
   };
 }
 
@@ -850,8 +868,10 @@ export async function rematchClose(gameId: string): Promise<TurnResult> {
 
 /** Quit the room for good: active game → tokens removed and turns skipped;
  *  waiting lobby → the seat is freed. Fire-and-forget on the way out. */
-export async function leaveAction(gameId: string): Promise<void> {
-  await callGame<unknown>("leave", { gameId });
+export async function leaveAction(gameId: string, waitingOnly = false): Promise<{ ok?: boolean; cancelled?: boolean; state?: GameState; v?: number } | void> {
+  return waitingOnly
+    ? await idempotentCall("leave", { gameId, waitingOnly: true })
+    : await callGame("leave", { gameId });
 }
 
 export interface Profile {
@@ -1121,7 +1141,7 @@ async function withRetry<T>(fn: () => Promise<T>, tries = 3, delayMs = 400): Pro
     try {
       return await fn();
     } catch (e) {
-      if (e instanceof RowGoneError) throw e;
+      if (e instanceof RowGoneError || e instanceof GameReleasedError) throw e;
       if (--tries <= 0) throw e;
       await new Promise((resolve) => setTimeout(resolve, delayMs));
       delayMs *= 2;
@@ -1130,8 +1150,9 @@ async function withRetry<T>(fn: () => Promise<T>, tries = 3, delayMs = 400): Pro
 }
 
 export async function getLobby(gameId: string): Promise<LobbyPlayer[]> {
-  const supabase = getSupabase();
   return withRetry(async () => {
+    if (!OnlineAccount.allows(gameId)) throw new GameReleasedError();
+    const supabase = getSupabase();
     const { data, error } = await supabase
       .from("players")
       .select("id, user_id, color, seat, is_host, is_connected, is_bot, rematch_vote, rematch_voted_at")
@@ -1157,8 +1178,9 @@ export async function getLobby(gameId: string): Promise<LobbyPlayer[]> {
  * than encoded in a status code.
  */
 export async function fetchGame(gameId: string): Promise<GameRow> {
-  const supabase = getSupabase();
   return withRetry(async () => {
+    if (!OnlineAccount.allows(gameId)) throw new GameReleasedError();
+    const supabase = getSupabase();
     const { data, error } = await supabase
       .from("games")
       .select("id, room_code, host_user_id, status, state, current_turn_player_id, state_version, stake, turn_deadline")
@@ -1172,6 +1194,7 @@ export async function fetchGame(gameId: string): Promise<GameRow> {
 }
 
 export async function setConnected(gameId: string, userId: string, connected: boolean): Promise<void> {
+  if (!OnlineAccount.allows(gameId)) return;
   const supabase = getSupabase();
   // Coming back also clears the idle-strike counter — proof this was a
   // minimized app, not a closed one (the server auto-leaves at 3 strikes).
@@ -1239,6 +1262,7 @@ export interface GameSubscription {
  *  a secret. supabase-js keeps the socket's JWT current on auth state change,
  *  so nothing here has to call realtime.setAuth by hand. */
 export function subscribeGame(gameId: string, handlers: GameSubscription): RealtimeChannel {
+  if (!OnlineAccount.allows(gameId)) throw new GameReleasedError();
   const supabase = getSupabase();
   let everSubscribed = false;
   return supabase
@@ -1340,4 +1364,36 @@ export function lobbyEqual(a: LobbyPlayer[], b: LobbyPlayer[]): boolean {
 
 export function unsubscribe(channel: RealtimeChannel): void {
   getSupabase().removeChannel(channel);
+}
+
+
+/** A receipt is proof of this transaction, independent of spending or other credits. */
+export async function getGemPurchaseDelivery(receipt: import("../lib/purchases").GemReceipt): Promise<number | null> {
+  if (await ensureSignedIn() !== receipt.userId) return null;
+  const { data, error } = await getSupabase().from("iap_purchases")
+    .select("gems")
+    .eq("user_id", receipt.userId)
+    .eq("product_id", receipt.productId)
+    .eq("provider_txn_id", receipt.transactionId)
+    .eq("status", "credited")
+    .eq("fulfillment_verified", true)
+    .maybeSingle();
+  if (error) throw error;
+  // Recheck after I/O: an auth transition must not adopt another user's receipt.
+  if (await ensureSignedIn() !== receipt.userId) return null;
+  return typeof data?.gems === "number" ? data.gems : null;
+}
+
+
+export async function setProductAnalyticsConsent(enabled: boolean): Promise<void> {
+  await ensureSignedIn();
+  const { error } = await getSupabase().rpc("set_product_analytics_consent", { p_enabled: enabled });
+  if (error) throw error;
+}
+export async function recordProductEvent(name: import("../lib/analytics").ProductEvent, key: string): Promise<void> {
+  // Do not create accounts merely to collect analytics.
+  const { data } = await getSupabase().auth.getSession();
+  if (!data.session) return;
+  const { error } = await getSupabase().rpc("record_product_event", { p_name: name, p_key: key });
+  if (error) throw error;
 }

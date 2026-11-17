@@ -20,6 +20,39 @@
 import Purchases, { LOG_LEVEL, PURCHASE_TYPE, type PurchasesStoreProduct } from "react-native-purchases";
 
 let configured = false;
+let attachedUserId: string | null = null;
+let currentUser: (() => Promise<string>) | null = null;
+let identityQueue: Promise<unknown> = Promise.resolve();
+
+// The SDK has one mutable identity. Serialize logins, purchases and restores
+// so account switches cannot reattribute a purchase while the store is open.
+function serialized<T>(work: () => Promise<T>): Promise<T> {
+  const result = identityQueue.then(work);
+  identityQueue = result.catch(() => undefined);
+  return result;
+}
+
+async function attach(userId: string | null): Promise<void> {
+  attachedUserId = null;
+  if (!configured || !userId) return;
+  await Purchases.logIn(userId);
+  if (await Purchases.getAppUserID() === userId) attachedUserId = userId;
+}
+
+function withIdentity<T>(unavailable: T, action: () => Promise<T>): Promise<T> {
+  return serialized(async () => {
+    if (!configured || !currentUser) return unavailable;
+    try {
+      const userId = await currentUser();
+      if (!userId) return unavailable;
+      if (attachedUserId !== userId) await attach(userId);
+      if (attachedUserId !== userId || await Purchases.getAppUserID() !== userId) return unavailable;
+      return await action();
+    } catch {
+      return unavailable;
+    }
+  });
+}
 
 /** True once the SDK is live. When false, callers use the server-stub path. */
 export function isPurchasesConfigured(): boolean {
@@ -28,7 +61,8 @@ export function isPurchasesConfigured(): boolean {
 
 /** Configure the SDK once with the platform's public key. A missing key
  *  (billing not wired for this build) simply no-ops. */
-export async function initPurchases(apiKey?: string | null): Promise<void> {
+export async function initPurchases(apiKey: string | null | undefined, resolveUser: () => Promise<string>): Promise<void> {
+  currentUser = resolveUser;
   if (configured || !apiKey) return;
   try {
     if (typeof __DEV__ !== "undefined" && __DEV__) Purchases.setLogLevel(LOG_LEVEL.VERBOSE);
@@ -42,12 +76,9 @@ export async function initPurchases(apiKey?: string | null): Promise<void> {
 /** Attach RevenueCat to a Supabase user (at launch, and after sign-in /
  *  linking) so purchases attribute to the right account. No-op until configured. */
 export async function syncPurchasesUser(userId: string | null): Promise<void> {
-  if (!configured || !userId) return;
-  try {
-    await Purchases.logIn(userId);
-  } catch {
-    // non-fatal — attribution retries on the next logIn
-  }
+  await serialized(async () => {
+    try { await attach(userId); } catch { attachedUserId = null; }
+  });
 }
 
 /** The gem-pack products with the store's localized prices, keyed by product
@@ -114,20 +145,21 @@ export async function hasNoAdsEntitlement(): Promise<boolean> {
 export type NoAdsPurchaseOutcome = GemPurchaseOutcome | "owned";
 
 export async function purchaseNoAds(productId: string): Promise<NoAdsPurchaseOutcome> {
-  if (!configured) return "unavailable";
-  try {
-    const [product] = await Purchases.getProducts([productId], PURCHASE_TYPE.INAPP);
-    if (!product) return "unavailable";
-    const { customerInfo } = await Purchases.purchaseStoreProduct(product);
-    return customerInfo.entitlements.active[NO_ADS_ENTITLEMENT] !== undefined ? "success" : "error";
-  } catch (e) {
-    const err = e as { userCancelled?: boolean | null; code?: string | number | null };
-    if (err?.userCancelled) return "cancelled";
-    // PURCHASE_NOT_ALLOWED / PRODUCT_ALREADY_PURCHASED both mean "you have this
-    // already" from the player's point of view. Let restore sort it out.
-    if (await hasNoAdsEntitlement()) return "owned";
-    return "error";
-  }
+  return withIdentity<NoAdsPurchaseOutcome>("unavailable", async () => {
+    try {
+      const [product] = await Purchases.getProducts([productId], PURCHASE_TYPE.INAPP);
+      if (!product) return "unavailable";
+      const { customerInfo } = await Purchases.purchaseStoreProduct(product);
+      return customerInfo.entitlements.active[NO_ADS_ENTITLEMENT] !== undefined ? "success" : "error";
+    } catch (e) {
+      const err = e as { userCancelled?: boolean | null; code?: string | number | null };
+      if (err?.userCancelled) return "cancelled";
+      // PURCHASE_NOT_ALLOWED / PRODUCT_ALREADY_PURCHASED both mean "you have this
+      // already" from the player's point of view. Let restore sort it out.
+      if (await hasNoAdsEntitlement()) return "owned";
+      return "error";
+    }
+  });
 }
 
 /** The Remove Ads product, for its localized `priceString`. Never display a
@@ -155,27 +187,46 @@ export async function getNoAdsProduct(productId: string): Promise<PurchasesStore
  * "nothing to restore" — two outcomes that need different words on screen.
  */
 export async function restorePurchases(): Promise<boolean> {
-  if (!configured) return false;
-  try {
-    const info = await Purchases.restorePurchases();
-    return info.entitlements.active[NO_ADS_ENTITLEMENT] !== undefined;
-  } catch {
-    return false;
-  }
+  return withIdentity<boolean>(false, async () => {
+    try {
+      const info = await Purchases.restorePurchases();
+      return info.entitlements.active[NO_ADS_ENTITLEMENT] !== undefined;
+    } catch {
+      return false;
+    }
+  });
 }
 
 /** Run the store purchase for a gem pack. On "success" the money is captured
  *  and RevenueCat will credit the gems via the webhook — the caller reconciles
  *  the balance from the server. "cancelled" is the user backing out (no error). */
-export async function purchaseGemProduct(productId: string): Promise<GemPurchaseOutcome> {
-  if (!configured) return "unavailable";
-  try {
-    const [product] = await Purchases.getProducts([productId], PURCHASE_TYPE.INAPP);
-    if (!product) return "unavailable";
-    await Purchases.purchaseStoreProduct(product);
-    return "success";
-  } catch (e) {
-    if ((e as { userCancelled?: boolean | null })?.userCancelled) return "cancelled";
-    return "error";
-  }
+export interface GemReceipt {
+  userId: string;
+  productId: string;
+  transactionId: string;
+}
+
+export async function purchaseGemProduct(
+  productId: string,
+  onReceipt?: (receipt: GemReceipt) => Promise<void>,
+): Promise<GemPurchaseOutcome> {
+  return withIdentity<GemPurchaseOutcome>("unavailable", async () => {
+    try {
+      const [product] = await Purchases.getProducts([productId], PURCHASE_TYPE.INAPP);
+      if (!product) return "unavailable";
+      const result = await Purchases.purchaseStoreProduct(product);
+      if (onReceipt && attachedUserId && result?.transaction?.transactionIdentifier) {
+        // The store has already charged. Journal failures must not report a
+        // failed checkout and encourage an accidental second purchase.
+        try {
+          await onReceipt({ userId: attachedUserId, productId,
+            transactionId: result.transaction.transactionIdentifier });
+        } catch { /* remain pending; never infer fulfillment from a balance */ }
+      }
+      return "success";
+    } catch (e) {
+      if ((e as { userCancelled?: boolean | null })?.userCancelled) return "cancelled";
+      return "error";
+    }
+  });
 }

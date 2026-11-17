@@ -6,7 +6,7 @@
  */
 
 import { useProfile } from "../store/profileStore";
-import { upsertMyProfile } from "./api";
+import { isNameTaken, upsertMyProfile } from "./api";
 
 const DEBOUNCE_MS = 1200;
 
@@ -94,6 +94,9 @@ export type NameClaim = "ok" | "taken" | "offline";
  * tunnel.
  */
 export async function claimName(name: string): Promise<NameClaim> {
+  // Checked before writing, so an ordinary clash is a lookup and not a refused
+  // write. Best-effort: a failed lookup answers "free" and the write decides.
+  if (await isNameTaken(name).catch(() => false)) return "taken";
   const stored = await upsertMyProfile(name, useProfile.getState().avatarId, useProfile.getState().diceSkinId).catch(
     () => null,
   );

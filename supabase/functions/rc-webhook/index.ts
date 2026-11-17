@@ -119,8 +119,8 @@ export function productGems(gems: Json): Record<string, number> {
  * than by remembering to check.
  */
 export function creditable(environment: string, gems: Json): boolean {
-  if (environment.toUpperCase() !== "SANDBOX") return true;
-  return gems.creditSandboxPurchases === true;
+  if (environment.toUpperCase() === "PRODUCTION") return true;
+  return environment.toUpperCase() === "SANDBOX" && gems.creditSandboxPurchases === true;
 }
 
 Deno.serve(async (req: Request) => {
@@ -150,10 +150,24 @@ Deno.serve(async (req: Request) => {
   const type = String(event.type ?? "");
   const appUserId = String(event.app_user_id ?? "");
   const productId = String(event.product_id ?? "");
-  // One credit per store transaction; fall back to the event id if absent.
-  const txnId = String(event.transaction_id ?? event.id ?? "");
+  // Only the store transaction id identifies fulfillment; event ids cannot substitute.
+  const txnId = String(event.transaction_id ?? "");
   const store = String(event.store ?? "");
   const environment = String(event.environment ?? "");
+
+  // Refunds/transfers need durable reconciliation, not an ignored 200.
+  // Currency may already have been spent: never move or claw it back blindly.
+  if (["CANCELLATION", "UNCANCELLATION", "TRANSFER", "REFUND_REVERSED"].includes(type)) {
+    const eventId = typeof event.id === "string" ? event.id : "";
+    if (!eventId) return json({ error: "Missing event id." }, 400);
+    const reviewAdmin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    const { error } = await reviewAdmin.from("iap_review_events").upsert(
+      { event_id: eventId, event_type: type, payload: event },
+      { onConflict: "event_id", ignoreDuplicates: true },
+    );
+    if (error) return json({ error: "Reconciliation recording failed." }, 500);
+    return json({ ok: true, reviewRequired: true });
+  }
 
   // 3) Ignore anything that isn't a completed purchase (ack so RC stops retrying).
   if (!PURCHASE_TYPES.has(type)) return json({ ok: true, ignored: type });
@@ -180,7 +194,8 @@ Deno.serve(async (req: Request) => {
   const gems = isRemoveAds ? 0 : (productGems(gemsCfg)[productId] ?? 0);
   if (!isRemoveAds && gems <= 0) return json({ error: `Unknown product ${productId}.` }, 400);
 
-  const provider = STORE_PROVIDER[store] ?? "stub";
+  const provider = STORE_PROVIDER[store];
+  if (!provider) return json({ error: "Unsupported store." }, 400);
 
   // 5) Sandbox stops here. Recorded, so a tester can still see their purchase
   //    arrived and the wiring is provably working, but never credited. 200 so
@@ -195,39 +210,16 @@ Deno.serve(async (req: Request) => {
     return json({ ok: true, ignored: "sandbox environment" });
   }
 
-  // 6) Audit row (best-effort; the credit's own ledger is the real guard).
-  await admin
-    .from("iap_purchases")
-    .insert({ user_id: appUserId, product_id: productId, gems, provider, provider_txn_id: txnId, status: "credited", credited_at: new Date().toISOString() })
-    .then(undefined, () => {}); // unique (provider, provider_txn_id) → duplicate webhook, fine
-
-  // 7) Hand over what was bought.
-  //
-  // Remove Ads is an entitlement, and its idempotency is the table's own
-  // primary key (user_id, sku) rather than a ledger ext_id: owning it twice is
-  // not a thing that can be represented, so a retried webhook conflicts and
-  // that conflict IS the correct outcome. Postgres reports it as 23505, which
-  // is the one error here that must not become a 500 — a 500 asks RevenueCat
-  // to retry forever a delivery that already succeeded.
-  if (isRemoveAds) {
-    const { error: grantErr } = await admin
-      .from("entitlements")
-      .insert({ user_id: appUserId, sku: REMOVE_ADS_SKU, source: "iap" });
-    if (grantErr && (grantErr as { code?: string }).code !== "23505") {
-      console.error("rc: remove-ads grant failed", grantErr.message);
-      return json({ error: "Grant failed." }, 500);
-    }
-    return json({ ok: true, userId: appUserId, sku: REMOVE_ADS_SKU });
-  }
-
-  // Credit — idempotent on rc:<txnId>. A DB failure returns 500 so RC retries.
-  const { data, error } = await admin.rpc("gem_apply", {
+  // Receipt, currency/entitlement and delivery marker commit together. An RPC
+  // failure leaves no falsely credited receipt and asks RevenueCat to retry.
+  const { data, error } = await admin.rpc("fulfill_iap", {
     p_user: appUserId,
-    p_delta: gems,
-    p_reason: "iap",
-    p_ext_id: `rc:${txnId}`,
+    p_product: productId,
+    p_provider: provider,
+    p_txn: txnId,
+    p_gems: gems,
+    p_noads: isRemoveAds,
   });
-  if (error || data == null) return json({ error: "Credit failed." }, 500);
-
-  return json({ ok: true, userId: appUserId, gems, balance: data });
+  if (error || !data?.delivered) return json({ error: "Fulfillment failed." }, 500);
+  return json({ ok: true, userId: appUserId, ...data });
 });

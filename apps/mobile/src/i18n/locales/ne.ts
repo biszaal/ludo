@@ -218,6 +218,17 @@ export const ne: Strings = {
   "game.tapDieToRoll": "डाइस थिच्नुहोस्",
   "game.tapGlowingToken": "चम्किएको गोटी थिचेर चल्नुहोस्",
   "game.chooseToken": "गोटी छान्नुहोस्",
+  "game.pawnA11y": "{color} गोटी {number}, {position}",
+  "game.pawnYard": "आँगनमा",
+  "game.pawnFinished": "पूरा भयो",
+  "game.pawnTrack": "बाटोको खाना {number}",
+  "game.pawnHomeLane": "घरको बाटो {number}",
+  "game.movePawn": "यो गोटी सार्नुहोस्",
+  "game.diceA11y": "पासा",
+  "game.diceValueA11y": "पासामा {number}",
+  "game.elapsedA11y": "खेल समय {time}",
+  "invite.message": "मेरो लुडो खेलमा आउनुहोस्! कोठा कोड: {code}।{stake}\n{url}",
+  "invite.stake": " हामी {stake} सिक्काका लागि खेल्दै छौँ।",
   "game.boardA11y": "बोर्ड — चल्न चम्किएको गोटी थिच्नुहोस्",
   "game.noMovesPassing": "चाल छैन — पालो जाँदैछ…",
   "game.notYourTurn": "अहिले तपाईंको पालो होइन",
@@ -245,6 +256,16 @@ export const ne: Strings = {
   "game.playersYouPlusAi": "खेलाडी (तपाईं + AI)",
   "game.someone": "कोही",
 
+  "mode.label": "मोड",
+  "mode.classic": "क्लासिक",
+  "mode.blitz": "ब्लिट्ज",
+  "mode.frenzy": "हल्लाखल्ला",
+  "mode.classicHint": "जित्न चारै गोटी बीचमा पुर्‍याउनुहोस्",
+  "mode.blitzHint": "जसको पहिलो गोटी बीचमा पुग्छ, उही जित्छ",
+  "mode.frenzyHint": "पालो छैन — सबैले एकैसाथ डाइस फाल्छन्",
+  "frenzy.recharging": "रिचार्ज हुँदैछ…",
+  "frenzy.watching": "दौड हेर्दै",
+
   "rules.title": "कसरी खेल्ने",
   "rules.goal": "लक्ष्य",
   "rules.goalBody":
@@ -264,6 +285,12 @@ export const ne: Strings = {
   "rules.winning": "जित",
   "rules.winningBody":
     "जसले पहिले चारै गोटी बीचमा पुर्‍याउँछ, उही जित्छ। एउटा गोटी पुगेपछि पनि अर्को पालो पाइन्छ।",
+  "rules.blitz": "ब्लिट्ज",
+  "rules.blitzBody":
+    "जसले पहिले एउटा गोटी बीचमा पुर्‍याउँछ, उही जित्छ। उसका बाँकी गोटी बोर्डबाट हट्छन्, र अरू खेलाडी दोस्रो र तेस्रो स्थानका लागि खेलिरहन्छन्।",
+  "rules.frenzy": "हल्लाखल्ला",
+  "rules.frenzyBody":
+    "पालो छैन: हरेक खेलाडीसँग आफ्नै डाइस हुन्छ र तयार हुनासाथ फाल्छ। तपाईंको गोटी पुगेपछि डाइस केही बेर रिचार्ज हुन्छ — छक्का, कसैलाई काट्नु वा गोटी पुर्‍याउनुले पर्खाइ छोड्छ। जसले पहिले चारै गोटी बीचमा पुर्‍याउँछ, उही जित्छ।",
   "rules.sixToLeave": "घरबाट निस्कन छक्का",
   "rules.extraRollOnSix": "छक्कामा अर्को पालो",
   "rules.threeSixes": "तीन छक्का, पालो गयो",
@@ -360,6 +387,13 @@ export const ne: Strings = {
   "noads.purchaseFailed": "यो किनमेल पूरा भएन।",
   "noads.unavailableHere": "यो डिभाइसमा किनमेल उपलब्ध छैन।",
 
+  "gems.purchasePending": "खरिद प्राप्त भयो। तपाईंका रत्नहरू आउँदै छन्। अद्यावधिक गर्न पसल फेरि खोल्नुहोस्; रत्न नआएमा सेटिङहरू → प्रतिक्रिया पठाउनुहोस् बाट सहायता लिनुहोस्।",
+  "gems.purchaseUnavailable": "अहिले खरिद उपलब्ध छैन। आफ्नो जडान जाँचेर फेरि प्रयास गर्नुहोस्।",
+  "match.searchHint": "यसमा सामान्यतया केही सेकेन्ड लाग्छ।",
+  "settings.adPrivacy": "विज्ञापन गोपनीयता विकल्प",
+  "settings.adPrivacyError": "गोपनीयता विकल्प खोल्न सकिएन। विज्ञापन रोकिएका छन्। कृपया फेरि प्रयास गर्नुहोस्।",
+  "settings.analytics": "लुडो सुधार्न सहयोग गर्नुहोस्",
+  "settings.analyticsHint": "तपाईंको खातासँग जोडिएका ऐच्छिक खेल घटनाहरू। च्याट, नाम वा विज्ञापन ID समावेश हुँदैन। बन्द गर्दा सङ्कलित घटनाहरू मेटिन्छन्।",
   "settings.title": "सेटिङ",
   "settings.soundAndFeel": "आवाज र अनुभूति",
   "settings.music": "सङ्गीत",
@@ -449,6 +483,7 @@ export const ne: Strings = {
   "game.reactions": "रिएक्सन",
 
   "coins.rewardTryAgain": "इनाम आउँदैछ — केही बेरमा फेरि प्रयास गर्नुहोस्",
+  "coins.watchFullAd": "इनाम पाउन पूरा विज्ञापन हेर्नुहोस्।",
   "coins.needToEnter": "जोडिन {coins} सिक्का चाहिन्छ",
   "coins.coversEntry": "तपाईंको प्रवेश हुन्छ — खेल भने उस्तै रहन्छ",
   "coins.pot": "इनाम {pot}",
@@ -472,4 +507,14 @@ export const ne: Strings = {
   "error.title": "अलिकति बाँकी",
   "error.loadingLudo": "लुडो लोड हुँदैछ",
   "error.dismissInvite": "बोलावट हटाउनुहोस्",
+
+  "coins.neverAffectsPlay":
+    "सिक्का खेलमा पस्न र सजावट खोल्नका लागि हुन्। यिनले खेल कसरी चल्छ भन्नेमा कहिल्यै असर गर्दैनन्।",
+  "gems.neverAffectsPlay":
+    "रत्नले खास सजावट खोल्छन् र सिक्कामा साटिन्छन्। यिनले खेल कसरी चल्छ भन्नेमा कहिल्यै असर गर्दैनन्।",
+  "update.title": "कृपया अपडेट गर्नुहोस्",
+  "update.body": "लुडोको यो संस्करण अब चल्दैन। खेलिरहन नयाँ संस्करण राख्नुहोस्।",
+  "update.button": "अपडेट गर्नुहोस्",
+  "update.recommendedTitle": "नयाँ संस्करण आएको छ",
+  "update.recommendedBody": "यो संस्करण अझै चल्छ। हुँदा नयाँ संस्करण राख्नुहोस्।",
 };

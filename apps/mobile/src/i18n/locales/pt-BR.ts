@@ -218,6 +218,17 @@ export const ptBR: Strings = {
   "game.tapDieToRoll": "Toque no dado para jogar",
   "game.tapGlowingToken": "Toque num peão brilhando para mover",
   "game.chooseToken": "Escolha um peão",
+  "game.pawnA11y": "Peão {color} {number}, {position}",
+  "game.pawnYard": "Na base",
+  "game.pawnFinished": "Concluído",
+  "game.pawnTrack": "Casa {number}",
+  "game.pawnHomeLane": "Reta final {number}",
+  "game.movePawn": "Mover este peão",
+  "game.diceA11y": "Dado",
+  "game.diceValueA11y": "Dado mostrando {number}",
+  "game.elapsedA11y": "Tempo de jogo {time}",
+  "invite.message": "Entre na minha partida de Ludo! Código: {code}.{stake}\n{url}",
+  "invite.stake": " Estamos jogando por {stake} moedas.",
   "game.boardA11y": "Tabuleiro — toque num peão destacado para movê-lo",
   "game.noMovesPassing": "Sem jogadas — passando…",
   "game.notYourTurn": "Não é sua vez",
@@ -245,6 +256,16 @@ export const ptBR: Strings = {
   "game.playersYouPlusAi": "Jogadores (você + IA)",
   "game.someone": "Alguém",
 
+  "mode.label": "Modo",
+  "mode.classic": "Clássico",
+  "mode.blitz": "Blitz",
+  "mode.frenzy": "Frenesi",
+  "mode.classicHint": "Leve os quatro peões ao centro para vencer",
+  "mode.blitzHint": "Vence o primeiro peão que chegar ao centro",
+  "mode.frenzyHint": "Sem esperar a vez: todos jogam o dado ao mesmo tempo",
+  "frenzy.recharging": "Recarregando…",
+  "frenzy.watching": "Assistindo à corrida",
+
   "rules.title": "Como jogar",
   "rules.goal": "O objetivo",
   "rules.goalBody":
@@ -264,6 +285,12 @@ export const ptBR: Strings = {
   "rules.winning": "Vencer",
   "rules.winningBody":
     "Vence quem levar primeiro os quatro peões ao centro. Terminar um peão também dá uma jogada extra.",
+  "rules.blitz": "Blitz",
+  "rules.blitzBody":
+    "Vence quem levar primeiro um peão ao centro. Os outros peões dele saem do tabuleiro, e os demais continuam jogando pelo segundo e terceiro lugar.",
+  "rules.frenzy": "Frenesi",
+  "rules.frenzyBody":
+    "Sem esperar a vez: cada jogador tem o próprio dado e joga quando ele está pronto. Quando seu peão chega, o dado recarrega por um instante — um seis, uma captura ou terminar um peão pulam a espera. Vence quem levar primeiro os quatro peões ao centro.",
   "rules.sixToLeave": "Um seis para sair",
   "rules.extraRollOnSix": "Jogada extra no seis",
   "rules.threeSixes": "Três seis, vez perdida",
@@ -360,6 +387,13 @@ export const ptBR: Strings = {
   "noads.purchaseFailed": "Não foi possível concluir a compra.",
   "noads.unavailableHere": "As compras não estão disponíveis neste aparelho.",
 
+  "gems.purchasePending": "Compra recebida. Suas gemas ainda estão sendo entregues. Reabra a loja para atualizar; se não chegarem, contate o suporte em Configurações → Enviar feedback.",
+  "gems.purchaseUnavailable": "As compras estão indisponíveis no momento. Verifique sua conexão e tente novamente.",
+  "match.searchHint": "Isso costuma levar alguns segundos.",
+  "settings.adPrivacy": "Privacidade dos anúncios",
+  "settings.adPrivacyError": "Não foi possível abrir as opções de privacidade. Os anúncios estão pausados. Tente novamente.",
+  "settings.analytics": "Ajude a melhorar o Ludo",
+  "settings.analyticsHint": "Eventos opcionais de jogo vinculados à sua conta. Sem chats, nomes ou IDs de publicidade. Desative para excluir os eventos coletados.",
   "settings.title": "Configurações",
   "settings.soundAndFeel": "Som e vibração",
   "settings.music": "Música",
@@ -449,6 +483,7 @@ export const ptBR: Strings = {
   "game.reactions": "Reações",
 
   "coins.rewardTryAgain": "Sua recompensa está a caminho — tente de novo daqui a pouco",
+  "coins.watchFullAd": "Assista ao anúncio inteiro para receber sua recompensa.",
   "coins.needToEnter": "Você precisa de {coins} moedas para entrar",
   "coins.coversEntry": "Cobre sua entrada — a partida é jogada exatamente igual",
   "coins.pot": "Prêmio {pot}",
@@ -472,4 +507,14 @@ export const ptBR: Strings = {
   "error.title": "Quase lá",
   "error.loadingLudo": "Carregando o Ludo",
   "error.dismissInvite": "Dispensar convite",
+
+  "coins.neverAffectsPlay":
+    "As moedas servem para entrar nas partidas e desbloquear itens. Nunca influenciam o andamento de uma partida.",
+  "gems.neverAffectsPlay":
+    "As gemas desbloqueiam itens especiais e viram moedas. Nunca influenciam o andamento de uma partida.",
+  "update.title": "Atualize o app",
+  "update.body": "Esta versão do Ludo não é mais compatível. Instale a mais recente para continuar jogando.",
+  "update.button": "Atualizar",
+  "update.recommendedTitle": "Tem uma versão mais nova",
+  "update.recommendedBody": "Esta versão ainda funciona. Atualize quando puder.",
 };

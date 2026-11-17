@@ -15,7 +15,7 @@
  * the slide-in animation mid-life.
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { useSheetHost } from "../src/store/sheetHost";
 
 const reset = () => useSheetHost.setState({ sheets: [] });
@@ -59,5 +59,53 @@ describe("sheet host", () => {
     const { dismiss } = useSheetHost.getState();
     expect(() => dismiss("ghost")).not.toThrow();
     expect(useSheetHost.getState().sheets).toEqual([]);
+  });
+});
+
+
+describe("sheet dismissal routing", () => {
+  beforeEach(reset);
+
+  it("lets navigation handle Back only when there is no sheet", () => {
+    expect(useSheetHost.getState().closeTop()).toBe(false);
+  });
+
+  it("closes only the top sheet through its owner, then exposes the previous sheet", () => {
+    const { present, dismiss, closeTop } = useSheetHost.getState();
+    const closeA = vi.fn(() => dismiss("a"));
+    const closeB = vi.fn(() => dismiss("b"));
+    present("a", "card-a", closeA);
+    present("b", "card-b", closeB);
+    expect(closeTop()).toBe(true);
+    expect(closeB).toHaveBeenCalledOnce();
+    expect(closeA).not.toHaveBeenCalled();
+    expect(ids()).toEqual(["a"]);
+    expect(closeTop()).toBe(true);
+    expect(closeA).toHaveBeenCalledOnce();
+    expect(closeTop()).toBe(false);
+  });
+
+  it("uses the current close callback without moving a rerendered sheet", () => {
+    const { present, closeTop } = useSheetHost.getState();
+    const stale = vi.fn();
+    const current = vi.fn();
+    const underneath = vi.fn();
+    present("a", "card-a", underneath);
+    present("b", "card-b", stale);
+    present("b", "updated-b", current);
+    present("a", "updated-a", underneath);
+    closeTop();
+    expect(current).toHaveBeenCalledOnce();
+    expect(stale).not.toHaveBeenCalled();
+    expect(underneath).not.toHaveBeenCalled();
+  });
+
+  it("consumes Back while the owner defers or rejects closure", () => {
+    const { present, closeTop } = useSheetHost.getState();
+    const close = vi.fn();
+    present("busy", "saving", close);
+    expect(closeTop()).toBe(true);
+    expect(ids()).toEqual(["busy"]);
+    expect(close).toHaveBeenCalledOnce();
   });
 });

@@ -16,6 +16,7 @@ import { Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { TableBackground } from "../components/TableBackground";
 import { Button } from "../components/Button";
+import { ModeBadge } from "../components/ModeBadge";
 import { AvatarGlyph } from "../components/Avatar";
 import { AddFriendButton } from "../components/AddFriendButton";
 import { SettingRow } from "../components/SettingRow";
@@ -61,6 +62,7 @@ export function LobbyScreen() {
 
   const isQuick = useOnlineStore((s) => s.isQuick);
   const stake = useOnlineStore((s) => s.stake);
+  const mode = useOnlineStore((s) => s.mode);
 
   // Leaving is one tap from both the header button and Android back, and for a
   // host it closes the room out from under everyone already waiting in it — so
@@ -137,6 +139,15 @@ export function LobbyScreen() {
           <Text style={{ fontFamily: font.display, fontSize: 22, color: palette.porcelain }}>{t("lobby.title")}</Text>
           <Button label={t("lobby.leave")} onPress={confirmLeave} variant="ghost" />
         </View>
+
+        {/* Everyone in the room should know what they are about to play,
+            above all a friend who joined by code and never saw the picker. */}
+        {mode !== "classic" ? (
+          <View style={{ alignItems: "center", gap: space.xs, marginTop: space.md }}>
+            <ModeBadge variant={mode} />
+            <Text style={{ fontFamily: font.medium, fontSize: 13, color: palette.mutedSteel }}>{t(`mode.${mode}Hint`)}</Text>
+          </View>
+        ) : null}
 
         {/* Share code */}
         <View style={{ alignItems: "center", gap: space.sm, marginTop: space.lg }}>

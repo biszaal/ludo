@@ -492,12 +492,12 @@ export async function opEntitlementsGet(admin: SupabaseClient, userId: string): 
     .maybeSingle();
   const wornSku = profile?.avatar_id ? `avatar.${profile.avatar_id as string}` : null;
   if (wornSku) {
+    // Already granted is the normal path, so it must not be an error: a plain
+    // insert here put an entitlements_pkey 409 in the logs on every shop load
+    // by anyone wearing an avatar they own. Same shape as opShopBuy's grant.
     await admin
       .from("entitlements")
-      .insert({ user_id: userId, sku: wornSku, source: "grant" })
-      .select("sku")
-      .maybeSingle();
-    // Duplicate key = already granted, which is the normal path. Ignored.
+      .upsert({ user_id: userId, sku: wornSku, source: "grant" }, { onConflict: "user_id,sku", ignoreDuplicates: true });
   }
 
   const [owned, catalog] = await Promise.all([

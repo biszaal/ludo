@@ -108,6 +108,13 @@ export interface RuleConfig {
     protectStacks: boolean;
     /** Two same-color tokens form an impassable, capture-proof block. Off in v1. */
     enableBlockades: boolean;
+    /**
+     * Tokens a player must bring home to place. Absent means all of them
+     * (classic); Blitz sets 1. Optional and kept out of {@link DEFAULT_RULES} so a
+     * classic game's state stays byte-identical to the one online clients compare
+     * their predictions against.
+     */
+    tokensToWin?: number;
 }
 export declare const DEFAULT_RULES: RuleConfig;
 export interface GameState {
@@ -132,6 +139,17 @@ export interface GameState {
      */
     finishedOrder: string[];
     lastAction: LastAction | null;
+    /**
+     * Present only in Frenzy games, which have no turns: every seat rolls and
+     * moves on its own die, and the turn fields above go unused. Absent from
+     * turn-based states so they stay byte-identical to what online clients
+     * compare against.
+     */
+    frenzy?: FrenzyState;
+}
+export interface FrenzyState {
+    /** Each seat's die: the value it is holding, or null when it may roll. */
+    dice: Record<string, number | null>;
 }
 /** Options threaded through transitions that would otherwise need wall-clock time. */
 export interface TransitionOptions {

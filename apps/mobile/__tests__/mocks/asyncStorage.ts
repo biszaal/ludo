@@ -6,6 +6,7 @@
 const kv = new Map<string, string>();
 
 export default {
+  getAllKeys: async (): Promise<string[]> => [...kv.keys()],
   getItem: async (key: string): Promise<string | null> => kv.get(key) ?? null,
   setItem: async (key: string, value: string): Promise<void> => {
     kv.set(key, value);

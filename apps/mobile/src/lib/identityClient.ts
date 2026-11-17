@@ -16,6 +16,7 @@ import * as SecureStore from "expo-secure-store";
 import { getSupabase } from "./supabase";
 import { createIdentity, type Identity, type IdentitySession } from "./identity";
 import { setCrashUser } from "./crashReporting";
+import { OnlineAccount } from "./onlineAccount";
 
 /** Keychain entry holding the refresh token. Renaming this strands every
  *  installed player's recovery token, so don't. */
@@ -76,6 +77,10 @@ export function getIdentity(): Identity {
     // follow a sign-out: a crash attributed to the account someone just left is
     // worse than one attributed to nobody. No-op without a DSN.
     setCrashUser(session?.user?.id ?? null);
+    // Same moment, and the one hook for every way the session is replaced
+    // (sign-in, sign-out, deletion). A token refresh is the same user; note
+    // leaves the table alone. The keychain below still ignores SIGNED_OUT.
+    OnlineAccount.note(session?.user?.id ?? null);
     if (event === "SIGNED_OUT") return;
     void identity?.rememberSession(toIdentitySession(session));
   });

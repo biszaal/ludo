@@ -39,7 +39,7 @@ import {
 } from "./lib.ts";
 import { afterGameWrite, BOT_MAX_ACTIONS, stepPauseMs } from "./bots.ts";
 import { broadcastToRoom } from "./chat.ts";
-import { endIfNoHumansLeft, recordFinishStats, settleIfFinished } from "./finish.ts";
+import { endIfNoHumansLeft, settleIfFinished } from "./finish.ts";
 
 /**
  * Consecutive whole turns a player may idle through (bot-played) before the
@@ -352,7 +352,6 @@ export async function opTurn(
       .or("missed_turns.neq.0,is_connected.eq.false"),
   );
   await settleIfFinished(admin, gameId, next);
-  recordFinishStats(admin, gameId, next);
   afterGameWrite(admin, gameId, !!game.has_bots, next, state);
   if (away) driveAwaySeatSoon(admin, gameId);
 
@@ -658,7 +657,6 @@ async function keepsAwaySeat(
 /** Everything that has to happen once the stalled turn is over. */
 async function finishStalledTurn(admin: SupabaseClient, gameId: string, hasBots: boolean, state: GameState): Promise<void> {
   await settleIfFinished(admin, gameId, state);
-  recordFinishStats(admin, gameId, state);
   // Reaching here means the deadline passed and the seat had to be played for
   // its owner — the one moment we know for certain somebody kept the table
   // waiting, and the only honest cue for a "Hurry up!".

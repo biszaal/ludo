@@ -217,6 +217,17 @@ export const bn: Strings = {
   "game.tapDieToRoll": "ছক্কায় চাপ দিন",
   "game.tapGlowingToken": "জ্বলজ্বলে গুটিতে চাপ দিয়ে চালুন",
   "game.chooseToken": "গুটি বাছুন",
+  "game.pawnA11y": "{color} ঘুঁটি {number}, {position}",
+  "game.pawnYard": "ঘরে আছে",
+  "game.pawnFinished": "শেষ হয়েছে",
+  "game.pawnTrack": "পথের ঘর {number}",
+  "game.pawnHomeLane": "ঘরের পথ {number}",
+  "game.movePawn": "এই ঘুঁটি চালুন",
+  "game.diceA11y": "পাশা",
+  "game.diceValueA11y": "পাশায় {number}",
+  "game.elapsedA11y": "খেলার সময় {time}",
+  "invite.message": "আমার লুডো খেলায় যোগ দিন! রুম কোড: {code}।{stake}\n{url}",
+  "invite.stake": " আমরা {stake} কয়েনের জন্য খেলছি।",
   "game.boardA11y": "বোর্ড — চালতে জ্বলজ্বলে গুটিতে চাপ দিন",
   "game.noMovesPassing": "চাল নেই — পালা যাচ্ছে…",
   "game.notYourTurn": "এখন আপনার পালা নয়",
@@ -244,6 +255,16 @@ export const bn: Strings = {
   "game.playersYouPlusAi": "খেলোয়াড় (আপনি + AI)",
   "game.someone": "কেউ",
 
+  "mode.label": "মোড",
+  "mode.classic": "ক্লাসিক",
+  "mode.blitz": "ব্লিৎজ",
+  "mode.frenzy": "হুলুস্থুল",
+  "mode.classicHint": "জিততে চারটি গুটিই মাঝখানে পৌঁছান",
+  "mode.blitzHint": "যার প্রথম গুটি মাঝখানে পৌঁছায়, সে-ই জেতে",
+  "mode.frenzyHint": "পালা নেই — সবাই একসাথে ছক্কা ফেলে",
+  "frenzy.recharging": "রিচার্জ হচ্ছে…",
+  "frenzy.watching": "দৌড় দেখছেন",
+
   "rules.title": "কীভাবে খেলবেন",
   "rules.goal": "লক্ষ্য",
   "rules.goalBody":
@@ -263,6 +284,12 @@ export const bn: Strings = {
   "rules.winning": "জয়",
   "rules.winningBody":
     "যিনি সবার আগে চারটি গুটি মাঝখানে পৌঁছান, তিনিই জেতেন। একটি গুটি শেষ হলেও একটি বাড়তি পালা মেলে।",
+  "rules.blitz": "ব্লিৎজ",
+  "rules.blitzBody":
+    "যিনি সবার আগে একটি গুটি মাঝখানে পৌঁছান, তিনিই জেতেন। তাঁর বাকি গুটিগুলো বোর্ড থেকে সরে যায়, আর বাকিরা দ্বিতীয় ও তৃতীয় স্থানের জন্য খেলতে থাকেন।",
+  "rules.frenzy": "হুলুস্থুল",
+  "rules.frenzyBody":
+    "পালা নেই: প্রত্যেক খেলোয়াড়ের নিজের ছক্কা থাকে, আর তৈরি হলেই তিনি সেটা ফেলেন। আপনার গুটি পৌঁছানোর পর ছক্কা কিছুক্ষণ রিচার্জ হয় — ছয়, কাউকে কাটা বা গুটি শেষ করলে অপেক্ষা করতে হয় না। যিনি সবার আগে চারটি গুটি মাঝখানে পৌঁছান, তিনিই জেতেন।",
   "rules.sixToLeave": "ঘর ছাড়তে ছয়",
   "rules.extraRollOnSix": "ছয়ে বাড়তি পালা",
   "rules.threeSixes": "তিন ছয়ে পালা শেষ",
@@ -359,6 +386,13 @@ export const bn: Strings = {
   "noads.purchaseFailed": "এই কেনাকাটা সম্পূর্ণ হয়নি।",
   "noads.unavailableHere": "এই ডিভাইসে কেনাকাটা পাওয়া যাচ্ছে না।",
 
+  "gems.purchasePending": "কেনাকাটা গৃহীত হয়েছে। আপনার রত্ন পৌঁছানো বাকি আছে। আপডেটের জন্য দোকান আবার খুলুন; না পেলে সেটিংস → মতামত পাঠান থেকে সহায়তা নিন।",
+  "gems.purchaseUnavailable": "এখন কেনাকাটা করা যাচ্ছে না। সংযোগ পরীক্ষা করে আবার চেষ্টা করুন।",
+  "match.searchHint": "এতে সাধারণত কয়েক সেকেন্ড লাগে।",
+  "settings.adPrivacy": "বিজ্ঞাপনের গোপনীয়তা",
+  "settings.adPrivacyError": "গোপনীয়তার বিকল্প খোলা যায়নি। বিজ্ঞাপন বন্ধ রাখা হয়েছে। আবার চেষ্টা করুন।",
+  "settings.analytics": "লুডো উন্নত করতে সাহায্য করুন",
+  "settings.analyticsHint": "আপনার অ্যাকাউন্টের সাথে যুক্ত ঐচ্ছিক খেলার তথ্য। চ্যাট, নাম বা বিজ্ঞাপন ID নয়। বন্ধ করলে সংগৃহীত তথ্য মুছে যায়।",
   "settings.title": "সেটিংস",
   "settings.soundAndFeel": "শব্দ ও অনুভূতি",
   "settings.music": "সঙ্গীত",
@@ -448,6 +482,7 @@ export const bn: Strings = {
   "game.reactions": "রিঅ্যাকশন",
 
   "coins.rewardTryAgain": "পুরস্কার আসছে — একটু পরে আবার চেষ্টা করুন",
+  "coins.watchFullAd": "পুরস্কার পেতে পুরো বিজ্ঞাপনটি দেখুন।",
   "coins.needToEnter": "ঢুকতে {coins} কয়েন লাগবে",
   "coins.coversEntry": "আপনার প্রবেশ হয়ে যাবে — খেলা ঠিক আগের মতোই",
   "coins.pot": "পুরস্কার {pot}",
@@ -471,4 +506,14 @@ export const bn: Strings = {
   "error.title": "প্রায় হয়ে গেছে",
   "error.loadingLudo": "লুডু লোড হচ্ছে",
   "error.dismissInvite": "আমন্ত্রণ সরান",
+
+  "coins.neverAffectsPlay":
+    "কয়েন ম্যাচে ঢুকতে ও সাজ খুলতে। এগুলো খেলা কীভাবে চলবে তাতে কখনো প্রভাব ফেলে না।",
+  "gems.neverAffectsPlay":
+    "রত্ন দিয়ে আলাদা সাজ খোলে এবং কয়েনে বদলানো যায়। এগুলো খেলা কীভাবে চলবে তাতে কখনো প্রভাব ফেলে না।",
+  "update.title": "অনুগ্রহ করে আপডেট করুন",
+  "update.body": "লুডুর এই সংস্করণ আর চলে না। খেলতে থাকতে নতুন সংস্করণ বসান।",
+  "update.button": "আপডেট করুন",
+  "update.recommendedTitle": "নতুন সংস্করণ এসেছে",
+  "update.recommendedBody": "এই সংস্করণ এখনও চলে। সুযোগ পেলে নতুন সংস্করণ বসান।",
 };

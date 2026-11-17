@@ -14,6 +14,9 @@ export function endTurn(state: GameState, options: TransitionOptions = {}): Game
   if (state.status !== "active") {
     throw new Error(`Cannot end turn: game is not active (status: ${state.status}).`);
   }
+  if (state.frenzy) {
+    throw new Error("Cannot end turn: a Frenzy game has no turns (frenzyPass).");
+  }
   if (state.phase !== "awaiting-move") {
     throw new Error("Cannot end turn before rolling.");
   }

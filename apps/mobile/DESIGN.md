@@ -24,7 +24,7 @@ interface gets out of the way of play.
 - **Lifted Slate** (#242932) — elevated cards, the dice tray.
 - **Hairline** (rgba(255,255,255,0.08)) — 1px structural separators.
 - **Porcelain** (#F4F6F8) — primary text, token glyphs on dark.
-- **Muted Steel** (#9BA3AF) — secondary text, metadata, inactive players.
+- **Muted Steel** (#A7AFBB) — secondary text, metadata, inactive players.
 - **Ivory Cell** (#ECE9DF) — empty track squares on the board.
 
 ### Functional team palette (RESERVED for tokens, yards, home columns, start cells)

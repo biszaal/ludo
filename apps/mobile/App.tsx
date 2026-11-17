@@ -1,3 +1,6 @@
+import { configureAnalytics, trackProductEvent } from "./src/lib/analytics";
+import { recordProductEvent } from "./src/net/api";
+import { useSettings } from "./src/store/settingsStore";
 import { useCallback, useEffect, useState } from "react";
 import { AppState, Platform } from "react-native";
 import { StatusBar } from "expo-status-bar";
@@ -12,9 +15,12 @@ import {
 } from "@expo-google-fonts/outfit";
 import { JetBrainsMono_500Medium } from "@expo-google-fonts/jetbrains-mono";
 import { ScreenStack } from "./src/components/ScreenStack";
+import { OverlayBackground } from "./src/components/OverlayBackground";
 import { SheetHost } from "./src/components/SheetHost";
 import { InviteBanner } from "./src/components/InviteBanner";
 import { ConfirmDialog } from "./src/components/ConfirmDialog";
+import { UpdateRequiredScreen } from "./src/components/UpdateRequiredScreen";
+import { AppVersionGate } from "./src/lib/appVersionGate";
 import { LoadingScreen } from "./src/components/LoadingScreen";
 import { ChooseNameScreen } from "./src/components/ChooseNameScreen";
 import { ErrorBoundary } from "./src/components/ErrorBoundary";
@@ -35,6 +41,7 @@ import { useConfig } from "./src/store/configStore";
 import { useAds } from "./src/store/adsStore";
 import { useWallet } from "./src/store/walletStore";
 import { initAds } from "./src/lib/ads/provider";
+import { watchAfterGameAd } from "./src/lib/ads/afterGameAd";
 import { initProfileSync } from "./src/net/profileSync";
 import { initPurchases, syncPurchasesUser } from "./src/lib/purchases";
 import { ensureSignedIn } from "./src/net/api";
@@ -69,6 +76,12 @@ export default function App() {
   // Never prompted on an existing install (profileStore v3 migrates them past
   // it), nor on an account that already has a name — see lib/namePrompt.
   const askName = useNamePrompt();
+  const updateRequired = useConfig((s) => s.updateRequired);
+  const updateSuggested = useConfig((s) => s.updateSuggested);
+  // Never over a table: the screen waits until the player is out of the match.
+  const seatedOnline = useOnlineStore((s) => s.gameId != null);
+  const atTable = useNav((s) => AppVersionGate.defersFor(s.stack.map((entry) => entry.name), seatedOnline));
+  const showUpdate = (updateRequired || updateSuggested) && !atTable;
   const onLaunched = useCallback(() => setLaunched(true), []);
 
   useEffect(() => {
@@ -84,6 +97,9 @@ export default function App() {
     // new-player grace period that holds interstitials back early on.
     useAds.getState().bumpSession();
     void initAds();
+    // The end-of-game interstitial plays on Home after a game is left, never on
+    // the board (lib/ads/afterGameAd).
+    const stopAfterGameAd = watchAfterGameAd();
     // RevenueCat: configure with the platform key, then attach the current user
     // (created if needed) so purchases land on the right account. No key means
     // billing is off for this build — it all no-ops and the shop uses the stub.
@@ -93,7 +109,7 @@ export default function App() {
       default: undefined,
     });
     if (rcKey) {
-      void initPurchases(rcKey)
+      void initPurchases(rcKey, ensureSignedIn)
         .then(() => ensureSignedIn())
         .then(syncPurchasesUser)
         .catch(() => {});
@@ -111,6 +127,8 @@ export default function App() {
     // Before anything that makes a request: the network layer consults this to
     // decide whether a retry is worth sending, and a call made before it is
     // installed simply falls back to the old fixed cadence.
+    const stopAnalytics = configureAnalytics(recordProductEvent, () => useSettings.getState().analyticsOn === true);
+    trackProductEvent("session_started");
     const stopConnection = initConnection();
     const stopFeedback = initFeedback();
     const stopProfileSync = initProfileSync();
@@ -128,6 +146,7 @@ export default function App() {
     // start normally first.
     const stopUpdates = initUpdates();
     return () => {
+      stopAnalytics();
       stopConnection();
       stopFeedback();
       stopProfileSync();
@@ -137,6 +156,7 @@ export default function App() {
       stopPush();
       stopBonusReminder();
       stopUpdates();
+      stopAfterGameAd();
     };
   }, []);
 
@@ -154,6 +174,14 @@ export default function App() {
         // finishing pays out when the LAST player comes home, long after you
         // stopped watching. Re-read the balance so those coins actually show up.
         void useWallet.getState().refresh();
+        // Ads start once consent is known. If that check failed at launch, this
+        // is the moment to ask again; it is a no-op once ads are running.
+        void initAds();
+        // The update floor lives in the same config document. Re-read it on
+        // resume so a version retired while we were backgrounded is noticed,
+        // and so a floor the owner has since lowered gets out of the way. A
+        // failed read does not raise the gate.
+        void useConfig.getState().refresh();
       } else {
         online.setAway(true); // opponents see an "Away" badge while I'm out
       }
@@ -190,12 +218,14 @@ export default function App() {
       <StatusBar style="light" />
       {ready && (
         <ErrorBoundary onReset={recoverFromCrash}>
-          <ScreenStack />
+          <OverlayBackground>
+            <ScreenStack />
+            <InviteBanner />
+          </OverlayBackground>
           {/* Bottom sheets draw here, not where they are declared — above the
               screens and the floating dock, anchored to the screen rather than
               to whatever scroll view happened to contain them. */}
           <SheetHost />
-          <InviteBanner />
           {/* Above everything, including the banner: it is asked about an
               action the player just tried to take. */}
           <ConfirmDialog />
@@ -204,7 +234,10 @@ export default function App() {
       {/* First launch only: asked once, above the hub so nothing behind it can
           be tapped, and below the loading screen so it never flashes during
           startup. Skipping keeps the minted guest handle. */}
-      {ready && launched && askName && <ChooseNameScreen />}
+      {ready && launched && askName && !showUpdate && <ChooseNameScreen />}
+      {/* The loading screen stays on top until it fades. After that, this
+          covers the app. Mounted only after a successful config read. */}
+      {ready && launched && showUpdate && <UpdateRequiredScreen />}
       {!launched && <LoadingScreen done={ready} onHidden={onLaunched} />}
     </SafeAreaProvider>
     </KeyboardProvider>

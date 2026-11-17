@@ -1,3 +1,4 @@
+import { cleanDisplayName } from "../lib/displayName";
 /**
  * First launch: ask what to call this player, once.
  *
@@ -30,14 +31,14 @@ import { Field } from "./Field";
 import { TableBackground } from "./TableBackground";
 import { ContentColumn } from "./ContentColumn";
 import { claimName } from "../net/profileSync";
-import { MAX_NAME_LENGTH, useProfile } from "../store/profileStore";
+import { useProfile } from "../store/profileStore";
 import { font, palette, space, teamColor } from "../theme";
 import { useT } from "../i18n";
 
 /** Names must be typeable back by a friend searching for them, so the same
  *  character set the rest of the app uses for handles: letters, digits, and a
  *  couple of separators. Trimmed rather than rejected while typing. */
-const clean = (raw: string): string => raw.replace(/[^A-Za-z0-9 _-]/g, "").slice(0, MAX_NAME_LENGTH);
+const clean = cleanDisplayName;
 
 export function ChooseNameScreen() {
   const t = useT();
@@ -52,7 +53,7 @@ export function ChooseNameScreen() {
   const trimmed = value.trim();
   // Two characters is the shortest thing worth searching for; the guest handle
   // is always available as the alternative, so this can afford to be strict.
-  const usable = trimmed.length >= 2 && !busy;
+  const usable = Array.from(trimmed).length >= 2 && !busy;
 
   const confirm = async () => {
     if (!usable) return;
@@ -104,7 +105,6 @@ export function ChooseNameScreen() {
                 placeholder={guestName}
                 autoCapitalize="none"
                 autoCorrect={false}
-                maxLength={MAX_NAME_LENGTH}
                 autoFocus
               />
               {error ? (

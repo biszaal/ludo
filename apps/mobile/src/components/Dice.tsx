@@ -151,6 +151,8 @@ interface DiceProps {
    * moveTiming.rollsOnMount. Omitted, a mount never plays a roll.
    */
   rollLedger?: { current: number };
+  /** Roll without the rattle — Frenzy's other seats, which roll all the time. */
+  muted?: boolean;
 }
 
 /**
@@ -160,7 +162,7 @@ interface DiceProps {
  * and timer traffic, and each of those used to re-run the derived value below
  * — which is a full picture re-record — for a die that had not changed.
  */
-export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = false, theme, skin, onRollPress = null, pressLabel, rollLedger }: DiceProps) {
+export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = false, theme, skin, onRollPress = null, pressLabel, rollLedger, muted = false }: DiceProps) {
   const t = useT();
   /**
    * The roll, as one number.
@@ -272,7 +274,7 @@ export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = f
    * takes, which is what it looked like it should do all along.
    */
   const startRoll = useCallback(() => {
-    playDiceRoll();
+    if (!muted) playDiceRoll();
     // A die that is already rolling is not asking to be tapped. The roll leaves
     // `onRollPress` set for as long as the server takes to answer (the phase is
     // still awaiting-roll until then), so without this the whole canvas rocked
@@ -302,7 +304,7 @@ export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = f
       gaveUp.current = true;
       beginLanding(true);
     }, DICE_MAX_ROLL_MS);
-  }, [spin, settle, lift, spinDir, stopWiggle, clearCap, beginLanding]);
+  }, [spin, settle, lift, spinDir, stopWiggle, clearCap, beginLanding, muted]);
 
   // Start a roll when the store says one began.
   useEffect(() => {
@@ -453,7 +455,7 @@ export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = f
     // a path is identical on every face that shows that value, on every frame.
     const pipPathFor: (ReturnType<typeof Skia.Path.Make> | null)[] = [1, 2, 3, 4, 5, 6].map((v) => {
       if (sp.pipShape === "dot") return null; // drawn as circles, no path
-      const path = Skia.Path.Make();
+      const path = Skia.PathBuilder.Make();
       if (sp.pipShape === "numeral") {
         appendNumeral(path, v as Numeral, 0, 0, NUMERAL_FACE_R);
       } else {
@@ -461,13 +463,13 @@ export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = f
           appendPip(path, sp.pipShape, (px - 0.5) * 1.84, (py - 0.5) * 1.84, 0.19);
         }
       }
-      return path;
+      return path.detach();
     });
 
     // The "no number yet" mark, face-local and built once: a tumbling die that
     // is still waiting on the server wears this instead of a value. Stroked, so
     // it needs its own paint rather than the pip fill.
-    const swirlPath = Skia.Path.Make();
+    const swirlPath = Skia.PathBuilder.Make();
     swirlPoints().forEach((pt, i) => {
       if (i === 0) swirlPath.moveTo(pt.x, pt.y);
       else swirlPath.lineTo(pt.x, pt.y);
@@ -495,7 +497,7 @@ export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = f
       outlinePaint,
       glossPaint,
       numeralPaint,
-      swirlPath,
+      swirlPath: swirlPath.detach(),
       swirlPaint,
       // The two rounded-rects the tumble draws, in face-local units. They are
       // COMPILE-TIME CONSTANTS — the same nine literals on every frame — so
@@ -594,12 +596,12 @@ export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = f
           // Built here, once per skin: the worklet used to Path.Make one of
           // these per stroke on every frame of the settle squash.
           const strokePaths = art.strokes.map((st) => {
-            const path = Skia.Path.Make();
+            const path = Skia.PathBuilder.Make();
             st.pts.forEach(([px, py], i) => {
               if (i === 0) path.moveTo(x + px * size, y + py * faceH);
               else path.lineTo(x + px * size, y + py * faceH);
             });
-            return path;
+            return path.detach();
           });
           return { art, strokePaths, dotPaint, strokePaint, lightPaint };
         })()
@@ -617,7 +619,7 @@ export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = f
 
     const motif = sp.motif
       ? (() => {
-          const path = Skia.Path.Make();
+          const path = Skia.PathBuilder.Make();
           const mr = size * sp.motif.scale;
           appendMotif(path, sp.motif.kind, c, c - 1.5, mr);
           const style = motifStyle(sp.motif.kind);
@@ -629,7 +631,7 @@ export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = f
             paint.setStyle(PaintStyle.Stroke);
             paint.setStrokeWidth(style.width * mr);
           }
-          return { path, paint };
+          return { path: path.detach(), paint };
         })()
       : null;
 
@@ -689,7 +691,7 @@ export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = f
     swirlInk.setStrokeWidth(size * 0.085);
     swirlInk.setStrokeCap(StrokeCap.Round);
     swirlInk.setStrokeJoin(StrokeJoin.Round);
-    const swirl = Skia.Path.Make();
+    const swirl = Skia.PathBuilder.Make();
     const steps = 44;
     for (let i = 0; i <= steps; i++) {
       const st = i / steps;
@@ -709,18 +711,18 @@ export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = f
     if (shape === "numeral") {
       const nr = size * (NUMERAL_FACE_R / 2); // face-local -> px: a face spans `size`
       numeralPaths = [1, 2, 3, 4, 5, 6].map((v) => {
-        const path = Skia.Path.Make();
+        const path = Skia.PathBuilder.Make();
         appendNumeral(path, v as Numeral, c, c - 1.5, nr);
-        return path;
+        return path.detach();
       });
     } else if (shape !== "dot") {
       const r = size * 0.12;
       pipPaths = [1, 2, 3, 4, 5, 6].map((v) => {
-        const path = Skia.Path.Make();
+        const path = Skia.PathBuilder.Make();
         for (const [px, py] of PIP_XY[v]!) {
           appendPip(path, shape, x + px * size, y + py * faceH, r);
         }
-        return path;
+        return path.detach();
       });
     }
 
@@ -766,7 +768,7 @@ export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = f
       framePaint,
       ink,
       swirlInk,
-      swirl,
+      swirl: swirl.detach(),
       numeralPaths,
       numeralStroke,
       numeralGlow,
@@ -1088,7 +1090,7 @@ export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = f
     return { transform: [{ rotate: `${wiggle.value * 6}deg` }, { scale: ws }] };
   });
 
-  const label = idle || value === null ? "Dice" : `Dice showing ${value}`;
+  const label = idle || value === null ? t("game.diceA11y") : t("game.diceValueA11y", { number: value });
   return (
     <Pressable
       accessibilityRole="button"
@@ -1098,6 +1100,7 @@ export const Dice = memo(function Dice({ value, size = 64, spinSeq = 0, idle = f
       accessibilityLabel={onRollPress ? (pressLabel ?? t("game.rollTheDice")) : label}
       onPress={onRollPress ?? undefined}
       disabled={!onRollPress}
+      accessibilityState={{ disabled: !onRollPress }}
       hitSlop={10}
     >
       <View style={{ width: size, height: size }}>

@@ -28,7 +28,7 @@ import { Confetti } from "./Confetti";
 import { AvatarGlyph } from "./Avatar";
 import { AddFriendButton } from "./AddFriendButton";
 import { Surface3D } from "./Surface3D";
-import { computeStandings, ordinal } from "../lib/standings";
+import { computeStandings, ordinal, tokensToWin } from "../lib/standings";
 import { eligibleSeats, type Proposal } from "../lib/rematch";
 import { payoutSplit } from "../lib/economy";
 import { useLayout } from "../lib/useLayout";
@@ -90,6 +90,7 @@ export function ResultsOverlay({ state, nameFor, avatarFor, onRematch, rematch, 
   // instead of stretching them across the whole screen.
   const col = { width: "100%" as const, maxWidth, alignSelf: "center" as const };
   const standings = computeStandings(state);
+  const goal = tokensToWin(state);
   // Seats whose placement is banked. Live, everyone else is still racing, and
   // their rank/payout is a guess this screen has no business making.
   const placed = new Set(state.finishedOrder ?? []);
@@ -212,12 +213,12 @@ export function ResultsOverlay({ state, nameFor, avatarFor, onRematch, rematch, 
                 {gone
                   ? "Left"
                   : racing
-                    ? `${s.finished}/4`
+                    ? `${s.finished}/${goal}`
                     : stake > 0
                       ? (shares[s.rank - 1] ?? 0) > 0
                         ? `+${shares[s.rank - 1]}`
                         : `−${stake}`
-                      : `${s.finished}/4`}
+                      : `${s.finished}/${goal}`}
               </Text>
             </Surface3D>
           );

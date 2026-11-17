@@ -11,6 +11,8 @@
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { Sheet } from "./Sheet";
+import { ModePicker } from "./ModePicker";
+import { onlineModes, type OnlineMode } from "../lib/standings";
 import { SectionLabel } from "./SectionLabel";
 import { Surface3D } from "./Surface3D";
 import { TableSeats } from "./TableSeats";
@@ -43,6 +45,8 @@ export function QuickSetupSheet({ onClose, onNeedCoins }: QuickSetupSheetProps) 
   const connecting = useOnlineStore((s) => s.status === "connecting");
   const error = useOnlineStore((s) => s.error);
 
+  const modes = onlineModes(useConfig((s) => s.config.modes.blitzOnline));
+  const [mode, setMode] = useState<OnlineMode>("classic");
   const [size, setSize] = useState<2 | 4>(2);
   const [stake, setStake] = useState<number>(tiers[0] ?? 100);
   const [busy, setBusy] = useState(false);
@@ -61,6 +65,7 @@ export function QuickSetupSheet({ onClose, onNeedCoins }: QuickSetupSheetProps) 
       const res = await watchForReward("free-entry");
       if (res.status === "granted") setNote(t("coins.entryCovered"));
       else if (res.status === "pending") setNote(t("coins.rewardTryAgain"));
+      else if (res.status === "dismissed") setNote(t("coins.watchFullAd"));
       else if (res.status === "unavailable") setNote(res.message ?? t("coins.noAdAvailable"));
     } finally {
       setBusy(false);
@@ -69,6 +74,8 @@ export function QuickSetupSheet({ onClose, onNeedCoins }: QuickSetupSheetProps) 
 
   return (
     <Sheet onClose={onClose} title={t("home.quickMatch")} variant="popup">
+      <ModePicker options={modes} value={mode} onChange={setMode} />
+
       <SectionLabel>{t("stats.table")}</SectionLabel>
       <View style={{ flexDirection: "row", gap: space.sm }}>
         <TableTile size={2} title="1 vs 1" selected={size === 2} onPress={() => setSize(2)} />
@@ -130,7 +137,7 @@ export function QuickSetupSheet({ onClose, onNeedCoins }: QuickSetupSheetProps) 
             onNeedCoins();
             return;
           }
-          void quickMatch(size, stake);
+          void quickMatch(size, stake, mode);
         }}
       />
     </Sheet>

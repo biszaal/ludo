@@ -66,6 +66,7 @@ export function GemsSection() {
 
   useEffect(() => {
     let live = true;
+    void useWallet.getState().refresh();
     void adRewardQuota("gems").then((q) => live && setQuota(q));
     void getGemProducts(cfg.products.map((p) => p.id))
       .then((products) => {
@@ -130,7 +131,7 @@ export function GemsSection() {
   return (
     <View style={{ gap: space.sm }}>
       {note ? (
-        <Text style={{ fontFamily: font.medium, fontSize: 13, color: palette.mutedSteel }}>{note}</Text>
+        <Text accessibilityLiveRegion="polite" style={{ fontFamily: font.medium, fontSize: 14, color: palette.porcelain }}>{note}</Text>
       ) : null}
 
       {ways.visible ? <SectionLabel>{t("gems.getGems")}</SectionLabel> : null}
@@ -152,7 +153,13 @@ export function GemsSection() {
                 // which is exactly what it looked like.
                 if (busy) return;
                 if (p.view.confirmFirst && !(await confirm(buyGemsPrompt(p.gems, prices[p.id])))) return;
-                await run(() => buyGems(p.id), (n) => `+${n} gems`);
+                await run(async () => {
+                  const credited = await buyGems(p.id);
+                  const status = useWallet.getState().gemPurchaseStatus;
+                  if (status === "pending") setNote(t("gems.purchasePending"));
+                  else if (status === "unavailable" || status === "error") setNote(t("gems.purchaseUnavailable"));
+                  return credited;
+                }, (n) => `+${n} gems`);
               }}
             />
           ))}
@@ -187,11 +194,14 @@ export function GemsSection() {
                   setNote(t("coins.rewardOnWay"));
                   return 0;
                 }
+                if (res.status === "dismissed") setNote(t("coins.watchFullAd"));
                 if (res.status === "unavailable") setNote(res.message ?? t("coins.noAdAvailable"));
                 return 0;
               },
               (n) => `+${n} gem${n === 1 ? "" : "s"}`,
-              "",
+              // No `none`: an empty string here overwrote the note the op had
+              // just set, so "reward on its way" and "watch the whole ad" never
+              // reached the screen.
             );
           }}
         >
@@ -250,7 +260,7 @@ export function GemsSection() {
       ))}
 
       <Text style={{ fontFamily: font.regular, fontSize: 12, color: palette.mutedSteel }}>
-        Gems unlock premium looks and convert to coins. They never affect how a game plays out.
+        {t("gems.neverAffectsPlay")}
       </Text>
     </View>
   );

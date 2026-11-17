@@ -118,7 +118,7 @@ export const TableBackground = memo(function TableBackground({
 /** A 5-point star centered at the origin (the board's safe-square glyph). */
 function starPath(outer: number) {
   const inner = outer * 0.45;
-  const p = Skia.Path.Make();
+  const p = Skia.PathBuilder.Make();
   for (let i = 0; i < 10; i++) {
     const r = i % 2 === 0 ? outer : inner;
     const a = -Math.PI / 2 + (i * Math.PI) / 5;
@@ -128,5 +128,5 @@ function starPath(outer: number) {
     else p.lineTo(x, y);
   }
   p.close();
-  return p;
+  return p.detach();
 }

@@ -28,9 +28,10 @@ import {
   type SupabaseClient,
   WRITE_FAILED,
 } from "./lib.ts";
+import { canSit, MODE_UNAVAILABLE, modeColumns, modeOfState, modeOpen, parseMode, rulesForMode } from "./modes.ts";
 import { afterGameWrite, seatBots } from "./bots.ts";
 import { startGameNow } from "./deal.ts";
-import { endIfNoHumansLeft, recordFinishStats, settleIfFinished } from "./finish.ts";
+import { endIfNoHumansLeft, settleIfFinished } from "./finish.ts";
 import { walletApply } from "./wallet.ts";
 
 /**
@@ -58,8 +59,12 @@ export async function opCreate(
   userId: string,
   rawStake: number | null,
   appVersion: string | null,
+  rawMode: unknown = null,
 ): Promise<Response> {
   if (!(await rateOk(admin, userId, "roomCreate", LIMITS.roomCreate))) return rateLimited();
+
+  const mode = parseMode(rawMode);
+  if (mode === null || !(await modeOpen(admin, mode))) return json({ error: MODE_UNAVAILABLE });
 
   const stake = await validRoomStake(admin, rawStake);
   if (stake === null) return json({ error: "That entry isn't available." });
@@ -70,7 +75,7 @@ export async function opCreate(
   // deal.ts collects from every seat at start instead.
   const game = await insertGameWithCode(
     admin,
-    { host_user_id: userId, status: "waiting", stake },
+    { host_user_id: userId, status: "waiting", stake, ...modeColumns(mode) },
     "room.create",
   );
   if ("error" in game) return json({ error: game.error });
@@ -86,7 +91,7 @@ export async function opCreate(
     .single();
   if (pErr || !player) return safeError("room.seatHost", pErr, "Could not seat host.");
 
-  return json({ gameId: game.id, roomCode: game.roomCode, playerId: player.id, stake });
+  return json({ gameId: game.id, roomCode: game.roomCode, playerId: player.id, stake, mode });
 }
 
 export async function opJoin(
@@ -94,6 +99,7 @@ export async function opJoin(
   userId: string,
   rawCode: string,
   appVersion: string | null,
+  features: unknown = null,
 ): Promise<Response> {
   if (!(await rateOk(admin, userId, "roomJoin", LIMITS.roomJoin))) return rateLimited();
   const roomCode = rawCode.trim().toUpperCase();
@@ -112,17 +118,21 @@ export async function opJoin(
 
   const { data: game } = await admin
     .from("games")
-    .select("id, status, stake")
+    .select("id, status, stake, mode, is_quick")
     .eq("room_code", roomCode)
     .maybeSingle();
   if (!game) return noRoom;
-  if (game.status !== "waiting") return noRoom;
+  if (game.status !== "waiting" || game.is_quick) return noRoom;
   const stake = (game.stake as number | null) ?? 0;
+  const mode = parseMode(game.mode) ?? "classic";
 
   const { data: existing } = await admin.from("players").select("id, user_id, seat").eq("game_id", game.id).order("seat");
   const mine = existing?.find((p) => p.user_id === userId);
-  if (mine) return json({ gameId: game.id, roomCode, playerId: mine.id, stake });
+  if (mine) return json({ gameId: game.id, roomCode, playerId: mine.id, stake, mode });
   if ((existing?.length ?? 0) >= 4) return noRoom;
+  // Only here, where a join would otherwise succeed: anywhere earlier this would
+  // tell a code sweep something the one refusal above exists not to.
+  if (!canSit(mode, features)) return json({ error: "Update the app to join this Blitz room." });
 
   const seat = existing?.length ?? 0;
   const { data: player, error } = await admin
@@ -132,7 +142,7 @@ export async function opJoin(
     .single();
   if (error || !player) return json({ error: error?.message ?? "Could not join." });
 
-  return json({ gameId: game.id, roomCode, playerId: player.id, stake });
+  return json({ gameId: game.id, roomCode, playerId: player.id, stake, mode });
 }
 
 /**
@@ -246,14 +256,35 @@ async function refundSeats(
  * Waiting lobby: the seat is freed and any quick-match entry is refunded.
  * Idempotent and safe to call as a fire-and-forget on the way out.
  */
-export async function opLeave(admin: SupabaseClient, userId: string, gameId: string): Promise<Response> {
+/** Extra attempts for a mid-game Leave that loses the state_version race. */
+const LEAVE_RETRIES = 3;
+
+export async function opLeave(
+  admin: SupabaseClient,
+  userId: string,
+  gameId: string,
+  waitingOnly = false,
+  attempt = 0,
+): Promise<Response> {
   const { data: game } = await admin
     .from("games")
-    .select("id, host_user_id, status, state, state_version, is_quick, has_bots, stake")
+    .select("id, host_user_id, status, state, state_version, is_quick, has_bots, stake, atomic_quick")
     .eq("id", gameId)
     .single();
-  if (!game) return json({ error: "Game not found." });
+  if (!game) return waitingOnly ? json({ cancelled: true }) : json({ error: "Game not found." });
   const v = (game.state_version as number | null) ?? 0;
+
+  // Cancelling a search never silently forfeits a match that just started.
+  if (waitingOnly && game.status !== "waiting") {
+    const snapshot = game.state as GameState | null;
+    if (!snapshot?.players.some((p) => p.userId === userId)) return json({ error: "You are not in this game." });
+    return json({ cancelled: false, state: game.state, v });
+  }
+  if (game.status === "waiting" && game.atomic_quick) {
+    const { data, error } = await admin.rpc("cancel_quick_match", { p_game: gameId, p_user: userId });
+    if (error || !data) return safeError("quick.cancel", error, WRITE_FAILED);
+    return json(data);
+  }
 
   if (game.status === "waiting") {
     if (game.is_quick && game.host_user_id === userId) {
@@ -324,11 +355,21 @@ export async function opLeave(admin: SupabaseClient, userId: string, gameId: str
     .select("id")
     .maybeSingle();
   if (error) return safeError("room.write", error, WRITE_FAILED);
-  if (!updated) return await freshState(admin, gameId, state);
+  if (!updated) {
+    // Another write to this game landed between our read and our write — in
+    // practice the leaver's own autopilot roll, or a bot turn. Every client
+    // sends Leave once and is already on Home, so answering with the fresh
+    // state here silently dropped the leave: the seat stayed in the match and
+    // the next quick-match tap was handed straight back into it. Seen in the
+    // 2026-11-15 rehearsal: the leave's write and a turn write both targeted
+    // the same state_version 35ms apart, and the leave lost. Re-read and
+    // re-apply instead, a bounded number of times.
+    if (attempt < LEAVE_RETRIES) return await opLeave(admin, userId, gameId, waitingOnly, attempt + 1);
+    return await freshState(admin, gameId, state);
+  }
 
   afterResponse(admin.from("moves").insert({ game_id: gameId, player_id: me.id, action: { action: "leave" } }));
   await settleIfFinished(admin, gameId, next);
-  recordFinishStats(admin, gameId, next);
   afterGameWrite(admin, gameId, !!game.has_bots, next, state);
   return json({ state: next, v: v + 1 });
 }
@@ -420,15 +461,18 @@ async function startRematch(
     return json({ error: "Not enough players for a rematch." });
   }
 
+  // Preserve the previous result until its rewards and statistics are durable.
+  await settleIfFinished(admin, gameId, prev);
+
   const players = seats.map((p) => ({ id: p.id, userId: p.userId, color: p.color }));
-  const next = engineCreateGame(players, { gameId });
+  const next = engineCreateGame(players, { gameId, rules: rulesForMode(modeOfState(prev)) });
 
   const { data: updated, error } = await admin
     .from("games")
     // Rematches play for fun: the previous pot is already paid out, and
     // silently re-debiting seated guests would be a hidden charge — so the
     // stake resets along with the payout latch.
-    .update({ state: next, status: "active", current_turn_player_id: next.currentTurnPlayerId, turn_deadline: turnDeadline(next), state_version: v + 1, stake: 0, payout_done: false })
+    .update({ state: next, status: "active", current_turn_player_id: next.currentTurnPlayerId, turn_deadline: turnDeadline(next), state_version: v + 1, stake: 0, payout_done: false, stats_done: false, dry_turns: {} })
     .eq("id", gameId)
     .eq("state_version", v)
     .select("id")
@@ -449,7 +493,11 @@ async function startRematch(
   );
   // Everyone who didn't accept leaves with the old game.
   afterResponse(admin.from("players").delete().eq("game_id", gameId).not("user_id", "in", `(${seatedUsers.join(",")})`));
-  afterResponse(admin.from("moves").insert({ game_id: gameId, player_id: null, action: { action: "rematch", seats: seats.length } }));
+  // moves.player_id is NOT NULL (0001), so this row was a 400 on every rematch.
+  // There is no caller to name — the bot-vote path resolves a rematch with no
+  // request behind it — so the row is pinned to the first seat dealt in, which
+  // always exists (seats.length >= 2 above) and is a real player in this game.
+  afterResponse(admin.from("moves").insert({ game_id: gameId, player_id: seats[0].id, action: { action: "rematch", seats: seats.length } }));
   afterGameWrite(admin, gameId, !!game.has_bots, next, prev);
 
   return json({ state: next, v: v + 1, rematchStarted: true });

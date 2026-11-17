@@ -221,6 +221,17 @@ export const ur: Strings = {
   "game.tapDieToRoll": "پانسہ دبائیں",
   "game.tapGlowingToken": "چمکتی گوٹی دبا کر چلیں",
   "game.chooseToken": "گوٹی چنیں",
+  "game.pawnA11y": "{color} گوٹی {number}، {position}",
+  "game.pawnYard": "گھر میں",
+  "game.pawnFinished": "مکمل",
+  "game.pawnTrack": "راستے کا خانہ {number}",
+  "game.pawnHomeLane": "گھر کا راستہ {number}",
+  "game.movePawn": "یہ گوٹی چلائیں",
+  "game.diceA11y": "پانسہ",
+  "game.diceValueA11y": "پانسے پر {number}",
+  "game.elapsedA11y": "کھیل کا وقت {time}",
+  "invite.message": "میرے لڈو کھیل میں شامل ہوں! روم کوڈ: {code}۔{stake}\n{url}",
+  "invite.stake": " ہم {stake} سکوں کے لیے کھیل رہے ہیں۔",
   "game.boardA11y": "بورڈ — چلنے کے لیے چمکتی گوٹی دبائیں",
   "game.noMovesPassing": "کوئی چال نہیں — باری جا رہی ہے…",
   "game.notYourTurn": "ابھی آپ کی باری نہیں",
@@ -248,6 +259,16 @@ export const ur: Strings = {
   "game.playersYouPlusAi": "کھلاڑی (آپ + AI)",
   "game.someone": "کوئی",
 
+  "mode.label": "موڈ",
+  "mode.classic": "کلاسک",
+  "mode.blitz": "بلٹز",
+  "mode.frenzy": "دھما چوکڑی",
+  "mode.classicHint": "جیتنے کے لیے چاروں گوٹیاں درمیان میں پہنچائیں",
+  "mode.blitzHint": "جس کی پہلی گوٹی درمیان میں پہنچے، وہی جیتے",
+  "mode.frenzyHint": "کوئی باری نہیں — سب ایک ساتھ پانسہ پھینکتے ہیں",
+  "frenzy.recharging": "ری چارج ہو رہا ہے…",
+  "frenzy.watching": "دوڑ دیکھ رہے ہیں",
+
   "rules.title": "کیسے کھیلیں",
   "rules.goal": "مقصد",
   "rules.goalBody":
@@ -267,6 +288,12 @@ export const ur: Strings = {
   "rules.winning": "جیت",
   "rules.winningBody":
     "جو سب سے پہلے اپنی چاروں گوٹیاں درمیان میں پہنچا دے، وہی جیتتا ہے۔ ایک گوٹی مکمل ہونے پر بھی ایک اور باری ملتی ہے۔",
+  "rules.blitz": "بلٹز",
+  "rules.blitzBody":
+    "جو سب سے پہلے ایک گوٹی درمیان میں پہنچا دے، وہی جیتتا ہے۔ اس کی باقی گوٹیاں بورڈ سے ہٹ جاتی ہیں، اور باقی کھلاڑی دوسرے اور تیسرے نمبر کے لیے کھیلتے رہتے ہیں۔",
+  "rules.frenzy": "دھما چوکڑی",
+  "rules.frenzyBody":
+    "کوئی باری نہیں: ہر کھلاڑی کے پاس اپنا پانسہ ہوتا ہے اور وہ تیار ہوتے ہی اسے پھینکتا ہے۔ آپ کی گوٹی پہنچنے کے بعد پانسہ تھوڑی دیر ری چارج ہوتا ہے — چھکا، کسی کو کاٹنا یا گوٹی مکمل کرنا انتظار ختم کر دیتا ہے۔ جو سب سے پہلے اپنی چاروں گوٹیاں درمیان میں پہنچا دے، وہی جیتتا ہے۔",
   "rules.sixToLeave": "گھر سے نکلنے کو چھکا",
   "rules.extraRollOnSix": "چھکے پر ایک اور باری",
   "rules.threeSixes": "تین چھکے، باری گئی",
@@ -363,6 +390,13 @@ export const ur: Strings = {
   "noads.purchaseFailed": "یہ خریداری مکمل نہیں ہو سکی۔",
   "noads.unavailableHere": "اس ڈیوائس پر خریداری دستیاب نہیں۔",
 
+  "gems.purchasePending": "خریداری موصول ہو گئی۔ آپ کے جواہرات ابھی پہنچ رہے ہیں۔ تازہ معلومات کے لیے دکان دوبارہ کھولیں؛ نہ ملیں تو ترتیبات → رائے بھیجیں سے مدد لیں۔",
+  "gems.purchaseUnavailable": "ابھی خریداری دستیاب نہیں۔ اپنا کنکشن چیک کر کے دوبارہ کوشش کریں۔",
+  "match.searchHint": "اس میں عام طور پر چند سیکنڈ لگتے ہیں۔",
+  "settings.adPrivacy": "اشتہارات کی رازداری",
+  "settings.adPrivacyError": "رازداری کے اختیارات نہیں کھل سکے۔ اشتہارات روک دیے گئے ہیں۔ دوبارہ کوشش کریں۔",
+  "settings.analytics": "لڈو بہتر بنانے میں مدد کریں",
+  "settings.analyticsHint": "آپ کے اکاؤنٹ سے منسلک اختیاری کھیل کے واقعات۔ چیٹ، نام یا اشتہاری ID شامل نہیں۔ بند کرنے پر جمع شدہ واقعات حذف ہو جاتے ہیں۔",
   "settings.title": "ترتیبات",
   "settings.soundAndFeel": "آواز اور احساس",
   "settings.music": "موسیقی",
@@ -452,6 +486,7 @@ export const ur: Strings = {
   "game.reactions": "ری ایکشن",
 
   "coins.rewardTryAgain": "انعام آ رہا ہے — تھوڑی دیر بعد کوشش کریں",
+  "coins.watchFullAd": "انعام پانے کے لیے پورا اشتہار دیکھیں۔",
   "coins.needToEnter": "شامل ہونے کے لیے {coins} سکے چاہئیں",
   "coins.coversEntry": "آپ کا داخلہ ہو جائے گا — کھیل بالکل ویسا ہی رہے گا",
   "coins.pot": "انعام {pot}",
@@ -475,4 +510,14 @@ export const ur: Strings = {
   "error.title": "بس تھوڑا اور",
   "error.loadingLudo": "لوڈو لوڈ ہو رہا ہے",
   "error.dismissInvite": "بلاوا ہٹائیں",
+
+  "coins.neverAffectsPlay":
+    "سکے میچ میں آنے اور سجاوٹ کھولنے کے لیے ہیں۔ یہ کبھی اس بات پر اثر نہیں ڈالتے کہ کھیل کیسے چلتا ہے۔",
+  "gems.neverAffectsPlay":
+    "جواہر خاص سجاوٹ کھولتے ہیں اور سکوں میں بدل جاتے ہیں۔ یہ کبھی اس بات پر اثر نہیں ڈالتے کہ کھیل کیسے چلتا ہے۔",
+  "update.title": "براہ کرم اپ ڈیٹ کریں",
+  "update.body": "لوڈو کا یہ ورژن اب نہیں چلتا۔ کھیلتے رہنے کے لیے نیا ورژن لگائیں۔",
+  "update.button": "اپ ڈیٹ کریں",
+  "update.recommendedTitle": "نیا ورژن آ گیا ہے",
+  "update.recommendedBody": "یہ ورژن ابھی چلتا ہے۔ جب ہو سکے نیا ورژن لگا لیں۔",
 };

@@ -13,15 +13,17 @@ import { getPlayer } from "./internal.js";
  * not the player's turn, no dice has been rolled, or the player is blocked — in
  * which case the caller ends the turn.
  *
+ * In a Frenzy game there is no turn: the player moves on their own die
+ * (`state.frenzy.dice[playerId]`), and gets `[]` while it is empty.
+ *
  * Each entry is fully resolved (destination + captures + finish flag) so the UI
  * can preview outcomes and {@link applyMove} can be fed back verbatim.
  */
 export function getValidMoves(state: GameState, playerId: string): Move[] {
   if (state.status !== "active") return [];
-  if (state.currentTurnPlayerId !== playerId) return [];
-  if (state.phase !== "awaiting-move" || state.diceValue === null) return [];
+  const dice = heldDie(state, playerId);
+  if (dice === null) return [];
 
-  const dice = state.diceValue;
   const color = getPlayer(state, playerId).color;
   const tokens = state.tokens.filter((t) => t.playerId === playerId);
 
@@ -31,6 +33,13 @@ export function getValidMoves(state: GameState, playerId: string): Move[] {
     if (move) moves.push(move);
   }
   return moves;
+}
+
+/** The die `playerId` may move with right now, or null if they have none. */
+export function heldDie(state: GameState, playerId: string): number | null {
+  if (state.frenzy) return state.frenzy.dice[playerId] ?? null;
+  if (state.currentTurnPlayerId !== playerId || state.phase !== "awaiting-move") return null;
+  return state.diceValue;
 }
 
 /** Resolve the single move a token can make with `dice`, or null if it cannot move. */

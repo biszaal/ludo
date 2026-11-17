@@ -124,7 +124,9 @@ describe("catalogs", () => {
     // the right Portuguese word and would be a missing translation in Hindi.
     const PROPER_NOUNS = new Set(["account.google", "account.apple", "shop.avatar", "lobby.bot"]);
     const LOANWORDS: Partial<Record<Locale, string[]>> = {
-      "pt-BR": ["friends.online", "friends.offline", "stats.modeOnline"],
+      // "Blitz" is the chess word, borrowed as-is in Portuguese and Spanish.
+      "pt-BR": ["friends.online", "friends.offline", "stats.modeOnline", "mode.blitz", "rules.blitz"],
+      es: ["mode.blitz", "rules.blitz"],
       // "AI" is said and written as AI in all four — Spanish and Portuguese
       // are the ones that localise it (IA), and they are not listed here.
       hi: ["status.aiSeat"],
@@ -141,6 +143,20 @@ describe("catalogs", () => {
       );
       expect(untranslated, `${l} still has English in: ${untranslated.join(", ")}`).toEqual([]);
     }
+  });
+});
+
+describe("purchase footnotes", () => {
+  it("says coins and gems never affect how a game plays out", () => {
+    expect(en["coins.neverAffectsPlay"]).toBe(
+      "Coins are for entering matches and unlocking looks. They never affect how a game plays out.",
+    );
+    expect(en["gems.neverAffectsPlay"]).toBe(
+      "Gems unlock premium looks and convert to coins. They never affect how a game plays out.",
+    );
+    // Nothing in the app describes bots or the dice.
+    expect(en["coins.neverAffectsPlay"]).not.toMatch(/bot|dice|assist/i);
+    expect(en["gems.neverAffectsPlay"]).not.toMatch(/bot|dice|assist/i);
   });
 });
 

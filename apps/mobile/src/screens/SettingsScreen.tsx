@@ -1,3 +1,5 @@
+import { Button } from "../components/Button";
+import { setProductAnalyticsConsent } from "../net/api";
 /**
  * Settings — device preferences (sound / music / haptics) and How to play.
  * Everything saves instantly via the persisted stores; there is no Save
@@ -5,7 +7,7 @@
  * repeat here — Settings owns the device, not the account.
  */
 
-import { useState, type ReactNode } from "react";
+import { useState, useSyncExternalStore, type ReactNode } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { TableBackground } from "../components/TableBackground";
@@ -31,11 +33,25 @@ import { useWallet } from "../store/walletStore";
 import { font, palette, radius, space } from "../theme";
 
 import { APP_VERSION } from "../lib/appVersion";
-import { adsDiagnostics } from "../lib/ads/provider";
+import { adsDiagnostics, adsPrivacyRequired, subscribeAdsReady, showAdsPrivacyOptions } from "../lib/ads/provider";
 import { describeAdsDiagnostics } from "../lib/ads/diagnostics";
 
 export function SettingsScreen() {
   const settings = useSettings();
+  const [analyticsBusy, setAnalyticsBusy] = useState(false);
+  const [analyticsError, setAnalyticsError] = useState(false);
+  const [analyticsRetry, setAnalyticsRetry] = useState<boolean | null>(null);
+  const changeAnalytics = async (enabled: boolean) => {
+    if (analyticsBusy) return;
+    setAnalyticsBusy(true); setAnalyticsError(false); setAnalyticsRetry(null);
+    if (!enabled) settings.setAnalytics(false);
+    try { await setProductAnalyticsConsent(enabled); settings.setAnalytics(enabled); }
+    catch { setAnalyticsError(true); setAnalyticsRetry(enabled); }
+    finally { setAnalyticsBusy(false); }
+  };
+  const privacyRequired = useSyncExternalStore(subscribeAdsReady, adsPrivacyRequired, adsPrivacyRequired);
+  const [privacyBusy, setPrivacyBusy] = useState(false);
+  const [privacyError, setPrivacyError] = useState(false);
   const fullMotion = useFullMotion();
   const push = useNav((s) => s.push);
   const t = useT();
@@ -53,6 +69,12 @@ export function SettingsScreen() {
 
       <ScrollView contentContainerStyle={{ paddingTop: space.lg, paddingBottom: space.xxl, alignItems: "center" }}>
         <ContentColumn style={{ paddingHorizontal: space.xl, gap: space.xl }}>
+        <Tray title={t("settings.analytics")}>
+          <SettingRow label={t("settings.analytics")} hint={t("settings.analyticsHint")}
+            value={settings.analyticsOn} onChange={v => void changeAnalytics(v)} />
+          {analyticsRetry !== null && <Button compact label={t("common.retry")} disabled={analyticsBusy} onPress={() => void changeAnalytics(analyticsRetry)} />}
+          {analyticsError && <Text accessibilityLiveRegion="polite" style={{ color: palette.porcelain }}>{t("common.somethingWentWrong")}</Text>}
+        </Tray>
         <Tray title={t("settings.soundAndFeel")}>
           <Row glyph={<SpeakerGlyph size={20} />}>
             <SettingRow label={t("settings.soundEffects")} hint={t("settings.soundEffectsHint")} value={settings.soundOn} onChange={settings.setSound} />
@@ -171,6 +193,29 @@ export function SettingsScreen() {
             <ChevronGlyph size={16} />
           </Pressable>
         </Tray>
+
+        {privacyRequired ? (
+          <Tray title={t("settings.adPrivacy")}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t("settings.adPrivacy")}
+              accessibilityState={{ disabled: privacyBusy, busy: privacyBusy }}
+              disabled={privacyBusy}
+              onPress={async () => {
+                setPrivacyBusy(true);
+                setPrivacyError(false);
+                try { setPrivacyError(!await showAdsPrivacyOptions()); }
+                finally { setPrivacyBusy(false); }
+              }}
+              style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", minHeight: 52, gap: space.md, opacity: pressed || privacyBusy ? 0.65 : 1 })}
+            >
+              <GlobeGlyph size={20} />
+              <Text style={{ flex: 1, fontFamily: font.medium, fontSize: 16, color: palette.porcelain }}>{t("settings.adPrivacy")}</Text>
+              <ChevronGlyph size={16} />
+            </Pressable>
+            {privacyError ? <Text accessibilityRole="alert" style={{ color: palette.porcelain, fontSize: 14, paddingBottom: space.md }}>{t("settings.adPrivacyError")}</Text> : null}
+          </Tray>
+        ) : null}
 
         <Tray title={t("settings.about")}>
           {/* Feedback sits here rather than under Learn because the report

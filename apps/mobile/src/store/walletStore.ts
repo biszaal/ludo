@@ -1,3 +1,4 @@
+import { trackProductEvent } from "../lib/analytics";
 /**
  * Coin balance mirror. The server owns the number (wallets table, mutated only
  * by the edge function); this store caches the latest read for the UI.
@@ -12,6 +13,8 @@
 
 import { create } from "zustand";
 import * as api from "../net/api";
+import { rememberPurchase, pendingPurchases, forgetPurchase } from "../lib/purchaseJournal";
+import type { GemReceipt } from "../lib/purchases";
 import { isPurchasesConfigured, purchaseGemProduct } from "../lib/purchases";
 
 /** Baked fallback for the quick-match entry fee; the live number comes from
@@ -36,6 +39,7 @@ const CREDIT_POLL_MS = 1500;
  * banked server-side and the screen was showing a stale read of them.
  */
 let writeGen = 0;
+let accountGeneration = 0;
 /** The refresh currently in flight, shared by concurrent callers. */
 let inFlight: Promise<void> | null = null;
 
@@ -53,6 +57,8 @@ interface WalletStore {
   pityAvailable: boolean;
   refreshing: boolean;
   refresh: () => Promise<void>;
+  reset: () => void;
+  reconcilePurchases: () => Promise<void>;
   /**
    * Claim today's bonus. Resolves with the coins actually credited — 0 means
    * the server says today is already banked (idempotent by UTC date).
@@ -65,8 +71,9 @@ interface WalletStore {
   /** Last-resort grant when broke. Returns coins credited, 0 if not eligible. */
   claimPity: () => Promise<number>;
   /** Buy a gem pack (server-gated stub until real billing). Returns gems
-   *  credited, 0 on failure. */
+   *  credited; use gemPurchaseStatus to distinguish zero-credit outcomes. */
   buyGems: (productId: string) => Promise<number>;
+  gemPurchaseStatus: "idle" | "purchasing" | "pending" | "delivered" | "cancelled" | "unavailable" | "error";
   /** One-way gems→coins exchange. Returns coins credited, 0 on failure. */
   exchangeGems: (gems: number) => Promise<number>;
 }
@@ -79,6 +86,36 @@ export const useWallet = create<WalletStore>((set, get) => ({
   bonusClaimable: false,
   pityAvailable: false,
   refreshing: false,
+  gemPurchaseStatus: "idle",
+
+  reset: () => {
+    accountGeneration++;
+    writeGen++;
+    inFlight = null;
+    set({ balance: null, gems: null, purchasedBalance: 0, streakDay: 0,
+      bonusClaimable: false, pityAvailable: false, refreshing: false, gemPurchaseStatus: "idle" });
+  },
+
+  reconcilePurchases: async () => {
+    if (!isPurchasesConfigured()) return;
+    const generation = accountGeneration;
+    try {
+      const userId = await api.ensureSignedIn();
+      const pending = await pendingPurchases(userId);
+      let unresolved = false;
+      let delivered = false;
+      for (const receipt of pending) {
+        const gems = await api.getGemPurchaseDelivery(receipt);
+        if (generation !== accountGeneration) return;
+        if (gems === null) unresolved = true;
+        else { await forgetPurchase(receipt); delivered = true; }
+      }
+      if (generation === accountGeneration && get().gemPurchaseStatus !== "purchasing") {
+        if (unresolved) set({ gemPurchaseStatus: "pending" });
+        else if (delivered) set({ gemPurchaseStatus: "delivered" });
+      }
+    } catch { /* Keep pending receipts for the next foreground/store refresh. */ }
+  },
 
   // Callers await the SAME request rather than the early caller returning
   // instantly with nothing fetched — `await refresh()` has to mean "the balance
@@ -86,6 +123,7 @@ export const useWallet = create<WalletStore>((set, get) => ({
   refresh: async () => {
     if (inFlight) return inFlight;
     const startedAt = writeGen;
+    const generation = accountGeneration;
     set({ refreshing: true });
     inFlight = (async () => {
       try {
@@ -103,15 +141,20 @@ export const useWallet = create<WalletStore>((set, get) => ({
       } catch {
         // Offline or signed out — keep whatever we last knew; cosmetic only.
       } finally {
-        inFlight = null;
-        set({ refreshing: false });
+        if (generation === accountGeneration) {
+          inFlight = null;
+          set({ refreshing: false });
+        }
       }
     })();
-    return inFlight;
+    await inFlight;
+    if (generation === accountGeneration) await get().reconcilePurchases();
   },
 
   claimDailyBonus: async () => {
+    const generation = accountGeneration;
     const res = await api.claimDailyBonus();
+    if (generation !== accountGeneration) return 0;
     writeGen++;
     set({
       balance: res.balance,
@@ -125,9 +168,11 @@ export const useWallet = create<WalletStore>((set, get) => ({
   },
 
   claimPity: async () => {
+    const generation = accountGeneration;
     const before = get().balance ?? 0;
     try {
       const balance = await api.topupWallet();
+      if (generation !== accountGeneration) return 0;
       writeGen++;
       set({ balance, pityAvailable: false });
       return Math.max(0, balance - before);
@@ -137,52 +182,69 @@ export const useWallet = create<WalletStore>((set, get) => ({
   },
 
   buyGems: async (productId) => {
+    if (get().gemPurchaseStatus === "purchasing") return 0;
+    const generation = accountGeneration;
+    set({ gemPurchaseStatus: "purchasing" });
     const before = get().gems ?? 0;
 
     // Real billing: RevenueCat takes the money and the rc-webhook credits gems
-    // server-side, so we don't trust a client number — we poll the wallet for
-    // the credit. (A user cancel or failure returns 0 with nothing charged.)
+    // server-side, so we poll for the verified transaction receipt. (A user cancel or failure returns 0 with nothing charged.)
     if (isPurchasesConfigured()) {
-      const outcome = await purchaseGemProduct(productId);
-      if (outcome !== "success") return 0;
+      let receipt: GemReceipt | null = null;
+      const outcome = await purchaseGemProduct(productId, async (r) => {
+        receipt = r;
+        await rememberPurchase(r);
+      });
+      if (generation !== accountGeneration) return 0;
+      if (outcome !== "success") {
+        set({ gemPurchaseStatus: outcome });
+        return 0;
+      }
+      set({ gemPurchaseStatus: "pending" });
+      if (!receipt) return 0; // No usable transaction id: never guess from balance.
       for (let i = 0; i < CREDIT_POLL_TRIES; i++) {
         await sleep(CREDIT_POLL_MS);
+        if (generation !== accountGeneration) return 0;
         try {
-          const s = await api.getWalletState();
-          if ((s.gems ?? 0) > before) {
-            writeGen++;
-            set({ balance: s.balance, gems: s.gems ?? 0, purchasedBalance: s.purchasedBalance });
-            return (s.gems ?? 0) - before;
+          const credited = await api.getGemPurchaseDelivery(receipt);
+          if (generation !== accountGeneration) return 0;
+          if (credited !== null) {
+            await forgetPurchase(receipt);
+            if (generation !== accountGeneration) return 0;
+            set({ gemPurchaseStatus: "delivered" });
+            trackProductEvent("purchase_delivered");
+            await get().refresh();
+            return credited;
           }
-        } catch {
-          // keep polling — a transient read failure isn't the purchase failing
-        }
+        } catch { /* A failed receipt read remains pending, not failed checkout. */ }
       }
-      // Webhook is running late; surface whatever has landed and let a later
-      // refresh catch up. The purchase itself is safe (server credits once).
       await get().refresh();
-      return Math.max(0, (get().gems ?? 0) - before);
+      return 0;
     }
 
     // Stub path (billing not wired for this build): the server grants directly,
     // gated behind gems.purchasesEnabled + allowStubProvider.
     try {
       const res = await api.gemsBuy(productId);
+      if (generation !== accountGeneration) return 0;
       writeGen++;
-      set({ gems: res.gems });
+      set({ gems: res.gems, gemPurchaseStatus: "delivered" });
       return Math.max(0, res.gems - before);
     } catch {
+      if (generation === accountGeneration) set({ gemPurchaseStatus: "error" });
       return 0;
     }
   },
 
   exchangeGems: async (gems) => {
+    const generation = accountGeneration;
     const before = get().balance ?? 0;
     try {
       // Per-call idempotency key: a network retry of THIS exchange can't run
       // twice, while a deliberate second exchange gets its own key.
       const key = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
       const res = await api.gemsExchange(gems, key);
+      if (generation !== accountGeneration) return 0;
       writeGen++;
       set({ gems: res.gems, balance: res.balance });
       return Math.max(0, res.balance - before);

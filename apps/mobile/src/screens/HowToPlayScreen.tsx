@@ -1,5 +1,5 @@
 /**
- * How to play — six illustrated rules sections. Static content; diagrams render
+ * How to play — the illustrated rules sections, then the two modes. Static content; diagrams render
  * in the player's selected board theme. Reachable from Settings and (later) the
  * in-game pause menu.
  */
@@ -11,7 +11,9 @@ import { ContentColumn } from "../components/ContentColumn";
 import { Button } from "../components/Button";
 import { useLayout } from "../lib/useLayout";
 import {
+  BlitzDiagram,
   CaptureDiagram,
+  FrenzyDiagram,
   HomeColumnDiagram,
   ObjectiveDiagram,
   RollSixDiagram,
@@ -25,7 +27,7 @@ import { useSettings } from "../store/settingsStore";
 import { font, palette, radius, space } from "../theme";
 
 /**
- * The six sections, as KEYS rather than text.
+ * The sections, as KEYS rather than text.
  *
  * The strings move to the catalog; what stays here is the order and which
  * diagram goes with which rule, which is the part that is actually about this
@@ -38,6 +40,8 @@ const SECTIONS = [
   { key: "safe", title: "rules.safeSquares", body: "rules.safeSquaresBody", Diagram: SafeSquareDiagram },
   { key: "home", title: "rules.homeStretch", body: "rules.homeStretchBody", Diagram: HomeColumnDiagram },
   { key: "win", title: "rules.winning", body: "rules.winningBody", Diagram: WinDiagram },
+  { key: "blitz", title: "rules.blitz", body: "rules.blitzBody", Diagram: BlitzDiagram },
+  { key: "frenzy", title: "rules.frenzy", body: "rules.frenzyBody", Diagram: FrenzyDiagram },
 ] as const;
 
 export function HowToPlayScreen() {

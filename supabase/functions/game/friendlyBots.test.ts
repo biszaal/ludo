@@ -1,14 +1,4 @@
-/**
- * Deno tests for the wall between a labelled friend-room bot and a hidden
- * quick-match one (0062).
- *
- * The leak these pin: a friend-room fill-in used to draw from the SAME identity
- * pool as quick match and show its name and face next to a BOT tag, so a player
- * who filled one room learned a real opponent name for later. And it chatted,
- * which taught them what a bot sounds like too.
- *
- *   npm run test:edge
- */
+/** Visible bot identities are tagged, mute, and registered by the database trigger. */
 
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { maybeBotChat, seatBots, type BotSeats } from "./bots.ts";
@@ -37,6 +27,8 @@ function fakeAdmin(): { admin: SupabaseClient; calls: Calls } {
       return Promise.resolve({ data: POOLED, error: null });
     },
     from: (table: string) => ({
+      // seatBots first checks the game still exists (botGoneGame.test.ts).
+      select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: { id: GAME }, error: null }) }) }),
       insert: (row: Record<string, unknown>) => {
         if (table === "players") calls.players.push(row);
         if (table === "game_bots") calls.gameBots.push(row);
@@ -55,17 +47,17 @@ Deno.test("a friend-room fill draws from the visible pool, never the hidden one"
   assertEquals(calls.rpcs, ["claim_visible_bot_identity"]);
 });
 
-Deno.test("a quick-match fill still draws from the hidden pool", async () => {
+Deno.test("the legacy hidden helper remains separate from visible fills", async () => {
   const { admin, calls } = fakeAdmin();
   await seatBots(admin, GAME, [1], ["red", "green", "yellow", "blue"], false);
   assertEquals(calls.rpcs, ["claim_bot_identity"]);
 });
 
-Deno.test("a labelled seat is tagged and mute; a hidden one is neither", async () => {
+Deno.test("a labelled seat is registered by SQL; legacy hidden seats use their explicit row", async () => {
   const friendly = fakeAdmin();
   await seatBots(friendly.admin, GAME, [1], ["red", "green", "yellow", "blue"], true);
   assertEquals(friendly.calls.players[0]!.is_bot, true);
-  assertEquals(friendly.calls.gameBots[0]!.can_chat, false);
+  assertEquals(friendly.calls.gameBots.length, 0); // 0077 trigger owns the atomic registration
 
   const quick = fakeAdmin();
   await seatBots(quick.admin, GAME, [1], ["red", "green", "yellow", "blue"], false);

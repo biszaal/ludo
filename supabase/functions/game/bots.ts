@@ -41,7 +41,7 @@ import {
   TURN_SECONDS,
   type SupabaseClient,
 } from "./lib.ts";
-import { recordFinishStats, settleIfFinished } from "./finish.ts";
+import { settleIfFinished } from "./finish.ts";
 import { broadcastToRoom, relayChat } from "./chat.ts";
 import {
   classifyEvent,
@@ -188,6 +188,17 @@ function pickBotDiceSkin(rng: () => number): string | null {
   return "neon";
 }
 
+/** Is this display name already on a profile? Mirrors the case-insensitive
+ *  unique index. A failed lookup answers "no" and leaves it to the insert. */
+async function nameHeld(admin: SupabaseClient, name: string): Promise<boolean> {
+  const escaped = name.replace(/[\\%_]/g, (c) => `\\${c}`);
+  const { data, error } = await admin.from("profiles").select("user_id").ilike("display_name", escaped).limit(1);
+  return !error && (data ?? []).length > 0;
+}
+
+/** Postgres foreign_key_violation: the row we point at is gone. */
+const FOREIGN_KEY_VIOLATION = "23503";
+
 /**
  * Reuse a free identity from the pool, or mint one: a real auth user, so the
  * players FK holds.
@@ -203,10 +214,15 @@ async function claimOrCreateBotIdentity(
   gameId: string,
   visible: boolean,
 ): Promise<string | null> {
-  const { data: claimed } = await admin.rpc(
+  const { data: claimed, error: claimError } = await admin.rpc(
     visible ? "claim_visible_bot_identity" : "claim_bot_identity",
     { p_game: gameId },
   );
+  // A claim that FAILED is not an empty pool. The usual cause is the game being
+  // deleted under us (the claim's in_use_game_id foreign key), and minting would
+  // only strand a fresh auth user with no pool row — which is what happened on
+  // 2026-11-16 whenever a player cancelled quick match as their bot fill fired.
+  if (claimError) return null;
   if (claimed) return String(claimed);
 
   const { data: created, error } = await admin.auth.admin.createUser({
@@ -215,7 +231,15 @@ async function claimOrCreateBotIdentity(
   });
   if (error || !created?.user) return null;
   const uid = created.user.id;
-  await admin.from("bot_identities").insert({ user_id: uid, in_use_game_id: gameId, visible });
+  const { error: poolError } = await admin
+    .from("bot_identities")
+    .insert({ user_id: uid, in_use_game_id: gameId, visible });
+  if (poolError) {
+    // Without its pool row this user can never be claimed again, so it would
+    // only ever be an orphan. It is minutes old and owns nothing; remove it.
+    await admin.auth.admin.deleteUser(uid).catch(() => {});
+    return null;
+  }
   // A labelled seat is done here: no name, no face, nothing to leak.
   if (visible) return uid;
 
@@ -225,6 +249,10 @@ async function claimOrCreateBotIdentity(
   // whether the two agree — which is how the pool filled up with mismatches.
   for (let attempt = 0; attempt < 5; attempt++) {
     const { name, presents } = pickBotName(cryptoRng, attempt);
+    // Ask before writing. Names are unique case-insensitively (0006), and most
+    // of the 32 base names are long taken, so writing first meant a 409 in the
+    // logs for nearly every mint. The insert below is still the real guard.
+    if (await nameHeld(admin, name)) continue;
     const { error: profErr } = await admin
       .from("profiles")
       .insert({ user_id: uid, display_name: name, avatar_id: pickBotAvatar(cryptoRng, presents), dice_skin: diceSkin });
@@ -262,6 +290,10 @@ async function claimOrCreateBotIdentity(
  *                       hide, and its chatter would teach a player what a bot
  *                       sounds like before they ever meet one in matchmaking.
  *
+ * 1.3.0's server briefly passed visible=true for quick match (labelled, mute
+ * fill-ins, 2026-11-16). That was not the owner's design and was reverted the
+ * same day; quick match is hidden, friend rooms are labelled.
+ *
  * The chairs are a list rather than a range because a friend room does not
  * always fill left to right: two humans at a four-handed table take the
  * diagonal, which leaves the bots seats 1 and 3 (room.ts).
@@ -277,24 +309,48 @@ export async function seatBots(
   colors: readonly string[],
   visible: boolean,
 ): Promise<number> {
+  // The room can be deleted between the caller's read and here — a player
+  // cancelling the search as their fill timer fires. Racy by nature, so the
+  // claim and registration below still treat a vanished game as a stop.
+  const { data: live, error: liveError } = await admin.from("games").select("id").eq("id", gameId).maybeSingle();
+  if (!liveError && !live) return 0;
+
   let added = 0;
   for (const seat of seats) {
     const botUserId = await claimOrCreateBotIdentity(admin, gameId, visible);
     if (!botUserId) break;
+    const releaseIdentity = () =>
+      afterResponse(
+        admin.from("bot_identities").update({ in_use_game_id: null }).eq("user_id", botUserId).eq("in_use_game_id", gameId),
+      );
+    // A hidden seat is registered in game_bots BEFORE it sits. The atomic deals
+    // (0076/0077) exempt a seat from funding only if that row exists, so a bot
+    // seated without it reads as an unfunded human and the game can never
+    // start. Registered-but-not-seated is harmless; the reverse is a dead room.
+    // Awaited: the insert's trigger is also what sets games.has_bots (0022),
+    // which the caller's startGameNow reads to decide whether to drive a bot.
+    // Labelled seats need no call here — 0077's trigger registers them in the
+    // same transaction as the seat.
+    if (!visible) {
+      const { error: regErr } = await admin.from("game_bots").insert({ game_id: gameId, user_id: botUserId, can_chat: true });
+      if (regErr) {
+        releaseIdentity();
+        // The game is gone: every other chair would fail the same way.
+        if (regErr.code === FOREIGN_KEY_VIOLATION) break;
+        continue;
+      }
+    }
     const { error: seatErr } = await admin
       .from("players")
       .insert({ game_id: gameId, user_id: botUserId, color: colors[seat], seat, is_bot: visible });
     if (seatErr) {
       // A human took the seat between our read and the insert — release the
       // identity; the human fills that chair instead.
-      afterResponse(
-        admin.from("bot_identities").update({ in_use_game_id: null }).eq("user_id", botUserId).eq("in_use_game_id", gameId),
-      );
+      if (!visible) afterResponse(admin.from("game_bots").delete().eq("game_id", gameId).eq("user_id", botUserId));
+      releaseIdentity();
+      if (seatErr.code === FOREIGN_KEY_VIOLATION) break;
       continue;
     }
-    // Awaited: the insert's trigger is what sets games.has_bots (0022), and the
-    // caller's startGameNow reads that flag to decide whether to drive a bot.
-    await admin.from("game_bots").insert({ game_id: gameId, user_id: botUserId, can_chat: !visible });
     added++;
   }
   return added;
@@ -646,7 +702,6 @@ async function driveLoop(
       reactions.push(maybeBotChat(admin, gameId, seats, cur, next, {}).catch(() => {}));
       if (next.status !== "active") {
         await settleIfFinished(admin, gameId, next);
-        recordFinishStats(admin, gameId, next);
         await admin.from("bot_identities").update({ in_use_game_id: null }).eq("in_use_game_id", gameId);
         return;
       }

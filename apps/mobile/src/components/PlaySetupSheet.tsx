@@ -1,7 +1,7 @@
 /**
- * Pre-game bottom sheet for local play: player count, seat preview, optional
- * house-rules toggles (per-launch, not persisted — house rules are a table
- * agreement, not a device setting), and the Start CTA.
+ * Pre-game bottom sheet for local play: mode, player count, seat preview,
+ * optional house-rules toggles (per-launch, not persisted — house rules are a
+ * table agreement, not a device setting), and the Start CTA.
  */
 
 import { useState } from "react";
@@ -9,26 +9,31 @@ import { Pressable, Text, View } from "react-native";
 import Animated, { FadeIn } from "react-native-reanimated";
 import { DEFAULT_RULES, seatColors, type RuleConfig } from "@ludo/engine";
 import { Button } from "./Button";
+import { ModePicker } from "./ModePicker";
 import { Sheet } from "./Sheet";
 import { SectionLabel } from "./SectionLabel";
 import { SelectTile } from "./SelectTile";
 import { SettingRow } from "./SettingRow";
 import { EXPOSED_RULES } from "../lib/exposedRules";
+import type { Variant } from "../lib/standings";
 import { font, palette, radius, space, teamColor } from "../theme";
 import { useT } from "../i18n";
 
 const COUNTS = [2, 3, 4] as const;
+/** Frenzy is vs AI only: on one shared phone nobody could reach their own die. */
+const VARIANTS: Record<PlayMode, Variant[]> = { ai: ["classic", "blitz", "frenzy"], pass: ["classic", "blitz"] };
 
 export type PlayMode = "ai" | "pass";
 
 interface PlaySetupSheetProps {
   mode: PlayMode;
-  onStart: (players: number, bots: number, rules: Partial<RuleConfig>) => void;
+  onStart: (players: number, bots: number, rules: Partial<RuleConfig>, variant: Variant) => void;
   onClose: () => void;
 }
 
 export function PlaySetupSheet({ mode, onStart, onClose }: PlaySetupSheetProps) {
   const t = useT();
+  const [variant, setVariant] = useState<Variant>("classic");
   const [count, setCount] = useState<number>(2);
   const [rules, setRules] = useState<Partial<RuleConfig>>({});
   const [showRules, setShowRules] = useState(false);
@@ -37,6 +42,8 @@ export function PlaySetupSheet({ mode, onStart, onClose }: PlaySetupSheetProps) 
 
   return (
     <Sheet onClose={onClose} title={mode === "ai" ? t("home.playVsAiLong") : t("home.passAndPlay")}>
+      <ModePicker options={VARIANTS[mode]} value={variant} onChange={setVariant} />
+
       <SectionLabel>{mode === "ai" ? t("game.playersYouPlusAi") : t("game.players")}</SectionLabel>
       <View style={{ flexDirection: "row", gap: space.sm }}>
         {COUNTS.map((n) => (
@@ -49,17 +56,20 @@ export function PlaySetupSheet({ mode, onStart, onClose }: PlaySetupSheetProps) 
         ))}
       </View>
 
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={t("game.houseRules")}
-        onPress={() => setShowRules((v) => !v)}
-        style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", minHeight: 44, opacity: pressed ? 0.85 : 1 })}
-      >
-        <Text style={{ flex: 1, fontFamily: font.medium, fontSize: 15, color: palette.porcelain }}>{t("game.houseRules")}</Text>
-        <Text style={{ fontFamily: font.semibold, fontSize: 17, color: palette.mutedSteel }}>{showRules ? "−" : "+"}</Text>
-      </Pressable>
+      {/* Frenzy plays fixed rules — most of the house rules are about turns. */}
+      {variant !== "frenzy" && (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t("game.houseRules")}
+          onPress={() => setShowRules((v) => !v)}
+          style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", minHeight: 44, opacity: pressed ? 0.85 : 1 })}
+        >
+          <Text style={{ flex: 1, fontFamily: font.medium, fontSize: 15, color: palette.porcelain }}>{t("game.houseRules")}</Text>
+          <Text style={{ fontFamily: font.semibold, fontSize: 17, color: palette.mutedSteel }}>{showRules ? "−" : "+"}</Text>
+        </Pressable>
+      )}
 
-      {showRules && (
+      {showRules && variant !== "frenzy" && (
         <Animated.View entering={FadeIn.duration(140)} style={{ gap: 2 }}>
           {EXPOSED_RULES.map((rule) => (
             <SettingRow
@@ -73,7 +83,7 @@ export function PlaySetupSheet({ mode, onStart, onClose }: PlaySetupSheetProps) 
         </Animated.View>
       )}
 
-      <Button label={t("lobby.startGame")} onPress={() => onStart(count, mode === "ai" ? count - 1 : 0, rules)} />
+      <Button label={t("lobby.startGame")} onPress={() => onStart(count, mode === "ai" ? count - 1 : 0, rules, variant)} />
     </Sheet>
   );
 }

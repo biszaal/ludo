@@ -196,6 +196,7 @@ function fake(
   };
 
   self.admin = {
+    rpc: () => Promise.resolve({ data: true, error: null }),
     from: (table: string) => {
       if (table === "games") return games;
       if (table === "moves") return moves;

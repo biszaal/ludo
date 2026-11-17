@@ -1,3 +1,4 @@
+import { trackProductEvent } from "../lib/analytics";
 /**
  * Presentational game view shared by local and online play. It renders the
  * board, players, dice and the context action from props alone — the local and
@@ -10,7 +11,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Pressable, Text, View, useWindowDimensions } from "react-native";
+import { Text, View, useWindowDimensions } from "react-native";
 import Animated, { Easing, FadeOut, ZoomIn } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { Color, GameState, Move } from "@ludo/engine";
@@ -23,6 +24,8 @@ import { ReactionBar } from "./ReactionBar";
 import { ChatBubble } from "./ChatBubble";
 import { ResultsOverlay, type RematchVoting } from "./ResultsOverlay";
 import { WinnerCelebration } from "./WinnerCelebration";
+import { RechargeMeter } from "./RechargeMeter";
+import { ModeBadge } from "./ModeBadge";
 import { FinishedPrompt } from "./FinishedPrompt";
 import { RemovedPrompt } from "./RemovedPrompt";
 import { TableBackground } from "./TableBackground";
@@ -38,19 +41,20 @@ import {
   stackedBoardSize,
 } from "../lib/layout";
 import type { ChatEvent } from "../store/onlineStore";
+import type { SeatDie } from "../store/frenzyStore";
 import { font, palette, radius, space, teamColor } from "../theme";
 import { resolveBoardTheme } from "../render/boardThemes";
 import { resolveDiceSkin } from "../render/diceSkins";
 import { setBackInterceptor } from "../store/navStore";
 import { useSettings } from "../store/settingsStore";
 import { payoutSplit, potFor } from "../lib/economy";
-import { clockStartFor, elapsedSeconds, formatElapsed } from "../lib/gameClock";
-import { matchOverForSeat, seatFinish } from "../lib/seatFinish";
+import { GameClock, IconButton, MenuButton } from "./GameControls";
+import { seatFinish } from "../lib/seatFinish";
+import { tokensToWin, variantOf } from "../lib/standings";
 import { useDieHandover } from "../lib/useDieHandover";
-import { useAds, canShowInterstitial } from "../store/adsStore";
-import { useConfig } from "../store/configStore";
-import { noAdsActive, useEntitlements } from "../store/entitlementsStore";
-import { preloadInterstitial, showInterstitial } from "../lib/ads/provider";
+import { useAds } from "../store/adsStore";
+import { preloadInterstitial } from "../lib/ads/provider";
+import { markGameLeft } from "../lib/ads/afterGameAd";
 import { colorLabel, useT } from "../i18n";
 
 /** Height the top bar ("Ludo" and its pills) occupies. Only the railed layout
@@ -119,6 +123,24 @@ interface GameViewProps {
   viewColor?: Color;
   /** In-room reactions + chat (online only; local play omits it). */
   chat?: GameChat;
+  /**
+   * Frenzy: no turns, so no single table die handed between corners — every
+   * seat shows its own die at its chip, and `onRoll` rolls the local seat's.
+   */
+  frenzy?: FrenzyView;
+  /** Replaces the computed hint under the status line (Frenzy has no turn
+   *  phase for it to be computed from). */
+  hint?: string;
+  /** Controlled pause, for a game whose clocks must stop with the menu
+   *  (Frenzy). Omitted, the view keeps its own. */
+  paused?: boolean;
+  onPausedChange?: (paused: boolean) => void;
+}
+
+export interface FrenzyView {
+  /** The local seat. */
+  me: string | null;
+  seats: Record<string, SeatDie>;
 }
 
 export interface GameChat {
@@ -176,12 +198,30 @@ export function GameView({
   stake = 0,
   viewColor,
   chat,
+  frenzy,
+  hint,
+  paused: pausedProp,
+  onPausedChange,
 }: GameViewProps) {
   const t = useT();
+  useEffect(() => {
+    if (state.status === "active") trackProductEvent("match_started", `start:${state.gameId}`);
+    if (state.status === "finished") trackProductEvent("match_completed", `finish:${state.gameId}`);
+  }, [state.gameId, state.status]);
   const { width, height } = useWindowDimensions();
   const { tier, scale, insets } = useLayout();
   const theme = resolveBoardTheme(useSettings((s) => s.boardThemeId));
-  const [paused, setPaused] = useState(false);
+  const [ownPaused, setOwnPaused] = useState(false);
+  const paused = pausedProp ?? ownPaused;
+  const pausedRef = useRef(paused);
+  pausedRef.current = paused;
+  const onPausedChangeRef = useRef(onPausedChange);
+  onPausedChangeRef.current = onPausedChange;
+  const setPaused = useCallback((next: boolean | ((was: boolean) => boolean)) => {
+    const value = typeof next === "function" ? next(pausedRef.current) : next;
+    if (onPausedChangeRef.current) onPausedChangeRef.current(value);
+    else setOwnPaused(value);
+  }, []);
   const [reactionsOpen, setReactionsOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   // Landscape flips the game screen into its railed form — board flanked by two
@@ -213,6 +253,17 @@ export function GameView({
    * opening a game mid-turn does not replay it.
    */
   const rollLedger = useRef(rollSeq);
+  // Frenzy's dice never change corners, but each still needs its own ledger:
+  // seeded with the roll on show, so opening the screen does not replay it.
+  const frenzyLedgers = useRef(new Map<string, { current: number }>());
+  const ledgerFor = (playerId: string, seq: number) => {
+    let ledger = frenzyLedgers.current.get(playerId);
+    if (!ledger) {
+      ledger = { current: seq };
+      frenzyLedgers.current.set(playerId, ledger);
+    }
+    return ledger;
+  };
   const dieSeatId = heldDie?.playerId ?? state.currentTurnPlayerId;
   const dieValue = heldDie ? heldDie.value : state.diceValue ?? lastRoll;
 
@@ -236,6 +287,8 @@ export function GameView({
   // below is that.
   const dieIdle = !heldDie && !rollInFlight && state.phase === "awaiting-roll" && !bustHold;
   const finished = state.status === "finished";
+  const goal = tokensToWin(state);
+  const variant = variantOf(state);
   // Every seat's entry, bot seats included — matches what the server pays out.
   const pot = potFor(stake, state.players.length);
   // Seat each player's profile at the board corner nearest their yard.
@@ -366,40 +419,14 @@ export function GameView({
   }, [finished]);
 
   /**
-   * Show the end-of-match interstitial if every gate allows it.
-   *
-   * "End of match" means end of match FOR THIS PLAYER, and the caller owns that
-   * judgement — see the two seams below. Everything else (session cap, spacing,
-   * never right after losing a staked match) lives in canShowInterstitial.
+   * Leave the table. Any game left — finished, placed or quit mid-race — makes
+   * one interstitial due, and it plays only once the player is back on Home
+   * (lib/ads/afterGameAd). Nothing is ever shown from inside the game screen.
    */
-  const maybeShowEndOfMatchAd = useCallback(async () => {
-    // Read at the moment of the check, not captured in the callback's closure:
-    // a player can buy Remove Ads mid-match, and the interstitial this gates is
-    // the very next thing they would otherwise see.
-    const entitled = noAdsActive(
-      useEntitlements.getState().owned,
-      useEntitlements.getState().noAdsRestored,
-    );
-    if (!canShowInterstitial(useAds.getState(), useConfig.getState().config, entitled)) return;
-    const shown = await showInterstitial();
-    if (shown) useAds.getState().noteInterstitialShown();
-  }, []);
-
-  /**
-   * Leave the table, with the ad this player has now earned the right to see.
-   *
-   * Leaving after finishing is the other moment the match is genuinely over for
-   * someone: their placement is banked, they have chosen not to watch the rest,
-   * and the next thing they see is the home screen either way. Awaited rather
-   * than fired off, because onLeave unmounts this tree and a detached
-   * interstitial would be cancelled on its way up.
-   */
-  const leaveAfterAd = useCallback(async () => {
-    if (matchOverForSeat({ placed: iFinished }, { finished, intent: "leave" })) {
-      await maybeShowEndOfMatchAd();
-    }
+  const leaveAfterAd = useCallback(() => {
+    markGameLeft();
     onLeave();
-  }, [maybeShowEndOfMatchAd, onLeave, iFinished, finished]);
+  }, [onLeave]);
 
   // Capture toast: a token was just sent home — flash a one-liner over the
   // board (timed near the capture sound's arrival delay).
@@ -427,7 +454,7 @@ export function GameView({
     () => (canAct ? new Set(validMoves.map((m) => m.tokenId)) : null),
     [canAct, validMoves],
   );
-  const movable = useCallback((id: string) => movableIds?.has(id) ?? false, [movableIds]);
+  const movable = useCallback((id: string) => canAct && !paused && (movableIds?.has(id) ?? false), [movableIds, canAct, paused]);
 
   // Board is memoized, so its callback props must not churn. The screens pass
   // fresh arrow functions (`onSelectToken={(id) => void selectToken(id)}`), so
@@ -462,6 +489,7 @@ export function GameView({
     if (chat && userId === chat.myUserId) return "You";
     const pl = state.players.find((p) => p.userId === userId);
     if (!pl) return t("game.player");
+    if (botFor?.(pl.id)) return `${t("lobby.bot")} · ${colorLabel(pl.color)}`;
     return nameFor?.(pl.id) ?? colorLabel(pl.color);
   };
 
@@ -470,6 +498,41 @@ export function GameView({
   // The die rides next to whoever is active — by the local user when it's their
   // turn (bottom-left), matching Ludo Club — and IS the roll control: when the
   // local user may roll, the die wiggles and tapping it rolls.
+  // One seat's die in Frenzy. Only the local seat's is tappable, rattles, and
+  // shows its recharge; the others roll silently on their own clocks.
+  const frenzyDie = (playerId: string, color: TeamColor, seat: SeatDie) => {
+    const mine = playerId === frenzy?.me;
+    const recharging = !seat.ready && seat.held === null;
+    const canRoll = mine && seat.ready && seat.held === null && !paused;
+    return (
+      <View style={{ alignItems: "center", gap: space.xs }}>
+        <View style={{ opacity: recharging ? 0.55 : 1 }}>
+          <Dice
+            value={seat.face}
+            spinSeq={seat.rollSeq}
+            size={diceSize}
+            idle={seat.ready && seat.held === null}
+            theme={theme}
+            skin={resolveDiceSkin(diceSkinFor?.(playerId) ?? null)}
+            onRollPress={canRoll ? rollStable : null}
+            pressLabel={t("game.rollTheDice")}
+            rollLedger={ledgerFor(playerId, seat.rollSeq)}
+            muted={!mine}
+          />
+        </View>
+        {mine ? (
+          <RechargeMeter
+            from={seat.rechargeFrom}
+            until={seat.readyAt}
+            visible={recharging}
+            width={diceSize}
+            color={teamColor[color]}
+          />
+        ) : null}
+      </View>
+    );
+  };
+
   const cornerChip = (screen: number, { withDice = true }: { withDice?: boolean } = {}) => {
     const align = screen === TL || screen === BL ? "left" : "right";
     // Bubbles always pop toward the board: top chips downward (never over the
@@ -477,23 +540,35 @@ export function GameView({
     const vAlign = screen === TL || screen === TR ? "below" : "above";
     const p = byColor.get(colorAtCorner(screen));
     if (!p) return <View style={{ width: CHIP_COLUMN }} />;
-    const isActive = p.id === state.currentTurnPlayerId && !finished;
+    // Frenzy has no turn: nobody's chip is "active".
+    const isActive = !frenzy && p.id === state.currentTurnPlayerId && !finished;
     const gone = leftFor?.(p.id) ?? false;
     const bubble = gone ? undefined : chat?.latestBubbles[p.userId];
     const canRoll = isActive && canAct && !paused && state.phase === "awaiting-roll";
     // Autopilot seat: BOT badge, tap reclaims, and no countdown ring — the bot
     // acts long before any deadline, so a ticking ring would be noise.
     const pilot = autoPilot?.playerId === p.id;
-    // A host-filled bot wears the same badge (it says the same thing) but is
+    // A computer opponent wears the same badge (it says the same thing) but is
     // not tappable — there is no human behind it to hand control back to.
     const filledBot = !pilot && (botFor?.(p.id) ?? false);
     const showTimer = isActive && !pilot && !filledBot && !!turnTimer;
+    const seatDie = frenzy ? frenzy.seats[p.id] : undefined;
+    // Railed chip columns are too narrow for a die beside the chip, so a Frenzy
+    // die stacks on the board side of it instead.
+    const stack = !!frenzy && railed;
     return (
-      <View style={{ flexDirection: align === "left" ? "row" : "row-reverse", alignItems: "center", gap: space.md }}>
+      <View
+        style={{
+          flexDirection: stack ? (vAlign === "below" ? "column" : "column-reverse") : align === "left" ? "row" : "row-reverse",
+          alignItems: stack ? (align === "left" ? "flex-start" : "flex-end") : "center",
+          gap: space.md,
+        }}
+      >
         <View>
           <PlayerChip
             seatColor={p.color}
             finished={finishedByPlayer.get(p.id) ?? 0}
+            goal={goal}
             active={isActive}
             label={nameFor?.(p.id) ?? undefined}
             avatarId={avatarFor?.(p.id) ?? null}
@@ -507,7 +582,9 @@ export function GameView({
           />
           {bubble ? <ChatBubble value={bubble.value} kind={bubble.kind} seq={bubble.seq} align={align} vAlign={vAlign} /> : null}
         </View>
-        {p.id === dieSeatId && withDice ? (
+        {frenzy ? (
+          seatDie && !finished && !state.finishedOrder.includes(p.id) && !p.hasLeft ? frenzyDie(p.id, p.color, seatDie) : null
+        ) : p.id === dieSeatId && withDice ? (
           // Constant size — resizing mid-roll made the face flicker/jump.
           // On an autopilot seat the die stays tappable too: tapping it (like
           // tapping the avatar) hands control back to the human.
@@ -534,7 +611,10 @@ export function GameView({
 
   const topBar = (
     <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-      <Text style={{ fontFamily: font.display, fontSize: Math.round(22 * scale), color: palette.porcelain }}>Ludo</Text>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
+        <Text style={{ fontFamily: font.display, fontSize: Math.round(22 * scale), color: palette.porcelain }}>Ludo</Text>
+        <ModeBadge variant={variant} />
+      </View>
       <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
         {stake > 0 ? (
           <View
@@ -569,6 +649,7 @@ export function GameView({
           isMovable={movable}
           onSelectToken={boardTappable ? selectTokenStable : NOOP}
           viewColor={viewColor}
+          soundColor={frenzy ? viewColor : undefined}
         />
         {toast ? (
           <Animated.View
@@ -596,11 +677,13 @@ export function GameView({
 
   const messageBlock = (
     <View style={{ gap: space.xs, marginBottom: space.sm, alignItems: "center" }}>
-      <Text style={{ fontFamily: font.medium, fontSize: Math.round(16 * scale), color: palette.porcelain, textAlign: "center" }}>{message}</Text>
+      <Text accessibilityLiveRegion="polite" style={{ fontFamily: font.medium, fontSize: Math.round(16 * scale), color: palette.porcelain, textAlign: "center" }}>{message}</Text>
       <Text style={{ fontFamily: font.medium, fontSize: Math.round(13 * scale), color: palette.mutedSteel, textAlign: "center" }}>
         {finished
           ? " "
-          : !canAct
+          : hint !== undefined
+            ? hint
+            : !canAct
             ? waitingLabel ?? t("common.waiting")
             : state.phase === "awaiting-roll"
               ? t("game.tapDieToRoll")
@@ -649,7 +732,7 @@ export function GameView({
   // number on it, until their pawn lands. Same reasoning as the corner chips.
   const dieSeat = state.players.find((p) => p.id === dieSeatId) ?? activeSeat;
   const railDie =
-    dieSeat && !finished ? (
+    dieSeat && !finished && !frenzy ? (
       <Dice
         value={dieValue}
         spinSeq={rollSeq}
@@ -734,22 +817,13 @@ export function GameView({
           pot={pot}
           onStay={() => {
             fromCelebration.current = finished;
-            // ONLY once the whole match is over. This sheet also opens for the
-            // champion of a 3- or 4-handed game the moment they come home, while
-            // everyone else is still walking tokens around the board — and there
-            // the button says "Watch the rest", so firing an ad on it dropped a
-            // full-screen takeover over a match still in progress and then
-            // returned the player to it. An ad may interrupt the end of a game;
-            // it may never interrupt the middle of one.
-            if (matchOverForSeat({ placed: iFinished }, { finished, intent: "stay" })) {
-              void maybeShowEndOfMatchAd();
-            }
+            // Staying on the board is never an ad moment, finished or not: the
+            // ad waits until the player leaves and is back on Home.
             setCelebrating(false);
           }}
           onLeave={() => {
             setCelebrating(false);
-            // Leaving IS the end of the match for this seat, finished or not.
-            void leaveAfterAd();
+            leaveAfterAd();
           }}
         />
       )}
@@ -767,8 +841,7 @@ export function GameView({
           onWatch={() => setFinishPrompt(false)}
           onLeave={() => {
             setFinishPrompt(false);
-            // A minor place who has banked their finish and is walking away.
-            void leaveAfterAd();
+            leaveAfterAd();
           }}
         />
       )}
@@ -777,8 +850,7 @@ export function GameView({
         <RemovedPrompt
           stake={stake}
           onWatch={() => setRemovedPrompt(false)}
-          // No ad: this seat didn't finish a match, it lost one it wasn't at.
-          onHome={onLeave}
+          onHome={leaveAfterAd}
         />
       )}
 
@@ -799,7 +871,7 @@ export function GameView({
           live={!finished}
           onBackToGame={() => setStandingsOpen(false)}
           enterDelayMs={fromCelebration.current || liveStandings ? 100 : 900}
-          onHome={() => void leaveAfterAd()}
+          onHome={leaveAfterAd}
         />
       )}
 
@@ -808,9 +880,7 @@ export function GameView({
           onResume={() => setPaused(false)}
           onLeave={() => {
             setPaused(false);
-            // Same rule: a finished seat walking away may see one, a seat still
-            // racing is forfeiting and must not.
-            void leaveAfterAd();
+            leaveAfterAd();
           }}
           confirmLeave={confirmLeave}
           // Only a seat still racing has anything to lose: a player who already
@@ -838,120 +908,5 @@ export function GameView({
         />
       )}
     </SafeAreaView>
-  );
-}
-
-/**
- * How long this game has been running, in the top bar.
- *
- * The clock keeps ticking on an opponent's turn — it's the match's age, not
- * anybody's shot clock (the turn countdown lives on the active seat's panel) —
- * and stops on the last word of the game so the results screen isn't sitting
- * over a number that's still climbing.
- */
-function GameClock({ gameId, running }: { gameId: string; running: boolean }) {
-  const startedAt = clockStartFor(gameId);
-  const [seconds, setSeconds] = useState(() => elapsedSeconds(startedAt));
-  useEffect(() => {
-    setSeconds(elapsedSeconds(startedAt));
-    if (!running) return;
-    // Twice a second: the displayed value floors the real elapsed time, so a
-    // 1s interval out of phase with it shows each number up to a second late.
-    const id = setInterval(() => setSeconds(elapsedSeconds(startedAt)), 500);
-    return () => clearInterval(id);
-  }, [startedAt, running]);
-
-  return (
-    <View
-      accessibilityLabel={`Game time ${formatElapsed(seconds)}`}
-      style={{
-        paddingHorizontal: space.sm,
-        paddingVertical: 4,
-        borderRadius: radius.pill,
-        backgroundColor: palette.liftedSlate,
-        borderTopWidth: 1,
-        borderTopColor: "rgba(255,255,255,0.10)",
-      }}
-    >
-      <Text
-        style={{
-          fontFamily: font.mono,
-          fontSize: 13,
-          color: palette.mutedSteel,
-          // Digits change every second; a fixed width keeps the pill from
-          // twitching as 9→10 or 59→1:00 changes the string's length.
-          minWidth: 34,
-          textAlign: "center",
-        }}
-      >
-        {formatElapsed(seconds)}
-      </Text>
-    </View>
-  );
-}
-
-/** Round emoji-glyph button in the game top bar (reactions, chat). */
-function IconButton({ label, glyph, onPress, showDot = false }: { label: string; glyph: string; onPress: () => void; showDot?: boolean }) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      onPress={onPress}
-      style={({ pressed }) => ({
-        width: 44,
-        height: 44,
-        borderRadius: radius.md,
-        backgroundColor: palette.raisedSlate,
-        borderWidth: 1,
-        borderColor: palette.hairline,
-        borderTopColor: "rgba(255,255,255,0.10)",
-        alignItems: "center",
-        justifyContent: "center",
-        transform: [{ scale: pressed ? 0.94 : 1 }],
-      })}
-    >
-      <Text style={{ fontSize: 20 }}>{glyph}</Text>
-      {showDot ? (
-        <View
-          style={{
-            position: "absolute",
-            top: 6,
-            right: 6,
-            width: 9,
-            height: 9,
-            borderRadius: radius.pill,
-            backgroundColor: teamColor.red,
-          }}
-        />
-      ) : null}
-    </Pressable>
-  );
-}
-
-/** Drawn ≡ menu glyph — 44px target, no icon fonts. */
-function MenuButton({ onPress }: { onPress: () => void }) {
-  const t = useT();
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={t("game.gameMenu")}
-      onPress={onPress}
-      style={({ pressed }) => ({
-        width: 44,
-        height: 44,
-        borderRadius: radius.md,
-        backgroundColor: palette.raisedSlate,
-        borderWidth: 1,
-        borderColor: palette.hairline,
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 4,
-        transform: [{ scale: pressed ? 0.94 : 1 }],
-      })}
-    >
-      {[0, 1, 2].map((i) => (
-        <View key={i} style={{ width: 18, height: 2, borderRadius: 1, backgroundColor: palette.porcelain }} />
-      ))}
-    </Pressable>
   );
 }

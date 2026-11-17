@@ -111,6 +111,9 @@ export function GetCoinsSheet({ onClose, onDailyBonus }: GetCoinsSheetProps) {
                 setNote(t("coins.rewardOnWay"));
                 return 0;
               }
+              // Closed before the reward point: nothing was earned, and saying
+              // nothing left people thinking the reward had been lost.
+              if (res.status === "dismissed") setNote(t("coins.watchFullAd"));
               if (res.status === "unavailable") setNote(res.message ?? t("coins.noAdAvailable"));
               return 0;
             })
@@ -130,7 +133,7 @@ export function GetCoinsSheet({ onClose, onDailyBonus }: GetCoinsSheetProps) {
       ) : null}
 
       <Text style={{ fontFamily: font.regular, fontSize: 12, color: palette.mutedSteel }}>
-        Coins are for entering matches and unlocking looks. They never affect how a game plays out.
+        {t("coins.neverAffectsPlay")}
       </Text>
     </Sheet>
   );

@@ -37,6 +37,7 @@ export function createGame(players, options = {}) {
         winnerPlayerId: null,
         finishedOrder: [],
         lastAction: { type: "createGame", payload: { players: playerStates.length }, timestamp: options.now ?? 0 },
+        ...(options.frenzy ? { frenzy: { dice: Object.fromEntries(playerStates.map((p) => [p.id, null])) } } : {}),
     };
 }
 /** Resolve a color for each player, honoring explicit choices and filling gaps. */

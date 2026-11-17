@@ -16,6 +16,8 @@ export function cloneState(state: GameState): GameState {
     // `?? []` tolerates states persisted before finishedOrder existed.
     finishedOrder: [...(state.finishedOrder ?? [])],
     lastAction: state.lastAction ? { ...state.lastAction } : null,
+    // Spread only when present: a turn-based state must not grow the key.
+    ...(state.frenzy ? { frenzy: { dice: { ...state.frenzy.dice } } } : {}),
   };
 }
 
@@ -41,10 +43,15 @@ export function getToken(state: GameState, tokenId: string): Token | undefined {
   return state.tokens.find((t) => t.id === tokenId);
 }
 
-/** True if all of a player's tokens have finished. */
+/**
+ * True once a player has brought home as many tokens as the game asks for: all
+ * of them in classic, `rules.tokensToWin` in Blitz.
+ */
 export function hasPlayerWon(state: GameState, playerId: string): boolean {
   const tokens = getPlayerTokens(state, playerId);
-  return tokens.length > 0 && tokens.every((t) => t.position === "finished");
+  if (tokens.length === 0) return false;
+  const home = tokens.filter((t) => t.position === "finished").length;
+  return home >= Math.min(tokens.length, state.rules.tokensToWin ?? tokens.length);
 }
 
 /**
@@ -80,7 +87,23 @@ export function endIfComplete(state: GameState): boolean {
   state.phase = "awaiting-roll";
   state.diceValue = null;
   state.consecutiveSixes = 0;
+  if (state.frenzy) {
+    for (const id of Object.keys(state.frenzy.dice)) state.frenzy.dice[id] = null;
+  }
   return true;
+}
+
+/**
+ * Give a player who has just brought home enough tokens their placement.
+ *
+ * Blitz places a player before all their tokens are home. The rest leave the
+ * board, as a leaver's do, so they neither block nor feed captures in the race
+ * for the places still open. Mutates the passed (already-cloned) state.
+ */
+export function placePlayer(state: GameState, playerId: string): void {
+  if (!state.finishedOrder.includes(playerId)) state.finishedOrder.push(playerId);
+  if (!state.winnerPlayerId) state.winnerPlayerId = state.finishedOrder[0]!;
+  state.tokens = state.tokens.filter((t) => t.playerId !== playerId || t.position === "finished");
 }
 
 /**

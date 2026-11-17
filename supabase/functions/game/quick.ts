@@ -1,16 +1,8 @@
-/**
- * Quick match: pair the caller into the oldest open queue game (atomic SQL
- * claim) or open a new one. If nobody shows up, the client calls "quickBotFill"
- * and the server seats a hidden bot — a real auth user with an ordinary
- * profile, driven server-side from turn 1. Nothing client-readable marks the
- * seat as a bot.
- */
+/** Quick-match entry, funding and replay are committed together in PostgreSQL. */
 
 // @deno-types="../_shared/engine/index.d.ts"
 import type { GameState } from "../_shared/engine/index.js";
 import {
-  afterResponse,
-  insertGameWithCode,
   json,
   LIMITS,
   QUICK_STAKE,
@@ -19,12 +11,14 @@ import {
   seatColors,
   serverConfig,
   STAKE_TIERS,
+  safeError,
+  WRITE_FAILED,
   type Json,
   type SupabaseClient,
 } from "./lib.ts";
+import { MODE_UNAVAILABLE, modeOpen, parseMode } from "./modes.ts";
 import { seatBots } from "./bots.ts";
 import { startGameNow } from "./deal.ts";
-import { walletApply } from "./wallet.ts";
 
 /**
  * Pair the caller into the oldest open quick game of their chosen size (1v1 or
@@ -39,9 +33,14 @@ export async function opQuickMatch(
   rawSize: number,
   rawStake: number | null,
   appVersion: string | null,
+  rawMode: unknown = null,
+  requestId?: string,
 ): Promise<Response> {
   if (!(await rateOk(admin, userId, "quickMatch", LIMITS.quickMatch))) return rateLimited();
   const size = rawSize === 4 ? 4 : 2;
+
+  const mode = parseMode(rawMode);
+  if (mode === null || !(await modeOpen(admin, mode))) return json({ error: MODE_UNAVAILABLE });
 
   // Tier must be on the server's list — a hacked client can't invent a pool.
   // Old clients send no stake and get the default tier, unchanged behavior.
@@ -57,106 +56,44 @@ export async function opQuickMatch(
     stake = rawStake;
   }
 
-  // Re-tap while already searching: hand back the same waiting room (whatever
-  // size it was opened for — one search at a time).
-  const { data: mine } = await admin
-    .from("players")
-    .select("id, game_id, games!inner(status, is_quick, quick_size, stake)")
-    .eq("user_id", userId)
-    .eq("games.status", "waiting")
-    .eq("games.is_quick", true)
-    .limit(1)
-    .maybeSingle();
-  if (mine) {
-    const g = mine.games as unknown as { quick_size: number | null; stake: number | null };
-    return json({ gameId: mine.game_id, playerId: mine.id, waiting: true, size: g?.quick_size ?? 2, stake: g?.stake ?? QUICK_STAKE });
+  // No key at all is an installed app from before request keys (up to 1.2.3),
+  // and it enters through the same funded transaction as everyone else: the
+  // "already seated" resume inside quick_match_enter is what stops its retries
+  // charging twice (0080). A key that IS present but malformed is a bug in a
+  // current client, and is refused rather than silently treated as keyless.
+  if (requestId !== undefined && (requestId.length < 8 || requestId.length > 128)) {
+    return json({ error: "Update the app to start quick match safely." });
   }
-
-  const { data: claimed, error: claimErr } = await admin.rpc("quick_match_claim", {
-    p_user: userId,
-    p_size: size,
-    p_stake: stake,
+  const { data: entry, error } = await admin.rpc("quick_match_enter", {
+    p_user: userId, p_size: size, p_stake: stake, p_mode: mode,
+    p_app_version: appVersion, p_request: requestId ?? null,
   });
-  if (claimErr) return json({ error: claimErr.message });
-  if (claimed) {
-    const gameId = String(claimed.game_id);
-    const playerId = String(claimed.player_id);
-    const seated = Number(claimed.seated ?? size);
-    // The seat was inserted inside quick_match_claim, so stamp it here rather
-    // than adding a parameter to an RPC whose signature is kept stable across
-    // deploys on purpose (0018). A PostgREST builder does not run until
-    // something awaits it, so holding it costs nothing until we decide which
-    // way this request goes.
-    const stamp = admin.from("players").update({ app_version: appVersion }).eq("id", playerId);
-    // Seat first, stake second: an overdraw hands the seat straight back.
-    const debited = await walletApply(admin, userId, -stake, "stake", gameId);
-    if (debited === null) {
-      await admin.from("players").delete().eq("id", playerId);
-      return json({ error: `Not enough coins — you need ${stake} to play.` });
-    }
-    if (seated < size) {
-      // Joined a part-filled 4-player room — keep waiting for the rest. No deal
-      // happens in this request, so the stamp has until somebody else fills the
-      // room to land, and deferring it keeps the searching UI's response quick.
-      afterResponse(stamp);
-      return json({ gameId, playerId, waiting: true, size, stake });
-    }
-    // This claim FILLED the room, so the deal is about to run in this very
-    // request — and the deal is what reads app_version to set the fold gate
-    // (deal.ts, foldAllowed). Deferring the stamp raced it: an unstamped seat
-    // reads as null, null reads as "old client", and one null switches the fold
-    // off for the whole match.
-    //
-    // Failing that way is safe, which is why it went unnoticed, but it is not
-    // cheap. Measured over 30 days of finished matches: a folded match bumps
-    // state_version 135 times, an unfolded one 765, and every bump is a ~2.1 KB
-    // document pushed to every seat. The fold was off for 37% of matches, and
-    // those matches carried roughly five times the realtime fan-out.
-    //
-    // One indexed UPDATE on a primary key is a small price for that.
-    await stamp;
-    const started = await startGameNow(admin, gameId);
+  if (error) {
+    if (error.code === "LD002") return json({ error: "Not enough coins for this match." });
+    return safeError("quick.enter", error, WRITE_FAILED);
+  }
+  if (!entry) return json({ error: WRITE_FAILED });
+  if (entry.error) return json({ error: String(entry.error) });
+  if (entry.waiting && Number(entry.seated) >= Number(entry.size)) {
+    const started = await startGameNow(admin, String(entry.gameId));
     if ("error" in started) return json({ error: started.error });
-    return json({ gameId, playerId, state: started.state, v: started.v, size, stake });
+    return json({ ...entry, ...started, waiting: false });
   }
-
-  const debited = await walletApply(admin, userId, -stake, "stake", null);
-  if (debited === null) return json({ error: `Not enough coins — you need ${stake} to play.` });
-
-  const game = await insertGameWithCode(
-    admin,
-    { host_user_id: userId, status: "waiting", is_quick: true, quick_size: size, stake },
-    "quick.create",
-  );
-  if ("error" in game) {
-    await walletApply(admin, userId, stake, "stake-refund", null);
-    return json({ error: game.error });
-  }
-
-  const { data: player, error: pErr } = await admin
-    .from("players")
-    // Unrotated, like quick_match_claim's seats (see opQuickBotFill): the
-    // colors that actually play are chosen by the deal.
-    .insert({ game_id: game.id, user_id: userId, color: "red", seat: 0, is_host: true, app_version: appVersion })
-    .select("id")
-    .single();
-  if (pErr || !player) {
-    await walletApply(admin, userId, stake, "stake-refund", game.id);
-    return json({ error: pErr?.message ?? "Could not start matchmaking." });
-  }
-
-  return json({ gameId: game.id, playerId: player.id, waiting: true, size, stake });
+  return json(entry);
 }
 
 /**
- * Nobody joined the caller's quick game in time — seat a hidden bot and start.
+ * Nobody joined the caller's quick game in time — seat a labelled computer opponent and start.
  * If a human slipped in while the client's timer ran, this just starts the
  * game with them instead (all the races collapse into "start with whoever is
  * seated"; the version guard dedups racing starts).
  */
 export async function opQuickBotFill(admin: SupabaseClient, userId: string, gameId: string): Promise<Response> {
-  const { data: game } = await admin.from("games").select("id, status, is_quick, quick_size, state, state_version").eq("id", gameId).single();
+  const { data: game } = await admin.from("games").select("id, status, is_quick, quick_size, state, state_version").eq("id", gameId).maybeSingle();
   if (!game || !game.is_quick) return json({ error: "Game not found." });
+  const { data: seated } = await admin.from("players").select("id, user_id, seat").eq("game_id", gameId).order("seat");
+  if (!seated?.some((p) => p.user_id === userId)) return json({ error: "You are not in this game." });
+
   if (game.status !== "waiting") {
     return game.state
       ? json({ state: game.state as GameState, v: (game.state_version as number | null) ?? 0 })
@@ -164,24 +101,13 @@ export async function opQuickBotFill(admin: SupabaseClient, userId: string, game
   }
   const size = (game.quick_size as number | null) ?? 2;
 
-  const { data: seated } = await admin.from("players").select("id, user_id, seat").eq("game_id", gameId).order("seat");
-  if (!seated?.some((p) => p.user_id === userId)) return json({ error: "You are not in this game." });
 
-  // Seat bots into every still-empty chair, left to right. Friend rooms move a
-  // lone pair of humans onto the diagonal (room.ts); quick match must NOT — the
-  // seats there are hidden bots, and a rule like "the humans always face each
-  // other" would let anyone at a four-handed table read which of their
-  // opponents were people.
-  // `visible: false` is load-bearing for the same reason: a quick-match bot must
-  // be indistinguishable from a human, so the seat carries no marker (0035).
-  //
-  // These colors are the UNROTATED ones, matching what quick_match_claim writes
-  // for the human seats (0011) — players carries unique (game_id, color), so a
-  // rotated color here would collide with a chair the SQL already took and the
-  // fill would silently seat nobody. Which colors actually play is decided by
-  // the deal, which rotates them per game for every seat at once.
+  // Preserve unrotated lobby colors; the deal rotates all seats together.
+  // `visible: false` is load-bearing: a quick-match fill-in is a hidden seat —
+  // a named identity with no BOT tag (bots.ts, seatBots). Friend rooms are the
+  // only place a bot is labelled.
   const colors = seatColors(size);
-  const chairs = Array.from({ length: size - seated.length }, (_, i) => seated.length + i);
+  const chairs = Array.from({ length: size }, (_, i) => i).filter((seat) => !seated.some((p) => p.seat === seat));
   await seatBots(admin, gameId, chairs, colors, false);
 
   const { count } = await admin

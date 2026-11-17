@@ -17,7 +17,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const upsertMyProfile = vi.fn();
-vi.mock("../src/net/api", () => ({ upsertMyProfile: (...a: unknown[]) => upsertMyProfile(...a) }));
+const isNameTaken = vi.fn();
+vi.mock("../src/net/api", () => ({
+  upsertMyProfile: (...a: unknown[]) => upsertMyProfile(...a),
+  isNameTaken: (...a: unknown[]) => isNameTaken(...a),
+}));
 
 import { claimName, pushProfile } from "../src/net/profileSync";
 import { useProfile } from "../src/store/profileStore";
@@ -26,6 +30,8 @@ const GUEST = "guest481920";
 
 beforeEach(() => {
   upsertMyProfile.mockReset();
+  isNameTaken.mockReset();
+  isNameTaken.mockResolvedValue(false);
   useProfile.setState({ displayName: "Bishal", guestName: GUEST, avatarId: "orbit-moss", diceSkinId: "classic" });
 });
 
@@ -80,5 +86,29 @@ describe("claimName tells the player the truth about a collision", () => {
   it("still reports a real network failure as offline", async () => {
     upsertMyProfile.mockResolvedValue(null);
     expect(await claimName("Bishal")).toBe("offline");
+  });
+});
+
+/**
+ * Ask before writing. The unique index (0006) is the final word, but finding out
+ * by being refused meant an HTTP 409 for every clash — a few a day in production
+ * (2026-11), each one reading as an error in the logs for an ordinary "pick
+ * another name".
+ */
+describe("claimName catches a name somebody else holds before the write", () => {
+  it("claimName answers taken without sending the write", async () => {
+    isNameTaken.mockResolvedValue(true);
+
+    expect(await claimName("bishal")).toBe("taken");
+    expect(isNameTaken).toHaveBeenCalledWith("bishal");
+    expect(upsertMyProfile).not.toHaveBeenCalled();
+  });
+
+  it("a failed lookup still lets the write decide", async () => {
+    // isNameTaken answers false on any error; the index stays the guard.
+    isNameTaken.mockResolvedValue(false);
+    upsertMyProfile.mockResolvedValue({ conflict: true });
+    expect(await claimName("Bishal")).toBe("taken");
+    expect(upsertMyProfile).toHaveBeenCalledTimes(1);
   });
 });

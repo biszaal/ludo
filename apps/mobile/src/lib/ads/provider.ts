@@ -15,11 +15,13 @@ import { Platform } from "react-native";
 import type { InterstitialAd } from "react-native-google-mobile-ads";
 import { getTrackingPermissionsAsync, requestTrackingPermissionsAsync } from "expo-tracking-transparency";
 import { adsSdk } from "./native";
+import { consentRetryDelay, resolveConsent, shouldRetryConsent } from "./consent";
 import { interstitialUnitId, rewardedUnitId, TEST_DEVICE_IDS } from "./units";
 import { emptyAdsDiagnostics, errorText, noteAdErrorIn, type AdFormat, type AdsDiagnostics } from "./diagnostics";
 
 let initialized = false;
 let canRequestAds = false;
+let privacyRequired = false;
 
 /** What the ad stack last said — see lib/ads/diagnostics. */
 let diag: AdsDiagnostics = { ...emptyAdsDiagnostics(), sdk: adsSdk !== null };
@@ -49,11 +51,13 @@ export function noteAdError(format: AdFormat, err: unknown): void {
  */
 const listeners = new Set<() => void>();
 
-function setReady(next: { initialized?: boolean; canRequestAds?: boolean }): void {
+function setReady(next: { initialized?: boolean; canRequestAds?: boolean; privacyRequired?: boolean }): void {
   const was = adsReady();
+  const previousPrivacy = privacyRequired;
   if (next.initialized !== undefined) initialized = next.initialized;
   if (next.canRequestAds !== undefined) canRequestAds = next.canRequestAds;
-  if (adsReady() !== was) for (const l of listeners) l();
+  if (next.privacyRequired !== undefined) privacyRequired = next.privacyRequired;
+  if (adsReady() !== was || privacyRequired !== previousPrivacy) for (const l of listeners) l();
 }
 
 /** Subscribe to readiness changes. Pair with adsReady in useSyncExternalStore. */
@@ -70,8 +74,28 @@ export function adsReady(): boolean {
 /**
  * Gather consent, then start the SDK. Safe to call more than once.
  */
-export async function initAds(): Promise<void> {
+/** One start-up at a time: a foreground return or a retry timer may ask while
+ *  an earlier attempt is still waiting on the consent check. */
+let starting: Promise<void> | null = null;
+let consentAttempt = 0;
+let consentRetry: ReturnType<typeof setTimeout> | null = null;
+
+export function initAds(): Promise<void> {
+  if (initialized) return Promise.resolve();
+  if (!starting) {
+    starting = startAds().finally(() => {
+      starting = null;
+    });
+  }
+  return starting;
+}
+
+async function startAds(): Promise<void> {
   if (initialized) return;
+  if (consentRetry) {
+    clearTimeout(consentRetry);
+    consentRetry = null;
+  }
   // No native module in this binary (Expo Go): stay uninitialized so adsReady()
   // reports false and every entry point below no-ops.
   const sdk = adsSdk;
@@ -79,18 +103,29 @@ export async function initAds(): Promise<void> {
   try {
     // 1. UMP: this presents the GDPR/consent form where one is required, and
     //    is a no-op elsewhere.
-    try {
-      const info = await sdk.AdsConsent.gatherConsent({
-        testDeviceIdentifiers: TEST_DEVICE_IDS,
-      });
-      diag = { ...diag, consent: { status: String(info.status), canRequestAds: info.canRequestAds, error: null } };
-      setReady({ canRequestAds: info.canRequestAds });
-    } catch (err) {
-      // Consent flow unavailable (offline, misconfigured form). Fall back to
-      // requesting ads without personalization rather than showing nothing.
-      diag = { ...diag, consent: { status: "UNAVAILABLE", canRequestAds: true, error: errorText(err) } };
-      setReady({ canRequestAds: true });
+    const consent = await resolveConsent(
+      () => sdk.AdsConsent.gatherConsent({ testDeviceIdentifiers: TEST_DEVICE_IDS }),
+      () => sdk.AdsConsent.getConsentInfo(),
+    );
+    const permitted = consent.info?.canRequestAds === true;
+    diag = { ...diag, consent: {
+      status: String(consent.info?.status ?? "UNAVAILABLE"),
+      canRequestAds: permitted,
+      error: consent.error ? errorText(consent.error) : null,
+    } };
+    setReady({ canRequestAds: permitted, privacyRequired: consent.info?.privacyOptionsRequirementStatus === "REQUIRED" });
+    // Do not initialize or preload ad requests while consent is unknown/denied.
+    // initialized stays false. If the check itself failed (offline, slow
+    // launch), ask again on a backoff and on every return to the foreground —
+    // otherwise one bad launch means no ads for the whole session.
+    if (!permitted) {
+      if (shouldRetryConsent(permitted, consent.error)) {
+        const delay = consentRetryDelay(consentAttempt++);
+        if (delay !== null) consentRetry = setTimeout(() => void initAds(), delay);
+      }
+      return;
     }
+    consentAttempt = 0;
 
     // 2. iOS ATT. UMP usually presents this itself when the AdMob console is
     //    configured to; this covers the case where it didn't.
@@ -118,12 +153,38 @@ export async function initAds(): Promise<void> {
   }
 }
 
+/** Settings subscribes to the same observable SDK state as ad surfaces. */
+export function adsPrivacyRequired(): boolean { return privacyRequired; }
+
+/** Pause requests while choices are edited, then discard previously loaded ads. */
+export async function showAdsPrivacyOptions(): Promise<boolean> {
+  const sdk = adsSdk;
+  if (!sdk || !privacyRequired) return false;
+  setReady({ canRequestAds: false });
+  disposeInterstitial();
+  interstitial = null;
+  interstitialLoaded = false;
+  try {
+    const info = await sdk.AdsConsent.showPrivacyOptionsForm();
+    setReady({ canRequestAds: info.canRequestAds, privacyRequired: info.privacyOptionsRequirementStatus === "REQUIRED" });
+    diag = { ...diag, consent: { status: String(info.status), canRequestAds: info.canRequestAds, error: null } };
+    if (!initialized && info.canRequestAds) await initAds();
+    preloadInterstitial();
+    return true;
+  } catch (error) {
+    // Leave requests paused when we cannot verify the updated decision.
+    diag = { ...diag, consent: { status: "UNAVAILABLE", canRequestAds: false, error: errorText(error) } };
+    return false;
+  }
+}
+
 // --- Interstitial ------------------------------------------------------------
 // Kept warm so the match-end seam never waits on a network round trip. Ludo
 // matches run 3-15 minutes, so there's ample time to preload.
 
 let interstitial: InterstitialAd | null = null;
 let interstitialLoaded = false;
+let disposeInterstitial = () => {};
 
 export function preloadInterstitial(): void {
   const sdk = adsSdk;
@@ -142,6 +203,7 @@ export function preloadInterstitial(): void {
       offLoaded();
       offError();
     });
+    disposeInterstitial = () => { offLoaded(); offError(); };
     ad.load();
   } catch {
     interstitial = null;
@@ -180,8 +242,16 @@ export function showInterstitial(): Promise<boolean> {
         offError();
         finish(false);
       });
-      ad.show();
-    } catch {
+      // show() returns a promise. On iOS it REJECTS — with no ERROR event — when
+      // no view controller can present ("nil-vc") or the ad went stale
+      // ("not-ready"). Unhandled, that left this promise pending for good, and
+      // GameView awaits it before leaving a finished match.
+      Promise.resolve(ad.show()).catch((err: unknown) => {
+        noteAdError("interstitial", err);
+        finish(false);
+      });
+    } catch (err) {
+      noteAdError("interstitial", err);
       finish(false);
     }
   });
@@ -199,6 +269,13 @@ export type RewardedOutcome = "earned" | "dismissed" | "failed";
  * SDK saw the reward event — it is NOT proof of payment and must never be used
  * to credit coins client-side. Poll adRewardStatus for that.
  */
+/**
+ * How long a rewarded ad may take to load before the player is told it failed.
+ * Without a limit a slow fill (common on iOS when tracking is declined) left the
+ * watch-ad button spinning indefinitely.
+ */
+export const REWARDED_LOAD_TIMEOUT_MS = 20_000;
+
 export function showRewarded(nonce: string, userId: string): Promise<RewardedOutcome> {
   const sdk = adsSdk;
   if (!sdk || !adsReady()) {
@@ -208,9 +285,11 @@ export function showRewarded(nonce: string, userId: string): Promise<RewardedOut
   return new Promise<RewardedOutcome>((resolve) => {
     let earned = false;
     let settled = false;
+    let loadTimer: ReturnType<typeof setTimeout> | null = null;
     const finish = (outcome: RewardedOutcome) => {
       if (settled) return;
       settled = true;
+      if (loadTimer) clearTimeout(loadTimer);
       resolve(outcome);
     };
 
@@ -221,9 +300,19 @@ export function showRewarded(nonce: string, userId: string): Promise<RewardedOut
 
       const offLoaded = ad.addAdEventListener(sdk.RewardedAdEventType.LOADED, () => {
         offLoaded();
+        if (loadTimer) clearTimeout(loadTimer);
+        // Gave up already: a late fill must not pop an ad over whatever the
+        // player has moved on to.
+        if (settled) return;
         try {
-          ad.show();
-        } catch {
+          // Same as the interstitial: a refused show() rejects without an
+          // ERROR event, so it must be caught here or the flow never ends.
+          Promise.resolve(ad.show()).catch((err: unknown) => {
+            noteAdError("rewarded", err);
+            finish("failed");
+          });
+        } catch (err) {
+          noteAdError("rewarded", err);
           finish("failed");
         }
       });
@@ -236,6 +325,10 @@ export function showRewarded(nonce: string, userId: string): Promise<RewardedOut
         finish("failed");
       });
 
+      loadTimer = setTimeout(() => {
+        noteAdError("rewarded", `load timed out after ${REWARDED_LOAD_TIMEOUT_MS / 1000}s`);
+        finish("failed");
+      }, REWARDED_LOAD_TIMEOUT_MS);
       ad.load();
     } catch (err) {
       noteAdError("rewarded", err);

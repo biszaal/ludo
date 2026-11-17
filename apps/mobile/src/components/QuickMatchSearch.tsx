@@ -21,6 +21,7 @@ import { Button } from "./Button";
 import { AdSlot } from "./AdSlot";
 import { TableSeats, type SeatOccupant } from "./TableSeats";
 import { useOnlineStore } from "../store/onlineStore";
+import { ModeBadge } from "./ModeBadge";
 import { useProfile } from "../store/profileStore";
 import { tapLight } from "../lib/haptics";
 import { playSound } from "../lib/sound";
@@ -34,6 +35,7 @@ export function QuickMatchSearch() {
   const profiles = useOnlineStore((s) => s.profiles);
   const userId = useOnlineStore((s) => s.userId);
   const quickSize = useOnlineStore((s) => s.quickSize);
+  const mode = useOnlineStore((s) => s.mode);
   const error = useOnlineStore((s) => s.error);
   const leave = useOnlineStore((s) => s.leave);
   const myAvatarId = useProfile((s) => s.avatarId);
@@ -80,7 +82,7 @@ export function QuickMatchSearch() {
       <View style={{ flex: 1, paddingHorizontal: space.xl, paddingTop: space.sm }}>
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
           <Text style={{ fontFamily: font.display, fontSize: 22, color: palette.porcelain }}>{t("home.quickMatch")}</Text>
-          <Button label={t("common.cancel")} onPress={leave} variant="ghost" />
+          <Button label={t("common.cancel")} onPress={() => void leave(true)} variant="ghost" />
         </View>
 
         <View
@@ -91,10 +93,11 @@ export function QuickMatchSearch() {
           <TableSeats size={size} occupants={occupants} searching boardSize={230} />
 
           <View style={{ alignItems: "center", gap: space.sm }}>
+            <ModeBadge variant={mode} />
             <Text style={{ fontFamily: font.semibold, fontSize: 18, color: palette.porcelain }}>{headline}</Text>
             <Text style={{ fontFamily: font.regular, fontSize: 14, color: palette.mutedSteel, textAlign: "center" }}>
               {size === 4 ? t("lobby.filling4") : t("match.matchingYou")}
-              {"\n"}This usually takes a few seconds.
+              {"\n"}{t("match.searchHint")}
             </Text>
             {error ? (
               <Text style={{ fontFamily: font.regular, fontSize: 13, color: teamColor.red, textAlign: "center" }}>{error}</Text>

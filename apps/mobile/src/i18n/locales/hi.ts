@@ -222,6 +222,17 @@ export const hi: Strings = {
   "game.tapDieToRoll": "पासा दबाएँ",
   "game.tapGlowingToken": "चमकती गोटी दबाकर चलें",
   "game.chooseToken": "गोटी चुनें",
+  "game.pawnA11y": "{color} गोटी {number}, {position}",
+  "game.pawnYard": "घर में",
+  "game.pawnFinished": "पूरी हुई",
+  "game.pawnTrack": "रास्ते का खाना {number}",
+  "game.pawnHomeLane": "घर की लेन {number}",
+  "game.movePawn": "इस गोटी को चलाएँ",
+  "game.diceA11y": "पासा",
+  "game.diceValueA11y": "पासे पर {number}",
+  "game.elapsedA11y": "खेल का समय {time}",
+  "invite.message": "मेरे लूडो खेल में शामिल हों! रूम कोड: {code}।{stake}\n{url}",
+  "invite.stake": " हम {stake} सिक्कों के लिए खेल रहे हैं।",
   "game.boardA11y": "बोर्ड — चलने के लिए चमकती गोटी दबाएँ",
   "game.noMovesPassing": "कोई चाल नहीं — बारी जा रही है…",
   "game.notYourTurn": "अभी आपकी बारी नहीं",
@@ -249,6 +260,16 @@ export const hi: Strings = {
   "game.playersYouPlusAi": "खिलाड़ी (आप + AI)",
   "game.someone": "कोई",
 
+  "mode.label": "मोड",
+  "mode.classic": "क्लासिक",
+  "mode.blitz": "ब्लिट्ज़",
+  "mode.frenzy": "धमाचौकड़ी",
+  "mode.classicHint": "जीतने के लिए चारों गोटियाँ बीच में पहुँचाएँ",
+  "mode.blitzHint": "जिसकी पहली गोटी बीच में पहुँचे, वही जीते",
+  "mode.frenzyHint": "कोई बारी नहीं — सब एक साथ पासा फेंकते हैं",
+  "frenzy.recharging": "रिचार्ज हो रहा है…",
+  "frenzy.watching": "दौड़ देख रहे हैं",
+
   "rules.title": "कैसे खेलें",
   "rules.goal": "लक्ष्य",
   "rules.goalBody":
@@ -268,6 +289,12 @@ export const hi: Strings = {
   "rules.winning": "जीत",
   "rules.winningBody":
     "जो सबसे पहले अपनी चारों गोटियाँ बीच में पहुँचा दे, वही जीतता है। एक गोटी पूरी होने पर भी एक और बारी मिलती है।",
+  "rules.blitz": "ब्लिट्ज़",
+  "rules.blitzBody":
+    "जो सबसे पहले एक गोटी बीच में पहुँचा दे, वही जीतता है। उसकी बाकी गोटियाँ बोर्ड से हट जाती हैं, और बाकी खिलाड़ी दूसरे और तीसरे स्थान के लिए खेलते रहते हैं।",
+  "rules.frenzy": "धमाचौकड़ी",
+  "rules.frenzyBody":
+    "कोई बारी नहीं: हर खिलाड़ी के पास अपना पासा होता है और वह तैयार होते ही उसे फेंकता है। आपकी गोटी पहुँचने के बाद पासा थोड़ी देर रिचार्ज होता है — छक्का, किसी को काटना या गोटी पूरी करना इंतज़ार छुड़ा देता है। जो सबसे पहले चारों गोटियाँ बीच में पहुँचा दे, वही जीतता है।",
   "rules.sixToLeave": "घर से निकलने को छक्का",
   "rules.extraRollOnSix": "छक्के पर एक और बारी",
   "rules.threeSixes": "तीन छक्के, बारी गई",
@@ -364,6 +391,13 @@ export const hi: Strings = {
   "noads.purchaseFailed": "यह खरीद पूरी नहीं हो सकी।",
   "noads.unavailableHere": "इस डिवाइस पर खरीदारी उपलब्ध नहीं है।",
 
+  "gems.purchasePending": "खरीद मिल गई है। आपके रत्न अभी पहुँच रहे हैं। अपडेट के लिए दुकान फिर खोलें; रत्न न मिलें तो सेटिंग्स → फ़ीडबैक भेजें से सहायता लें।",
+  "gems.purchaseUnavailable": "अभी खरीद उपलब्ध नहीं है। कनेक्शन जाँचें और फिर कोशिश करें।",
+  "match.searchHint": "इसमें आम तौर पर कुछ सेकंड लगते हैं।",
+  "settings.adPrivacy": "विज्ञापन गोपनीयता विकल्प",
+  "settings.adPrivacyError": "गोपनीयता विकल्प नहीं खुल सके। विज्ञापन रोक दिए गए हैं। कृपया फिर कोशिश करें।",
+  "settings.analytics": "लूडो को बेहतर बनाएँ",
+  "settings.analyticsHint": "आपके खाते से जुड़े वैकल्पिक खेल इवेंट। चैट, नाम या विज्ञापन ID नहीं। बंद करने पर संग्रहित इवेंट मिटते हैं।",
   "settings.title": "सेटिंग",
   "settings.soundAndFeel": "आवाज़ और एहसास",
   "settings.music": "संगीत",
@@ -453,6 +487,7 @@ export const hi: Strings = {
   "game.reactions": "रिएक्शन",
 
   "coins.rewardTryAgain": "इनाम आ रहा है — थोड़ी देर में फिर कोशिश करें",
+  "coins.watchFullAd": "इनाम पाने के लिए पूरा विज्ञापन देखें।",
   "coins.needToEnter": "जुड़ने के लिए {coins} सिक्के चाहिए",
   "coins.coversEntry": "आपकी एंट्री हो जाएगी — खेल बिल्कुल वैसा ही रहेगा",
   "coins.pot": "इनाम {pot}",
@@ -476,4 +511,14 @@ export const hi: Strings = {
   "error.title": "बस थोड़ा और",
   "error.loadingLudo": "लूडो लोड हो रहा है",
   "error.dismissInvite": "बुलावा हटाएँ",
+
+  "coins.neverAffectsPlay":
+    "सिक्के मैच में आने और सजावट खोलने के लिए हैं। इनसे खेल के नतीजे पर कभी कोई असर नहीं पड़ता।",
+  "gems.neverAffectsPlay":
+    "रत्न खास सजावट खोलते हैं और सिक्कों में बदलते हैं। इनसे खेल के नतीजे पर कभी कोई असर नहीं पड़ता।",
+  "update.title": "कृपया अपडेट करें",
+  "update.body": "लूडो का यह वर्जन अब नहीं चलता। खेलते रहने के लिए नया वर्जन लगाएँ।",
+  "update.button": "अपडेट करें",
+  "update.recommendedTitle": "नया वर्जन आ गया है",
+  "update.recommendedBody": "यह वर्जन अभी चलता है। जब हो सके, नया वर्जन लगा लें।",
 };

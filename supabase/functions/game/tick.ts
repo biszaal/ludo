@@ -29,8 +29,7 @@ import { advanceStalledGame, STALLED_GAME_COLUMNS, type StalledGameRow } from ".
  */
 const MAX_GAMES_PER_TICK = 25;
 
-/** Unpaid finished games settled per tick. Normally zero: this is a net under
- *  the exactly-once payout latch, not the mechanism that pays. */
+/** Finished results retried per tick when immediate settlement did not complete. */
 const MAX_SETTLE_PER_TICK = 25;
 
 /**
@@ -43,17 +42,17 @@ const TICK_GRACE_MS = 15_000;
 /**
  * Pay out any game that reached `finished` without being settled.
  *
- * settleIfFinished is already exactly-once (the payout_done CAS), and every
+ * settleIfFinished commits credits and flags atomically, and every
  * finisher path calls it — but every one of those paths runs inside a request
- * that can be evicted mid-flight. This re-runs the claim for anything that slipped.
+ * that can be evicted mid-flight. This retries payouts and statistics, including free games.
  */
 async function settleUnpaid(admin: SupabaseClient): Promise<number> {
   const { data: games } = await admin
     .from("games")
     .select("id, state")
     .eq("status", "finished")
-    .eq("payout_done", false)
-    .gt("stake", 0)
+    .or("payout_done.eq.false,stats_done.eq.false")
+    .order("updated_at")
     .limit(MAX_SETTLE_PER_TICK);
   if (!games?.length) return 0;
 
@@ -61,8 +60,12 @@ async function settleUnpaid(admin: SupabaseClient): Promise<number> {
   for (const g of games) {
     const state = g.state as GameState | null;
     if (!state) continue;
-    await settleIfFinished(admin, String(g.id), state);
-    settled++;
+    try {
+      await settleIfFinished(admin, String(g.id), state);
+      settled++;
+    } catch (error) {
+      console.error("[tick.settle]", g.id, error);
+    }
   }
   return settled;
 }
