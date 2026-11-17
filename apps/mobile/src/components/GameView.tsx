@@ -49,13 +49,12 @@ import { setBackInterceptor } from "../store/navStore";
 import { useSettings } from "../store/settingsStore";
 import { payoutSplit, potFor } from "../lib/economy";
 import { GameClock, IconButton, MenuButton } from "./GameControls";
-import { matchOverForSeat, seatFinish } from "../lib/seatFinish";
+import { seatFinish } from "../lib/seatFinish";
 import { tokensToWin, variantOf } from "../lib/standings";
 import { useDieHandover } from "../lib/useDieHandover";
-import { useAds, canShowInterstitial } from "../store/adsStore";
-import { useConfig } from "../store/configStore";
-import { noAdsActive, useEntitlements } from "../store/entitlementsStore";
-import { preloadInterstitial, showInterstitial } from "../lib/ads/provider";
+import { useAds } from "../store/adsStore";
+import { preloadInterstitial } from "../lib/ads/provider";
+import { markGameLeft } from "../lib/ads/afterGameAd";
 import { colorLabel, useT } from "../i18n";
 
 /** Height the top bar ("Ludo" and its pills) occupies. Only the railed layout
@@ -420,40 +419,14 @@ export function GameView({
   }, [finished]);
 
   /**
-   * Show the end-of-match interstitial if every gate allows it.
-   *
-   * "End of match" means end of match FOR THIS PLAYER, and the caller owns that
-   * judgement — see the two seams below. Everything else (session cap, spacing,
-   * never right after losing a staked match) lives in canShowInterstitial.
+   * Leave the table. Any game left — finished, placed or quit mid-race — makes
+   * one interstitial due, and it plays only once the player is back on Home
+   * (lib/ads/afterGameAd). Nothing is ever shown from inside the game screen.
    */
-  const maybeShowEndOfMatchAd = useCallback(async () => {
-    // Read at the moment of the check, not captured in the callback's closure:
-    // a player can buy Remove Ads mid-match, and the interstitial this gates is
-    // the very next thing they would otherwise see.
-    const entitled = noAdsActive(
-      useEntitlements.getState().owned,
-      useEntitlements.getState().noAdsRestored,
-    );
-    if (!canShowInterstitial(useAds.getState(), useConfig.getState().config, entitled)) return;
-    const shown = await showInterstitial();
-    if (shown) useAds.getState().noteInterstitialShown();
-  }, []);
-
-  /**
-   * Leave the table, with the ad this player has now earned the right to see.
-   *
-   * Leaving after finishing is the other moment the match is genuinely over for
-   * someone: their placement is banked, they have chosen not to watch the rest,
-   * and the next thing they see is the home screen either way. Awaited rather
-   * than fired off, because onLeave unmounts this tree and a detached
-   * interstitial would be cancelled on its way up.
-   */
-  const leaveAfterAd = useCallback(async () => {
-    if (matchOverForSeat({ placed: iFinished }, { finished, intent: "leave" })) {
-      await maybeShowEndOfMatchAd();
-    }
+  const leaveAfterAd = useCallback(() => {
+    markGameLeft();
     onLeave();
-  }, [maybeShowEndOfMatchAd, onLeave, iFinished, finished]);
+  }, [onLeave]);
 
   // Capture toast: a token was just sent home — flash a one-liner over the
   // board (timed near the capture sound's arrival delay).
@@ -844,22 +817,13 @@ export function GameView({
           pot={pot}
           onStay={() => {
             fromCelebration.current = finished;
-            // ONLY once the whole match is over. This sheet also opens for the
-            // champion of a 3- or 4-handed game the moment they come home, while
-            // everyone else is still walking tokens around the board — and there
-            // the button says "Watch the rest", so firing an ad on it dropped a
-            // full-screen takeover over a match still in progress and then
-            // returned the player to it. An ad may interrupt the end of a game;
-            // it may never interrupt the middle of one.
-            if (matchOverForSeat({ placed: iFinished }, { finished, intent: "stay" })) {
-              void maybeShowEndOfMatchAd();
-            }
+            // Staying on the board is never an ad moment, finished or not: the
+            // ad waits until the player leaves and is back on Home.
             setCelebrating(false);
           }}
           onLeave={() => {
             setCelebrating(false);
-            // Leaving IS the end of the match for this seat, finished or not.
-            void leaveAfterAd();
+            leaveAfterAd();
           }}
         />
       )}
@@ -877,8 +841,7 @@ export function GameView({
           onWatch={() => setFinishPrompt(false)}
           onLeave={() => {
             setFinishPrompt(false);
-            // A minor place who has banked their finish and is walking away.
-            void leaveAfterAd();
+            leaveAfterAd();
           }}
         />
       )}
@@ -887,8 +850,7 @@ export function GameView({
         <RemovedPrompt
           stake={stake}
           onWatch={() => setRemovedPrompt(false)}
-          // No ad: this seat didn't finish a match, it lost one it wasn't at.
-          onHome={onLeave}
+          onHome={leaveAfterAd}
         />
       )}
 
@@ -909,7 +871,7 @@ export function GameView({
           live={!finished}
           onBackToGame={() => setStandingsOpen(false)}
           enterDelayMs={fromCelebration.current || liveStandings ? 100 : 900}
-          onHome={() => void leaveAfterAd()}
+          onHome={leaveAfterAd}
         />
       )}
 
@@ -918,9 +880,7 @@ export function GameView({
           onResume={() => setPaused(false)}
           onLeave={() => {
             setPaused(false);
-            // Same rule: a finished seat walking away may see one, a seat still
-            // racing is forfeiting and must not.
-            void leaveAfterAd();
+            leaveAfterAd();
           }}
           confirmLeave={confirmLeave}
           // Only a seat still racing has anything to lose: a player who already

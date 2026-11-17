@@ -41,6 +41,7 @@ import { useConfig } from "./src/store/configStore";
 import { useAds } from "./src/store/adsStore";
 import { useWallet } from "./src/store/walletStore";
 import { initAds } from "./src/lib/ads/provider";
+import { watchAfterGameAd } from "./src/lib/ads/afterGameAd";
 import { initProfileSync } from "./src/net/profileSync";
 import { initPurchases, syncPurchasesUser } from "./src/lib/purchases";
 import { ensureSignedIn } from "./src/net/api";
@@ -96,6 +97,9 @@ export default function App() {
     // new-player grace period that holds interstitials back early on.
     useAds.getState().bumpSession();
     void initAds();
+    // The end-of-game interstitial plays on Home after a game is left, never on
+    // the board (lib/ads/afterGameAd).
+    const stopAfterGameAd = watchAfterGameAd();
     // RevenueCat: configure with the platform key, then attach the current user
     // (created if needed) so purchases land on the right account. No key means
     // billing is off for this build — it all no-ops and the shop uses the stub.
@@ -152,6 +156,7 @@ export default function App() {
       stopPush();
       stopBonusReminder();
       stopUpdates();
+      stopAfterGameAd();
     };
   }, []);
 
