@@ -11,11 +11,14 @@
  */
 
 import { useEffect, useState } from "react";
-import { StyleSheet, View, useWindowDimensions } from "react-native";
+import { Platform, StyleSheet, View, useWindowDimensions } from "react-native";
+import { create } from "zustand";
 import { adsSdk } from "../lib/ads/native";
 import { bannerUnitId, type BannerSlot } from "../lib/ads/units";
 import { useAdsReady } from "../lib/ads/useAdsReady";
 import { noteAdError } from "../lib/ads/provider";
+import { nextPromo, promosFor } from "../lib/ads/promos";
+import { PromoCard } from "./PromoCard";
 import { useT } from "../i18n";
 import { radius } from "../theme";
 import { useConfig } from "../store/configStore";
@@ -44,6 +47,19 @@ const RETRY_DELAYS_MS = [20_000, 45_000, 90_000];
 const RECT = { width: 300, height: 250 };
 
 /**
+ * Slots that have given up for this session: every retry came back empty and
+ * there is none of our own apps to show in their place (Android, today). The
+ * slot then takes no space at all, rather than leaving a grey band where a
+ * banner never arrives. Shared rather than component state because Home budgets
+ * its column around the slot's height before the slot renders. Not persisted —
+ * the next launch tries again.
+ */
+const useGaveUp = create<{ slots: Partial<Record<BannerSlot, true>>; give: (slot: BannerSlot) => void }>((set) => ({
+  slots: {},
+  give: (slot) => set((s) => ({ slots: { ...s.slots, [slot]: true } })),
+}));
+
+/**
  * The height a slot holds from its first frame — 0 when it renders nothing (ads
  * off, Remove Ads owned, or a client without the ads SDK).
  *
@@ -56,8 +72,9 @@ export function useAdSlotHeight(slot: BannerSlot): number {
   const config = useConfig((s) => s.config);
   const entitled = useNoAds();
   const { width: screenWidth } = useWindowDimensions();
+  const gaveUp = useGaveUp((s) => s.slots[slot] === true);
   const expected = adsSdk !== null && adsEnabled(config, entitled) && config.ads.banner[slot];
-  if (!expected) return 0;
+  if (!expected || gaveUp) return 0;
   return slot === "lobby" ? RECT.height : anchoredBannerHeight(screenWidth);
 }
 
@@ -77,17 +94,30 @@ export function AdSlot({ slot }: AdSlotProps) {
   const [waiting, setWaiting] = useState(false);
   // The current request filled: the skeleton's cue to step aside.
   const [loaded, setLoaded] = useState(false);
+  // Google has said "no" at least once on this mount. From then until a banner
+  // fills, the slot shows one of our own apps where there is one to show.
+  const [failed, setFailed] = useState(false);
+  // Chosen once per mount, so the card does not change under the player's
+  // thumb on every retry.
+  const [promo] = useState(() => nextPromo(promosFor(Platform.OS)));
+  const gaveUp = useGaveUp((s) => s.slots[slot] === true);
+  const giveUp = useGaveUp((s) => s.give);
 
   useEffect(() => {
     if (!waiting) return;
     const delay = RETRY_DELAYS_MS[attempt];
-    if (delay === undefined) return; // out of retries — stay empty
+    if (delay === undefined) {
+      // Out of retries. With a promo up, it simply stays; without one, the slot
+      // folds away instead of holding an empty box for the rest of the session.
+      if (!promo) giveUp(slot);
+      return;
+    }
     const timer = setTimeout(() => {
       setAttempt((a) => a + 1);
       setWaiting(false);
     }, delay);
     return () => clearTimeout(timer);
-  }, [waiting, attempt]);
+  }, [waiting, attempt, promo, giveUp, slot]);
 
   // The real entitlement (0063). Subscribed rather than read once: a purchase
   // made from the shop has to take the banner off this screen without a
@@ -95,7 +125,7 @@ export function AdSlot({ slot }: AdSlotProps) {
   const entitled = useNoAds();
 
   const expected = adsSdk !== null && adsEnabled(config, entitled) && config.ads.banner[slot];
-  if (!expected || !adsSdk) return null;
+  if (!expected || gaveUp || !adsSdk) return null;
   const { BannerAd, BannerAdSize } = adsSdk;
 
   const rect = slot === "lobby";
@@ -104,6 +134,7 @@ export function AdSlot({ slot }: AdSlotProps) {
   // Outside a SkeletonGroup a block has no wave, which is what "flat" means.
   const block = <SkeletonBlock width={rect ? RECT.width : "100%"} height={height} rad={rect ? radius.sm : 0} />;
   const fill = [StyleSheet.absoluteFill, { alignItems: "center" as const, justifyContent: "center" as const }];
+  const showPromo = !loaded && failed && promo !== null;
 
   return (
     // minHeight, not height: if the SDK ever hands back a taller banner than
@@ -116,6 +147,7 @@ export function AdSlot({ slot }: AdSlotProps) {
           a slot that never fills must not shimmer at the player forever; a shape
           rather than nothing because an empty band reads as a broken layout. */}
       {!loaded &&
+        !showPromo &&
         (requesting ? (
           <SkeletonGroup label={t("common.loading")} style={fill}>
             {block}
@@ -137,9 +169,18 @@ export function AdSlot({ slot }: AdSlotProps) {
           onAdFailedToLoad={(err) => {
             noteAdError("banner", err);
             setLoaded(false);
+            setFailed(true);
             setWaiting(true);
           }}
         />
+      )}
+      {/* After the banner so it draws on top: a retry's banner view is mounted
+          (and empty) underneath until it fills, and must not catch the tap
+          meant for the card. A banner that does fill takes the card away. */}
+      {showPromo && promo && (
+        <View style={fill}>
+          <PromoCard promo={promo} shape={rect ? "rect" : "strip"} height={height} />
+        </View>
       )}
     </View>
   );

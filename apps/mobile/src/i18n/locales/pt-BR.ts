@@ -512,6 +512,12 @@ export const ptBR: Strings = {
     "As moedas servem para entrar nas partidas e desbloquear itens. Nunca influenciam o andamento de uma partida.",
   "gems.neverAffectsPlay":
     "As gemas desbloqueiam itens especiais e viram moedas. Nunca influenciam o andamento de uma partida.",
+  "promo.fromUs": "Mais da equipe do Ludo",
+  "promo.get": "Obter",
+  "promo.cascade": "Um quebra-cabeça tranquilo de separar cores",
+  "promo.helicopter": "Voe por uma caverna sem fim que desmorona",
+  "promo.itrackhabit": "Um rastreador de hábitos calmo e privado",
+  "promo.expenzez": "Um planejador de orçamento com IA",
   "update.title": "Atualize o app",
   "update.body": "Esta versão do Ludo não é mais compatível. Instale a mais recente para continuar jogando.",
   "update.button": "Atualizar",

@@ -514,6 +514,12 @@ export const es: Strings = {
     "Las monedas sirven para entrar a partidas y desbloquear artículos. Nunca influyen en cómo se desarrolla una partida.",
   "gems.neverAffectsPlay":
     "Las gemas desbloquean artículos especiales y se cambian por monedas. Nunca influyen en cómo se desarrolla una partida.",
+  "promo.fromUs": "Más del equipo de Ludo",
+  "promo.get": "Obtener",
+  "promo.cascade": "Un puzle relajante de ordenar colores",
+  "promo.helicopter": "Vuela por una cueva infinita que se derrumba",
+  "promo.itrackhabit": "Un registro de hábitos tranquilo y privado",
+  "promo.expenzez": "Un planificador de presupuesto con IA",
   "update.title": "Actualiza la app",
   "update.body": "Esta versión de Ludo ya no es compatible. Instala la más reciente para seguir jugando.",
   "update.button": "Actualizar",

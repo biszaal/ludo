@@ -544,6 +544,13 @@ export const en = {
     "Coins are for entering matches and unlocking looks. They never affect how a game plays out.",
   "gems.neverAffectsPlay":
     "Gems unlock premium looks and convert to coins. They never affect how a game plays out.",
+  // --- Our other apps, in an empty banner slot -------------------------------
+  "promo.fromUs": "More from the Ludo team",
+  "promo.get": "Get",
+  "promo.cascade": "A calm colour-sorting puzzle",
+  "promo.helicopter": "Fly an endless collapsing cave",
+  "promo.itrackhabit": "A calm, private habit tracker",
+  "promo.expenzez": "An AI budget planner",
   // --- Please update --------------------------------------------------------
   "update.title": "Please update",
   "update.body": "This version of Ludo is no longer supported. Install the latest one to keep playing.",
