@@ -539,6 +539,10 @@ export const en = {
   "error.loadingLudo": "Loading Ludo",
   "error.dismissInvite": "Dismiss invite",
 
+  "coins.neverAffectsPlay":
+    "Coins are for entering matches and unlocking looks. They never affect how a game plays out.",
+  "gems.neverAffectsPlay":
+    "Gems unlock premium looks and convert to coins. They never affect how a game plays out.",
   // --- Please update --------------------------------------------------------
   "update.title": "Please update",
   "update.body": "This version of Ludo is no longer supported. Install the latest one to keep playing.",

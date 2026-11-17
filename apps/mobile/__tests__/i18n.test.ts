@@ -146,6 +146,20 @@ describe("catalogs", () => {
   });
 });
 
+describe("purchase footnotes", () => {
+  it("says coins and gems never affect how a game plays out", () => {
+    expect(en["coins.neverAffectsPlay"]).toBe(
+      "Coins are for entering matches and unlocking looks. They never affect how a game plays out.",
+    );
+    expect(en["gems.neverAffectsPlay"]).toBe(
+      "Gems unlock premium looks and convert to coins. They never affect how a game plays out.",
+    );
+    // Nothing in the app describes bots or the dice.
+    expect(en["coins.neverAffectsPlay"]).not.toMatch(/bot|dice|assist/i);
+    expect(en["gems.neverAffectsPlay"]).not.toMatch(/bot|dice|assist/i);
+  });
+});
+
 describe("chat phrases", () => {
   it("translates a canned line for display", () => {
     // The wire value is English; what a reader sees is their own language.

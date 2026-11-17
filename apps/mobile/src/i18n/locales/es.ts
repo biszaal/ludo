@@ -509,6 +509,10 @@ export const es: Strings = {
   "error.loadingLudo": "Cargando Ludo",
   "error.dismissInvite": "Descartar invitación",
 
+  "coins.neverAffectsPlay":
+    "Las monedas sirven para entrar a partidas y desbloquear artículos. Nunca influyen en cómo se desarrolla una partida.",
+  "gems.neverAffectsPlay":
+    "Las gemas desbloquean artículos especiales y se cambian por monedas. Nunca influyen en cómo se desarrolla una partida.",
   "update.title": "Actualiza la app",
   "update.body": "Esta versión de Ludo ya no es compatible. Instala la más reciente para seguir jugando.",
   "update.button": "Actualizar",
