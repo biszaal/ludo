@@ -43,8 +43,8 @@ function notificationsAvailable(): boolean {
  * the bug is invisible on the platform most testing happens on — which is
  * exactly how it shipped.
  *
- * One const, used by both askers (push registration and the bonus reminder), so
- * the two cannot drift.
+ * One const, used by the one asker (`registerForPush`). The daily-chest
+ * reminder never prompts; it only schedules after a grant already exists.
  */
 export const PERMISSION_REQUEST = {
   ios: { allowAlert: true, allowBadge: true, allowSound: true },

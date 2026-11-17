@@ -27,7 +27,7 @@ import { useWallet } from "../store/walletStore";
 import { isTimeout } from "../net/api";
 import { useConfig } from "../store/configStore";
 import { dailyBonusLadder, type BonusDay } from "../lib/economy";
-import { offerBonusReminder } from "../lib/bonusReminder";
+import { PushPromptOffer } from "../lib/pushPromptOffer";
 import { formatExact } from "../lib/format";
 import { playSound } from "../lib/sound";
 import { win as winHaptic } from "../lib/haptics";
@@ -66,10 +66,10 @@ export function DailyBonusSheet({ onClose }: { onClose: () => void }) {
         winHaptic();
         setCelebrating(true);
         setNote(null);
-        // The one moment asking to remind them lands: they have just banked a
-        // day and the streak is now something to lose. Never blocks the
-        // celebration — the OS prompt (if it even appears) rides on top.
-        void offerBonusReminder(useWallet.getState().streakDay);
+        // They just banked a day, which is the moment the reminder is worth
+        // something. Our sheet asks first; registerForPush raises the OS
+        // dialog only if they say yes. The celebration stays mounted under it.
+        void PushPromptOffer.onClaim();
       } else {
         // Already taken today — another device, or a retry that raced the claim.
         setNote(t("home.alreadyClaimed"));
@@ -96,6 +96,7 @@ export function DailyBonusSheet({ onClose }: { onClose: () => void }) {
             winHaptic();
             setCelebrating(true);
             setNote(null);
+            void PushPromptOffer.onClaim();
           } else {
             setNote(t("home.alreadyClaimed"));
           }
