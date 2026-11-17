@@ -242,8 +242,16 @@ export function showInterstitial(): Promise<boolean> {
         offError();
         finish(false);
       });
-      ad.show();
-    } catch {
+      // show() returns a promise. On iOS it REJECTS — with no ERROR event — when
+      // no view controller can present ("nil-vc") or the ad went stale
+      // ("not-ready"). Unhandled, that left this promise pending for good, and
+      // GameView awaits it before leaving a finished match.
+      Promise.resolve(ad.show()).catch((err: unknown) => {
+        noteAdError("interstitial", err);
+        finish(false);
+      });
+    } catch (err) {
+      noteAdError("interstitial", err);
       finish(false);
     }
   });
@@ -261,6 +269,13 @@ export type RewardedOutcome = "earned" | "dismissed" | "failed";
  * SDK saw the reward event — it is NOT proof of payment and must never be used
  * to credit coins client-side. Poll adRewardStatus for that.
  */
+/**
+ * How long a rewarded ad may take to load before the player is told it failed.
+ * Without a limit a slow fill (common on iOS when tracking is declined) left the
+ * watch-ad button spinning indefinitely.
+ */
+export const REWARDED_LOAD_TIMEOUT_MS = 20_000;
+
 export function showRewarded(nonce: string, userId: string): Promise<RewardedOutcome> {
   const sdk = adsSdk;
   if (!sdk || !adsReady()) {
@@ -270,9 +285,11 @@ export function showRewarded(nonce: string, userId: string): Promise<RewardedOut
   return new Promise<RewardedOutcome>((resolve) => {
     let earned = false;
     let settled = false;
+    let loadTimer: ReturnType<typeof setTimeout> | null = null;
     const finish = (outcome: RewardedOutcome) => {
       if (settled) return;
       settled = true;
+      if (loadTimer) clearTimeout(loadTimer);
       resolve(outcome);
     };
 
@@ -283,9 +300,19 @@ export function showRewarded(nonce: string, userId: string): Promise<RewardedOut
 
       const offLoaded = ad.addAdEventListener(sdk.RewardedAdEventType.LOADED, () => {
         offLoaded();
+        if (loadTimer) clearTimeout(loadTimer);
+        // Gave up already: a late fill must not pop an ad over whatever the
+        // player has moved on to.
+        if (settled) return;
         try {
-          ad.show();
-        } catch {
+          // Same as the interstitial: a refused show() rejects without an
+          // ERROR event, so it must be caught here or the flow never ends.
+          Promise.resolve(ad.show()).catch((err: unknown) => {
+            noteAdError("rewarded", err);
+            finish("failed");
+          });
+        } catch (err) {
+          noteAdError("rewarded", err);
           finish("failed");
         }
       });
@@ -298,6 +325,10 @@ export function showRewarded(nonce: string, userId: string): Promise<RewardedOut
         finish("failed");
       });
 
+      loadTimer = setTimeout(() => {
+        noteAdError("rewarded", `load timed out after ${REWARDED_LOAD_TIMEOUT_MS / 1000}s`);
+        finish("failed");
+      }, REWARDED_LOAD_TIMEOUT_MS);
       ad.load();
     } catch (err) {
       noteAdError("rewarded", err);
