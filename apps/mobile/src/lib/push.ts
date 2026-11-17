@@ -15,9 +15,12 @@
  * the app works fine for anyone who never says yes: invites still arrive over
  * realtime while the app is open.
  *
- * Nothing here throws. Push is an enhancement on top of a delivery path that
- * already works, and a notification failure must never surface as a broken
- * invite.
+ * Nothing here throws out to the caller. Push is an enhancement on top of a
+ * delivery path that already works, and a notification failure must never
+ * surface as a broken invite. A failure that means this device will not
+ * register — missing FCM credentials, a token mint that threw — is reported to
+ * Sentry once per launch, with the platform, the permission status, and the
+ * step that failed. The player still sees nothing.
  */
 
 import { Platform } from "react-native";
@@ -27,9 +30,28 @@ import { notifications, PERMISSION_REQUEST } from "./notifications";
 // Type-only: erased at compile time, so it never pulls the module in at runtime.
 import type { NotificationResponse } from "expo-notifications";
 import { pushDisable, pushRegister } from "../net/api";
+import { captureError } from "./crashReporting";
 import { useOnlineStore } from "../store/onlineStore";
 import { useNav } from "../store/navStore";
 import { useSettings } from "../store/settingsStore";
+
+/**
+ * One report per process. Friends, the invite sheet, and the settings toggle
+ * all call registerForPush, and a missing FCM file fails the same way every
+ * time. The first failure is the one that says the feature is down.
+ */
+class PushFailure {
+  private static reported = false;
+
+  static capture(
+    e: unknown,
+    context: { platform: string; permission: string; step: string },
+  ): void {
+    if (PushFailure.reported) return;
+    PushFailure.reported = true;
+    captureError(e, { where: "push.register", ...context });
+  }
+}
 
 /**
  * Foreground presentation. SDK 53+ replaced shouldShowAlert with the
@@ -74,36 +96,51 @@ export async function registerForPush(): Promise<boolean> {
   const N = notifications();
   if (!N) return false;
 
+  // Which step threw. A denied permission is not a failure — the player said
+  // no, and that returns false below without a report. Everything that throws
+  // (no FCM app, token mint, the register write) is.
+  let step = "permissions";
+  let permission = "unknown";
   try {
-    const existing = await N.getPermissionsAsync();
-    let granted = existing.granted;
-    if (!granted && existing.canAskAgain) {
-      const asked = await N.requestPermissionsAsync(PERMISSION_REQUEST);
-      granted = asked.granted;
-    }
-    if (!granted) return false;
-
-    // Android needs a channel before anything is delivered; the id matches the
-    // channelId the edge function sends.
+    // Android 13+ does not show the POST_NOTIFICATIONS prompt, and will not
+    // mint a token, until a channel exists. requestPermissionsAsync is what
+    // asks for that permission on API 33 (expo-notifications' manifest already
+    // declares it). The id matches the channelId the edge function sends and
+    // the plugin's defaultChannel.
     if (Platform.OS === "android") {
+      step = "channel";
       await N.setNotificationChannelAsync("default", {
         name: "Invites and friends",
         importance: N.AndroidImportance.DEFAULT,
       });
     }
 
+    step = "permissions";
+    const existing = await N.getPermissionsAsync();
+    permission = existing.status;
+    let granted = existing.granted;
+    if (!granted && existing.canAskAgain) {
+      const asked = await N.requestPermissionsAsync(PERMISSION_REQUEST);
+      permission = asked.status;
+      granted = asked.granted;
+    }
+    if (!granted) return false;
+
+    step = "token";
     const { data: token } = await N.getExpoPushTokenAsync({ projectId: projectId() });
-    if (!token) return false;
+    if (!token) throw new Error("getExpoPushTokenAsync returned an empty token");
 
     // Through the edge function, not the table. The write conflicts on the
     // TOKEN — reinstalling mints a new one, and signing into a different account
     // on the same device must MOVE the existing row rather than leave the old
     // account receiving this handset's pushes. The RLS policy this replaced
     // matched on the row's owner instead, so that move silently did nothing.
+    step = "register";
     await pushRegister(token, Platform.OS === "ios" ? "ios" : "android");
     return true;
-  } catch {
-    return false; // permission dialog dismissed, offline, or no credentials yet
+  } catch (e) {
+    PushFailure.capture(e, { platform: Platform.OS, permission, step });
+    return false;
   }
 }
 
