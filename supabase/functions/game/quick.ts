@@ -89,7 +89,7 @@ export async function opQuickMatch(
  * seated"; the version guard dedups racing starts).
  */
 export async function opQuickBotFill(admin: SupabaseClient, userId: string, gameId: string): Promise<Response> {
-  const { data: game } = await admin.from("games").select("id, status, is_quick, quick_size, state, state_version").eq("id", gameId).single();
+  const { data: game } = await admin.from("games").select("id, status, is_quick, quick_size, state, state_version").eq("id", gameId).maybeSingle();
   if (!game || !game.is_quick) return json({ error: "Game not found." });
   const { data: seated } = await admin.from("players").select("id, user_id, seat").eq("game_id", gameId).order("seat");
   if (!seated?.some((p) => p.user_id === userId)) return json({ error: "You are not in this game." });

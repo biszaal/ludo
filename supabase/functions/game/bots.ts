@@ -188,6 +188,17 @@ function pickBotDiceSkin(rng: () => number): string | null {
   return "neon";
 }
 
+/** Is this display name already on a profile? Mirrors the case-insensitive
+ *  unique index. A failed lookup answers "no" and leaves it to the insert. */
+async function nameHeld(admin: SupabaseClient, name: string): Promise<boolean> {
+  const escaped = name.replace(/[\\%_]/g, (c) => `\\${c}`);
+  const { data, error } = await admin.from("profiles").select("user_id").ilike("display_name", escaped).limit(1);
+  return !error && (data ?? []).length > 0;
+}
+
+/** Postgres foreign_key_violation: the row we point at is gone. */
+const FOREIGN_KEY_VIOLATION = "23503";
+
 /**
  * Reuse a free identity from the pool, or mint one: a real auth user, so the
  * players FK holds.
@@ -203,10 +214,15 @@ async function claimOrCreateBotIdentity(
   gameId: string,
   visible: boolean,
 ): Promise<string | null> {
-  const { data: claimed } = await admin.rpc(
+  const { data: claimed, error: claimError } = await admin.rpc(
     visible ? "claim_visible_bot_identity" : "claim_bot_identity",
     { p_game: gameId },
   );
+  // A claim that FAILED is not an empty pool. The usual cause is the game being
+  // deleted under us (the claim's in_use_game_id foreign key), and minting would
+  // only strand a fresh auth user with no pool row — which is what happened on
+  // 2026-11-16 whenever a player cancelled quick match as their bot fill fired.
+  if (claimError) return null;
   if (claimed) return String(claimed);
 
   const { data: created, error } = await admin.auth.admin.createUser({
@@ -215,7 +231,15 @@ async function claimOrCreateBotIdentity(
   });
   if (error || !created?.user) return null;
   const uid = created.user.id;
-  await admin.from("bot_identities").insert({ user_id: uid, in_use_game_id: gameId, visible });
+  const { error: poolError } = await admin
+    .from("bot_identities")
+    .insert({ user_id: uid, in_use_game_id: gameId, visible });
+  if (poolError) {
+    // Without its pool row this user can never be claimed again, so it would
+    // only ever be an orphan. It is minutes old and owns nothing; remove it.
+    await admin.auth.admin.deleteUser(uid).catch(() => {});
+    return null;
+  }
   // A labelled seat is done here: no name, no face, nothing to leak.
   if (visible) return uid;
 
@@ -225,6 +249,10 @@ async function claimOrCreateBotIdentity(
   // whether the two agree — which is how the pool filled up with mismatches.
   for (let attempt = 0; attempt < 5; attempt++) {
     const { name, presents } = pickBotName(cryptoRng, attempt);
+    // Ask before writing. Names are unique case-insensitively (0006), and most
+    // of the 32 base names are long taken, so writing first meant a 409 in the
+    // logs for nearly every mint. The insert below is still the real guard.
+    if (await nameHeld(admin, name)) continue;
     const { error: profErr } = await admin
       .from("profiles")
       .insert({ user_id: uid, display_name: name, avatar_id: pickBotAvatar(cryptoRng, presents), dice_skin: diceSkin });
@@ -281,6 +309,12 @@ export async function seatBots(
   colors: readonly string[],
   visible: boolean,
 ): Promise<number> {
+  // The room can be deleted between the caller's read and here — a player
+  // cancelling the search as their fill timer fires. Racy by nature, so the
+  // claim and registration below still treat a vanished game as a stop.
+  const { data: live, error: liveError } = await admin.from("games").select("id").eq("id", gameId).maybeSingle();
+  if (!liveError && !live) return 0;
+
   let added = 0;
   for (const seat of seats) {
     const botUserId = await claimOrCreateBotIdentity(admin, gameId, visible);
@@ -301,6 +335,8 @@ export async function seatBots(
       const { error: regErr } = await admin.from("game_bots").insert({ game_id: gameId, user_id: botUserId, can_chat: true });
       if (regErr) {
         releaseIdentity();
+        // The game is gone: every other chair would fail the same way.
+        if (regErr.code === FOREIGN_KEY_VIOLATION) break;
         continue;
       }
     }
@@ -312,6 +348,7 @@ export async function seatBots(
       // identity; the human fills that chair instead.
       if (!visible) afterResponse(admin.from("game_bots").delete().eq("game_id", gameId).eq("user_id", botUserId));
       releaseIdentity();
+      if (seatErr.code === FOREIGN_KEY_VIOLATION) break;
       continue;
     }
     added++;

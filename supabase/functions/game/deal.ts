@@ -22,7 +22,9 @@ export async function startGameNow(admin: SupabaseClient, gameId: string): Promi
     .from("games")
     .select("id, status, has_bots, state, state_version, is_quick, stake, mode, atomic_quick")
     .eq("id", gameId)
-    .single();
+    // Not .single(): a game reaped or cancelled a moment ago is an ordinary
+    // "not found", and .single() turns it into an HTTP 406 error instead.
+    .maybeSingle();
   if (!game) return { error: "Game not found." };
   const v = (game.state_version as number | null) ?? 0;
   if (game.status !== "waiting") {

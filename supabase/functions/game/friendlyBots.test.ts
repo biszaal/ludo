@@ -27,6 +27,8 @@ function fakeAdmin(): { admin: SupabaseClient; calls: Calls } {
       return Promise.resolve({ data: POOLED, error: null });
     },
     from: (table: string) => ({
+      // seatBots first checks the game still exists (botGoneGame.test.ts).
+      select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: { id: GAME }, error: null }) }) }),
       insert: (row: Record<string, unknown>) => {
         if (table === "players") calls.players.push(row);
         if (table === "game_bots") calls.gameBots.push(row);

@@ -48,7 +48,7 @@ Deno.test('quick fill seats a HIDDEN bot in the actual empty seat, registered be
   const claims:string[]=[];const writes:Array<{table:string;row:Record<string,unknown>}>=[];
   const game={id:GAME,is_quick:true,quick_size:4,status:'waiting',state:{gameId:GAME,status:'active'},state_version:1};
   // deno-lint-ignore no-explicit-any
-  const chain=(read:()=>unknown):any=>{const n:any={eq:()=>n,order:()=>Promise.resolve(read()),single:()=>Promise.resolve(read()),then:(resolve:any,reject:any)=>Promise.resolve(read()).then(resolve,reject)};return n;};
+  const chain=(read:()=>unknown):any=>{const n:any={eq:()=>n,order:()=>Promise.resolve(read()),single:()=>Promise.resolve(read()),maybeSingle:()=>Promise.resolve(read()),select:()=>n,then:(resolve:any,reject:any)=>Promise.resolve(read()).then(resolve,reject)};return n;};
   const admin={rpc:(name:string)=>{claims.push(name);return Promise.resolve({data:BOT,error:null});},from:(table:string)=>{
     if(table==='games')return {select:()=>chain(()=>({data:game}))};
     if(table==='players')return {select:()=>chain(()=>({data:seats,count:seats.length})),insert:(row:Record<string,unknown>)=>{
@@ -67,7 +67,7 @@ Deno.test('a hidden bot that cannot be registered is not seated at all',async()=
   let seated=0;
   const game={id:GAME,is_quick:true,quick_size:2,status:'waiting',state:null,state_version:1};
   // deno-lint-ignore no-explicit-any
-  const chain=(read:()=>unknown):any=>{const n:any={eq:()=>n,order:()=>Promise.resolve(read()),single:()=>Promise.resolve(read()),then:(resolve:any,reject:any)=>Promise.resolve(read()).then(resolve,reject)};return n;};
+  const chain=(read:()=>unknown):any=>{const n:any={eq:()=>n,order:()=>Promise.resolve(read()),single:()=>Promise.resolve(read()),maybeSingle:()=>Promise.resolve(read()),select:()=>n,then:(resolve:any,reject:any)=>Promise.resolve(read()).then(resolve,reject)};return n;};
   const admin={rpc:()=>Promise.resolve({data:BOT,error:null}),from:(table:string)=>{
     if(table==='games')return {select:()=>chain(()=>({data:game}))};
     if(table==='players')return {select:()=>chain(()=>({data:seats,count:seats.length})),insert:()=>{seated++;return Promise.resolve({error:null});}};
@@ -82,7 +82,7 @@ Deno.test('a hidden bot that cannot be registered is not seated at all',async()=
 });
 Deno.test('a nonparticipant cannot use bot fill to read an active match',async()=>{
   // deno-lint-ignore no-explicit-any
-  const node=(data:unknown):any=>{const n:any={select:()=>n,eq:()=>n,single:()=>Promise.resolve({data}),order:()=>Promise.resolve({data})};return n;};
+  const node=(data:unknown):any=>{const n:any={select:()=>n,eq:()=>n,single:()=>Promise.resolve({data}),maybeSingle:()=>Promise.resolve({data}),order:()=>Promise.resolve({data})};return n;};
   const admin={from:(table:string)=>node(table==='games'?{id:GAME,is_quick:true,status:'active',state:{secret:true}}:[])} as unknown as SupabaseClient;
   assertEquals((await body(await opQuickBotFill(admin,USER,GAME))).error,'You are not in this game.');
 });

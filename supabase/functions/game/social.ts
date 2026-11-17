@@ -53,7 +53,7 @@ const ONLINE_FANOUT_MAX = 10;
  * players.user_id and games.host_user_id have no foreign key to auth.users, so
  * deleting the user alone left their chairs occupied by nobody — an active game
  * waiting on a player who no longer exists until the turn clock idled them out,
- * and a friend room hosted by a deleted account open until the 24h reap. So the
+ * and a friend room hosted by a deleted account open until the reap (24h then, 2h since 0081). So the
  * seats are given up first, through the same opLeave a player's own Leave tap
  * runs (forfeit in a live game, refunds for a quick-match queue).
  *

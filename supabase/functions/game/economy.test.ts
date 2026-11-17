@@ -21,7 +21,7 @@ function fake(result: unknown, error: unknown = null) {
         ? {id:GAME,status:'waiting',state_version:4,is_quick:false,stake:100,mode:'classic',has_bots:false}
         : table==='players' ? players.map((p,i)=>({id:p.id,user_id:p.userId,seat:i,app_version:null})) : [];
       // deno-lint-ignore no-explicit-any
-      const node: any = { select:()=>node, eq:()=>node, single:()=>Promise.resolve({data}), order:()=>Promise.resolve({data}) };
+      const node: any = { select:()=>node, eq:()=>node, single:()=>Promise.resolve({data}), maybeSingle:()=>Promise.resolve({data}), order:()=>Promise.resolve({data}) };
       node.update=()=>{ writes++; throw new Error('Unexpected separate write'); };
       return node;
     },

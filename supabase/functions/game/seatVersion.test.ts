@@ -126,7 +126,7 @@ function quickFake(seated: number, size: number) {
       order.push("entry");
       return Promise.resolve({ data: { gameId: GAME, playerId: "seat", seated, size, waiting: true, stake: 100, mode: "classic" }, error: null });
     },
-    from: () => ({ select: () => ({ eq: () => ({ single: () => {
+    from: () => ({ select: () => ({ eq: () => ({ maybeSingle: () => {
       order.push("deal");
       return Promise.resolve({ data: { status: "active", state: { gameId: GAME }, state_version: 2 } });
     } }) }) }),
