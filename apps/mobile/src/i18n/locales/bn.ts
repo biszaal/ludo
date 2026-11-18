@@ -428,8 +428,12 @@ export const bn: Strings = {
   "stats.table": "টেবিল",
   "stats.empty": "আপনার প্রথম খেলা এখানে আসবে — জয়, ধারা ও ইতিহাস।",
 
-  "notify.bonusTitle": "আপনার দৈনিক বোনাস তৈরি",
+  "notify.bonusTitle": "আপনার দৈনিক সিন্দুক তৈরি",
   "notify.bonusBody": "আপনার বিনামূল্যের কয়েন অপেক্ষা করছে। নিতে চাপ দিন।",
+  "notify.promptTitle": "মনে করিয়ে দেব?",
+  "notify.promptBody": "আপনার দৈনিক সিন্দুক তৈরি হলে আমরা জানাব।",
+  "notify.promptYes": "মনে করিয়ে দিন",
+  "notify.promptNo": "এখন না",
 
   // --- In-game status line ---------------------------------------------------
   "status.wins": "{color} জিতেছে!",

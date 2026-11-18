@@ -429,8 +429,12 @@ export const ne: Strings = {
   "stats.table": "टेबल",
   "stats.empty": "तपाईंको पहिलो खेल यहाँ देखिन्छ — जित, लगातार र इतिहास।",
 
-  "notify.bonusTitle": "तपाईंको दैनिक बोनस तयार छ",
+  "notify.bonusTitle": "तपाईंको दैनिक सन्दुक तयार छ",
   "notify.bonusBody": "तपाईंका निःशुल्क सिक्का पर्खिरहेका छन्। लिन थिच्नुहोस्।",
+  "notify.promptTitle": "सम्झाइदिऊँ?",
+  "notify.promptBody": "तपाईंको दैनिक सन्दुक तयार हुँदा हामी भन्छौँ।",
+  "notify.promptYes": "सम्झाइदिनुहोस्",
+  "notify.promptNo": "अहिले होइन",
 
   // --- In-game status line ---------------------------------------------------
   "status.wins": "{color} जित्यो!",

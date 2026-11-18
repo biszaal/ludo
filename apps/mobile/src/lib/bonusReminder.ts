@@ -1,5 +1,8 @@
 /**
- * "Your daily bonus is ready" — a LOCAL scheduled notification, not a push.
+ * "Your daily chest is ready" — a LOCAL scheduled notification, not a push.
+ *
+ * The chest is the daily bonus. The copy says chest because that is the
+ * object on the home screen; the clock is still the bonus's.
  *
  * The reminder is worth more to the player than to us, and it is entirely
  * predictable: the bonus resets at UTC midnight (daily_bonus_claim in 0039
@@ -19,15 +22,11 @@
  */
 
 import { Platform } from "react-native";
-import { notifications, PERMISSION_REQUEST } from "./notifications";
+import { notifications } from "./notifications";
 import { useSettings } from "../store/settingsStore";
 import { useWallet } from "../store/walletStore";
-import { nextResetAfter, reminderTime } from "./bonusSchedule";
+import { CHEST_REMINDER_ID, ChestReminder } from "./bonusSchedule";
 import { t } from "../i18n";
-
-/** Stable id, so rescheduling REPLACES the pending reminder rather than
- *  stacking a second one behind it. Every path here cancels this first. */
-const REMINDER_ID = "daily-bonus-reminder";
 
 /** Android channel for reminders. Separate from "default" (invites) so the
  *  player can silence a nudge about coins without silencing a friend asking
@@ -57,37 +56,49 @@ export async function scheduleBonusReminder(claimable: boolean, streakDay: numbe
   const N = notifications();
   if (!N) return; // no notification module on this runtime — see lib/notifications
   try {
-    // Always clear first, so turning the setting off (or claiming) actually
-    // takes a reminder off the OS's queue instead of leaving a stale one armed.
-    await N.cancelScheduledNotificationAsync(REMINDER_ID).catch(() => {});
-    if (!useSettings.getState().bonusRemindersOn) return;
-
     // Local notifications need the same permission push does, but must never
     // PROMPT for it: this runs off a wallet refresh, with no visible cause. It
-    // rides on a grant the player already gave somewhere it made sense.
-    const { granted } = await N.getPermissionsAsync();
-    if (!granted) return;
+    // rides on a grant the player already gave somewhere it made sense. A
+    // failed read is treated as "not granted" so the pending reminder still
+    // comes down — leaving a stale one armed is the worse failure.
+    let granted = false;
+    try {
+      granted = (await N.getPermissionsAsync()).granted;
+    } catch {
+      granted = false;
+    }
+    const plan = ChestReminder.plan({
+      remindersOn: useSettings.getState().bonusRemindersOn,
+      granted,
+      claimable,
+      now: new Date(),
+    });
 
-    if (Platform.OS === "android") {
+    if (plan.schedule && Platform.OS === "android") {
       await N.setNotificationChannelAsync(CHANNEL_ID, {
         name: t("home.dailyBonus"),
         importance: N.AndroidImportance.DEFAULT,
       });
     }
 
-    const now = new Date();
-    const at = reminderTime(now, claimable ? now : nextResetAfter(now));
-    await N.scheduleNotificationAsync({
-      identifier: REMINDER_ID,
-      content: {
-        title: t("notify.bonusTitle"),
-        body: body(streakDay),
-        data: { type: "daily-bonus" },
-      },
-      trigger: {
-        type: N.SchedulableTriggerInputTypes.DATE,
-        date: at,
-        channelId: CHANNEL_ID,
+    await ChestReminder.apply(plan, {
+      // A missing id is the steady state, not an error. Swallowing it here
+      // keeps a failed cancel from skipping the schedule that replaces it.
+      cancel: (id) => N.cancelScheduledNotificationAsync(id).catch(() => {}),
+      schedule: async (id, at) => {
+        await N.scheduleNotificationAsync({
+          identifier: id,
+          content: {
+            title: t("notify.bonusTitle"),
+            body: body(streakDay),
+            data: { type: "daily-bonus" },
+          },
+          trigger: {
+            type: N.SchedulableTriggerInputTypes.DATE,
+            date: at,
+            channelId: CHANNEL_ID,
+          },
+        });
       },
     });
   } catch {
@@ -126,40 +137,12 @@ export function initBonusReminder(): () => void {
   return useWallet.subscribe(apply);
 }
 
-/**
- * Ask for notification permission, if it has never been answered, at a moment
- * where the reason is obvious: the player has just claimed a bonus and the
- * streak they are now on is a thing they can lose by forgetting.
- *
- * Same deferral argument as lib/push.ts — the OS gives exactly one prompt, and
- * spending it at cold start on a player with nothing to be reminded about is
- * spending it on a "no". Returns quietly if they decline; the app is unchanged
- * either way.
- */
-export async function offerBonusReminder(streakDay: number): Promise<void> {
-  const N = notifications();
-  if (!N) return;
-  try {
-    if (!useSettings.getState().bonusRemindersOn) return;
-    const existing = await N.getPermissionsAsync();
-    if (!existing.granted) {
-      if (!existing.canAskAgain) return;
-      const asked = await N.requestPermissionsAsync(PERMISSION_REQUEST);
-      if (!asked.granted) return;
-    }
-    // Just claimed, so the next one is tomorrow's.
-    await scheduleBonusReminder(false, streakDay);
-  } catch {
-    // Dismissed, unsupported, or offline — nothing here is load-bearing.
-  }
-}
-
 /** Drop the pending reminder (the player turned reminders off). */
 export async function cancelBonusReminder(): Promise<void> {
   const N = notifications();
   if (!N) return;
   try {
-    await N.cancelScheduledNotificationAsync(REMINDER_ID);
+    await N.cancelScheduledNotificationAsync(CHEST_REMINDER_ID);
   } catch {
     // Nothing scheduled, which is the state we wanted anyway.
   }

@@ -460,8 +460,12 @@ export const en = {
   "stats.empty": "Your first game will land here — wins, streaks and history.",
 
   // --- Notifications (push / local) ----------------------------------------
-  "notify.bonusTitle": "Your daily bonus is ready",
+  "notify.bonusTitle": "Your daily chest is ready",
   "notify.bonusBody": "Your free coins are waiting. Tap to claim them.",
+  "notify.promptTitle": "Want a reminder?",
+  "notify.promptBody": "We'll tell you when your daily chest is ready.",
+  "notify.promptYes": "Remind me",
+  "notify.promptNo": "Not now",
 
   // --- In-game status line ---------------------------------------------------
   "status.wins": "{color} wins!",
