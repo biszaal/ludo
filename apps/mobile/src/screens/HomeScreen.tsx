@@ -54,6 +54,8 @@ import { useSettings } from "../store/settingsStore";
 import { incomingRequests, onlineFriendCount } from "../lib/friendship";
 import { nextDailyBonus, utcDay } from "../lib/economy";
 import { shouldAutoShow, useDailyBonus } from "../store/dailyBonusStore";
+import { useStats, useStatsLoaded } from "../store/statsStore";
+import { oneTapStake, playedAnyGame } from "../lib/firstGame";
 import { font, palette, space } from "../theme";
 import { useT } from "../i18n";
 
@@ -89,6 +91,27 @@ export function HomeScreen() {
 
   const onlineStatus = useOnlineStore((s) => s.status);
   const connecting = onlineStatus === "connecting";
+
+  // A player who has never finished an online game gets PLAY as one tap, and
+  // sees no calendar before their first game (lib/firstGame.ts).
+  const balance = useWallet((s) => s.balance);
+  const statsLoaded = useStatsLoaded();
+  const totals = useStats((s) => s.totals);
+  const playedBefore = playedAnyGame(statsLoaded ? totals : null);
+  const firstTapStake = oneTapStake(statsLoaded ? totals.online.played : null, balance, economy.stakeTiers);
+  const onPlay = () => {
+    if (firstTapStake === null) {
+      setQuickSheet(true);
+      return;
+    }
+    void useOnlineStore
+      .getState()
+      .quickMatch(2, firstTapStake, "classic")
+      .then(() => {
+        // The popup is where a quick-match error is shown, so a failure lands there.
+        if (useOnlineStore.getState().status === "error") setQuickSheet(true);
+      });
+  };
 
   const push = useNav((s) => s.push);
   const friendships = useFriends((s) => s.friendships);
@@ -141,10 +164,10 @@ export function HomeScreen() {
   useEffect(() => {
     if (!bonusClaimable) return;
     const today = utcDay();
-    if (!shouldAutoShow(useDailyBonus.getState(), true, today)) return;
+    if (!shouldAutoShow(useDailyBonus.getState(), true, today, playedBefore)) return;
     useDailyBonus.getState().noteAutoShown(today);
     setBonusSheet(true);
-  }, [bonusClaimable]);
+  }, [bonusClaimable, playedBefore]);
 
   // Warm the presence map so the friends-online line is real, not stale.
   useEffect(() => pollPresence(), []);
@@ -204,7 +227,7 @@ export function HomeScreen() {
           <HeroDiorama theme={boardTheme} diceSkin={diceSkin} width={dioramaBox.w} height={dioramaBox.h} scale={scale} />
         </View>
 
-        <PlayCta stake={stake} busy={connecting} onPress={() => setQuickSheet(true)} height={metrics.cta} />
+        <PlayCta stake={firstTapStake ?? stake} busy={connecting} onPress={onPlay} height={metrics.cta} />
 
         {/* Real presence only — invisible (not collapsed) at zero so the layout
             never reflows and the number is never faked. The budget drops the

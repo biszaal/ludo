@@ -36,6 +36,7 @@ import { useProfile } from "../store/profileStore";
 import { useNav } from "../store/navStore";
 import { lookupFriendCode, searchPlayerByName, type Profile } from "../net/api";
 import { tapLight } from "../lib/haptics";
+import { INVITE_BASE } from "../lib/inviteLinks";
 import { playSound } from "../lib/sound";
 import { font, palette, radius, space } from "../theme";
 import { useT } from "../i18n";
@@ -79,7 +80,9 @@ export function AddFriendScreen() {
     if (!myCode) return;
     tapLight();
     try {
-      await Share.share({ message: `Add me on Ludo — I'm ${displayName} (friend code ${myCode})` });
+      // The landing link opens the app for a friend who has it, and the store
+      // page for one who doesn't — without it a shared code was a dead end.
+      await Share.share({ message: t("invite.friendMessage", { name: displayName, code: myCode, url: INVITE_BASE }) });
     } catch {
       // user dismissed the sheet; nothing to report
     }

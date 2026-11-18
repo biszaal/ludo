@@ -232,6 +232,7 @@ export const ur: Strings = {
   "game.elapsedA11y": "کھیل کا وقت {time}",
   "invite.message": "میرے لڈو کھیل میں شامل ہوں! روم کوڈ: {code}۔{stake}\n{url}",
   "invite.stake": " ہم {stake} سکوں کے لیے کھیل رہے ہیں۔",
+  "invite.friendMessage": "لڈو پر مجھے دوست کے طور پر شامل کریں! میں {name} ہوں، میرا فرینڈ کوڈ {code} ہے۔\n{url}",
   "game.boardA11y": "بورڈ — چلنے کے لیے چمکتی گوٹی دبائیں",
   "game.noMovesPassing": "کوئی چال نہیں — باری جا رہی ہے…",
   "game.notYourTurn": "ابھی آپ کی باری نہیں",

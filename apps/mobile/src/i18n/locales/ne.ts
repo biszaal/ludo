@@ -229,6 +229,7 @@ export const ne: Strings = {
   "game.elapsedA11y": "खेल समय {time}",
   "invite.message": "मेरो लुडो खेलमा आउनुहोस्! कोठा कोड: {code}।{stake}\n{url}",
   "invite.stake": " हामी {stake} सिक्काका लागि खेल्दै छौँ।",
+  "invite.friendMessage": "लुडोमा मलाई साथी थप्नुहोस्! म {name} हुँ, मेरो साथी कोड {code} हो।\n{url}",
   "game.boardA11y": "बोर्ड — चल्न चम्किएको गोटी थिच्नुहोस्",
   "game.noMovesPassing": "चाल छैन — पालो जाँदैछ…",
   "game.notYourTurn": "अहिले तपाईंको पालो होइन",

@@ -233,6 +233,7 @@ export const hi: Strings = {
   "game.elapsedA11y": "खेल का समय {time}",
   "invite.message": "मेरे लूडो खेल में शामिल हों! रूम कोड: {code}।{stake}\n{url}",
   "invite.stake": " हम {stake} सिक्कों के लिए खेल रहे हैं।",
+  "invite.friendMessage": "लूडो पर मुझे दोस्त के रूप में जोड़ें! मैं {name} हूँ, मेरा फ़्रेंड कोड {code} है।\n{url}",
   "game.boardA11y": "बोर्ड — चलने के लिए चमकती गोटी दबाएँ",
   "game.noMovesPassing": "कोई चाल नहीं — बारी जा रही है…",
   "game.notYourTurn": "अभी आपकी बारी नहीं",

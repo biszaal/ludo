@@ -250,6 +250,7 @@ export const en = {
   "game.elapsedA11y": "Game time {time}",
   "invite.message": "Join my Ludo game! Room code: {code}.{stake}\n{url}",
   "invite.stake": " We’re playing for {stake} coins.",
+  "invite.friendMessage": "Add me on Ludo! I’m {name}, my friend code is {code}.\n{url}",
   "game.boardA11y": "Board — tap a highlighted token to move it",
   "game.noMovesPassing": "No moves — passing…",
   "game.notYourTurn": "Not your turn",

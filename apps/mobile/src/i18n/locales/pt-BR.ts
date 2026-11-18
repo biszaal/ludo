@@ -229,6 +229,7 @@ export const ptBR: Strings = {
   "game.elapsedA11y": "Tempo de jogo {time}",
   "invite.message": "Entre na minha partida de Ludo! Código: {code}.{stake}\n{url}",
   "invite.stake": " Estamos jogando por {stake} moedas.",
+  "invite.friendMessage": "Me adicione como amigo no Ludo! Sou {name} e meu código de amigo é {code}.\n{url}",
   "game.boardA11y": "Tabuleiro — toque num peão destacado para movê-lo",
   "game.noMovesPassing": "Sem jogadas — passando…",
   "game.notYourTurn": "Não é sua vez",

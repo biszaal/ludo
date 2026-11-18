@@ -146,6 +146,20 @@ describe("catalogs", () => {
   });
 });
 
+describe("friend-code share message", () => {
+  it("carries the name, the code and the landing link in every language", () => {
+    // The link is what turns a shared code into an install: without it the
+    // friend has to go and find the game before the code is any use.
+    const url = "https://www.biszaaltech.com/games/ludo";
+    for (const l of LOCALES) {
+      const msg = translate(l, "invite.friendMessage", { name: "Asha", code: "K7PXQ2", url });
+      expect(msg, l).toContain("Asha");
+      expect(msg, l).toContain("K7PXQ2");
+      expect(msg, l).toContain(url);
+    }
+  });
+});
+
 describe("purchase footnotes", () => {
   it("says coins and gems never affect how a game plays out", () => {
     expect(en["coins.neverAffectsPlay"]).toBe(

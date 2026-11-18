@@ -4,6 +4,7 @@
  * finishes; pass-and-play has no "me", so didWin is null there.
  */
 
+import { useSyncExternalStore } from "react";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import type { Color } from "@ludo/engine";
@@ -65,3 +66,12 @@ export const useStats = create<StatsState>()(
     },
   ),
 );
+
+/** True once the saved stats have loaded from storage. Until then the totals
+ *  are the empty defaults, which make every player look brand-new. */
+export function useStatsLoaded(): boolean {
+  return useSyncExternalStore(
+    (onChange) => useStats.persist.onFinishHydration(onChange),
+    () => useStats.persist.hasHydrated(),
+  );
+}

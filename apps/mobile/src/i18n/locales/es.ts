@@ -231,6 +231,7 @@ export const es: Strings = {
   "game.elapsedA11y": "Tiempo de partida {time}",
   "invite.message": "¡Únete a mi partida de Ludo! Código: {code}.{stake}\n{url}",
   "invite.stake": " Jugamos por {stake} monedas.",
+  "invite.friendMessage": "¡Agrégame como amigo en Ludo! Soy {name} y mi código de amigo es {code}.\n{url}",
   "game.boardA11y": "Tablero — toca una ficha resaltada para moverla",
   "game.noMovesPassing": "Sin movimientos — pasando…",
   "game.notYourTurn": "No es tu turno",

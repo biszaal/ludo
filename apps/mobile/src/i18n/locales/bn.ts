@@ -228,6 +228,7 @@ export const bn: Strings = {
   "game.elapsedA11y": "খেলার সময় {time}",
   "invite.message": "আমার লুডো খেলায় যোগ দিন! রুম কোড: {code}।{stake}\n{url}",
   "invite.stake": " আমরা {stake} কয়েনের জন্য খেলছি।",
+  "invite.friendMessage": "লুডুতে আমাকে বন্ধু হিসেবে যোগ করুন! আমি {name}, আমার ফ্রেন্ড কোড {code}।\n{url}",
   "game.boardA11y": "বোর্ড — চালতে জ্বলজ্বলে গুটিতে চাপ দিন",
   "game.noMovesPassing": "চাল নেই — পালা যাচ্ছে…",
   "game.notYourTurn": "এখন আপনার পালা নয়",

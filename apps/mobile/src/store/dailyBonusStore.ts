@@ -43,12 +43,18 @@ export const useDailyBonus = create<DailyBonusState>()(
  *
  * `bonusClaimable` comes from the server and is false the instant a claim
  * lands, so this cannot re-open behind a claim already made on another device.
+ *
+ * `playedBefore` holds it shut until the player has finished a first game. A
+ * brand-new player comes from the name screen straight to Home, and the
+ * calendar (then the notification ask that follows a claim) would be two
+ * popups in front of PLAY before they have seen a game.
  */
 export function shouldAutoShow(
   s: Pick<DailyBonusState, "lastAutoShownDay">,
   bonusClaimable: boolean,
   today: string,
+  playedBefore: boolean,
 ): boolean {
-  if (!bonusClaimable) return false;
+  if (!bonusClaimable || !playedBefore) return false;
   return s.lastAutoShownDay !== today;
 }
