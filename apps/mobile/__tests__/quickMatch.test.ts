@@ -144,6 +144,40 @@ describe("online modes", () => {
   });
 });
 
+describe("quick-match fill wait", () => {
+  // Half of quick-match stakes were refunded because players left the search
+  // before the old 8–14 s fill could fire (median exit ~8 s, 19 Nov 2026).
+  // The wait is now 3–6 s: long enough for a real searcher to claim the seat,
+  // short enough to beat the exit.
+  let random: ReturnType<typeof vi.spyOn> | null = null;
+  afterEach(() => {
+    random?.mockRestore();
+    random = null;
+  });
+
+  it("seats the fill no later than 6 seconds into the search", async () => {
+    vi.useFakeTimers();
+    random = vi.spyOn(Math, "random").mockReturnValue(0.999);
+    await startSearch();
+    vi.mocked(api.quickBotFill).mockResolvedValue({ state: dealtGame(), v: 1 });
+
+    await vi.advanceTimersByTimeAsync(6_000);
+    expect(api.quickBotFill).toHaveBeenCalledTimes(1);
+  });
+
+  it("waits at least 3 seconds, so a real searcher can still claim the seat", async () => {
+    vi.useFakeTimers();
+    random = vi.spyOn(Math, "random").mockReturnValue(0);
+    await startSearch();
+    vi.mocked(api.quickBotFill).mockResolvedValue({ state: dealtGame(), v: 1 });
+
+    await vi.advanceTimersByTimeAsync(2_999);
+    expect(api.quickBotFill).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(api.quickBotFill).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("quick match", () => {
   it("fills with a labelled bot after the wait window", async () => {
     vi.useFakeTimers();

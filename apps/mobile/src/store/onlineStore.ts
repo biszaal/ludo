@@ -669,9 +669,14 @@ let cancelledSearch: string | null = null;
 // If nobody claims the seat while we wait, ask the server to fill it. The
 // jitter spreads concurrent fill requests. A human joining first flips the
 // game active via realtime and the timer no-ops on the status check.
+//
+// 3–6 s, down from 8–14 s (19 Nov 2026): about half of quick-match stakes were
+// being refunded because players left the search around the 8 s mark, before
+// the fill could fire. Three seconds still gives a real searcher time to claim
+// the seat.
 
-const QUICK_FILL_MIN_MS = 8000;
-const QUICK_FILL_JITTER_MS = 6000;
+const QUICK_FILL_MIN_MS = 3000;
+const QUICK_FILL_JITTER_MS = 3000;
 function clearQuickFill(): void {
   timers.clear("quickFill");
 }
