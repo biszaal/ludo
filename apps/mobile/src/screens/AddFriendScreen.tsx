@@ -34,7 +34,9 @@ import { useLoadPhase } from "../lib/useLoadPhase";
 import { useFriends } from "../store/friendsStore";
 import { useProfile } from "../store/profileStore";
 import { useNav } from "../store/navStore";
-import { lookupFriendCode, searchPlayerByName, type Profile } from "../net/api";
+import { lookupFriendCode, searchPlayerByName, type LookupReferral, type Profile } from "../net/api";
+import { friendShareMessage } from "../lib/referrals";
+import { useReferrals } from "../store/referralStore";
 import { tapLight } from "../lib/haptics";
 import { INVITE_BASE } from "../lib/inviteLinks";
 import { playSound } from "../lib/sound";
@@ -62,10 +64,14 @@ export function AddFriendScreen() {
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [sentTo, setSentTo] = useState<string[]>([]);
+  // Set when this lookup recorded a referral: the new player hears what they get.
+  const [referralNote, setReferralNote] = useState<LookupReferral | null>(null);
+  const rewardOn = useReferrals((s) => s.data?.config.enabled === true);
 
   useEffect(() => {
     void useFriends.getState().loadMyCode();
     void useFriends.getState().loadRecentPlayers();
+    void useReferrals.getState().load();
   }, []);
 
   const onCopy = async () => {
@@ -82,7 +88,7 @@ export function AddFriendScreen() {
     try {
       // The landing link opens the app for a friend who has it, and the store
       // page for one who doesn't — without it a shared code was a dead end.
-      await Share.share({ message: t("invite.friendMessage", { name: displayName, code: myCode, url: INVITE_BASE }) });
+      await Share.share({ message: friendShareMessage(t, displayName, myCode, INVITE_BASE, rewardOn) });
     } catch {
       // user dismissed the sheet; nothing to report
     }
@@ -94,14 +100,16 @@ export function AddFriendScreen() {
     setLooking(true);
     setError(null);
     setFound(null);
+    setReferralNote(null);
     try {
       // Code-shaped input is tried as a code first. A miss falls through to a
       // name search, because a 6-character username is perfectly legal and
       // would otherwise be unreachable.
       if (CODE_SHAPE.test(raw.toUpperCase())) {
         try {
-          const { user } = await lookupFriendCode(raw.toUpperCase());
+          const { user, referral } = await lookupFriendCode(raw.toUpperCase());
           setFound(user);
+          setReferralNote(referral ?? null);
           playSound("pop");
           return;
         } catch {
@@ -246,6 +254,15 @@ export function AddFriendScreen() {
                 onAdd={() => void onAdd(found.user_id)}
                 onOpen={() => void viewPlayer(found.user_id)}
               />
+            ) : null}
+            {found && referralNote ? (
+              <Text style={{ fontFamily: font.regular, fontSize: 13, color: palette.porcelain, textAlign: "center" }}>
+                {t("referral.lookupNote", {
+                  name: found.display_name,
+                  games: referralNote.gamesRequired,
+                  coins: referralNote.inviteeCoins,
+                })}
+              </Text>
             ) : null}
           </Surface3D>
         </View>

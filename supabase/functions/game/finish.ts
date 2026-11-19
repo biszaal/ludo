@@ -2,7 +2,8 @@
 
 // @deno-types="../_shared/engine/index.d.ts"
 import { inPlayPlayers, leaveGame as engineLeaveGame, type GameState } from "../_shared/engine/index.js";
-import { type SupabaseClient } from "./lib.ts";
+import { afterResponse, type SupabaseClient } from "./lib.ts";
+import { settleReferrals } from "./referral.ts";
 
 /**
  * How the pot divides by finishing place, per seat count.
@@ -47,6 +48,9 @@ export async function settleIfFinished(admin: SupabaseClient, gameId: string, ne
   if (next.status !== "finished") return;
   const { error } = await admin.rpc("settle_finished_game", { p_game: gameId });
   if (error) throw new Error(`Settlement failed: ${error.message}`);
+  // A finished game may be the one that qualifies a referred player (0082).
+  // After the response, so it never slows the final move.
+  afterResponse(settleReferrals(admin, next.players.map((p) => p.userId).filter((id): id is string => !!id)));
 }
 
 /**

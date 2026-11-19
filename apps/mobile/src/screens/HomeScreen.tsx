@@ -56,6 +56,9 @@ import { nextDailyBonus, utcDay } from "../lib/economy";
 import { shouldAutoShow, useDailyBonus } from "../store/dailyBonusStore";
 import { useStats, useStatsLoaded } from "../store/statsStore";
 import { oneTapStake, playedAnyGame } from "../lib/firstGame";
+import { unannounced } from "../lib/referrals";
+import { useReferrals } from "../store/referralStore";
+import { ReferralNotice } from "../components/ReferralNotice";
 import { font, palette, space } from "../theme";
 import { useT } from "../i18n";
 
@@ -112,6 +115,17 @@ export function HomeScreen() {
         if (useOnlineStore.getState().status === "error") setQuickSheet(true);
       });
   };
+
+  // Referral rewards (0082): fetched at most every 5 minutes, because Home
+  // remounts after every game. One pop-up at a time, and only when no other
+  // Home sheet is open: it is the least urgent thing this screen can say.
+  const referralData = useReferrals((s) => s.data);
+  const announcedReferrals = useReferrals((s) => s.announced);
+  useEffect(() => {
+    void useReferrals.getState().load();
+  }, []);
+  const referralNotice =
+    referralData?.config.enabled === true ? (unannounced(referralData, announcedReferrals)[0] ?? null) : null;
 
   const push = useNav((s) => s.push);
   const friendships = useFriends((s) => s.friendships);
@@ -325,6 +339,23 @@ export function HomeScreen() {
       {coinsSheet && <GetCoinsSheet onClose={() => setCoinsSheet(false)} onDailyBonus={() => { setCoinsSheet(false); setBonusSheet(true); }} />}
       {bonusSheet && <DailyBonusSheet onClose={() => setBonusSheet(false)} />}
       {roomSheet && <RoomSheet onClose={() => setRoomSheet(false)} />}
+      {referralNotice &&
+        referralData &&
+        !bonusSheet &&
+        !coinsSheet &&
+        !roomSheet &&
+        !quickSheet &&
+        !sheetMode &&
+        !savePrompt.reason && (
+          <ReferralNotice
+            item={referralNotice}
+            gamesRequired={referralData.config.gamesRequired}
+            onClose={() => {
+              useReferrals.getState().markAnnounced([referralNotice.key]);
+              void refreshWallet();
+            }}
+          />
+        )}
       {quickSheet && (
         <QuickSetupSheet
           onClose={() => setQuickSheet(false)}

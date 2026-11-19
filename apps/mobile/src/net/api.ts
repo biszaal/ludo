@@ -14,6 +14,7 @@ import { getSupabase } from "../lib/supabase";
 import { getIdentity } from "../lib/identityClient";
 import { APP_VERSION } from "../lib/appVersion";
 import { GameReleasedError, OnlineAccount } from "../lib/onlineAccount";
+import type { ReferralsResponse } from "../lib/referrals";
 
 export interface GameRow {
   id: string;
@@ -1043,9 +1044,25 @@ export async function getMyFriendCode(): Promise<string | null> {
 
 /** Resolve a friend code to a player card. Throws with a user-facing message
  *  (not found, rate limited) — the caller surfaces it inline. */
-export async function lookupFriendCode(code: string): Promise<{ user: Profile; stats: PublicStats }> {
+/** Set on a code lookup that recorded a referral (0082): the new player is told
+ *  what they get for playing. Absent on every other lookup, and from old servers. */
+export interface LookupReferral {
+  attached: true;
+  inviteeCoins: number;
+  gamesRequired: number;
+}
+
+export async function lookupFriendCode(
+  code: string,
+): Promise<{ user: Profile; stats: PublicStats; referral?: LookupReferral }> {
   await ensureSignedIn();
-  return await callGame<{ user: Profile; stats: PublicStats }>("friendLookup", { code });
+  return await callGame<{ user: Profile; stats: PublicStats; referral?: LookupReferral }>("friendLookup", { code });
+}
+
+/** The invite card: who this player brought, who brought them, and the offer. */
+export async function getReferrals(): Promise<ReferralsResponse> {
+  await ensureSignedIn();
+  return await callGame<ReferralsResponse>("referrals");
 }
 
 /** Resolve an EXACT username (case-insensitive) to a player card. Shares the

@@ -33,6 +33,7 @@ import { afterGameWrite, seatBots } from "./bots.ts";
 import { startGameNow } from "./deal.ts";
 import { endIfNoHumansLeft, settleIfFinished } from "./finish.ts";
 import { walletApply } from "./wallet.ts";
+import { attachReferral } from "./referral.ts";
 
 /**
  * Validate a host-chosen room stake against the server's tier list.
@@ -118,7 +119,7 @@ export async function opJoin(
 
   const { data: game } = await admin
     .from("games")
-    .select("id, status, stake, mode, is_quick")
+    .select("id, status, stake, mode, is_quick, host_user_id")
     .eq("room_code", roomCode)
     .maybeSingle();
   if (!game) return noRoom;
@@ -141,6 +142,11 @@ export async function opJoin(
     .select("id")
     .single();
   if (error || !player) return json({ error: error?.message ?? "Could not join." });
+
+  // Joining a friend's room by its code also records a referral (0082). The
+  // SQL refuses old accounts, bots and a disabled programme by itself.
+  const host = game.host_user_id ? String(game.host_user_id) : null;
+  if (host && host !== userId) afterResponse(attachReferral(admin, userId, host, "room"));
 
   return json({ gameId: game.id, roomCode, playerId: player.id, stake, mode });
 }

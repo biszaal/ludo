@@ -17,6 +17,8 @@ import { ScreenHeader } from "../components/ScreenHeader";
 import { useDockClearance } from "../components/TabDock";
 import { ContentColumn } from "../components/ContentColumn";
 import { SectionLabel } from "../components/SectionLabel";
+import { InviteCard } from "../components/InviteCard";
+import { useReferrals } from "../store/referralStore";
 import { Surface3D } from "../components/Surface3D";
 import { AvatarGlyph } from "../components/Avatar";
 import { PeopleGlyph } from "../components/HomeGlyphs";
@@ -65,6 +67,8 @@ export function FriendsScreen() {
   useEffect(() => {
     void useFriends.getState().init();
     void refresh();
+    // Fresh numbers for the invite card every time Friends opens.
+    void useReferrals.getState().load({ force: true });
     // Ask for notification permission here rather than at launch: this is the
     // first screen where "a friend wants you to play" is a thing that could
     // actually happen, so the prompt arrives with its reason already on screen.
@@ -113,6 +117,8 @@ export function FriendsScreen() {
             You're in room {roomCode} — invite a friend to join.
           </Text>
         ) : null}
+
+        <InviteCard />
 
         <Button label={t("friends.addFriend")} onPress={() => push("addFriend")} />
 

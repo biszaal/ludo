@@ -17,6 +17,7 @@
 import { afterResponse, json, LIMITS, rateLimited, rateOk, type SupabaseClient } from "./lib.ts";
 import { displayNameOf, sendPush } from "./push.ts";
 import { opLeave } from "./room.ts";
+import { attachReferral } from "./referral.ts";
 
 const FRIEND_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const FRIEND_LOOKUPS_PER_HOUR = 40;
@@ -162,9 +163,15 @@ export async function opFriendLookup(admin: SupabaseClient, userId: string, rawC
   ]);
   if (!profile) return json(notFound);
 
+  // A new player typing a friend's code is how a referral is recorded (0082).
+  // Synchronous so the reply can tell them about their reward; attachReferral
+  // never throws, and refuses on its own when the programme is off.
+  const referral = await attachReferral(admin, userId, targetId, "code");
+
   return json({
     user: profile,
     stats: stats ?? { games_played: 0, games_won: 0 },
+    ...(referral.attached ? { referral } : {}),
   });
 }
 

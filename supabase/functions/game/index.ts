@@ -63,6 +63,7 @@ import {
   opPresenceOnline,
 } from "./social.ts";
 import { opSendFeedback } from "./feedback.ts";
+import { opReferrals, settleReferrals } from "./referral.ts";
 import { opBlockedList, opChat, opReportPlayer } from "./chat.ts";
 import { opPushDisable, opPushRegister } from "./push.ts";
 
@@ -114,7 +115,12 @@ Deno.serve(async (req: Request) => {
     // the guest reaper fires on, so it must sit in front of every op rather than
     // on whichever ones seemed representative. Deferred and swallowed: a failed
     // bookkeeping write must never cost someone their turn.
-    if (touchGate.should(userId)) afterResponse(admin.rpc("touch_activity", { p_user: userId }));
+    if (touchGate.should(userId)) {
+      afterResponse(admin.rpc("touch_activity", { p_user: userId }));
+      // A referred friend who played on day one is paid on their first request
+      // of a later day, whatever that request is (0082).
+      afterResponse(settleReferrals(admin, [userId]));
+    }
 
     switch (body.op) {
       case "create":
@@ -220,6 +226,8 @@ Deno.serve(async (req: Request) => {
         });
       case "friendsRecent":
         return await opFriendsRecent(admin, userId);
+      case "referrals":
+        return await opReferrals(admin, userId);
       case "presenceOnline":
         return await opPresenceOnline(admin, userId);
       case "pushRegister":
