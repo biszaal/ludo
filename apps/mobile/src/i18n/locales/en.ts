@@ -436,6 +436,8 @@ export const en = {
   "settings.adPrivacyError": "Could not open privacy choices. Ads are paused. Please try again.",
   "settings.analytics": "Help improve Ludo",
   "settings.analyticsHint": "Optional gameplay events linked to your account. No chat, names or advertising IDs. Turn off to delete collected events.",
+  "settings.showCountry": "Show my country flag",
+  "settings.showCountryHint": "Other players see it next to your name. It comes from where you play.",
   "settings.title": "Settings",
   "settings.soundAndFeel": "Sound & feel",
   "settings.music": "Music",

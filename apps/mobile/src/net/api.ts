@@ -883,16 +883,25 @@ export interface Profile {
   avatar_id: string;
   /** Equipped dice skin id, or null for classic (inherits the viewer's board theme). */
   dice_skin: string | null;
+  /** ISO country for the flag beside the name (0083); null or absent = no flag. */
+  country?: string | null;
 }
+
+const PROFILE_COLUMNS = "user_id, display_name, avatar_id, dice_skin";
 
 /** Fetch profiles for a set of users; missing rows simply aren't returned. */
 export async function getProfiles(userIds: string[]): Promise<Profile[]> {
   if (userIds.length === 0) return [];
   const supabase = getSupabase();
-  const { data, error } = await supabase
+  // The flag column arrives with migration 0083. Against a server that doesn't
+  // have it yet, the wider select errors as a whole, and names and avatars would
+  // vanish from every table with it. So one retry with the old columns.
+  const withCountry = await supabase
     .from("profiles")
-    .select("user_id, display_name, avatar_id, dice_skin")
+    .select(`${PROFILE_COLUMNS}, country`)
     .in("user_id", userIds);
+  if (!withCountry.error) return (withCountry.data ?? []) as Profile[];
+  const { data, error } = await supabase.from("profiles").select(PROFILE_COLUMNS).in("user_id", userIds);
   if (error) return []; // profiles are cosmetic — never block on them
   return (data ?? []) as Profile[];
 }
@@ -902,6 +911,8 @@ export interface MyProfile {
   displayName: string;
   /** When the one allowed username change was spent; null = still available. */
   nameChangedAt: string | null;
+  /** Whether my flag is shown to other players (0083); null = unknown (old server). */
+  countryShown?: boolean | null;
 }
 
 /**
@@ -927,16 +938,40 @@ export async function getMyProfile(): Promise<MyProfile | null> {
   } catch {
     return null;
   }
-  const { data, error } = await supabase
+  const wide = await supabase
     .from("profiles")
-    .select("display_name, name_changed_at")
+    .select("display_name, name_changed_at, country_hidden")
     .eq("user_id", userId)
     .maybeSingle();
+  // An older server has no country_hidden column (0083): read what it has.
+  const { data, error } = wide.error
+    ? await supabase.from("profiles").select("display_name, name_changed_at").eq("user_id", userId).maybeSingle()
+    : wide;
   if (error || !data) return null;
+  const hidden = (data as { country_hidden?: unknown }).country_hidden;
   return {
     displayName: (data.display_name as string) ?? "",
     nameChangedAt: (data.name_changed_at as string | null) ?? null,
+    countryShown: typeof hidden === "boolean" ? !hidden : null,
   };
+}
+
+/**
+ * Show or hide my flag (0083), on my own row (RLS: self-update). Hiding also
+ * clears the stored country, so nothing about where I play is left readable;
+ * showing it again lets the server fill it from my next request.
+ */
+export async function setCountryShown(shown: boolean): Promise<boolean> {
+  const supabase = getSupabase();
+  let userId: string;
+  try {
+    userId = await ensureSignedIn();
+  } catch {
+    return false;
+  }
+  const patch = shown ? { country_hidden: false } : { country_hidden: true, country: null };
+  const { error } = await supabase.from("profiles").update(patch).eq("user_id", userId);
+  return !error;
 }
 
 /**

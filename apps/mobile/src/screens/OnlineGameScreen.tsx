@@ -142,6 +142,10 @@ export function OnlineGameScreen() {
       // may not be in the fetched cache yet, and I always know my own avatar.
       avatarFor={(playerId) =>
         botOf(playerId) ? null : isMe(playerId) ? myAvatar : (profileOf(playerId)?.avatar_id ?? null)}
+      // Flags (0083) come from the profile row for everyone, me included: the
+      // server sets the country, so there is no local copy to prefer. A labelled
+      // friend-room bot stays colour-only, like its name.
+      countryFor={(playerId) => (botOf(playerId) ? null : (profileOf(playerId)?.country ?? null))}
       // Local-first for my own seat: the profiles cache is fetched once per
       // user per session and skips users already cached (onlineStore's
       // fetchProfiles), so it can go stale if I re-equip a skin mid-session.

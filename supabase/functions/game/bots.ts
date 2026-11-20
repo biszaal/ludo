@@ -256,7 +256,10 @@ async function claimOrCreateBotIdentity(
     const { error: profErr } = await admin
       .from("profiles")
       .insert({ user_id: uid, display_name: name, avatar_id: pickBotAvatar(cryptoRng, presents), dice_skin: diceSkin });
-    if (!profErr) return uid;
+    if (!profErr) {
+      await assignBotCountry(admin, uid);
+      return uid;
+    }
     if (!/unique|duplicate/i.test(profErr.message)) break;
   }
   // Names exhausted (or another failure): a timestamp guest handle is unique
@@ -270,7 +273,19 @@ async function claimOrCreateBotIdentity(
       dice_skin: diceSkin,
     })
     .then(undefined, () => {});
+  await assignBotCountry(admin, uid);
   return uid;
+}
+
+/** A hidden bot's flag has to suit its name, or the seat gives itself away
+ *  (0083: the same rule the migration's backfill used). Cosmetic: a failure
+ *  leaves the bot flagless, which real players who hide theirs also are. */
+async function assignBotCountry(admin: SupabaseClient, uid: string): Promise<void> {
+  try {
+    await admin.rpc("bot_assign_country", { p_user: uid });
+  } catch {
+    // flagless is a normal look
+  }
 }
 
 /**

@@ -407,6 +407,8 @@ export const bn: Strings = {
   "settings.adPrivacyError": "গোপনীয়তার বিকল্প খোলা যায়নি। বিজ্ঞাপন বন্ধ রাখা হয়েছে। আবার চেষ্টা করুন।",
   "settings.analytics": "লুডো উন্নত করতে সাহায্য করুন",
   "settings.analyticsHint": "আপনার অ্যাকাউন্টের সাথে যুক্ত ঐচ্ছিক খেলার তথ্য। চ্যাট, নাম বা বিজ্ঞাপন ID নয়। বন্ধ করলে সংগৃহীত তথ্য মুছে যায়।",
+  "settings.showCountry": "আমার দেশের পতাকা দেখান",
+  "settings.showCountryHint": "অন্য খেলোয়াড়রা এটি আপনার নামের পাশে দেখে। এটি আপনি যেখান থেকে খেলেন সেখান থেকে আসে।",
   "settings.title": "সেটিংস",
   "settings.soundAndFeel": "শব্দ ও অনুভূতি",
   "settings.music": "সঙ্গীত",

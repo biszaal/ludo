@@ -408,6 +408,8 @@ export const ptBR: Strings = {
   "settings.adPrivacyError": "Não foi possível abrir as opções de privacidade. Os anúncios estão pausados. Tente novamente.",
   "settings.analytics": "Ajude a melhorar o Ludo",
   "settings.analyticsHint": "Eventos opcionais de jogo vinculados à sua conta. Sem chats, nomes ou IDs de publicidade. Desative para excluir os eventos coletados.",
+  "settings.showCountry": "Mostrar a bandeira do meu país",
+  "settings.showCountryHint": "Outros jogadores a veem ao lado do seu nome. Ela vem do lugar de onde você joga.",
   "settings.title": "Configurações",
   "settings.soundAndFeel": "Som e vibração",
   "settings.music": "Música",

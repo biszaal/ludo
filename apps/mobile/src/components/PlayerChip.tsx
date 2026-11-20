@@ -32,6 +32,7 @@ import { depth, font, palette, radius, teamColor } from "../theme";
 import { CHIP_COLUMN } from "../lib/layout";
 import { colorLabel } from "../i18n";
 import { useT } from "../i18n";
+import { flagEmoji } from "../lib/flags";
 
 const AVATAR = 48;
 const RING_BOX = AVATAR + 14; // outer container; the ring hugs the frame inside it
@@ -71,6 +72,8 @@ interface PlayerChipProps {
   active: boolean;
   label?: string;
   avatarId?: string | null;
+  /** ISO country for the flag before the name (0083); null = no flag. */
+  country?: string | null;
   offline?: boolean;
   /** The player quit for good — dims the chip and shows "Left" (beats Away). */
   left?: boolean;
@@ -85,6 +88,13 @@ interface PlayerChipProps {
   onPress?: (() => void) | null;
 }
 
+
+/** "🇳🇵 " before the name, or nothing. Kept inside the name's own Text so the
+ *  flag truncates with the line rather than pushing the chip wider. */
+function flagPrefix(country: string | null): string {
+  const flag = flagEmoji(country);
+  return flag ? `${flag} ` : "";
+}
 export const PlayerChip = memo(function PlayerChip({
   seatColor,
   finished,
@@ -92,6 +102,7 @@ export const PlayerChip = memo(function PlayerChip({
   active,
   label,
   avatarId,
+  country = null,
   offline = false,
   left = false,
   timerSeq = null,
@@ -169,6 +180,7 @@ export const PlayerChip = memo(function PlayerChip({
           color: active ? palette.porcelain : palette.mutedSteel,
         }}
       >
+        {flagPrefix(country)}
         {left
           ? `${label ?? colorLabel(seatColor)} · Left`
           : offline

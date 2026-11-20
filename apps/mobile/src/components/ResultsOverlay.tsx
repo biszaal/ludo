@@ -35,6 +35,7 @@ import { useLayout } from "../lib/useLayout";
 import { font, palette, radius, space, teamColor, teamTint } from "../theme";
 import { colorLabel } from "../i18n";
 import { useT } from "../i18n";
+import { flagEmoji } from "../lib/flags";
 
 
 /** Online rematch voting. Omitted in local play, where Rematch just restarts. */
@@ -57,6 +58,8 @@ interface ResultsOverlayProps {
   nameFor?: (playerId: string) => string | null;
   /** Avatar id for a seat (null → color chip). */
   avatarFor?: (playerId: string) => string | null;
+  /** ISO country for the flag before each name (0083). */
+  countryFor?: (playerId: string) => string | null;
   /** Hidden when undefined (local play with no previous setup to repeat).
    *  Ignored when `rematch` is supplied — online, the button opens a vote. */
   onRematch?: () => void;
@@ -81,7 +84,7 @@ interface ResultsOverlayProps {
 }
 
 /** 2 → "2nd", 3 → "3rd", 4 → "4th" (ranks only ever run 1–4). */
-export function ResultsOverlay({ state, nameFor, avatarFor, onRematch, rematch, footnote, canAddFriends = false, stake = 0, live = false, onBackToGame, enterDelayMs = 900, onHome }: ResultsOverlayProps) {
+export function ResultsOverlay({ state, nameFor, avatarFor, countryFor, onRematch, rematch, footnote, canAddFriends = false, stake = 0, live = false, onBackToGame, enterDelayMs = 900, onHome }: ResultsOverlayProps) {
   const t = useT();
   const userIdOf = (playerId: string) => state.players.find((p) => p.id === playerId)?.userId ?? null;
   const { width, height } = useWindowDimensions();
@@ -198,6 +201,10 @@ export function ResultsOverlay({ state, nameFor, avatarFor, onRematch, rematch, 
               </Text>
               <View style={{ width: 12, height: 12, borderRadius: radius.pill, backgroundColor: teamColor[s.color] }} />
               <Text style={{ flex: 1, fontFamily: font.semibold, fontSize: 15, color: palette.porcelain }}>
+                {(() => {
+                  const flag = flagEmoji(countryFor?.(s.playerId));
+                  return flag ? `${flag} ` : "";
+                })()}
                 {nameFor?.(s.playerId) ?? colorLabel(s.color)}
               </Text>
               {!gone && canAddFriends && userIdOf(s.playerId) ? <AddFriendButton userId={userIdOf(s.playerId)!} /> : null}

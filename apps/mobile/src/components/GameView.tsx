@@ -98,6 +98,8 @@ interface GameViewProps {
   /** Seat display names/avatars; fall back to color labels/chips. */
   nameFor?: (playerId: string) => string | null;
   avatarFor?: (playerId: string) => string | null;
+  /** ISO country for a seat's flag (0083); null = no flag. Online only. */
+  countryFor?: (playerId: string) => string | null;
   /** Seat's equipped dice skin id; unset/unknown falls back to classic (the
    *  viewer's own board theme) inside <Dice> itself. */
   diceSkinFor?: (playerId: string) => string | null;
@@ -188,6 +190,7 @@ export function GameView({
   confirmLeave,
   nameFor,
   avatarFor,
+  countryFor,
   diceSkinFor,
   offlineFor,
   botFor,
@@ -588,6 +591,7 @@ export function GameView({
             active={isActive}
             label={nameFor?.(p.id) ?? undefined}
             avatarId={avatarFor?.(p.id) ?? null}
+            country={countryFor?.(p.id) ?? null}
             offline={offlineFor?.(p.id) ?? false}
             left={gone}
             timerSeq={showTimer ? turnTimer!.seq : null}
@@ -879,6 +883,7 @@ export function GameView({
           state={state}
           nameFor={nameFor}
           avatarFor={avatarFor}
+          countryFor={countryFor}
           onRematch={finished ? onRematch : undefined}
           rematch={finished ? rematch : undefined}
           footnote={finished ? resultsFootnote : null}

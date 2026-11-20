@@ -412,6 +412,8 @@ export const hi: Strings = {
   "settings.adPrivacyError": "गोपनीयता विकल्प नहीं खुल सके। विज्ञापन रोक दिए गए हैं। कृपया फिर कोशिश करें।",
   "settings.analytics": "लूडो को बेहतर बनाएँ",
   "settings.analyticsHint": "आपके खाते से जुड़े वैकल्पिक खेल इवेंट। चैट, नाम या विज्ञापन ID नहीं। बंद करने पर संग्रहित इवेंट मिटते हैं।",
+  "settings.showCountry": "मेरे देश का झंडा दिखाएं",
+  "settings.showCountryHint": "दूसरे खिलाड़ी इसे आपके नाम के पास देखते हैं। यह आपके खेलने की जगह से आता है।",
   "settings.title": "सेटिंग",
   "settings.soundAndFeel": "आवाज़ और एहसास",
   "settings.music": "संगीत",

@@ -40,6 +40,7 @@ import { SkeletonBlock, SkeletonGroup, SkeletonLine } from "../components/Skelet
 import { LoadFailed } from "../components/LoadFailed";
 import { useLoadPhase } from "../lib/useLoadPhase";
 import { useT } from "../i18n";
+import { flagEmoji } from "../lib/flags";
 
 export function FriendsScreen() {
   const t = useT();
@@ -86,6 +87,7 @@ export function FriendsScreen() {
   const friendIds = sortFriendsByPresence(acceptedFriendIds(friendships, userId), presence, now);
 
   const nameOf = (uid: string) => profiles[uid]?.display_name ?? t("friends.ludoPlayer");
+  const countryOf = (uid: string) => profiles[uid]?.country ?? null;
   const avatarOf = (uid: string) => profiles[uid]?.avatar_id ?? "orbit-moss";
 
   // Map an accepted friend's uid back to its friendship row id (for remove).
@@ -130,6 +132,7 @@ export function FriendsScreen() {
               <Row
                 key={r.id}
                 name={nameOf(r.requester_user_id)}
+                country={countryOf(r.requester_user_id)}
                 avatar={avatarOf(r.requester_user_id)}
                 onPress={() => void viewPlayer(r.requester_user_id)}
               >
@@ -164,6 +167,7 @@ export function FriendsScreen() {
               <Row
                 key={r.id}
                 name={nameOf(r.addressee_user_id)}
+                country={countryOf(r.addressee_user_id)}
                 avatar={avatarOf(r.addressee_user_id)}
                 onPress={() => void viewPlayer(r.addressee_user_id)}
               >
@@ -245,6 +249,7 @@ export function FriendsScreen() {
               <Row
                 key={uid}
                 name={nameOf(uid)}
+                country={countryOf(uid)}
                 avatar={avatarOf(uid)}
                 online={isOnline(presence[uid], now)}
                 onPress={() => void viewPlayer(uid)}
@@ -296,12 +301,15 @@ const IDENTITY_MIN = 150;
  *  they wrap as a pair — never one button stranded on a line of its own. */
 function Row({
   name,
+  country = null,
   avatar,
   online,
   onPress,
   children,
 }: {
   name: string;
+  /** ISO country for the flag before the name (0083). */
+  country?: string | null;
   avatar: string;
   online?: boolean;
   onPress: () => void;
@@ -343,6 +351,7 @@ function Row({
           style={{ flexShrink: 1, fontFamily: font.semibold, fontSize: 15, color: palette.porcelain }}
           numberOfLines={1}
         >
+          {flagEmoji(country) ? `${flagEmoji(country)} ` : ""}
           {name}
         </Text>
       </Pressable>

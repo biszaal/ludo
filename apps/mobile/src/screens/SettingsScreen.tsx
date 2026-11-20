@@ -1,5 +1,5 @@
 import { Button } from "../components/Button";
-import { setProductAnalyticsConsent } from "../net/api";
+import { getMyProfile, setCountryShown, setProductAnalyticsConsent } from "../net/api";
 /**
  * Settings — device preferences (sound / music / haptics) and How to play.
  * Everything saves instantly via the persisted stores; there is no Save
@@ -7,7 +7,7 @@ import { setProductAnalyticsConsent } from "../net/api";
  * repeat here — Settings owns the device, not the account.
  */
 
-import { useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { TableBackground } from "../components/TableBackground";
@@ -49,6 +49,23 @@ export function SettingsScreen() {
     catch { setAnalyticsError(true); setAnalyticsRetry(enabled); }
     finally { setAnalyticsBusy(false); }
   };
+  // My flag (0083). Null until the server answers, or on a server without the
+  // column: the row only appears once we know the real value.
+  const [countryShown, setCountryShownState] = useState<boolean | null>(null);
+  useEffect(() => {
+    let live = true;
+    void getMyProfile().then((p) => {
+      if (live) setCountryShownState(p?.countryShown ?? null);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+  const changeCountryShown = async (shown: boolean) => {
+    const before = countryShown;
+    setCountryShownState(shown);
+    if (!(await setCountryShown(shown))) setCountryShownState(before);
+  };
   const privacyRequired = useSyncExternalStore(subscribeAdsReady, adsPrivacyRequired, adsPrivacyRequired);
   const [privacyBusy, setPrivacyBusy] = useState(false);
   const [privacyError, setPrivacyError] = useState(false);
@@ -74,6 +91,10 @@ export function SettingsScreen() {
             value={settings.analyticsOn} onChange={v => void changeAnalytics(v)} />
           {analyticsRetry !== null && <Button compact label={t("common.retry")} disabled={analyticsBusy} onPress={() => void changeAnalytics(analyticsRetry)} />}
           {analyticsError && <Text accessibilityLiveRegion="polite" style={{ color: palette.porcelain }}>{t("common.somethingWentWrong")}</Text>}
+          {countryShown !== null && (
+            <SettingRow label={t("settings.showCountry")} hint={t("settings.showCountryHint")}
+              value={countryShown} onChange={v => void changeCountryShown(v)} />
+          )}
         </Tray>
         <Tray title={t("settings.soundAndFeel")}>
           <Row glyph={<SpeakerGlyph size={20} />}>

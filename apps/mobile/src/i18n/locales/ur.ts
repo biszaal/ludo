@@ -411,6 +411,8 @@ export const ur: Strings = {
   "settings.adPrivacyError": "رازداری کے اختیارات نہیں کھل سکے۔ اشتہارات روک دیے گئے ہیں۔ دوبارہ کوشش کریں۔",
   "settings.analytics": "لڈو بہتر بنانے میں مدد کریں",
   "settings.analyticsHint": "آپ کے اکاؤنٹ سے منسلک اختیاری کھیل کے واقعات۔ چیٹ، نام یا اشتہاری ID شامل نہیں۔ بند کرنے پر جمع شدہ واقعات حذف ہو جاتے ہیں۔",
+  "settings.showCountry": "میرے ملک کا جھنڈا دکھائیں",
+  "settings.showCountryHint": "دوسرے کھلاڑی اسے آپ کے نام کے ساتھ دیکھتے ہیں۔ یہ اس جگہ سے آتا ہے جہاں سے آپ کھیلتے ہیں۔",
   "settings.title": "ترتیبات",
   "settings.soundAndFeel": "آواز اور احساس",
   "settings.music": "موسیقی",

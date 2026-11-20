@@ -408,6 +408,8 @@ export const ne: Strings = {
   "settings.adPrivacyError": "गोपनीयता विकल्प खोल्न सकिएन। विज्ञापन रोकिएका छन्। कृपया फेरि प्रयास गर्नुहोस्।",
   "settings.analytics": "लुडो सुधार्न सहयोग गर्नुहोस्",
   "settings.analyticsHint": "तपाईंको खातासँग जोडिएका ऐच्छिक खेल घटनाहरू। च्याट, नाम वा विज्ञापन ID समावेश हुँदैन। बन्द गर्दा सङ्कलित घटनाहरू मेटिन्छन्।",
+  "settings.showCountry": "मेरो देशको झण्डा देखाउनुहोस्",
+  "settings.showCountryHint": "अरू खेलाडीले यो तपाईंको नामछेउ देख्छन्। यो तपाईं जहाँबाट खेल्नुहुन्छ त्यहीँबाट आउँछ।",
   "settings.title": "सेटिङ",
   "settings.soundAndFeel": "आवाज र अनुभूति",
   "settings.music": "सङ्गीत",
