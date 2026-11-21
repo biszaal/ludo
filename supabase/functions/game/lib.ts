@@ -422,6 +422,10 @@ export const LIMITS = {
   roomCreate: 30,
   // The invite card loads on Friends and, throttled, on Home.
   referrals: 120,
+  // Both are sent once by the app (first launch, first sign-in per account) and
+  // are write-once in SQL; the ceiling only bounds a looping client.
+  installSource: 10,
+  deviceSeen: 20,
   // Joining is the one op that takes a GUESSABLE key: room codes are four
   // characters over a 32-symbol alphabet, so ~1M combinations, of which only
   // the currently-waiting rooms are live. Unlimited, that is a free sweep of

@@ -65,6 +65,10 @@ interface FriendsStore {
   /** Who PlayerProfileScreen is showing. Nav takes no params by design (only
    *  the top entry mounts, so screen state lives in stores) — this is it. */
   viewingUserId: string | null;
+  /** A friend code from a friend's link (lib/invite), waiting for Add Friend to
+   *  look it up. Same reason as viewingUserId: nav takes no params. */
+  pendingCode: string | null;
+  setPendingCode: (code: string | null) => void;
 
   /** Open a player's public profile: caches their card, then navigates. */
   viewPlayer: (userId: string) => Promise<void>;
@@ -104,10 +108,13 @@ const EMPTY = {
   myCode: null,
   recentPlayers: [],
   viewingUserId: null,
+  pendingCode: null,
 } satisfies Partial<FriendsStore>;
 
 export const useFriends = create<FriendsStore>((set, get) => ({
   ...EMPTY,
+
+  setPendingCode: (code) => set({ pendingCode: code }),
 
   viewPlayer: async (userId) => {
     set({ viewingUserId: userId });

@@ -1,4 +1,4 @@
-import { inviteUrl, codeFromUrl } from "./inviteLinks";
+import { inviteUrl, codeFromUrl, friendCodeFromUrl } from "./inviteLinks";
 import { trackProductEvent } from "./analytics";
 import { t } from "../i18n";
 /**
@@ -20,6 +20,8 @@ import { Share } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import * as Linking from "expo-linking";
 import { useOnlineStore } from "../store/onlineStore";
+import { useFriends } from "../store/friendsStore";
+import { useNav } from "../store/navStore";
 
 /** Open the OS share sheet with the room invite. Best-effort (user may cancel).
  *  The stake goes in the text so nobody taps into a pot they didn't expect. */
@@ -46,7 +48,23 @@ export async function copyCode(code: string): Promise<void> {
 /** Extract a room code from a <scheme>://join/CODE url (null if it isn't one).
  *  Scheme-agnostic on purpose — see the note on SCHEME above. */
 
+/** Screens a friend link must not pull the player out of. */
+const BUSY_SCREENS = new Set(["localGame", "frenzyGame", "lobby", "onlineGame"]);
+
+/** A friend's link (?friend=CODE): open Add Friend with the code looked up,
+ *  which records the referral the same way typing it would. Mid-game, the code
+ *  just waits until they next open Add Friend. */
+function handleFriendLink(code: string): void {
+  useFriends.getState().setPendingCode(code);
+  const nav = useNav.getState();
+  const top = nav.stack[nav.stack.length - 1]?.name;
+  if (!top || top === "addFriend" || BUSY_SCREENS.has(top)) return;
+  nav.push("addFriend");
+}
+
 function handleUrl(url: string | null): void {
+  const friend = friendCodeFromUrl(url);
+  if (friend) return handleFriendLink(friend);
   const code = codeFromUrl(url);
   if (!code) return;
   const online = useOnlineStore.getState();

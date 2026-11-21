@@ -82,8 +82,9 @@ export class PushPromptOffer {
     };
   }
 
-  /** The celebration has been seen and the match is over. */
-  static presentPendingWin(): Promise<void> {
+  /** The celebration has been seen and the match is over. True when the
+   *  sheet was shown, so the caller asks for nothing else this time. */
+  static presentPendingWin(): Promise<boolean> {
     return PushPromptOffer.consumeWin("first-win");
   }
 
@@ -94,10 +95,11 @@ export class PushPromptOffer {
     return PushPromptOffer.finish(PushPromptOffer.offer("claim", winsBefore));
   }
 
-  private static async consumeWin(delight: Delight): Promise<void> {
-    if (!pendingWin) return;
+  private static async consumeWin(delight: Delight): Promise<boolean> {
+    if (!pendingWin) return false;
     const outcome = await PushPromptOffer.offer(delight, 0);
     if (outcome !== "skipped") pendingWin = false;
+    return outcome === "shown";
   }
 
   private static async finish(pending: Promise<Outcome>): Promise<void> {

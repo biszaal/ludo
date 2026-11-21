@@ -65,6 +65,7 @@ import {
 import { opSendFeedback } from "./feedback.ts";
 import { opReferrals, settleReferrals } from "./referral.ts";
 import { countryGate, recordCountry } from "./country.ts";
+import { opDeviceSeen, opInstallSource } from "./install.ts";
 import { opBlockedList, opChat, opReportPlayer } from "./chat.ts";
 import { opPushDisable, opPushRegister } from "./push.ts";
 
@@ -231,6 +232,10 @@ Deno.serve(async (req: Request) => {
         return await opFriendsRecent(admin, userId);
       case "referrals":
         return await opReferrals(admin, userId);
+      case "installSource":
+        return await opInstallSource(admin, userId, String(body.platform ?? ""), String(body.referrer ?? ""));
+      case "deviceSeen":
+        return await opDeviceSeen(admin, userId, String(body.deviceId ?? ""));
       case "presenceOnline":
         return await opPresenceOnline(admin, userId);
       case "pushRegister":

@@ -1100,6 +1100,22 @@ export async function getReferrals(): Promise<ReferralsResponse> {
   return await callGame<ReferralsResponse>("referrals");
 }
 
+/** The Play install referrer, sent once per install (lib/installSource). A friend
+ *  code in it records a referral server-side; `referral.attached` says so. */
+export async function reportInstallSource(
+  platform: string,
+  referrer: string,
+): Promise<{ recorded: boolean; referral?: { attached: boolean } }> {
+  await ensureSignedIn();
+  return await callGame("installSource", { platform, referrer });
+}
+
+/** This phone's ID, sent once per account (lib/deviceId). Hashed server-side. */
+export async function reportDevice(deviceId: string): Promise<void> {
+  await ensureSignedIn();
+  await callGame("deviceSeen", { deviceId });
+}
+
 /** Resolve an EXACT username (case-insensitive) to a player card. Shares the
  *  code-lookup throttle server-side, and returns the same opaque "not found"
  *  for an absent, blocked, bot or self match. */
