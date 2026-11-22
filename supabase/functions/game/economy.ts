@@ -94,7 +94,10 @@ export async function opConfig(
   const rows = data ?? [];
   const base = (rows.find((r) => r.key === "default")?.value ?? {}) as Json;
   const local = region ? ((rows.find((r) => r.key === region)?.value ?? {}) as Json) : {};
-  return json({ config: deepMerge(base, local), region: region || null });
+  // Server-only: the reward spin's tables and test-account allowlist (0086).
+  // The app gets each wheel from spinState, never from here.
+  const { spin: _serverOnly, ...config } = deepMerge(base, local);
+  return json({ config, region: region || null });
 }
 
 export async function opWalletGet(admin: SupabaseClient, userId: string): Promise<Response> {

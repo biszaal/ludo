@@ -71,3 +71,20 @@ Deno.test("the rate limit stops both ops before the database", async () => {
   assertEquals(f.calls("spin_status").length + f.calls("spin_claim").length, 0);
   assertEquals(f.calls("rate_limit_hit")[0].args.p_bucket, "spin");
 });
+
+// The spin block (tables, allowlist of test accounts) is server-only: the
+// `config` op sends app_config to every app, so it must leave `spin` out.
+Deno.test("the config op never sends the spin block to apps", async () => {
+  const { opConfig } = await import("./economy.ts");
+  const rows = [
+    { key: "default", value: { ads: { enabled: true }, spin: { enabled: false, allowlistUserIds: [ME] } } },
+    { key: "NP", value: { spin: { enabled: true } } },
+  ];
+  const admin = {
+    rpc: () => Promise.resolve({ data: null, error: null }),
+    from: () => ({ select: () => ({ in: () => Promise.resolve({ data: rows, error: null }) }) }),
+  } as unknown as SupabaseClient;
+  const res = await body(await opConfig(admin, ME, new Request("https://x/", { method: "POST" }), "NP"));
+  assertEquals(res.config, { ads: { enabled: true } });
+  assertEquals(res.region, "NP");
+});
