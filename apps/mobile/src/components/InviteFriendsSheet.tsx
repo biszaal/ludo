@@ -22,6 +22,7 @@ import { SectionLabel } from "./SectionLabel";
 import { useFriends } from "../store/friendsStore";
 import { acceptedFriendIds, isOnline, sortFriendsByPresence } from "../lib/friendship";
 import { shareInvite } from "../lib/invite";
+import { registerForPush } from "../lib/push";
 import { font, palette, radius, space, teamColor } from "../theme";
 import { useT } from "../i18n";
 
@@ -50,6 +51,10 @@ export function InviteFriendsSheet({ roomCode, stake, seatedUserIds, onClose }: 
   useEffect(() => {
     void useFriends.getState().init();
     void refresh();
+    // Same registration the Friends screen does. Opening this sheet is the
+    // other moment the prompt was meant to show: the player is inviting
+    // someone who may not have the app open.
+    void registerForPush();
   }, [refresh]);
 
   // Re-tick so the presence dots age out while the sheet is open.
