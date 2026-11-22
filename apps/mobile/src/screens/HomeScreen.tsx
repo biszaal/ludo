@@ -29,6 +29,10 @@ import { CoinsPill } from "../components/CoinsPill";
 import { GemsPill } from "../components/GemsPill";
 import { GetCoinsSheet } from "../components/GetCoinsSheet";
 import { DailyBonusSheet } from "../components/DailyBonusSheet";
+import { SpinTile } from "../components/SpinTile";
+import { SpinSheet } from "../components/SpinSheet";
+import { useSpin } from "../store/spinStore";
+import { tileView } from "../lib/spin";
 import { AccountSheet } from "../components/AccountSheet";
 import { GuestBanner, useGuestStrip } from "../components/GuestBanner";
 import { useSavePrompt } from "../lib/useSavePrompt";
@@ -69,6 +73,10 @@ export function HomeScreen() {
   const [roomSheet, setRoomSheet] = useState(false);
   const [quickSheet, setQuickSheet] = useState(false);
   const [bonusSheet, setBonusSheet] = useState(false);
+  const [spinSheet, setSpinSheet] = useState(false);
+  // Reward spin (0086): hidden until the server says it is on for this player.
+  const spinState = useSpin((s) => s.state);
+  const spinShown = tileView(spinState, Date.now()).kind !== "hidden";
   /**
    * The one place the save-account prompt is raised.
    *
@@ -169,6 +177,8 @@ export function HomeScreen() {
   const refreshWallet = useWallet((s) => s.refresh);
   useEffect(() => {
     void refreshWallet();
+    // What spins are owed changes with the same events (a finished game, a new day).
+    void useSpin.getState().refresh();
   }, [refreshWallet, onlineStatus]);
 
   // Show the streak calendar once a day, after the wallet read settles — the
@@ -223,13 +233,28 @@ export function HomeScreen() {
           budget leaves (or any point it misjudges) lands on the felt around the
           still-life rather than pushing the dock off the bottom. */}
       <View style={{ flex: 1, minHeight: 0, paddingHorizontal: space.lg, paddingTop: metrics.gap, gap: metrics.gap }}>
-        <DailyChestTile
-          onPress={() => setBonusSheet(true)}
-          claimable={bonusClaimable}
-          streakDay={streakDay}
-          nextBonus={nextDailyBonus(streakDay, economy)}
-          height={metrics.chest}
-        />
+        {/* The spin tile shares the chest's row and height, so the hub's budget
+            is the same with it or without it. */}
+        {spinShown ? (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
+            <DailyChestTile
+              onPress={() => setBonusSheet(true)}
+              claimable={bonusClaimable}
+              streakDay={streakDay}
+              nextBonus={nextDailyBonus(streakDay, economy)}
+              height={metrics.chest}
+            />
+            <SpinTile state={spinState} onPress={() => setSpinSheet(true)} height={metrics.chest} />
+          </View>
+        ) : (
+          <DailyChestTile
+            onPress={() => setBonusSheet(true)}
+            claimable={bonusClaimable}
+            streakDay={streakDay}
+            nextBonus={nextDailyBonus(streakDay, economy)}
+            height={metrics.chest}
+          />
+        )}
 
         <View
           style={{ flex: 1, minHeight: 0, alignSelf: "stretch", justifyContent: "center" }}
@@ -338,6 +363,14 @@ export function HomeScreen() {
       )}
       {coinsSheet && <GetCoinsSheet onClose={() => setCoinsSheet(false)} onDailyBonus={() => { setCoinsSheet(false); setBonusSheet(true); }} />}
       {bonusSheet && <DailyBonusSheet onClose={() => setBonusSheet(false)} />}
+      {spinSheet && (
+        <SpinSheet
+          onClose={() => {
+            setSpinSheet(false);
+            void useSpin.getState().refresh();
+          }}
+        />
+      )}
       {roomSheet && <RoomSheet onClose={() => setRoomSheet(false)} />}
       {referralNotice &&
         referralData &&
