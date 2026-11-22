@@ -7,6 +7,11 @@
  * connection after the server already paid) sends the SAME id, and the server
  * hands back the first result instead of paying again. One claim at a time: a
  * second tap while one is out returns null and sends nothing.
+ *
+ * Everything here belongs to one account. reset() runs when the signed-in user
+ * changes: it forgets the state and any id waiting to be retried, and bumps a
+ * generation so an answer still in flight for the previous account is dropped
+ * instead of landing in the new account's wallet pills.
  */
 
 import { create } from "zustand";
@@ -25,27 +30,44 @@ interface SpinStore {
   refresh: () => Promise<void>;
   /** Throws on a network or server error, keeping the id for the retry. */
   claim: (source: SpinSource) => Promise<SpinClaim | null>;
+  /** The signed-in account changed: start over. */
+  reset: () => void;
 }
+
+/** Home asks on every visit and on every connection change; one read serves all of them. */
+let inFlight: Promise<void> | null = null;
+/** Bumped by reset(); an answer from an older generation belongs to another account. */
+let generation = 0;
 
 export const useSpin = create<SpinStore>((set, get) => ({
   state: null,
   claiming: false,
   pending: {},
 
-  refresh: async () => {
-    try {
-      set({ state: await api.getSpinState() });
-    } catch {
-      set({ state: null });
-    }
+  refresh: () => {
+    if (inFlight) return inFlight;
+    const gen = generation;
+    inFlight = (async () => {
+      try {
+        const state = await api.getSpinState();
+        if (gen === generation) set({ state });
+      } catch {
+        if (gen === generation) set({ state: null });
+      } finally {
+        inFlight = null;
+      }
+    })();
+    return inFlight;
   },
 
   claim: async (source) => {
     if (get().claiming) return null;
+    const gen = generation;
     const requestId = get().pending[source] ?? randomId();
     set({ claiming: true, pending: { ...get().pending, [source]: requestId } });
     try {
       const result = await api.claimSpin(source, requestId);
+      if (gen !== generation) return null; // answered for an account that is gone
       // Answered: this id is spent either way.
       const { [source]: _spent, ...rest } = get().pending;
       set({ pending: rest });
@@ -60,7 +82,13 @@ export const useSpin = create<SpinStore>((set, get) => ({
       }
       return result;
     } finally {
-      set({ claiming: false });
+      if (gen === generation) set({ claiming: false });
     }
+  },
+
+  reset: () => {
+    generation += 1;
+    inFlight = null;
+    set({ state: null, claiming: false, pending: {} });
   },
 }));

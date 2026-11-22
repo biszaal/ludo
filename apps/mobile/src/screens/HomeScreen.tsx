@@ -186,12 +186,13 @@ export function HomeScreen() {
   // stale state. The store only guards against re-popping: Home remounts on
   // every popTo("home"), and a calendar that reopens after each match nags.
   useEffect(() => {
-    if (!bonusClaimable) return;
+    // Never on top of the spin sheet; this runs again when it closes.
+    if (!bonusClaimable || spinSheet) return;
     const today = utcDay();
     if (!shouldAutoShow(useDailyBonus.getState(), true, today, playedBefore)) return;
     useDailyBonus.getState().noteAutoShown(today);
     setBonusSheet(true);
-  }, [bonusClaimable, playedBefore]);
+  }, [bonusClaimable, playedBefore, spinSheet]);
 
   // Warm the presence map so the friends-online line is real, not stale.
   useEffect(() => pollPresence(), []);
@@ -375,6 +376,7 @@ export function HomeScreen() {
       {referralNotice &&
         referralData &&
         !bonusSheet &&
+        !spinSheet &&
         !coinsSheet &&
         !roomSheet &&
         !quickSheet &&

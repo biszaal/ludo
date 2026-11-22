@@ -20,6 +20,7 @@ import { syncPurchasesUser } from "./purchases";
 import { ensureSignedIn, getProfiles, deleteAccount as apiDeleteAccount } from "../net/api";
 import { useWallet } from "../store/walletStore";
 import { useEntitlements } from "../store/entitlementsStore";
+import { useSpin } from "../store/spinStore";
 import { useProfile } from "../store/profileStore";
 import { useFriends } from "../store/friendsStore";
 import { nameAfterAuth } from "./profileCarry";
@@ -262,6 +263,8 @@ function resetLocalIdentity(): void {
   p.setDiceSkin("classic");
   useWallet.getState().reset();
   useEntitlements.setState({ owned: [], prices: {}, currencies: {}, buying: null });
+  // The spin state and any claim id waiting to be retried belong to the old account.
+  useSpin.getState().reset();
 }
 
 /** After the signed-in user changes, resync everything keyed to the user id.
@@ -271,6 +274,7 @@ async function rehydrateAfterAuth(previousUserId: string | null): Promise<void> 
   const uid = data.session?.user.id ?? null;
   if (uid !== previousUserId) {
     useWallet.getState().reset();
+    useSpin.getState().reset();
     useSettings.getState().setAnalytics(false);
   }
   await Promise.allSettled([

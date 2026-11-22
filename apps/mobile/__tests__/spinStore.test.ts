@@ -97,3 +97,38 @@ describe("spin store", () => {
     expect(useSpin.getState().claiming).toBe(false);
   });
 });
+
+describe("spin store across refreshes and accounts", () => {
+  it("shares one read between overlapping refreshes", async () => {
+    let resolve: (v: SpinState) => void = () => {};
+    getSpinState.mockReturnValue(new Promise((r) => (resolve = r)));
+    const a = useSpin.getState().refresh();
+    const b = useSpin.getState().refresh();
+    resolve(READY);
+    await Promise.all([a, b]);
+    expect(getSpinState).toHaveBeenCalledTimes(1);
+    expect(useSpin.getState().state).toEqual(READY);
+  });
+
+  it("reset forgets the state and any request id waiting to be retried", async () => {
+    claimSpin.mockRejectedValueOnce(new Error("timeout"));
+    await expect(useSpin.getState().claim("daily")).rejects.toThrow();
+    useSpin.setState({ state: READY });
+    useSpin.getState().reset();
+    expect(useSpin.getState().state).toBeNull();
+    expect(useSpin.getState().pending).toEqual({});
+  });
+
+  it("ignores a claim that lands after the account changed", async () => {
+    useWallet.setState({ balance: 100, gems: 1 });
+    let resolve: (v: typeof PAID) => void = () => {};
+    claimSpin.mockReturnValue(new Promise((r) => (resolve = r)));
+    const pending = useSpin.getState().claim("daily");
+    useSpin.getState().reset();
+    resolve(PAID);
+    await pending;
+    expect(useSpin.getState().state).toBeNull();
+    expect(useWallet.getState().balance).toBe(100);
+    expect(useSpin.getState().claiming).toBe(false);
+  });
+});

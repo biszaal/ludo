@@ -64,12 +64,16 @@ Deno.test("a database error is never mistaken for a result", async () => {
   assertEquals(await body(await opSpinClaim(f.admin, ME, "daily", REQ)), { error: "Could not spin. Try again." });
 });
 
-Deno.test("the rate limit stops both ops before the database", async () => {
+Deno.test("the rate limit stops both ops before the database, each with its own budget", async () => {
   const f = fake({ rate_limit_hit: () => ({ data: false }), spin_status: () => ({ data: {} }), spin_claim: () => ({ data: {} }) });
   assertEquals((await body(await opSpinState(f.admin, ME))).error, "You're doing that too fast. Give it a minute.");
   assertEquals((await body(await opSpinClaim(f.admin, ME, "daily", REQ))).error, "You're doing that too fast. Give it a minute.");
   assertEquals(f.calls("spin_status").length + f.calls("spin_claim").length, 0);
-  assertEquals(f.calls("rate_limit_hit")[0].args.p_bucket, "spin");
+  // Home reads the state on every visit; claims are a few taps a day.
+  assertEquals(
+    f.calls("rate_limit_hit").map((c) => [c.args.p_bucket, c.args.p_limit]),
+    [["spinState", 120], ["spinClaim", 30]],
+  );
 });
 
 // The spin block (tables, allowlist of test accounts) is server-only: the

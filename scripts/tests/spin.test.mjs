@@ -72,6 +72,7 @@ before(async () => {
   await db.exec(gems.slice(gems.indexOf('create table if not exists public.gem_txns'), gems.indexOf('-- 3.')));
   await db.exec('create table app_config(key text primary key, value jsonb not null);');
   await db.exec(await migration('0086_reward_spin.sql'));
+  await db.exec(await migration('0087_spin_ext_id_per_user.sql'));
 });
 after(async () => { await db?.close(); });
 beforeEach(async () => {
@@ -82,11 +83,13 @@ beforeEach(async () => {
 test('the migration seeds the spin block once and never overwrites it', async () => {
   await query(`insert into app_config(key, value) values ('default', '{"gems": {"enabled": true}}')`);
   await db.exec(await migration('0086_reward_spin.sql'));
+  await db.exec(await migration('0087_spin_ext_id_per_user.sql'));
   const seeded = (await one(`select value->'spin' s from app_config where key = 'default'`)).s;
   assert.equal(seeded.enabled, false);
   assert.equal(seeded.tableVersion, 1);
   await query(`update app_config set value = jsonb_set(value, '{spin,enabled}', 'true') where key = 'default'`);
   await db.exec(await migration('0086_reward_spin.sql'));
+  await db.exec(await migration('0087_spin_ext_id_per_user.sql'));
   assert.equal((await one(`select value->'spin'->'enabled' e from app_config where key = 'default'`)).e, true);
 });
 
@@ -182,7 +185,7 @@ test('claim pays the rolled segment and logs it', async () => {
   assert.equal(r.balance, before.balance + 25);
   assert.deepEqual(
     await query("select delta, reason, bucket, ext_id from wallet_txns where user_id = $1 and reason like 'spin-%'", [A]),
-    [{ delta: 25, reason: 'spin-daily', bucket: 'earned', ext_id: `spin:${rid(1)}` }],
+    [{ delta: 25, reason: 'spin-daily', bucket: 'earned', ext_id: `spin:${A}:${rid(1)}` }],
   );
   assert.deepEqual(await logRows(A), [{ source: 'daily', wheel: 'bronze', segment: 0, coins: 25, gems: 0, table_version: 1 }]);
 });
@@ -197,7 +200,7 @@ test('a gem segment pays gems', async () => {
   assert.equal(r.balance, before.balance);
   assert.deepEqual(
     await query("select delta, reason, ext_id from gem_txns where user_id = $1", [A]),
-    [{ delta: 2, reason: 'spin-daily', ext_id: `spin:${rid(1)}` }],
+    [{ delta: 2, reason: 'spin-daily', ext_id: `spin:${A}:${rid(1)}` }],
   );
 });
 
@@ -297,4 +300,16 @@ test('a claim says which wheel it drew from, and so does its replay', async () =
   const again = await claim(A, 'daily', rid(1));
   assert.equal(again.wheel, 'gold');
   assert.deepEqual(again.segments, r.segments);
+});
+
+// Final review fix: the payout key is per player, so one player's request id
+// can never make another player's spin look paid while crediting nothing.
+test('two players can never collide on a request id', async () => {
+  await enable();
+  const b = await wallet(B);
+  await claim(A, 'daily', rid(1), { roll: 0 });
+  const r = await claim(B, 'daily', rid(1), { roll: 0 });
+  assert.equal(r.ok, true);
+  assert.equal(r.balance, b.balance + 25);
+  assert.equal((await query("select 1 from wallet_txns where reason = 'spin-daily'")).length, 2);
 });
