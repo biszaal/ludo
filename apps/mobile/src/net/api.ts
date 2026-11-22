@@ -15,6 +15,7 @@ import { getIdentity } from "../lib/identityClient";
 import { APP_VERSION } from "../lib/appVersion";
 import { GameReleasedError, OnlineAccount } from "../lib/onlineAccount";
 import type { ReferralsResponse } from "../lib/referrals";
+import type { SpinSource, SpinState } from "../lib/spin";
 
 export interface GameRow {
   id: string;
@@ -569,6 +570,22 @@ export interface DailyBonusResult {
 export async function claimDailyBonus(): Promise<DailyBonusResult> {
   await ensureSignedIn();
   return await callGame<DailyBonusResult>("dailyBonus");
+}
+
+/** Reward spin (0086): what this player is owed, and the wheel the next spin uses. */
+export async function getSpinState(): Promise<SpinState> {
+  await ensureSignedIn();
+  return await callGame<SpinState>("spinState");
+}
+
+export type SpinClaim =
+  | { ok: true; segment: number; prize: { coins?: number; gems?: number }; balance: number; gems: number; status: SpinState }
+  | { ok: false; reason: "disabled" | "not_owed" | "bad_source" };
+
+/** Take a spin. The server picks and pays; a retry with the same id never pays twice. */
+export async function claimSpin(source: SpinSource, requestId: string): Promise<SpinClaim> {
+  await ensureSignedIn();
+  return await callGame<SpinClaim>("spinClaim", { source, requestId });
 }
 
 /** Last-resort grant for a player sitting at zero, once a day. */
