@@ -562,4 +562,10 @@ export const ne: Strings = {
   "spin.error": "घुमाउन सकिएन। कनेक्सन हेरेर फेरि प्रयास गर्नुहोस्।",
   "spin.tileReady": "निःशुल्क स्पिन!",
   "spin.tileLocked": "बोनस स्पिनका लागि एउटा अनलाइन खेल सक्नुहोस्",
+  "spin.tileReadyTitle": "निःशुल्क स्पिन",
+  "spin.tileWheel": "{tier} चक्का",
+  "spin.tileNextTitle": "अर्को स्पिन",
+  "spin.tileIn": "{time} पछि",
+  "spin.tileLockedTitle": "बोनस स्पिन",
+  "spin.tileLockedSub": "एउटा अनलाइन खेल सक्नुहोस्",
 };

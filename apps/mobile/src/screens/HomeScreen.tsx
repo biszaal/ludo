@@ -244,6 +244,7 @@ export function HomeScreen() {
               streakDay={streakDay}
               nextBonus={nextDailyBonus(streakDay, economy)}
               height={metrics.chest}
+              fill
             />
             <SpinTile state={spinState} onPress={() => setSpinSheet(true)} height={metrics.chest} />
           </View>

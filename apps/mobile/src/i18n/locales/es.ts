@@ -564,4 +564,10 @@ export const es: Strings = {
   "spin.error": "No se pudo girar. Revisa tu conexión e inténtalo de nuevo.",
   "spin.tileReady": "¡Giro gratis!",
   "spin.tileLocked": "Termina una partida en línea para un giro extra",
+  "spin.tileReadyTitle": "Giro gratis",
+  "spin.tileWheel": "Ruleta {tier}",
+  "spin.tileNextTitle": "Próximo giro",
+  "spin.tileIn": "en {time}",
+  "spin.tileLockedTitle": "Giro extra",
+  "spin.tileLockedSub": "Termina una partida en línea",
 };

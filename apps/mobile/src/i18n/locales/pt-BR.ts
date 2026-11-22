@@ -562,4 +562,10 @@ export const ptBR: Strings = {
   "spin.error": "Não deu para girar. Confira sua conexão e tente de novo.",
   "spin.tileReady": "Giro grátis!",
   "spin.tileLocked": "Termine uma partida online para ganhar um giro bônus",
+  "spin.tileReadyTitle": "Giro grátis",
+  "spin.tileWheel": "Roleta {tier}",
+  "spin.tileNextTitle": "Próximo giro",
+  "spin.tileIn": "em {time}",
+  "spin.tileLockedTitle": "Giro bônus",
+  "spin.tileLockedSub": "Termine uma partida online",
 };

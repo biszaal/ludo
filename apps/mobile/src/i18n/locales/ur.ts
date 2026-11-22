@@ -565,4 +565,10 @@ export const ur: Strings = {
   "spin.error": "اسپن نہیں ہو سکا۔ کنکشن دیکھ کر دوبارہ کوشش کریں۔",
   "spin.tileReady": "مفت اسپن!",
   "spin.tileLocked": "بونس اسپن کے لیے ایک آن لائن کھیل مکمل کریں",
+  "spin.tileReadyTitle": "مفت اسپن",
+  "spin.tileWheel": "{tier} پہیہ",
+  "spin.tileNextTitle": "اگلا اسپن",
+  "spin.tileIn": "{time} میں",
+  "spin.tileLockedTitle": "بونس اسپن",
+  "spin.tileLockedSub": "ایک آن لائن کھیل مکمل کریں",
 };

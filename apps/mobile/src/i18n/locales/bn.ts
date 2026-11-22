@@ -561,4 +561,10 @@ export const bn: Strings = {
   "spin.error": "ঘোরানো গেল না। সংযোগ দেখে আবার চেষ্টা করুন।",
   "spin.tileReady": "ফ্রি স্পিন!",
   "spin.tileLocked": "বোনাস স্পিনের জন্য একটি অনলাইন খেলা শেষ করুন",
+  "spin.tileReadyTitle": "ফ্রি স্পিন",
+  "spin.tileWheel": "{tier} চাকা",
+  "spin.tileNextTitle": "পরের স্পিন",
+  "spin.tileIn": "{time} পরে",
+  "spin.tileLockedTitle": "বোনাস স্পিন",
+  "spin.tileLockedSub": "একটি অনলাইন খেলা শেষ করুন",
 };

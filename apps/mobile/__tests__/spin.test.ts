@@ -4,7 +4,7 @@
  * only present what it said.
  */
 import { describe, it, expect } from "vitest";
-import { formatCountdown, msUntilReset, odds, tileTickMs, tileView, wheelTarget, type Segment, type SpinState } from "../src/lib/spin";
+import { flapperTilt, formatCountdown, msUntilReset, odds, rimMetal, tileTickMs, tileView, wedgeFills, wheelTarget, type Segment, type SpinState } from "../src/lib/spin";
 
 const NOW = Date.parse("2026-11-22T12:00:00Z");
 const RESET = "2026-11-23T00:00:00Z";
@@ -99,5 +99,47 @@ describe("tileTickMs", () => {
     expect(tileTickMs(5 * 60 * 60 * 1000)).toBe(60_000);
     expect(tileTickMs(30_000)).toBe(31_000);
     expect(tileTickMs(0)).toBe(60_000);
+  });
+});
+
+describe("wedgeFills", () => {
+  it("gives the top coin prize the gold wedge and alternates ivory and navy around it", () => {
+    expect(wedgeFills(BRONZE)).toEqual(["ivory", "navy", "ivory", "navy", "ivory", "navy", "ivory", "navy", "gold"]);
+    const first: Segment[] = [{ coins: 100, w: 400 }, { coins: 150, w: 300 }, { coins: 200, w: 200 }, { gems: 5, w: 80 }, { coins: 500, w: 20 }];
+    expect(wedgeFills(first)).toEqual(["ivory", "navy", "ivory", "navy", "gold"]);
+  });
+
+  it("picks the first of two equal top prizes, and no gold when there are no coin prizes", () => {
+    expect(wedgeFills([{ coins: 500, w: 1 }, { coins: 100, w: 1 }, { coins: 500, w: 1 }])).toEqual(["gold", "ivory", "navy"]);
+    expect(wedgeFills([{ gems: 2, w: 1 }, { gems: 5, w: 1 }])).toEqual(["ivory", "navy"]);
+  });
+});
+
+describe("rimMetal", () => {
+  it("matches the wheel's tier, with the first-game wheel in gold and anything unknown in silver", () => {
+    expect(rimMetal("bronze")).toBe("bronze");
+    expect(rimMetal("silver")).toBe("silver");
+    expect(rimMetal("gold")).toBe("gold");
+    expect(rimMetal("firstGame")).toBe("gold");
+    expect(rimMetal("weekly")).toBe("silver");
+  });
+});
+
+describe("flapperTilt", () => {
+  it("stands upright over the middle of a wedge", () => {
+    expect(flapperTilt(0, 8)).toBe(0);
+    expect(flapperTilt(wheelTarget(3, 8, 0, 5), 8)).toBe(0);
+  });
+
+  it("is pushed over by a peg coming up to the pointer, and drops back once it has passed", () => {
+    const justBefore = flapperTilt(20.5, 8); // the peg is 2 degrees short of the pointer
+    expect(justBefore).toBeLessThan(-10);
+    expect(justBefore).toBeGreaterThanOrEqual(-14);
+    expect(flapperTilt(23.5, 8)).toBe(0); // 1 degree past it
+  });
+
+  it("works for any rotation, negative or many turns on", () => {
+    expect(flapperTilt(20.5 - 360 * 3, 8)).toBeCloseTo(flapperTilt(20.5, 8));
+    expect(flapperTilt(20.5 + 360 * 7, 8)).toBeCloseTo(flapperTilt(20.5, 8));
   });
 });

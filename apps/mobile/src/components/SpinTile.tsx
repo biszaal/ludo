@@ -1,24 +1,26 @@
 /**
- * The reward spin's doorway on Home, beside the daily chest (server: 0086).
+ * The reward spin's doorway on Home, beside the daily chest (server: 0086;
+ * design: Claude Design canvas "Ludo spin wheel redesign", Home row board).
  *
- * Three faces, from lib/spin's tileView: spins owed (a count badge), nothing
- * owed (a countdown to the 00:00 UTC reset), or the first-game spin still
- * locked. The countdown ticks here, once a minute, so Home itself never
- * re-renders on a timer. It takes the rest of the chest's row and keeps the
- * chest's height, so Home's height budget is unchanged.
+ * Three faces, from lib/spin's tileView:
+ *   - spins owed: the next wheel in miniature, its name, a gold edge and a count;
+ *   - nothing owed: a grey wheel and a countdown to the 00:00 UTC reset;
+ *   - first-game spin still locked: a grey wheel with a lock, and what unlocks it.
+ * The countdown ticks here, so Home itself never re-renders on a timer. It
+ * shares the chest's row equally and keeps the chest's height, so Home's height
+ * budget is unchanged.
  */
 
 import { useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
-import { Canvas, Circle, Path, Skia } from "@shopify/react-native-skia";
 import { Surface3D } from "./Surface3D";
+import { MiniWheel } from "./SpinWheel";
 import { formatCountdown, tileTickMs, tileView, type SpinState } from "../lib/spin";
 import { useSpin } from "../store/spinStore";
 import { font, palette, radius, space } from "../theme";
 import { useT } from "../i18n";
 
 const GOLD = "#F5C542";
-const RIM = "#C8951B";
 
 interface SpinTileProps {
   state: SpinState | null;
@@ -27,7 +29,7 @@ interface SpinTileProps {
   height?: number;
 }
 
-export function SpinTile({ state, onPress, height = 44 }: SpinTileProps) {
+export function SpinTile({ state, onPress, height = 48 }: SpinTileProps) {
   const t = useT();
   const [now, setNow] = useState(() => Date.now());
   const view = tileView(state, now);
@@ -45,19 +47,32 @@ export function SpinTile({ state, onPress, height = 44 }: SpinTileProps) {
 
   if (view.kind === "hidden") return null;
 
-  let text: string;
-  if (view.kind === "ready") text = t("spin.tileReady");
-  else if (view.kind === "locked") text = t("spin.tileLocked");
-  else {
-    const { h, m } = formatCountdown(view.ms);
-    text = t("spin.next", { time: t("spin.countdown", { h, m }) });
-  }
   const live = view.kind === "ready";
+  const wheel = state?.next?.wheel ?? state?.tier ?? "silver";
+  let title: string;
+  let detail: string;
+  let mono = false;
+  if (view.kind === "ready") {
+    title = t("spin.tileReadyTitle");
+    detail =
+      wheel === "firstGame"
+        ? t("spin.source.first")
+        : t("spin.tileWheel", { tier: t(`spin.tier.${wheel === "gold" || wheel === "bronze" ? wheel : "silver"}`) });
+  } else if (view.kind === "locked") {
+    title = t("spin.tileLockedTitle");
+    detail = t("spin.tileLockedSub");
+  } else {
+    const { h, m } = formatCountdown(view.ms);
+    title = t("spin.tileNextTitle");
+    detail = t("spin.tileIn", { time: t("spin.countdown", { h, m }) });
+    mono = true;
+  }
+  const glyph = Math.max(24, Math.min(40, height - 16));
 
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={live ? `${text} ${view.count}` : text}
+      accessibilityLabel={live ? `${title}, ${detail}, ${view.count}` : `${title}, ${detail}`}
       onPress={onPress}
       style={{ flex: 1, minWidth: 0 }}
     >
@@ -65,71 +80,83 @@ export function SpinTile({ state, onPress, height = 44 }: SpinTileProps) {
         <Surface3D
           rad={radius.md}
           pressed={pressed}
+          faceColor={live ? palette.liftedSlate : undefined}
           faceStyle={{
             height: height - 3,
             flexDirection: "row",
             alignItems: "center",
             gap: space.sm,
             paddingHorizontal: space.md,
+            borderWidth: live ? 1 : 0,
+            borderColor: "rgba(245,197,66,0.42)",
           }}
         >
-          <WheelGlyph size={Math.min(22, height - 18)} live={live} />
-          <Text
-            numberOfLines={2}
-            adjustsFontSizeToFit
-            minimumFontScale={0.75}
-            style={{
-              flex: 1,
-              fontFamily: live ? font.semibold : font.medium,
-              fontSize: 12,
-              color: live ? palette.porcelain : palette.mutedSteel,
-            }}
-          >
-            {text}
-          </Text>
+          <View style={{ width: glyph, height: glyph }}>
+            <MiniWheel size={glyph} wheel={wheel} muted={!live} />
+            {view.kind === "locked" ? (
+              <View
+                style={{
+                  position: "absolute",
+                  right: -4,
+                  bottom: -4,
+                  width: 18,
+                  height: 18,
+                  borderRadius: 9,
+                  backgroundColor: palette.liftedSlate,
+                  borderWidth: 2,
+                  borderColor: palette.raisedSlate,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <View
+                  style={{
+                    width: 6,
+                    height: 4,
+                    borderWidth: 1.4,
+                    borderBottomWidth: 0,
+                    borderColor: palette.mutedSteel,
+                    borderTopLeftRadius: 3,
+                    borderTopRightRadius: 3,
+                    marginBottom: -0.5,
+                  }}
+                />
+                <View style={{ width: 8, height: 5, borderRadius: 1.2, backgroundColor: palette.mutedSteel }} />
+              </View>
+            ) : null}
+          </View>
+          <View style={{ flex: 1, minWidth: 0, gap: 1 }}>
+            <Text numberOfLines={1} style={{ fontFamily: font.display, fontSize: 14, color: palette.porcelain }}>
+              {title}
+            </Text>
+            <Text
+              numberOfLines={2}
+              adjustsFontSizeToFit
+              minimumFontScale={0.8}
+              style={{ fontFamily: mono ? font.mono : font.medium, fontSize: 11, lineHeight: 14, color: palette.mutedSteel }}
+            >
+              {detail}
+            </Text>
+          </View>
           {view.kind === "ready" ? (
             <View
               style={{
-                minWidth: 20,
-                height: 20,
-                borderRadius: 10,
+                minWidth: 22,
+                height: 22,
                 paddingHorizontal: 5,
+                borderRadius: 11,
                 backgroundColor: GOLD,
+                borderWidth: 1,
+                borderColor: "#C8951B",
                 alignItems: "center",
                 justifyContent: "center",
               }}
             >
-              <Text style={{ fontFamily: font.semibold, fontSize: 11, color: palette.feltCharcoal }}>{view.count}</Text>
+              <Text style={{ fontFamily: font.display, fontSize: 12, color: palette.feltCharcoal }}>{view.count}</Text>
             </View>
           ) : null}
         </Surface3D>
       )}
     </Pressable>
-  );
-}
-
-/**
- * A small prize wheel: eight wedges in two alternating shades inside a rim,
- * with a hub — gold when a spin is waiting, grey otherwise. (Three wedges on a
- * dark disc read as a hazard sign; eight read as a wheel.)
- */
-function WheelGlyph({ size, live }: { size: number; live: boolean }) {
-  const r = size / 2;
-  const rim = live ? RIM : palette.mutedSteel;
-  const light = live ? GOLD : palette.mutedSteel;
-  const dark = live ? "#8A6512" : palette.raisedSlate;
-  const oval = Skia.XYWHRect(1.5, 1.5, size - 3, size - 3);
-  const wedges = Array.from({ length: 8 }, (_, i) =>
-    Skia.PathBuilder.Make().moveTo(r, r).arcToOval(oval, -90 + i * 45 - 22.5, 45, false).close().detach(),
-  );
-  return (
-    <Canvas style={{ width: size, height: size }}>
-      <Circle cx={r} cy={r} r={r} color={rim} />
-      {wedges.map((p, i) => (
-        <Path key={i} path={p} color={i % 2 === 0 ? light : dark} />
-      ))}
-      <Circle cx={r} cy={r} r={r * 0.22} color={rim} />
-      <Circle cx={r} cy={r} r={r * 0.1} color={palette.feltCharcoal} />
-    </Canvas>
   );
 }

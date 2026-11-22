@@ -596,4 +596,10 @@ export const en = {
   "spin.error": "Couldn't spin. Check your connection and try again.",
   "spin.tileReady": "Free spin!",
   "spin.tileLocked": "Finish an online game for a bonus spin",
+  "spin.tileReadyTitle": "Free spin",
+  "spin.tileWheel": "{tier} wheel",
+  "spin.tileNextTitle": "Next spin",
+  "spin.tileIn": "in {time}",
+  "spin.tileLockedTitle": "Bonus spin",
+  "spin.tileLockedSub": "Finish an online game",
 } as const;

@@ -12,9 +12,18 @@
  * the next spin comes instead of showing a wheel.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, Text, View, useWindowDimensions } from "react-native";
-import { Easing, runOnJS, useSharedValue, withTiming } from "react-native-reanimated";
+import Animated, {
+  cancelAnimation,
+  Easing,
+  FadeIn,
+  runOnJS,
+  useSharedValue,
+  withSequence,
+  withTiming,
+  ZoomIn,
+} from "react-native-reanimated";
 import { Sheet } from "./Sheet";
 import { Button } from "./Button";
 import { Confetti } from "./Confetti";
@@ -34,6 +43,19 @@ const GOLD = "#F5C542";
 const COIN_CONFETTI = ["#F5C542", "#FFE08A", "#C8951B"];
 
 type Phase = "idle" | "spinning" | "won";
+
+// The spin, full motion. It starts the moment the player taps (a short
+// wind-up, then a spin-up to a steady free spin) and keeps turning while the
+// server picks the prize; when the answer lands it slows over a few seconds
+// onto that wedge, a touch past it, and settles back. The slowdown's opening
+// speed matches the free spin's, so there is no visible jolt at the handover.
+const WIND_UP = { deg: 12, ms: 180 };
+const SPIN_UP = { deg: 110, ms: 320 }; // ends at about FREE_SPEED
+const FREE_SPEED = 0.75; // degrees per ms
+const MIN_FREE_MS = 650; // even an instant answer gets a proper spin-up
+const SLOWDOWN = { turns: 4, ms: 4300, easing: Easing.bezier(0.33, 0.62, 0.25, 1) };
+const SETTLE_MS = 420;
+const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 type Prize = { coins?: number; gems?: number };
 type Tier = "bronze" | "silver" | "gold";
 
@@ -47,11 +69,15 @@ export function SpinSheet({ onClose }: { onClose: () => void }) {
 
   const rotation = useSharedValue(0);
   const [phase, setPhase] = useState<Phase>("idle");
-  const [shown, setShown] = useState<Segment[] | null>(next?.segments ?? null);
+  // The wheel on screen: its name picks the rim, its segments the wedges.
+  const [shown, setShown] = useState<{ wheel: string; segments: Segment[] } | null>(
+    next ? { wheel: next.wheel, segments: next.segments } : null,
+  );
   const [heading, setHeading] = useState("");
   const [prize, setPrize] = useState<Prize | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showOdds, setShowOdds] = useState(false);
+  const [winner, setWinner] = useState<number | null>(null);
 
   // Closed mid-spin: a claim or an animation that finishes afterwards must not
   // touch state, play the cheer or buzz over Home.
@@ -65,7 +91,7 @@ export function SpinSheet({ onClose }: { onClose: () => void }) {
 
   // While nothing is turning, show the wheel the next spin will use.
   useEffect(() => {
-    if (phase === "idle") setShown(next?.segments ?? null);
+    if (phase === "idle") setShown(next ? { wheel: next.wheel, segments: next.segments } : null);
   }, [phase, next]);
 
   const label = (s: SpinState | null): string => {
@@ -76,13 +102,37 @@ export function SpinSheet({ onClose }: { onClose: () => void }) {
     return t("spin.source.match", { n: s?.owed?.match ?? 1 });
   };
 
-  const landed = (p: Prize) => {
+  const landed = (p: Prize, segment: number) => {
     if (!mounted.current) return;
     busy.current = false;
+    setWinner(segment);
     setPrize(p);
     setPhase("won");
     playSound("cheer");
     winHaptic();
+  };
+
+  // A tick per peg: a light haptic, and a click once the wheel has slowed
+  // enough for clicks to be heard one by one rather than as a buzz.
+  const lastHaptic = useRef(0);
+  const lastClick = useRef(0);
+  const onPegPass = useCallback(() => {
+    const now = Date.now();
+    if (now - lastHaptic.current > 60) {
+      lastHaptic.current = now;
+      tapLight();
+    }
+    if (full && now - lastClick.current > 110) {
+      lastClick.current = now;
+      playSound("tap");
+    }
+  }, [full]);
+
+  // A spin that ends without a prize (refused, offline) coasts to a stop
+  // instead of freezing mid-turn.
+  const coast = () => {
+    cancelAnimation(rotation);
+    rotation.value = withTiming(rotation.value + 80, { duration: 700, easing: Easing.out(Easing.cubic) });
   };
 
   // Also behind "Spin again": straight into the next spin, no second tap.
@@ -91,31 +141,59 @@ export function SpinSheet({ onClose }: { onClose: () => void }) {
     busy.current = true;
     setError(null);
     setPrize(null);
-    setShown(next.segments);
+    setShown({ wheel: next.wheel, segments: next.segments });
     setHeading(label(state));
+    setWinner(null);
     tapLight();
     setPhase("spinning");
+    const startedFree = full ? wait(MIN_FREE_MS) : null;
+    if (full) {
+      const r0 = rotation.value;
+      rotation.value = withSequence(
+        withTiming(r0 - WIND_UP.deg, { duration: WIND_UP.ms, easing: Easing.out(Easing.quad) }),
+        withTiming(r0 + SPIN_UP.deg, { duration: SPIN_UP.ms, easing: Easing.in(Easing.quad) }),
+        withTiming(r0 + SPIN_UP.deg + FREE_SPEED * 60_000, { duration: 60_000, easing: Easing.linear }),
+      );
+    }
     try {
       const result = await claim(next.source);
+      if (startedFree) await startedFree;
       if (!mounted.current) return;
       if (result === null || !result.ok) {
         busy.current = false;
+        if (full) coast();
         if (result?.ok === false && result.reason === "disabled") onClose();
         else setPhase("idle"); // not owed any more: the store has refreshed what is
         return;
       }
-      setShown(result.segments);
-      const target = wheelTarget(result.segment, result.segments.length, rotation.value, full ? 5 : 1);
-      rotation.value = withTiming(
-        target,
-        { duration: full ? 4000 : 1200, easing: Easing.out(Easing.cubic) },
-        (finished) => {
-          if (finished) runOnJS(landed)(result.prize);
-        },
-      );
+      setShown({ wheel: result.wheel, segments: result.segments });
+      const segment = result.segment;
+      const prizeWon = result.prize;
+      const count = result.segments.length;
+      cancelAnimation(rotation);
+      const from = rotation.value;
+      const done = (finished?: boolean) => {
+        "worklet";
+        if (finished) runOnJS(landed)(prizeWon, segment);
+      };
+      if (full) {
+        const target = wheelTarget(segment, count, from, SLOWDOWN.turns);
+        const overshoot = Math.min(5, (360 / count) * 0.12);
+        rotation.value = withSequence(
+          withTiming(target + overshoot, { duration: SLOWDOWN.ms, easing: SLOWDOWN.easing }),
+          withTiming(target, { duration: SETTLE_MS, easing: Easing.inOut(Easing.quad) }, done),
+        );
+      } else {
+        rotation.value = withTiming(
+          wheelTarget(segment, count, from, 1),
+          { duration: 1200, easing: Easing.out(Easing.cubic) },
+          done,
+        );
+      }
     } catch {
       if (!mounted.current) return;
       busy.current = false;
+      if (full) coast();
       setError(t("spin.error"));
       setPhase("idle");
     }
@@ -126,7 +204,8 @@ export function SpinSheet({ onClose }: { onClose: () => void }) {
   const untilReset = msUntilReset(state, Date.now());
   const countdown = untilReset !== null ? formatCountdown(untilReset) : null;
   const wheelSize = Math.min(width - space.xl * 4, 300);
-  const segments = shown ?? next?.segments ?? null;
+  const segments = shown?.segments ?? next?.segments ?? null;
+  const wheelName = shown?.wheel ?? next?.wheel ?? "silver";
   const caption = phase === "idle" ? label(state) : heading;
 
   return (
@@ -158,18 +237,28 @@ export function SpinSheet({ onClose }: { onClose: () => void }) {
             <OddsList segments={segments} title={t("spin.odds")} />
           ) : (
             <View style={{ alignItems: "center", paddingVertical: space.sm }}>
-              <SpinWheel segments={segments} rotation={rotation} size={wheelSize} />
+              <SpinWheel
+                segments={segments}
+                wheel={wheelName}
+                rotation={rotation}
+                size={wheelSize}
+                highlight={phase === "won" ? winner : null}
+                spinning={phase === "spinning"}
+                onPegPass={onPegPass}
+              />
             </View>
           )}
         </>
       ) : null}
 
       {prize ? (
-        <Text style={{ fontFamily: font.semibold, fontSize: 18, color: GOLD, textAlign: "center" }}>
-          {prize.gems
-            ? t("spin.wonGems", { n: formatExact(prize.gems) })
-            : t("spin.wonCoins", { n: formatExact(prize.coins ?? 0) })}
-        </Text>
+        <Animated.View entering={full ? ZoomIn.springify().damping(13) : FadeIn.duration(150)}>
+          <Text style={{ fontFamily: font.display, fontSize: 20, color: GOLD, textAlign: "center" }}>
+            {prize.gems
+              ? t("spin.wonGems", { n: formatExact(prize.gems) })
+              : t("spin.wonCoins", { n: formatExact(prize.coins ?? 0) })}
+          </Text>
+        </Animated.View>
       ) : null}
 
       {error ? (

@@ -69,6 +69,49 @@ export function odds(segments: Segment[]): { label: Segment; pct: string }[] {
   });
 }
 
+export type WedgeFill = "ivory" | "navy" | "gold";
+
+/**
+ * How each wedge is painted: the top coin prize (the first, if two tie) gets
+ * the gold wedge, and the rest alternate ivory and navy in wheel order, so two
+ * neighbours never share a colour unless the gold breaks the run.
+ */
+export function wedgeFills(segments: Segment[]): WedgeFill[] {
+  let top = -1;
+  segments.forEach((s, i) => {
+    if ("coins" in s && (top < 0 || s.coins > (segments[top] as { coins: number }).coins)) top = i;
+  });
+  let alt = 0;
+  return segments.map((_, i) => {
+    if (i === top) return "gold";
+    return alt++ % 2 === 0 ? "ivory" : "navy";
+  });
+}
+
+export type RimMetal = "bronze" | "silver" | "gold";
+
+/** The rim's metal says which wheel this is; the first-game wheel is gold. */
+export function rimMetal(wheel: string): RimMetal {
+  if (wheel === "bronze" || wheel === "gold") return wheel;
+  if (wheel === "firstGame") return "gold";
+  return "silver";
+}
+
+/**
+ * How far the pointer leans (degrees; negative = its tip pushed to the right)
+ * at a wheel rotation. The wheel turns clockwise, so each peg comes up to the
+ * pointer from the left, pushes it over, and lets it drop back upright the
+ * moment it passes; over the middle of a wedge it hangs straight. Runs on the
+ * UI thread, every frame of a spin.
+ */
+export function flapperTilt(rotation: number, count: number, maxDeg = 14): number {
+  "worklet";
+  const step = 360 / count;
+  // 0 when a peg is exactly under the pointer, rising as the wheel turns on.
+  const phase = ((((rotation + step / 2) % step) + step) % step) / step;
+  return phase > 0.7 ? -((phase - 0.7) / 0.3) * maxDeg : 0;
+}
+
 /** Time left, rounded up to whole minutes and never below one. */
 export function formatCountdown(ms: number): { h: number; m: number } {
   const minutes = Math.max(1, Math.ceil(ms / 60_000));

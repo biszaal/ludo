@@ -566,4 +566,10 @@ export const hi: Strings = {
   "spin.error": "स्पिन नहीं हो सका। कनेक्शन जाँचकर फिर कोशिश करें।",
   "spin.tileReady": "मुफ़्त स्पिन!",
   "spin.tileLocked": "बोनस स्पिन के लिए एक ऑनलाइन खेल पूरा करें",
+  "spin.tileReadyTitle": "मुफ़्त स्पिन",
+  "spin.tileWheel": "{tier} पहिया",
+  "spin.tileNextTitle": "अगला स्पिन",
+  "spin.tileIn": "{time} में",
+  "spin.tileLockedTitle": "बोनस स्पिन",
+  "spin.tileLockedSub": "एक ऑनलाइन खेल पूरा करें",
 };
