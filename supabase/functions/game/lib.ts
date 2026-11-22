@@ -426,6 +426,8 @@ export const LIMITS = {
   // are write-once in SQL; the ceiling only bounds a looping client.
   installSource: 10,
   deviceSeen: 20,
+  // Home reads the spin state on open and after games; a spin is a tap or two.
+  spin: 30,
   // Joining is the one op that takes a GUESSABLE key: room codes are four
   // characters over a 32-symbol alphabet, so ~1M combinations, of which only
   // the currently-waiting rooms are live. Unlimited, that is a free sweep of
