@@ -13,7 +13,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { nextResetAfter, reminderTime } from "../src/lib/bonusSchedule";
+import { ChestReminder, nextResetAfter, reminderTime, type ReminderSink } from "../src/lib/bonusSchedule";
 
 /** Local-time hour of a Date, which is what the player experiences. */
 const hourOf = (d: Date) => d.getHours();
@@ -90,5 +90,64 @@ describe("reminderTime", () => {
   it("uses the reset moment itself when it already falls in civil hours", () => {
     const atNoon = new Date(2026, 7, 21, 12, 0);
     expect(reminderTime(new Date(2026, 7, 20, 12, 0), atNoon).getTime()).toBe(atNoon.getTime());
+  });
+});
+
+function recordingSink(): { sink: ReminderSink; calls: string[] } {
+  const calls: string[] = [];
+  return {
+    calls,
+    sink: {
+      cancel: async (id) => {
+        calls.push(`cancel:${id}`);
+      },
+      schedule: async (id, at) => {
+        calls.push(`schedule:${id}:${at.toISOString()}`);
+      },
+    },
+  };
+}
+
+describe("ChestReminder", () => {
+  const now = new Date(Date.UTC(2026, 7, 20, 15, 0, 0));
+
+  it("aims a fresh claim at the next real reset, not a fixed 24h", () => {
+    const plan = ChestReminder.plan({ remindersOn: true, granted: true, claimable: false, now });
+    expect(plan.schedule?.at.getTime()).toBe(reminderTime(now, nextResetAfter(now)).getTime());
+    expect(plan.schedule?.id).toBe(plan.cancelId);
+  });
+
+  it("aims an unclaimed chest at today, still through the same clock", () => {
+    const plan = ChestReminder.plan({ remindersOn: true, granted: true, claimable: true, now });
+    expect(plan.schedule?.at.getTime()).toBe(reminderTime(now, now).getTime());
+  });
+
+  it("cancels the pending reminder and does not arm another when permission is missing", async () => {
+    const { sink, calls } = recordingSink();
+    const plan = ChestReminder.plan({ remindersOn: true, granted: false, claimable: false, now });
+    expect(plan.schedule).toBeNull();
+    await ChestReminder.apply(plan, sink);
+    expect(calls).toEqual([`cancel:${plan.cancelId}`]);
+  });
+
+  it("cancels and does not reschedule when reminders are switched off", async () => {
+    const { sink, calls } = recordingSink();
+    const plan = ChestReminder.plan({ remindersOn: false, granted: true, claimable: false, now });
+    await ChestReminder.apply(plan, sink);
+    expect(calls).toEqual([`cancel:${plan.cancelId}`]);
+  });
+
+  it("replaces the previous reminder instead of stacking a second one", async () => {
+    const { sink, calls } = recordingSink();
+    const first = ChestReminder.plan({ remindersOn: true, granted: true, claimable: false, now });
+    await ChestReminder.apply(first, sink);
+    const later = new Date(now.getTime() + 60_000);
+    const second = ChestReminder.plan({ remindersOn: true, granted: true, claimable: true, now: later });
+    await ChestReminder.apply(second, sink);
+
+    expect(calls.map((c) => c.split(":")[0])).toEqual(["cancel", "schedule", "cancel", "schedule"]);
+    const ids = calls.map((c) => c.split(":")[1]);
+    expect(new Set(ids)).toEqual(new Set([first.cancelId]));
+    expect(first.cancelId).toBe("daily-bonus-reminder");
   });
 });

@@ -432,8 +432,12 @@ export const ur: Strings = {
   "stats.table": "میز",
   "stats.empty": "آپ کا پہلا کھیل یہاں آئے گا — جیت، سلسلے اور تاریخ۔",
 
-  "notify.bonusTitle": "آپ کا روزانہ بونس تیار ہے",
+  "notify.bonusTitle": "آپ کا روزانہ صندوق تیار ہے",
   "notify.bonusBody": "آپ کے مفت سکے منتظر ہیں۔ لینے کے لیے دبائیں۔",
+  "notify.promptTitle": "یاد دہانی چاہیے؟",
+  "notify.promptBody": "جب آپ کا روزانہ صندوق تیار ہوگا ہم بتا دیں گے۔",
+  "notify.promptYes": "یاد دلائیں",
+  "notify.promptNo": "ابھی نہیں",
 
   // --- In-game status line ---------------------------------------------------
   "status.wins": "{color} جیت گیا!",

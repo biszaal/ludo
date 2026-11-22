@@ -32,6 +32,7 @@ import { TableBackground } from "./TableBackground";
 import { CoinGlyph } from "./CoinsPill";
 import { ContentColumn } from "./ContentColumn";
 import { useLayout } from "../lib/useLayout";
+import { PushPromptOffer } from "../lib/pushPromptOffer";
 import {
   CHIP_COLUMN,
   GAME_RAIL_MIN,
@@ -356,6 +357,21 @@ export function GameView({
     }
     if (was === 0 && !stillPlaying) setCelebrating(true);
   }, [state.finishedOrder.length, stillPlaying]);
+
+  // The soft notification ask waits until this player has seen the win
+  // celebration and dismissed it, and only once the match itself is over.
+  // Asking on the winning move would bury the celebration; asking while a
+  // longer match is still being played would interrupt the seats still racing.
+  // A winner who leaves before the match ends is asked on Home instead.
+  const sawCelebration = useRef(false);
+  useEffect(() => {
+    if (state.finishedOrder.length === 0) sawCelebration.current = false;
+    if (celebrating) sawCelebration.current = true;
+  }, [state.finishedOrder.length, celebrating]);
+  useEffect(() => {
+    if (!finished || celebrating || !sawCelebration.current) return;
+    void PushPromptOffer.presentPendingWin();
+  }, [finished, celebrating]);
 
   // Is the standings overlay open ahead of the final whistle? (See below — the
   // reset effect clears it, so it has to be declared first.)
