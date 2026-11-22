@@ -64,7 +64,6 @@ import {
 } from "./social.ts";
 import { opSendFeedback } from "./feedback.ts";
 import { opReferrals, settleReferrals } from "./referral.ts";
-import { countryGate, recordCountry } from "./country.ts";
 import { opDeviceSeen, opInstallSource } from "./install.ts";
 import { opBlockedList, opChat, opReportPlayer } from "./chat.ts";
 import { opPushDisable, opPushRegister } from "./push.ts";
@@ -123,8 +122,6 @@ Deno.serve(async (req: Request) => {
       // of a later day, whatever that request is (0082).
       afterResponse(settleReferrals(admin, [userId]));
     }
-    // The flag next to this player's name (0083), from Cloudflare's country header.
-    if (countryGate.should(userId)) afterResponse(recordCountry(admin, userId, req.headers));
 
     switch (body.op) {
       case "create":
