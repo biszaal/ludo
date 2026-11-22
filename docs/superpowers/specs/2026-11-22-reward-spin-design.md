@@ -167,3 +167,24 @@ Kill switch: `spin.enabled = false` hides the tile and refuses claims.
 
 Known limit: a rematch reuses the finished game's row, so a rematch finished on the same day counts as one
 game, not two. It can only under-count, never over-pay.
+
+## Phase 2 reference (from Grok's 22 Nov proposal, kept here so the Notion message could be cleared)
+
+Not built in phase 1. Recorded verbatim in substance for the phase 2 design.
+
+- **Ad Super Spin:** offered only after the daily free spin is used; opt-in button "Watch an ad for a Super Spin
+  (up to 2,000 coins)"; max 3 a day; needs an `ad_rewards` row (placement `spin`) granted by AdMob SSV and unused.
+  Ad spins and the existing gem/coin ads share one daily rewarded budget. Keep the flat 100-coin ad only for the
+  out-of-coins moment. Table (EV ≈ 132): 50 c 28%, 100 c 30%, 150 c 15%, 200 c 12%, 300 c 7%, 4 gems 5%,
+  500 c 2.5%, 1,000 c 0.4%, 2,000 c 0.1%.
+- **Gentler streak:** a missed day drops one tier (Gold → Silver → Bronze) instead of resetting; show the next
+  tier ("Come back tomorrow: Silver spin").
+- **Notifications** (max 1 a day, early evening local, none if the app was opened that day, stop after 3 ignored):
+  - Daily: "Your daily spin is ready. Spin, then jump into a match."
+  - Streak: "Day 3 tomorrow: your spin upgrades to Silver."
+  - Unused match spin: "You earned a match spin. Use it before midnight."
+  - New player, no game yet (day 1 evening): "Finish your first game to unlock a free spin."
+- **Config keys Grok proposed for later:** `ad: {enabled, maxPerDay: 3, requireFreeUsedFirst, requireSsv}`,
+  `streakTiers.missDropsOneTier`, `push: {enabled, localHour: 19, maxPerDay: 1, stopAfterIgnored: 3}`.
+- **Extra metrics for phase 2:** ad-spin opt-in % and rewarded impressions per DAU (Kongregate bar ≥ 30%), ad
+  revenue per day, push open and opt-out rates, observed prize mix against the table per version.
