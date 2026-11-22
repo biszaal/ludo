@@ -25,8 +25,9 @@ interface SpinStore {
   /** null until read, and after a read fails (the tile hides). */
   state: SpinState | null;
   claiming: boolean;
-  /** The id each source's unanswered claim will be retried with. */
-  pending: Partial<Record<SpinSource, string>>;
+  /** The id each source's unanswered claim will be retried with, valid until
+   *  the daily reset it was made under (a later day's claim is a new spin). */
+  pending: Partial<Record<SpinSource, { id: string; until: number }>>;
   refresh: () => Promise<void>;
   /** Throws on a network or server error, keeping the id for the retry. */
   claim: (source: SpinSource) => Promise<SpinClaim | null>;
@@ -38,6 +39,8 @@ interface SpinStore {
 let inFlight: Promise<void> | null = null;
 /** Bumped by reset(); an answer from an older generation belongs to another account. */
 let generation = 0;
+/** Bumped by every claim answer; a read that started before one is older than it. */
+let stateGen = 0;
 
 export const useSpin = create<SpinStore>((set, get) => ({
   state: null,
@@ -47,12 +50,15 @@ export const useSpin = create<SpinStore>((set, get) => ({
   refresh: () => {
     if (inFlight) return inFlight;
     const gen = generation;
+    const startedAt = stateGen;
+    // A claim answered while this read was out: its state is newer than ours.
+    const current = () => gen === generation && startedAt === stateGen;
     inFlight = (async () => {
       try {
         const state = await api.getSpinState();
-        if (gen === generation) set({ state });
+        if (current()) set({ state });
       } catch {
-        if (gen === generation) set({ state: null });
+        if (current()) set({ state: null });
       } finally {
         inFlight = null;
       }
@@ -63,21 +69,31 @@ export const useSpin = create<SpinStore>((set, get) => ({
   claim: async (source) => {
     if (get().claiming) return null;
     const gen = generation;
-    const requestId = get().pending[source] ?? randomId();
-    set({ claiming: true, pending: { ...get().pending, [source]: requestId } });
+    const now = Date.now();
+    const kept = get().pending[source];
+    // An id left from a reply lost yesterday would replay yesterday's prize
+    // (and pay nothing) instead of taking today's spin.
+    const requestId = kept && now < kept.until ? kept.id : randomId();
+    const reset = Date.parse(get().state?.resetsAt ?? "");
+    const until = kept && now < kept.until ? kept.until : Number.isFinite(reset) && reset > now ? reset : now + 3_600_000;
+    set({ claiming: true, pending: { ...get().pending, [source]: { id: requestId, until } } });
     try {
       const result = await api.claimSpin(source, requestId);
       if (gen !== generation) return null; // answered for an account that is gone
+      stateGen += 1;
       // Answered: this id is spent either way.
       const { [source]: _spent, ...rest } = get().pending;
       set({ pending: rest });
       if (result.ok) {
         set({ state: result.status });
-        useWallet.setState({ balance: result.balance, gems: result.gems });
+        useWallet.getState().applyBalances(result.balance, result.gems);
       } else if (result.reason === "disabled") {
         set({ state: { enabled: false } });
       } else if (result.reason === "not_owed") {
         // The day rolled over or another device took it: show what is owed now.
+        // A read already out started before this answer and will discard its
+        // own result, so start a fresh one rather than waiting on it.
+        inFlight = null;
         await get().refresh();
       }
       return result;

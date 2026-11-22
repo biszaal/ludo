@@ -132,3 +132,31 @@ describe("spin store across refreshes and accounts", () => {
     expect(useSpin.getState().claiming).toBe(false);
   });
 });
+
+describe("spin store against stale answers", () => {
+  it("a read that started before a paid spin can't bring the spent spin back", async () => {
+    let resolve: (v: SpinState) => void = () => {};
+    getSpinState.mockReturnValue(new Promise((r) => (resolve = r)));
+    const read = useSpin.getState().refresh();
+    claimSpin.mockResolvedValue(PAID);
+    await useSpin.getState().claim("daily");
+    resolve(READY);
+    await read;
+    expect(useSpin.getState().state).toEqual(AFTER);
+  });
+
+  it("a retry id does not outlive the day it was made for", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-11-22T23:00:00Z"));
+      useSpin.setState({ state: READY }); // resets 2026-11-23T00:00:00Z
+      claimSpin.mockRejectedValueOnce(new Error("timeout")).mockResolvedValueOnce(PAID);
+      await expect(useSpin.getState().claim("daily")).rejects.toThrow();
+      vi.setSystemTime(new Date("2026-11-23T00:30:00Z"));
+      await useSpin.getState().claim("daily");
+      expect(claimSpin.mock.calls[0][1]).not.toBe(claimSpin.mock.calls[1][1]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

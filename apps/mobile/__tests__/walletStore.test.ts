@@ -216,3 +216,16 @@ describe("pity grant", () => {
     expect(await useWallet.getState().claimPity()).toBe(0);
   });
 });
+
+describe("applyBalances (a credit made elsewhere, e.g. a reward spin)", () => {
+  it("a read that started before the credit can't put the old balance back", async () => {
+    let resolve: (v: api.WalletState) => void = () => {};
+    vi.mocked(api.getWalletState).mockReturnValue(new Promise((r) => (resolve = r)));
+    const read = useWallet.getState().refresh();
+    useWallet.getState().applyBalances(525, 7);
+    resolve(state({ balance: 500, gems: 0 }));
+    await read;
+    expect(useWallet.getState().balance).toBe(525);
+    expect(useWallet.getState().gems).toBe(7);
+  });
+});

@@ -313,3 +313,15 @@ test('two players can never collide on a request id', async () => {
   assert.equal(r.balance, b.balance + 25);
   assert.equal((await query("select 1 from wallet_txns where reason = 'spin-daily'")).length, 2);
 });
+
+// The spin allowlist (test accounts' ids) lives in app_config. No app has ever
+// read that table directly (they use the config op), so signed-in clients lose
+// SELECT on it; server functions read it as its owner.
+test('signed-in apps cannot read app_config directly', async () => {
+  await db.exec('grant select on app_config to anon, authenticated;');
+  await db.exec(await migration('0088_app_config_server_only.sql'));
+  const r = await one(
+    `select has_table_privilege('authenticated', 'app_config', 'select') a,
+            has_table_privilege('anon', 'app_config', 'select') b`);
+  assert.deepEqual(r, { a: false, b: false });
+});

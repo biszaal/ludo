@@ -92,3 +92,20 @@ Deno.test("the config op never sends the spin block to apps", async () => {
   assertEquals(res.config, { ads: { enabled: true } });
   assertEquals(res.region, "NP");
 });
+
+Deno.test("a database error is logged for the function logs", async () => {
+  const f = fake({
+    spin_status: () => ({ data: null, error: { message: "function spin_status does not exist" } }),
+    spin_claim: () => ({ data: null, error: { message: "boom" } }),
+  });
+  const logged: unknown[][] = [];
+  const original = console.error;
+  console.error = (...args: unknown[]) => void logged.push(args);
+  try {
+    await opSpinState(f.admin, ME);
+    await opSpinClaim(f.admin, ME, "daily", REQ);
+  } finally {
+    console.error = original;
+  }
+  assertEquals(logged.map((l) => l[0]), ["[spinState]", "[spinClaim]"]);
+});
