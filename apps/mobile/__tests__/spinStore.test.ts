@@ -26,7 +26,7 @@ const READY: SpinState = {
   resetsAt: "2026-11-23T00:00:00Z",
 };
 const AFTER: SpinState = { ...READY, owed: { first: "locked", daily: false, match: 0 }, next: null };
-const PAID = { ok: true as const, segment: 0, prize: { coins: 25 }, balance: 525, gems: 7, status: AFTER };
+const PAID = { ok: true as const, wheel: "bronze", segments: [{ coins: 25, w: 1000 }], segment: 0, prize: { coins: 25 }, balance: 525, gems: 7, status: AFTER };
 
 beforeEach(() => {
   vi.resetAllMocks();

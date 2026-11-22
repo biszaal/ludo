@@ -271,3 +271,30 @@ test('a retry of a paid spin still answers after the switch is turned off', asyn
   assert.equal(again.segment, first.segment);
   assert.equal(again.status.enabled, false);
 });
+
+// Review fixes (Task 2 review, 22 Nov).
+test('a claim refuses when the status reads as off mid-call', async () => {
+  await enable();
+  const real = (await one(`select pg_get_functiondef('spin_status(uuid,timestamptz)'::regprocedure) d`)).d;
+  // The kill switch flipping between spin_enabled() and spin_status(): status says off.
+  await db.exec(`create or replace function spin_status(p_user uuid, p_now timestamptz default now())
+    returns jsonb language sql as $$ select '{"enabled": false}'::jsonb $$;`);
+  try {
+    assert.deepEqual(await claim(A, 'match', rid(1), { roll: 0 }), { ok: false, reason: 'disabled' });
+    assert.deepEqual(await logRows(A), []);
+  } finally {
+    await db.exec(real);
+  }
+});
+
+test('a claim says which wheel it drew from, and so does its replay', async () => {
+  await enable();
+  await bonus(A, '2026-11-21', 6); // 7 today: gold
+  const r = await claim(A, 'daily', rid(1), { roll: 0 });
+  assert.equal(r.wheel, 'gold');
+  assert.equal(r.segments.length, 7);
+  assert.deepEqual(r.segments[r.segment], { coins: 100, w: 300 });
+  const again = await claim(A, 'daily', rid(1));
+  assert.equal(again.wheel, 'gold');
+  assert.deepEqual(again.segments, r.segments);
+});

@@ -15,7 +15,7 @@ import { getIdentity } from "../lib/identityClient";
 import { APP_VERSION } from "../lib/appVersion";
 import { GameReleasedError, OnlineAccount } from "../lib/onlineAccount";
 import type { ReferralsResponse } from "../lib/referrals";
-import type { SpinSource, SpinState } from "../lib/spin";
+import type { Segment, SpinSource, SpinState } from "../lib/spin";
 
 export interface GameRow {
   id: string;
@@ -579,7 +579,17 @@ export async function getSpinState(): Promise<SpinState> {
 }
 
 export type SpinClaim =
-  | { ok: true; segment: number; prize: { coins?: number; gems?: number }; balance: number; gems: number; status: SpinState }
+  | {
+      ok: true;
+      /** The wheel the server actually drew from: animate on these, not the pre-tap wheel. */
+      wheel: string;
+      segments: Segment[];
+      segment: number;
+      prize: { coins?: number; gems?: number };
+      balance: number;
+      gems: number;
+      status: SpinState;
+    }
   | { ok: false; reason: "disabled" | "not_owed" | "bad_source" };
 
 /** Take a spin. The server picks and pays; a retry with the same id never pays twice. */

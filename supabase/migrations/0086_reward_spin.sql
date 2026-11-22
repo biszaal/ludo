@@ -317,6 +317,8 @@ begin
     select balance, gems into v_bal, v_gbal from wallets where user_id = p_user;
     return jsonb_build_object(
       'ok', true,
+      'wheel', v_prior.wheel,
+      'segments', public.spin_table(v_prior.wheel),
       'segment', v_prior.segment,
       'prize', case when v_prior.gems > 0 then jsonb_build_object('gems', v_prior.gems)
                     else jsonb_build_object('coins', v_prior.coins) end,
@@ -333,12 +335,17 @@ begin
   end if;
 
   v_status := public.spin_status(p_user, p_now);
+  -- The switch can flip between spin_enabled() above and this read: trust the
+  -- read that decides, and fail closed on anything that isn't a clear yes.
+  if v_status->'enabled' is distinct from 'true'::jsonb then
+    return jsonb_build_object('ok', false, 'reason', 'disabled');
+  end if;
   v_owed := case p_source
     when 'first' then v_status->'owed'->>'first' = 'owed'
     when 'daily' then (v_status->'owed'->>'daily')::boolean
     else (v_status->'owed'->>'match')::int > 0
   end;
-  if not v_owed then
+  if v_owed is not true then
     return jsonb_build_object('ok', false, 'reason', 'not_owed');
   end if;
 
@@ -397,8 +404,13 @@ begin
           v_pick, v_coins, v_gems, p_request_id);
 
   select balance, gems into v_bal, v_gbal from wallets where user_id = p_user;
+  -- The wheel actually drawn from goes back with the result: the app animates
+  -- on these segments, not the ones it showed before the tap, so a tier that
+  -- changed at the reset (or a gems switch) can never land on the wrong prize.
   return jsonb_build_object(
     'ok', true,
+    'wheel', v_wheel,
+    'segments', v_segs,
     'segment', v_pick,
     'prize', case when v_gems > 0 then jsonb_build_object('gems', v_gems) else jsonb_build_object('coins', v_coins) end,
     'balance', v_bal,
