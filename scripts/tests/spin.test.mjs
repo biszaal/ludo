@@ -161,3 +161,113 @@ test('resetsAt is the next 00:00 UTC', async () => {
   assert.equal((await status(A, '2026-11-22T23:30:00Z')).resetsAt, '2026-11-23T00:00:00Z');
   assert.equal((await status(A, '2026-11-23T00:00:00Z')).resetsAt, '2026-11-24T00:00:00Z');
 });
+
+// --- spin_claim -------------------------------------------------------------
+const rid = (n) => `00000000-0000-4000-9000-${String(n).padStart(12, '0')}`;
+const claim = async (id, source, reqId, { now = NOW, roll = null } = {}) =>
+  (await one('select spin_claim($1, $2, $3::uuid, $4::timestamptz, $5::int) r', [id, source, reqId, now, roll])).r;
+const wallet = async (id) => {
+  await query('insert into wallets(user_id) values ($1) on conflict do nothing', [id]);
+  return one('select balance, gems from wallets where user_id = $1', [id]);
+};
+const logRows = (id) => query('select source, wheel, segment, coins, gems, table_version from spin_log where user_id = $1 order by id', [id]);
+
+test('claim pays the rolled segment and logs it', async () => {
+  await enable();
+  const before = await wallet(A);
+  const r = await claim(A, 'daily', rid(1), { roll: 0 });
+  assert.equal(r.ok, true);
+  assert.equal(r.segment, 0);
+  assert.deepEqual(r.prize, { coins: 25 });
+  assert.equal(r.balance, before.balance + 25);
+  assert.deepEqual(
+    await query("select delta, reason, bucket, ext_id from wallet_txns where user_id = $1 and reason like 'spin-%'", [A]),
+    [{ delta: 25, reason: 'spin-daily', bucket: 'earned', ext_id: `spin:${rid(1)}` }],
+  );
+  assert.deepEqual(await logRows(A), [{ source: 'daily', wheel: 'bronze', segment: 0, coins: 25, gems: 0, table_version: 1 }]);
+});
+
+test('a gem segment pays gems', async () => {
+  await enable();
+  const before = await wallet(A);
+  const r = await claim(A, 'daily', rid(1), { roll: 930 });
+  assert.equal(r.segment, 5);
+  assert.deepEqual(r.prize, { gems: 2 });
+  assert.equal(r.gems, before.gems + 2);
+  assert.equal(r.balance, before.balance);
+  assert.deepEqual(
+    await query("select delta, reason, ext_id from gem_txns where user_id = $1", [A]),
+    [{ delta: 2, reason: 'spin-daily', ext_id: `spin:${rid(1)}` }],
+  );
+});
+
+test('the same request id never pays twice', async () => {
+  await enable();
+  const before = await wallet(A);
+  const first = await claim(A, 'daily', rid(1), { roll: 0 });
+  const again = await claim(A, 'daily', rid(1), { roll: 999 });
+  assert.equal(again.ok, true);
+  assert.equal(again.segment, first.segment);
+  assert.deepEqual(again.prize, first.prize);
+  assert.equal(again.balance, before.balance + 25);
+  assert.equal((await logRows(A)).length, 1);
+  assert.equal((await query("select 1 from wallet_txns where user_id = $1 and reason like 'spin-%'", [A])).length, 1);
+});
+
+test('daily and first cannot be claimed twice', async () => {
+  await enable();
+  await played(A, 1);
+  assert.equal((await claim(A, 'first', rid(1), { roll: 0 })).ok, true);
+  assert.deepEqual(await claim(A, 'first', rid(2), { roll: 0 }), { ok: false, reason: 'not_owed' });
+  assert.equal((await claim(A, 'daily', rid(3), { roll: 0 })).ok, true);
+  assert.deepEqual(await claim(A, 'daily', rid(4), { roll: 0 }), { ok: false, reason: 'not_owed' });
+});
+
+test('match spins stop at the owed count', async () => {
+  await enable();
+  await finishGame(A);
+  await finishGame(A);
+  assert.equal((await claim(A, 'match', rid(1), { roll: 0 })).ok, true);
+  assert.equal((await claim(A, 'match', rid(2), { roll: 0 })).ok, true);
+  assert.deepEqual(await claim(A, 'match', rid(3), { roll: 0 }), { ok: false, reason: 'not_owed' });
+  assert.deepEqual((await logRows(A)).map((r) => r.wheel), ['bronze', 'bronze']);
+});
+
+test('refuses when disabled, unknown source, or not owed', async () => {
+  await setSpin();
+  assert.deepEqual(await claim(A, 'daily', rid(1)), { ok: false, reason: 'disabled' });
+  await enable();
+  assert.deepEqual(await claim(A, 'weekly', rid(2)), { ok: false, reason: 'bad_source' });
+  assert.deepEqual(await claim(A, 'first', rid(3)), { ok: false, reason: 'not_owed' });
+  assert.deepEqual(await claim(A, 'match', rid(4)), { ok: false, reason: 'not_owed' });
+  assert.deepEqual(await logRows(A), []);
+});
+
+test('the daily coin cap swaps in the largest prize that fits', async () => {
+  await enable();
+  await query(
+    `insert into spin_log(user_id, day, source, wheel, table_version, segment, coins, request_id)
+     values ($1, $2, 'match', 'bronze', 1, 0, 1450, $3)`,
+    [A, TODAY, rid(900)],
+  );
+  const r = await claim(A, 'daily', rid(1), { roll: 740 });
+  assert.equal(r.segment, 1);
+  assert.deepEqual(r.prize, { coins: 50 });
+});
+
+test('status after a claim reflects it', async () => {
+  await enable();
+  const r = await claim(A, 'daily', rid(1), { roll: 0 });
+  assert.equal(r.status.owed.daily, false);
+  assert.equal(r.status.next, null);
+});
+
+test('a retry of a paid spin still answers after the switch is turned off', async () => {
+  await enable();
+  const first = await claim(A, 'daily', rid(1), { roll: 0 });
+  await setSpin();
+  const again = await claim(A, 'daily', rid(1));
+  assert.equal(again.ok, true);
+  assert.equal(again.segment, first.segment);
+  assert.equal(again.status.enabled, false);
+});
