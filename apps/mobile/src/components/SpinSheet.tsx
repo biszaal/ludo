@@ -12,7 +12,7 @@
  * the next spin comes instead of showing a wheel.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Pressable, Text, View, useWindowDimensions } from "react-native";
 import { Easing, runOnJS, useSharedValue, withTiming } from "react-native-reanimated";
 import { Sheet } from "./Sheet";
@@ -22,7 +22,7 @@ import { CoinGlyph } from "./CoinsPill";
 import { GemGlyph } from "./GemGlyph";
 import { SpinWheel } from "./SpinWheel";
 import { useSpin } from "../store/spinStore";
-import { formatCountdown, odds, tileView, wheelTarget, type Segment, type SpinState } from "../lib/spin";
+import { formatCountdown, msUntilReset, odds, tileView, wheelTarget, type Segment, type SpinState } from "../lib/spin";
 import { formatExact } from "../lib/format";
 import { useFullMotion } from "../lib/useMotion";
 import { playSound } from "../lib/sound";
@@ -53,6 +53,16 @@ export function SpinSheet({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [showOdds, setShowOdds] = useState(false);
 
+  // Closed mid-spin: a claim or an animation that finishes afterwards must not
+  // touch state, play the cheer or buzz over Home.
+  const mounted = useRef(true);
+  useEffect(() => () => {
+    mounted.current = false;
+  }, []);
+  // One spin at a time, decided before React re-renders: two taps in the same
+  // frame both see phase "idle", but only the first finds this unset.
+  const busy = useRef(false);
+
   // While nothing is turning, show the wheel the next spin will use.
   useEffect(() => {
     if (phase === "idle") setShown(next?.segments ?? null);
@@ -67,27 +77,30 @@ export function SpinSheet({ onClose }: { onClose: () => void }) {
   };
 
   const landed = (p: Prize) => {
+    if (!mounted.current) return;
+    busy.current = false;
     setPrize(p);
     setPhase("won");
     playSound("cheer");
     winHaptic();
   };
 
+  // Also behind "Spin again": straight into the next spin, no second tap.
   const onSpin = async () => {
-    if (!next || phase !== "idle") return;
+    if (!next || busy.current) return;
+    busy.current = true;
     setError(null);
     setPrize(null);
+    setShown(next.segments);
     setHeading(label(state));
     tapLight();
     setPhase("spinning");
     try {
       const result = await claim(next.source);
-      if (result === null) {
-        setPhase("idle");
-        return;
-      }
-      if (!result.ok) {
-        if (result.reason === "disabled") onClose();
+      if (!mounted.current) return;
+      if (result === null || !result.ok) {
+        busy.current = false;
+        if (result?.ok === false && result.reason === "disabled") onClose();
         else setPhase("idle"); // not owed any more: the store has refreshed what is
         return;
       }
@@ -101,13 +114,17 @@ export function SpinSheet({ onClose }: { onClose: () => void }) {
         },
       );
     } catch {
+      if (!mounted.current) return;
+      busy.current = false;
       setError(t("spin.error"));
       setPhase("idle");
     }
   };
 
   const view = tileView(state, Date.now());
-  const countdown = view.kind === "countdown" ? formatCountdown(view.ms) : null;
+  // Shown whenever nothing is owed, the locked first-game state included.
+  const untilReset = msUntilReset(state, Date.now());
+  const countdown = untilReset !== null ? formatCountdown(untilReset) : null;
   const wheelSize = Math.min(width - space.xl * 4, 300);
   const segments = shown ?? next?.segments ?? null;
   const caption = phase === "idle" ? label(state) : heading;
@@ -166,13 +183,7 @@ export function SpinSheet({ onClose }: { onClose: () => void }) {
       ) : phase === "spinning" ? (
         <Button label={t("spin.button")} onPress={() => {}} disabled />
       ) : phase === "won" && next ? (
-        <Button
-          label={t("spin.again")}
-          onPress={() => {
-            setPrize(null);
-            setPhase("idle");
-          }}
-        />
+        <Button label={t("spin.again")} onPress={() => void onSpin()} />
       ) : (
         <View style={{ gap: space.sm }}>
           {view.kind === "locked" ? (

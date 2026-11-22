@@ -548,7 +548,7 @@ export const es: Strings = {
   "spin.title": "Gira la ruleta",
   "spin.source.first": "Bono de primera partida",
   "spin.source.daily": "Giro diario · {tier}",
-  "spin.source.match": "Giro de partida · te quedan {n} hoy",
+  "spin.source.match": "Giro de partida · restantes hoy: {n}",
   "spin.tier.bronze": "Bronce",
   "spin.tier.silver": "Plata",
   "spin.tier.gold": "Oro",

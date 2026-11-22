@@ -38,8 +38,26 @@ export function tileView(s: SpinState | null, now: number): TileView {
   const count = (first === "owed" ? 1 : 0) + (daily ? 1 : 0) + Math.max(0, match);
   if (count > 0) return { kind: "ready", count };
   if (first === "locked") return { kind: "locked" };
-  const reset = s.resetsAt ? Date.parse(s.resetsAt) : NaN;
-  return { kind: "countdown", ms: Number.isFinite(reset) ? Math.max(0, reset - now) : 0 };
+  return { kind: "countdown", ms: msUntilReset(s, now) ?? 0 };
+}
+
+/** Time left to the daily reset (never negative), or null when the spin is off or unread. */
+export function msUntilReset(s: SpinState | null, now: number): number | null {
+  if (!s || !s.enabled || !s.resetsAt) return null;
+  const reset = Date.parse(s.resetsAt);
+  return Number.isFinite(reset) ? Math.max(0, reset - now) : null;
+}
+
+/**
+ * How long the Home tile waits before it re-reads the clock. Once a minute
+ * normally; when the reset is less than a minute away, just after it, so the
+ * tile can ask the server what the new day owes. Once the reset has passed
+ * (and the re-read hasn't landed yet), back to once a minute, so a failing
+ * read is not retried in a tight loop.
+ */
+export function tileTickMs(ms: number): number {
+  if (ms <= 0) return 60_000;
+  return ms < 60_000 ? ms + 1_000 : 60_000;
 }
 
 /** Each segment's chance, as shown on the odds screen: "28%", "2.5%", "0.1%". */

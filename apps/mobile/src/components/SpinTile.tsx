@@ -12,7 +12,8 @@ import { useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { Canvas, Circle, Path, Skia } from "@shopify/react-native-skia";
 import { Surface3D } from "./Surface3D";
-import { formatCountdown, tileView, type SpinState } from "../lib/spin";
+import { formatCountdown, tileTickMs, tileView, type SpinState } from "../lib/spin";
+import { useSpin } from "../store/spinStore";
 import { font, palette, radius, space } from "../theme";
 import { useT } from "../i18n";
 
@@ -31,11 +32,16 @@ export function SpinTile({ state, onPress, height = 44 }: SpinTileProps) {
   const [now, setNow] = useState(() => Date.now());
   const view = tileView(state, now);
 
+  // The countdown re-reads the clock once a minute, and just after the reset
+  // when it is near. At the reset the server is asked what the new day owes;
+  // without that the tile sat on "0h 1m" until something else refreshed it.
+  const countdownMs = view.kind === "countdown" ? view.ms : null;
   useEffect(() => {
-    if (view.kind !== "countdown") return;
-    const timer = setInterval(() => setNow(Date.now()), 60_000);
-    return () => clearInterval(timer);
-  }, [view.kind]);
+    if (countdownMs === null) return;
+    if (countdownMs === 0) void useSpin.getState().refresh();
+    const timer = setTimeout(() => setNow(Date.now()), tileTickMs(countdownMs));
+    return () => clearTimeout(timer);
+  }, [countdownMs]);
 
   if (view.kind === "hidden") return null;
 

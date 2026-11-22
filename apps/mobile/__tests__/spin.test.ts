@@ -4,7 +4,7 @@
  * only present what it said.
  */
 import { describe, it, expect } from "vitest";
-import { formatCountdown, odds, tileView, wheelTarget, type Segment, type SpinState } from "../src/lib/spin";
+import { formatCountdown, msUntilReset, odds, tileTickMs, tileView, wheelTarget, type Segment, type SpinState } from "../src/lib/spin";
 
 const NOW = Date.parse("2026-11-22T12:00:00Z");
 const RESET = "2026-11-23T00:00:00Z";
@@ -82,5 +82,22 @@ describe("wheelTarget", () => {
 
   it("lands segment 0 on a whole turn", () => {
     expect(wheelTarget(0, 5, 0, 3) % 360).toBe(0);
+  });
+});
+
+describe("msUntilReset", () => {
+  it("is the time left to the reset, never negative, and null when there is nothing to count", () => {
+    expect(msUntilReset(state({ first: "locked", daily: false, match: 0 }), NOW)).toBe(12 * 60 * 60 * 1000);
+    expect(msUntilReset(state({ first: "locked", daily: false, match: 0 }), Date.parse("2026-11-23T00:01:00Z"))).toBe(0);
+    expect(msUntilReset(null, NOW)).toBeNull();
+    expect(msUntilReset({ enabled: false }, NOW)).toBeNull();
+  });
+});
+
+describe("tileTickMs", () => {
+  it("ticks once a minute, wakes just after a reset that is near, and backs off to a minute once it has passed", () => {
+    expect(tileTickMs(5 * 60 * 60 * 1000)).toBe(60_000);
+    expect(tileTickMs(30_000)).toBe(31_000);
+    expect(tileTickMs(0)).toBe(60_000);
   });
 });

@@ -546,7 +546,7 @@ export const ptBR: Strings = {
   "spin.title": "Gire a roleta",
   "spin.source.first": "Bônus da primeira partida",
   "spin.source.daily": "Giro diário · {tier}",
-  "spin.source.match": "Giro de partida · faltam {n} hoje",
+  "spin.source.match": "Giro de partida · restantes hoje: {n}",
   "spin.tier.bronze": "Bronze",
   "spin.tier.silver": "Prata",
   "spin.tier.gold": "Ouro",
