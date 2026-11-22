@@ -595,5 +595,5 @@ export const en = {
   "spin.odds": "Prize chances",
   "spin.error": "Couldn't spin. Check your connection and try again.",
   "spin.tileReady": "Free spin!",
-  "spin.tileLocked": "Finish a game for a bonus spin",
+  "spin.tileLocked": "Finish an online game for a bonus spin",
 } as const;

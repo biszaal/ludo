@@ -561,5 +561,5 @@ export const ptBR: Strings = {
   "spin.odds": "Chances de prêmio",
   "spin.error": "Não deu para girar. Confira sua conexão e tente de novo.",
   "spin.tileReady": "Giro grátis!",
-  "spin.tileLocked": "Termine uma partida para ganhar um giro bônus",
+  "spin.tileLocked": "Termine uma partida online para ganhar um giro bônus",
 };

@@ -563,5 +563,5 @@ export const es: Strings = {
   "spin.odds": "Probabilidades de premio",
   "spin.error": "No se pudo girar. Revisa tu conexión e inténtalo de nuevo.",
   "spin.tileReady": "¡Giro gratis!",
-  "spin.tileLocked": "Termina una partida para un giro extra",
+  "spin.tileLocked": "Termina una partida en línea para un giro extra",
 };
