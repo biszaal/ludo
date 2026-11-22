@@ -51,17 +51,6 @@ export function SpinWheel({ segments, rotation, size }: SpinWheelProps) {
     );
   }, [count, r, size, step]);
 
-  const pointer = useMemo(
-    () =>
-      Skia.PathBuilder.Make()
-        .moveTo(r - POINTER_W / 2, 0)
-        .lineTo(r + POINTER_W / 2, 0)
-        .lineTo(r, POINTER_H)
-        .close()
-        .detach(),
-    [r],
-  );
-
   const spin = useAnimatedStyle(() => ({ transform: [{ rotate: `${rotation.value}deg` }] }));
 
   // Odd wheels would put two equal shades side by side where the last wedge
@@ -106,9 +95,24 @@ export function SpinWheel({ segments, rotation, size }: SpinWheelProps) {
           );
         })}
       </Animated.View>
-      <Canvas style={{ position: "absolute", top: -4, left: 0, width: size, height: POINTER_H + 4 }} pointerEvents="none">
-        <Path path={pointer} color={POINTER} />
-      </Canvas>
+      {/* The pointer is a plain view, not a second Skia canvas: one fewer surface
+          that has to paint for the wheel to read correctly. */}
+      <View
+        pointerEvents="none"
+        style={{
+          position: "absolute",
+          top: -4,
+          left: r - POINTER_W / 2,
+          width: 0,
+          height: 0,
+          borderLeftWidth: POINTER_W / 2,
+          borderRightWidth: POINTER_W / 2,
+          borderTopWidth: POINTER_H,
+          borderLeftColor: "transparent",
+          borderRightColor: "transparent",
+          borderTopColor: POINTER,
+        }}
+      />
     </View>
   );
 }

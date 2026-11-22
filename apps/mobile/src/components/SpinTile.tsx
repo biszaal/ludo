@@ -102,25 +102,28 @@ export function SpinTile({ state, onPress, height = 44 }: SpinTileProps) {
   );
 }
 
-/** A small six-wedge wheel; gold when a spin is waiting, grey otherwise. */
+/**
+ * A small prize wheel: eight wedges in two alternating shades inside a rim,
+ * with a hub — gold when a spin is waiting, grey otherwise. (Three wedges on a
+ * dark disc read as a hazard sign; eight read as a wheel.)
+ */
 function WheelGlyph({ size, live }: { size: number; live: boolean }) {
   const r = size / 2;
-  const accent = live ? RIM : palette.mutedSteel;
-  const wedges = [0, 2, 4].map((i) =>
-    Skia.PathBuilder.Make()
-      .moveTo(r, r)
-      .arcToOval(Skia.XYWHRect(2, 2, size - 4, size - 4), -90 + i * 60 - 30, 60, false)
-      .close()
-      .detach(),
+  const rim = live ? RIM : palette.mutedSteel;
+  const light = live ? GOLD : palette.mutedSteel;
+  const dark = live ? "#8A6512" : palette.raisedSlate;
+  const oval = Skia.XYWHRect(1.5, 1.5, size - 3, size - 3);
+  const wedges = Array.from({ length: 8 }, (_, i) =>
+    Skia.PathBuilder.Make().moveTo(r, r).arcToOval(oval, -90 + i * 45 - 22.5, 45, false).close().detach(),
   );
   return (
     <Canvas style={{ width: size, height: size }}>
-      <Circle cx={r} cy={r} r={r} color={accent} />
-      <Circle cx={r} cy={r} r={r - 2} color={palette.liftedSlate} />
+      <Circle cx={r} cy={r} r={r} color={rim} />
       {wedges.map((p, i) => (
-        <Path key={i} path={p} color={live ? GOLD : palette.mutedSteel} opacity={live ? 0.9 : 0.5} />
+        <Path key={i} path={p} color={i % 2 === 0 ? light : dark} />
       ))}
-      <Circle cx={r} cy={r} r={r * 0.2} color={accent} />
+      <Circle cx={r} cy={r} r={r * 0.22} color={rim} />
+      <Circle cx={r} cy={r} r={r * 0.1} color={palette.feltCharcoal} />
     </Canvas>
   );
 }
