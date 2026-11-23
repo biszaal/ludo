@@ -1,4 +1,5 @@
-import { inviteUrl, codeFromUrl, friendCodeFromUrl } from "./inviteLinks";
+import { inviteUrl, codeFromUrl, friendCodeFromUrl, friendInviteUrl } from "./inviteLinks";
+import { challengeShareMessage } from "./referrals";
 import { trackProductEvent } from "./analytics";
 import { t } from "../i18n";
 /**
@@ -21,6 +22,8 @@ import * as Clipboard from "expo-clipboard";
 import * as Linking from "expo-linking";
 import { useOnlineStore } from "../store/onlineStore";
 import { useFriends } from "../store/friendsStore";
+import { useProfile } from "../store/profileStore";
+import { useReferrals } from "../store/referralStore";
 import { useNav } from "../store/navStore";
 
 /** Open the OS share sheet with the room invite. Best-effort (user may cancel).
@@ -34,6 +37,26 @@ export async function shareInvite(code: string, stake = 0): Promise<void> {
     if (result.action === Share.sharedAction) trackProductEvent("invite_shared");
   } catch {
     // user dismissed or no share targets — nothing to do
+  }
+}
+
+/**
+ * "Challenge a friend" from the win screen: the player's friend link, worded as
+ * a dare. A new player who arrives through it is attached to the referral
+ * programme on its existing rules (link source, 0084), so this adds no new way
+ * to earn coins. The coin line appears only while the programme is on.
+ */
+export async function shareChallenge(): Promise<void> {
+  if (!useFriends.getState().myCode) await useFriends.getState().loadMyCode();
+  const code = useFriends.getState().myCode;
+  if (!code) return;
+  const name = useProfile.getState().displayName;
+  const rewardOn = useReferrals.getState().data?.config.enabled === true;
+  try {
+    const result = await Share.share({ message: challengeShareMessage(t, name, code, friendInviteUrl(code), rewardOn) });
+    if (result.action === Share.sharedAction) trackProductEvent("invite_shared");
+  } catch {
+    // dismissed, or nothing to share to
   }
 }
 

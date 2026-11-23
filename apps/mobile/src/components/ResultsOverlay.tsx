@@ -80,11 +80,13 @@ interface ResultsOverlayProps {
    *  first; short when revealed from the celebration screen (a tapped button
    *  must answer immediately). */
   enterDelayMs?: number;
+  /** The viewer won: offer "Challenge a friend" (shares their friend link). */
+  onChallenge?: () => void;
   onHome: () => void;
 }
 
 /** 2 → "2nd", 3 → "3rd", 4 → "4th" (ranks only ever run 1–4). */
-export function ResultsOverlay({ state, nameFor, avatarFor, countryFor, onRematch, rematch, footnote, canAddFriends = false, stake = 0, live = false, onBackToGame, enterDelayMs = 900, onHome }: ResultsOverlayProps) {
+export function ResultsOverlay({ state, nameFor, avatarFor, countryFor, onRematch, rematch, footnote, canAddFriends = false, stake = 0, live = false, onBackToGame, enterDelayMs = 900, onChallenge, onHome }: ResultsOverlayProps) {
   const t = useT();
   const userIdOf = (playerId: string) => state.players.find((p) => p.id === playerId)?.userId ?? null;
   const { width, height } = useWindowDimensions();
@@ -243,6 +245,15 @@ export function ResultsOverlay({ state, nameFor, avatarFor, countryFor, onRematc
           <RematchBallot state={state} rematch={rematch} nameFor={nameFor} avatarFor={avatarFor} />
         ) : onRematch ? (
           <Button label={t("game.rematch")} onPress={onRematch} />
+        ) : null}
+        {onChallenge && !live ? (
+          // The proudest moment in the app: the primary action when there is no
+          // rematch to offer, a second one beside it when there is.
+          <Button
+            label={t("results.challenge")}
+            onPress={onChallenge}
+            variant={rematch || onRematch ? "ghost" : "fill"}
+          />
         ) : null}
         <Button label="Home" onPress={onHome} variant="ghost" />
         {footnote ? (

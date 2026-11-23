@@ -10,7 +10,7 @@ vi.mock("../src/net/api", () => ({ getReferrals: vi.fn() }));
 
 import * as api from "../src/net/api";
 import { LOCALES, translate, type Locale } from "../src/i18n";
-import { cardRows, friendShareMessage, unannounced, type ReferralsResponse } from "../src/lib/referrals";
+import { cardRows, challengeShareMessage, friendShareMessage, unannounced, type ReferralsResponse } from "../src/lib/referrals";
 import { useReferrals } from "../src/store/referralStore";
 
 const en = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) => translate("en", key, params);
@@ -106,6 +106,23 @@ describe("friendShareMessage", () => {
       }
       expect(on, l).not.toBe(off);
       expect(off, l).toBe(t("invite.friendMessage", { name: "Asha", code: "K7PXQ2", url: URL_ }));
+    }
+  });
+});
+
+describe("challengeShareMessage", () => {
+  it("challenges rather than just adds, carries the code and link, and promises coins only when the programme is on", () => {
+    for (const l of LOCALES as readonly Locale[]) {
+      const t = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) => translate(l, key, params);
+      const on = challengeShareMessage(t, "Asha", "K7PXQ2", URL_, true);
+      const off = challengeShareMessage(t, "Asha", "K7PXQ2", URL_, false);
+      for (const msg of [on, off]) {
+        expect(msg, l).toContain("K7PXQ2");
+        expect(msg, l).toContain(URL_);
+      }
+      expect(on, l).not.toBe(off);
+      expect(off, l).toBe(t("invite.challengeMessage", { name: "Asha", code: "K7PXQ2", url: URL_ }));
+      expect(off, l).not.toBe(friendShareMessage(t, "Asha", "K7PXQ2", URL_, false));
     }
   });
 });

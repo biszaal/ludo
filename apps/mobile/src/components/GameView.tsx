@@ -10,6 +10,7 @@ import { trackProductEvent } from "../lib/analytics";
  * Android back pauses/resumes instead of leaving.
  */
 
+import { shareChallenge } from "../lib/invite";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Text, View, useWindowDimensions } from "react-native";
 import Animated, { Easing, FadeOut, ZoomIn } from "react-native-reanimated";
@@ -901,6 +902,7 @@ export function GameView({
           live={!finished}
           onBackToGame={() => setStandingsOpen(false)}
           enterDelayMs={fromCelebration.current || liveStandings ? 100 : 900}
+          onChallenge={finished && !!mySeat && championId === mySeat.id ? () => void shareChallenge() : undefined}
           onHome={leaveAfterAd}
         />
       )}
