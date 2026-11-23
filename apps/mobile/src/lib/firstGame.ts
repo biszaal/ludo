@@ -1,19 +1,19 @@
 /**
- * The first-game shortcut (growth plan, Nov 2026).
+ * A new player's way into their first game (growth plan, Nov 2026).
  *
- * About half of new players never finish a game, and the way into one was
- * Home → PLAY → a setup popup with three choices → PLAY again. A player who
- * has never finished an online game gets PLAY on Home as one tap: 1v1 Classic
- * at the lowest entry, the defaults the popup would have shown them anyway.
- * The entry is still on the button, so the tap is the player agreeing to it.
+ * About half of new players never finish a game. 1.3.2 answered that with a
+ * one-tap PLAY: a player with no finished online game was dropped straight into
+ * a 1v1 at the lowest entry. It got them seated, but it never showed that
+ * 4-player tables exist, and it read "new" from the phone, so every reinstall
+ * made a regular look brand new.
  *
- * "Never finished an online game" is read from the on-device stats. A player
- * who reinstalls keeps their account but loses those stats, so they get the
- * shortcut once more. That costs nothing they did not tap for.
+ * It is replaced by a welcome intro (components/WelcomeIntro.tsx): two short
+ * rule cards that end on the choice of game, 2 players, 4 players or vs the
+ * computer, each one tap away, with Skip on screen from the first second. PLAY
+ * on Home is the setup popup again, for everyone.
  *
- * The stats load asynchronously, and until they have, everyone reads as new.
- * Callers pass null for "not loaded yet", and both answers then fall back to
- * how the app behaved before this existed.
+ * Who sees the intro is decided here, pure, so it is pinned in Node. The live
+ * wiring that reads the account is lib/useWelcomeIntro.ts.
  */
 
 import { canAfford } from "./economy";
@@ -24,11 +24,37 @@ interface Totals {
   online: { played: number };
 }
 
-/** The entry to start with straight from Home, or null to open the setup popup.
- *  Null whenever the entry is not covered: the popup is where "not enough coins"
- *  and the watch-an-ad entry live. */
-export function oneTapStake(onlinePlayed: number | null, balance: number | null, tiers: number[]): number | null {
-  if (onlinePlayed === null || onlinePlayed > 0) return null;
+export interface IntroSignals {
+  /** Has this phone shown (or retired) the intro already? (profileStore) */
+  seen: boolean;
+  /** Is the first-run name screen out of the way? The two must never stack. */
+  nameDone: boolean;
+  /** Games of any kind finished on this phone, or null while the stats load. */
+  localPlayed: number | null;
+  /** Online games this ACCOUNT has finished (server), or null while unknown. */
+  onlinePlayed: number | null;
+}
+
+/**
+ * "show" now; "wait" for a signal still in flight; "never" for a player the
+ * intro is not for, which the caller records so it is not asked again (a later
+ * sign-out mints a fresh guest on this phone, and a regular must not meet a
+ * welcome screen then).
+ *
+ * Anything unknown waits rather than guesses: an intro over a regular's Home
+ * is a worse mistake than a new player missing it and getting the popup.
+ */
+export function welcomeIntro(s: IntroSignals): "show" | "wait" | "never" {
+  if (s.seen) return "never";
+  if ((s.localPlayed ?? 0) > 0 || (s.onlinePlayed ?? 0) > 0) return "never";
+  if (!s.nameDone || s.localPlayed === null || s.onlinePlayed === null) return "wait";
+  return "show";
+}
+
+/** The entry the intro's online choices start at, or null to send the player to
+ *  the setup popup instead, which is where "not enough coins" and the
+ *  watch-an-ad entry live. */
+export function introEntry(balance: number | null, tiers: number[]): number | null {
   const lowest = tiers[0] ?? 100;
   return canAfford(balance, lowest) ? lowest : null;
 }

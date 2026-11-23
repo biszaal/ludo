@@ -1209,6 +1209,20 @@ export async function getPlayerStats(userIds: string[]): Promise<Record<string, 
   return out;
 }
 
+/** How many online games this account has finished: 0 when it has no row yet,
+ *  null when the read failed. Unlike getPlayerStats, a failure is not read as
+ *  "never played" — the welcome intro must not open over a regular's Home
+ *  because the network blinked. */
+export async function getOnlineGamesPlayed(userId: string): Promise<number | null> {
+  const { data, error } = await getSupabase()
+    .from("player_stats")
+    .select("games_played")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) return null;
+  return (data?.games_played as number | undefined) ?? 0;
+}
+
 /**
  * The row asked for is not there FOR THIS USER — deleted, or hidden because
  * they are not a participant (games/players are row-scoped by RLS, 0019).

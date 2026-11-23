@@ -50,8 +50,15 @@ interface ProfileState {
    */
   savePromptAt: number | null;
   savePromptCount: number;
+  /**
+   * Has this device shown the welcome intro, or decided it is not for this
+   * player? (lib/firstGame.ts) Not migrated: an existing install defaults to
+   * false and is retired the moment its stats or its account show a game.
+   */
+  introSeen: boolean;
   setName: (name: string) => void;
   markNamePromptSeen: () => void;
+  markIntroSeen: () => void;
   markSavePromptShown: (at: number) => void;
   /** Back to never-asked — for a deliberate sign-out or account deletion, where
    *  the device is starting a new guest's life over. */
@@ -70,6 +77,7 @@ export const useProfile = create<ProfileState>()(
       namePromptSeen: false,
       savePromptAt: null,
       savePromptCount: 0,
+      introSeen: false,
       avatarId: "orbit-moss",
       diceSkinId: "classic",
       setName: (name) => {
@@ -77,6 +85,7 @@ export const useProfile = create<ProfileState>()(
         set({ displayName: trimmed.trim().length === 0 ? get().guestName : trimmed });
       },
       markNamePromptSeen: () => set({ namePromptSeen: true }),
+      markIntroSeen: () => set({ introSeen: true }),
       markSavePromptShown: (at) =>
         set((st) => ({ savePromptAt: at, savePromptCount: st.savePromptCount + 1 })),
       resetSavePrompt: () => set({ savePromptAt: null, savePromptCount: 0 }),

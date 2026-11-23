@@ -23,6 +23,7 @@ import { UpdateRequiredScreen } from "./src/components/UpdateRequiredScreen";
 import { AppVersionGate } from "./src/lib/appVersionGate";
 import { LoadingScreen } from "./src/components/LoadingScreen";
 import { ChooseNameScreen } from "./src/components/ChooseNameScreen";
+import { useLaunch } from "./src/store/launchStore";
 import { ErrorBoundary } from "./src/components/ErrorBoundary";
 import { useOnlineStore } from "./src/store/onlineStore";
 import { useNav } from "./src/store/navStore";
@@ -84,7 +85,10 @@ export default function App() {
   const seatedOnline = useOnlineStore((s) => s.gameId != null);
   const atTable = useNav((s) => AppVersionGate.defersFor(s.stack.map((entry) => entry.name), seatedOnline));
   const showUpdate = (updateRequired || updateSuggested) && !atTable;
-  const onLaunched = useCallback(() => setLaunched(true), []);
+  const onLaunched = useCallback(() => {
+    setLaunched(true);
+    useLaunch.getState().markLaunched();
+  }, []);
 
   useEffect(() => {
     // FIRST, and synchronously: anything that throws during the rest of this
