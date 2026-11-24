@@ -20,9 +20,11 @@ interface DailyChestTileProps {
   nextBonus: number;
   /** Total height from the hub's budget; natural size when unset. */
   height?: number;
+  /** Take an equal share of its row (beside the spin tile) instead of its natural width. */
+  fill?: boolean;
 }
 
-export function DailyChestTile({ onPress, claimable, streakDay, nextBonus, height = 48 }: DailyChestTileProps) {
+export function DailyChestTile({ onPress, claimable, streakDay, nextBonus, height = 48, fill = false }: DailyChestTileProps) {
   const t = useT();
   // The chest keeps its share of the pill as the pill resizes; the two text
   // lines are already at their floor, so only the glyph moves.
@@ -32,7 +34,7 @@ export function DailyChestTile({ onPress, claimable, streakDay, nextBonus, heigh
       accessibilityRole="button"
       accessibilityLabel={claimable ? `Daily bonus ready, ${nextBonus} coins` : `Daily bonus, day ${streakDay}`}
       onPress={onPress}
-      style={{ alignSelf: "flex-start" }}
+      style={fill ? { flex: 1, minWidth: 0 } : { alignSelf: "flex-start" }}
     >
       {({ pressed }) => (
         <Surface3D

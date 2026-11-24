@@ -25,6 +25,9 @@ import { Platform } from "react-native";
 import { notifications } from "./notifications";
 import { useSettings } from "../store/settingsStore";
 import { useWallet } from "../store/walletStore";
+import { useDailyBonus } from "../store/dailyBonusStore";
+import { useStats } from "../store/statsStore";
+import { PushPrompt } from "./pushPrompt";
 import { CHEST_REMINDER_ID, ChestReminder } from "./bonusSchedule";
 import { t } from "../i18n";
 
@@ -39,6 +42,11 @@ const CHANNEL_ID = "daily-bonus";
 function body(streakDay: number): string {
   if (streakDay >= 2) return `Day ${streakDay + 1} of your streak is waiting. Miss a day and it starts over.`;
   return t("notify.bonusBody");
+}
+
+function lastPlayed(): Date | null {
+  const at = useDailyBonus.getState().lastPlayAt;
+  return at === null ? null : new Date(at);
 }
 
 /**
@@ -72,6 +80,7 @@ export async function scheduleBonusReminder(claimable: boolean, streakDay: numbe
       granted,
       claimable,
       now: new Date(),
+      lastPlayAt: lastPlayed(),
     });
 
     if (plan.schedule && Platform.OS === "android") {
@@ -123,18 +132,45 @@ export async function scheduleBonusReminder(claimable: boolean, streakDay: numbe
  */
 export function initBonusReminder(): () => void {
   let last = "";
+  let wasClaimable: boolean | null = null;
   const apply = (s: { balance: number | null; bonusClaimable: boolean; streakDay: number }) => {
     // Before the first successful read the store holds defaults, not facts, and
     // scheduling off those would arm a reminder for a bonus we know nothing
     // about. `balance` is null until a read lands, which is the signal.
     if (s.balance === null) return;
-    const key = `${s.bonusClaimable}:${s.streakDay}`;
+    // A chest that was waiting and now isn't was just claimed (here or on
+    // another device): that is "played", and the reminder aims a day after it.
+    if (wasClaimable === true && !s.bonusClaimable) useDailyBonus.getState().notePlayed(Date.now());
+    wasClaimable = s.bonusClaimable;
+    const key = `${s.bonusClaimable}:${s.streakDay}:${useDailyBonus.getState().lastPlayAt}`;
     if (key === last) return; // ordinary refreshes that changed nothing else
     last = key;
     void scheduleBonusReminder(s.bonusClaimable, s.streakDay);
   };
   apply(useWallet.getState());
-  return useWallet.subscribe(apply);
+  const stopWallet = useWallet.subscribe(apply);
+
+  // A win is "played" too: a new player's first reminder lands a day after
+  // their first win. Armed only once the stats store has rehydrated, so the
+  // empty -> persisted jump on launch is not mistaken for a win.
+  let stopStats: () => void = () => {};
+  const arm = () => {
+    stopStats = useStats.subscribe((st, prev) => {
+      if (PushPrompt.countWins(st.totals) > PushPrompt.countWins(prev.totals)) {
+        useDailyBonus.getState().notePlayed(Date.now());
+        apply(useWallet.getState());
+      }
+    });
+  };
+  let stopHydration: (() => void) | null = null;
+  if (useStats.persist.hasHydrated()) arm();
+  else stopHydration = useStats.persist.onFinishHydration(() => arm());
+
+  return () => {
+    stopHydration?.();
+    stopStats();
+    stopWallet();
+  };
 }
 
 /** Drop the pending reminder (the player turned reminders off). */

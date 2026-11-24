@@ -60,6 +60,8 @@ export function nextResetAfter(now: Date): Date {
  */
 export const CHEST_REMINDER_ID = "daily-bonus-reminder";
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 export interface ReminderFacts {
   /** The settings toggle. Off means the pending one must come down. */
   remindersOn: boolean;
@@ -68,6 +70,8 @@ export interface ReminderFacts {
   /** Server says a chest is sitting unclaimed right now. */
   claimable: boolean;
   now: Date;
+  /** When the player last claimed a chest or won a game, if known. */
+  lastPlayAt?: Date | null;
 }
 
 export interface ReminderPlan {
@@ -87,18 +91,26 @@ export interface ReminderSink {
  * What to do with the pending "daily chest is ready" reminder.
  *
  * Pure aside from {@link ChestReminder.apply}, which only walks a plan into a
- * sink. The clock comes in as `now` — nothing here reads `Date.now()` — and the
- * unlock time is {@link nextResetAfter}, the same UTC-midnight boundary the
- * server uses (`daily_bonus_claim`), not a hard-coded 24h.
+ * sink. The clock comes in as `now` — nothing here reads `Date.now()`. A
+ * claimed chest is reminded about a day after the player last claimed or won
+ * (lastPlayAt), and never before {@link nextResetAfter}, the same UTC-midnight
+ * boundary the server uses (`daily_bonus_claim`).
  */
 export class ChestReminder {
   static plan(facts: ReminderFacts): ReminderPlan {
     if (!facts.remindersOn || !facts.granted) {
       return { cancelId: CHEST_REMINDER_ID, schedule: null };
     }
-    // Already claimable: remind about THIS chest. Otherwise the next UTC reset,
-    // which is when a claim just made opens again.
-    const unlocks = facts.claimable ? facts.now : nextResetAfter(facts.now);
+    // Already claimable: remind about THIS chest. Otherwise 24 hours after they
+    // last claimed or won (the time of day they actually play), but never
+    // before the next UTC reset, which is when the chest really opens again.
+    const reset = nextResetAfter(facts.now);
+    const dayAfterPlay = facts.lastPlayAt ? new Date(facts.lastPlayAt.getTime() + DAY_MS) : null;
+    const unlocks = facts.claimable
+      ? facts.now
+      : dayAfterPlay && dayAfterPlay.getTime() > reset.getTime()
+        ? dayAfterPlay
+        : reset;
     return {
       cancelId: CHEST_REMINDER_ID,
       schedule: { id: CHEST_REMINDER_ID, at: reminderTime(facts.now, unlocks) },

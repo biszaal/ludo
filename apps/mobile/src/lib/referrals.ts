@@ -95,3 +95,10 @@ const ANNOUNCE_WINDOW_MS = 7 * 24 * 60 * 60_000;
 export function friendShareMessage(t: Translate, name: string, code: string, url: string, rewardOn: boolean): string {
   return t(rewardOn ? "invite.friendMessageReward" : "invite.friendMessage", { name, code, url });
 }
+
+/** The win screen's "Challenge a friend": a dare, not just "add me". Same
+ *  friend link, so a new player who comes in through it joins the referral
+ *  programme on its existing rules; the coin line only while it is on. */
+export function challengeShareMessage(t: Translate, name: string, code: string, url: string, rewardOn: boolean): string {
+  return t(rewardOn ? "invite.challengeMessageReward" : "invite.challengeMessage", { name, code, url });
+}

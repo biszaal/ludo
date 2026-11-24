@@ -23,6 +23,7 @@ import { UpdateRequiredScreen } from "./src/components/UpdateRequiredScreen";
 import { AppVersionGate } from "./src/lib/appVersionGate";
 import { LoadingScreen } from "./src/components/LoadingScreen";
 import { ChooseNameScreen } from "./src/components/ChooseNameScreen";
+import { useLaunch } from "./src/store/launchStore";
 import { ErrorBoundary } from "./src/components/ErrorBoundary";
 import { useOnlineStore } from "./src/store/onlineStore";
 import { useNav } from "./src/store/navStore";
@@ -36,6 +37,7 @@ import { initConnection } from "./src/lib/connection";
 import { initPush } from "./src/lib/push";
 import { initBonusReminder } from "./src/lib/bonusReminder";
 import { PushPromptOffer } from "./src/lib/pushPromptOffer";
+import { initInstallReports } from "./src/lib/installReport";
 import { initUpdates } from "./src/lib/updates";
 import { initFriends, initPresence } from "./src/store/friendsStore";
 import { useConfig } from "./src/store/configStore";
@@ -83,7 +85,10 @@ export default function App() {
   const seatedOnline = useOnlineStore((s) => s.gameId != null);
   const atTable = useNav((s) => AppVersionGate.defersFor(s.stack.map((entry) => entry.name), seatedOnline));
   const showUpdate = (updateRequired || updateSuggested) && !atTable;
-  const onLaunched = useCallback(() => setLaunched(true), []);
+  const onLaunched = useCallback(() => {
+    setLaunched(true);
+    useLaunch.getState().markLaunched();
+  }, []);
 
   useEffect(() => {
     // FIRST, and synchronously: anything that throws during the rest of this
@@ -144,6 +149,9 @@ export default function App() {
     const stopBonusReminder = initBonusReminder();
     // Soft ask for notification permission, after a first win or a chest claim.
     const stopPushPrompt = PushPromptOffer.watch();
+    // Android install source (once) and this phone's ID (once per account),
+    // for referral attribution and the one-payout-per-phone rule.
+    const stopInstallReports = initInstallReports();
     // OTA updates. Last, because it is the only one here that can decide to
     // restart the app, and everything above should have had its chance to
     // start normally first.
@@ -159,6 +167,7 @@ export default function App() {
       stopPush();
       stopBonusReminder();
       stopPushPrompt();
+      stopInstallReports();
       stopUpdates();
       stopAfterGameAd();
     };

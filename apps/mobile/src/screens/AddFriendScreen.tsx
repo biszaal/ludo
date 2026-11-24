@@ -38,7 +38,7 @@ import { lookupFriendCode, searchPlayerByName, type LookupReferral, type Profile
 import { friendShareMessage } from "../lib/referrals";
 import { useReferrals } from "../store/referralStore";
 import { tapLight } from "../lib/haptics";
-import { INVITE_BASE } from "../lib/inviteLinks";
+import { friendInviteUrl } from "../lib/inviteLinks";
 import { playSound } from "../lib/sound";
 import { font, palette, radius, space } from "../theme";
 import { useT } from "../i18n";
@@ -88,14 +88,26 @@ export function AddFriendScreen() {
     try {
       // The landing link opens the app for a friend who has it, and the store
       // page for one who doesn't — without it a shared code was a dead end.
-      await Share.share({ message: friendShareMessage(t, displayName, myCode, INVITE_BASE, rewardOn) });
+      await Share.share({ message: friendShareMessage(t, displayName, myCode, friendInviteUrl(myCode), rewardOn) });
     } catch {
       // user dismissed the sheet; nothing to report
     }
   };
 
-  const onLookup = async () => {
-    const raw = entry.trim();
+  const onLookup = () => lookup(entry);
+
+  // A friend's link landed here (lib/invite): fill the field and look it up.
+  const pendingCode = useFriends((s) => s.pendingCode);
+  useEffect(() => {
+    if (!pendingCode) return;
+    useFriends.getState().setPendingCode(null);
+    setEntry(pendingCode);
+    void lookup(pendingCode);
+    // lookup is recreated each render; the code is what matters.
+  }, [pendingCode]);
+
+  const lookup = async (value: string) => {
+    const raw = value.trim();
     if (raw.length === 0) return;
     setLooking(true);
     setError(null);

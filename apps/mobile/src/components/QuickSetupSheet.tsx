@@ -33,9 +33,11 @@ interface QuickSetupSheetProps {
   onClose: () => void;
   /** The player is short on coins and tapped a tier they can't afford. */
   onNeedCoins: () => void;
+  /** The table to start on: the welcome intro opens this on the size picked there. */
+  initialSize?: 2 | 4;
 }
 
-export function QuickSetupSheet({ onClose, onNeedCoins }: QuickSetupSheetProps) {
+export function QuickSetupSheet({ onClose, onNeedCoins, initialSize = 2 }: QuickSetupSheetProps) {
   const t = useT();
   const balance = useWallet((s) => s.balance);
   const tiers = useConfig((s) => s.config.economy.stakeTiers);
@@ -47,7 +49,7 @@ export function QuickSetupSheet({ onClose, onNeedCoins }: QuickSetupSheetProps) 
 
   const modes = onlineModes(useConfig((s) => s.config.modes.blitzOnline));
   const [mode, setMode] = useState<OnlineMode>("classic");
-  const [size, setSize] = useState<2 | 4>(2);
+  const [size, setSize] = useState<2 | 4>(initialSize);
   const [stake, setStake] = useState<number>(tiers[0] ?? 100);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);

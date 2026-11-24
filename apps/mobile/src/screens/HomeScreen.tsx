@@ -29,6 +29,10 @@ import { CoinsPill } from "../components/CoinsPill";
 import { GemsPill } from "../components/GemsPill";
 import { GetCoinsSheet } from "../components/GetCoinsSheet";
 import { DailyBonusSheet } from "../components/DailyBonusSheet";
+import { SpinTile } from "../components/SpinTile";
+import { SpinSheet } from "../components/SpinSheet";
+import { useSpin } from "../store/spinStore";
+import { tileView } from "../lib/spin";
 import { AccountSheet } from "../components/AccountSheet";
 import { GuestBanner, useGuestStrip } from "../components/GuestBanner";
 import { useSavePrompt } from "../lib/useSavePrompt";
@@ -55,7 +59,9 @@ import { incomingRequests, onlineFriendCount } from "../lib/friendship";
 import { nextDailyBonus, utcDay } from "../lib/economy";
 import { shouldAutoShow, useDailyBonus } from "../store/dailyBonusStore";
 import { useStats, useStatsLoaded } from "../store/statsStore";
-import { oneTapStake, playedAnyGame } from "../lib/firstGame";
+import { introEntry, playedAnyGame } from "../lib/firstGame";
+import { useWelcomeIntro } from "../lib/useWelcomeIntro";
+import { WelcomeIntro, type IntroChoice } from "../components/WelcomeIntro";
 import { unannounced } from "../lib/referrals";
 import { useReferrals } from "../store/referralStore";
 import { ReferralNotice } from "../components/ReferralNotice";
@@ -68,7 +74,12 @@ export function HomeScreen() {
   const [coinsSheet, setCoinsSheet] = useState(false);
   const [roomSheet, setRoomSheet] = useState(false);
   const [quickSheet, setQuickSheet] = useState(false);
+  const [quickSize, setQuickSize] = useState<2 | 4>(2);
   const [bonusSheet, setBonusSheet] = useState(false);
+  const [spinSheet, setSpinSheet] = useState(false);
+  // Reward spin (0086): hidden until the server says it is on for this player.
+  const spinState = useSpin((s) => s.state);
+  const spinShown = tileView(spinState, Date.now()).kind !== "hidden";
   /**
    * The one place the save-account prompt is raised.
    *
@@ -95,24 +106,33 @@ export function HomeScreen() {
   const onlineStatus = useOnlineStore((s) => s.status);
   const connecting = onlineStatus === "connecting";
 
-  // A player who has never finished an online game gets PLAY as one tap, and
-  // sees no calendar before their first game (lib/firstGame.ts).
+  // A brand-new player meets the welcome intro, which ends on the choice of
+  // game, and sees no calendar before their first game (lib/firstGame.ts).
+  // PLAY itself is the setup popup for everyone.
   const balance = useWallet((s) => s.balance);
   const statsLoaded = useStatsLoaded();
   const totals = useStats((s) => s.totals);
   const playedBefore = playedAnyGame(statsLoaded ? totals : null);
-  const firstTapStake = oneTapStake(statsLoaded ? totals.online.played : null, balance, economy.stakeTiers);
-  const onPlay = () => {
-    if (firstTapStake === null) {
-      setQuickSheet(true);
+  const intro = useWelcomeIntro();
+  const openQuick = (size: 2 | 4) => {
+    setQuickSize(size);
+    setQuickSheet(true);
+  };
+  const onIntroPick = (choice: IntroChoice) => {
+    intro.done();
+    if (choice === "ai") {
+      newLocalGame({ players: 2, bots: 1, rules: {} });
       return;
     }
+    const entry = introEntry(balance, economy.stakeTiers);
+    // Not covered: the popup is where "not enough coins" and the ad entry live.
+    if (entry === null) return openQuick(choice);
     void useOnlineStore
       .getState()
-      .quickMatch(2, firstTapStake, "classic")
+      .quickMatch(choice, entry, "classic")
       .then(() => {
         // The popup is where a quick-match error is shown, so a failure lands there.
-        if (useOnlineStore.getState().status === "error") setQuickSheet(true);
+        if (useOnlineStore.getState().status === "error") openQuick(choice);
       });
   };
 
@@ -169,6 +189,8 @@ export function HomeScreen() {
   const refreshWallet = useWallet((s) => s.refresh);
   useEffect(() => {
     void refreshWallet();
+    // What spins are owed changes with the same events (a finished game, a new day).
+    void useSpin.getState().refresh();
   }, [refreshWallet, onlineStatus]);
 
   // Show the streak calendar once a day, after the wallet read settles — the
@@ -176,12 +198,13 @@ export function HomeScreen() {
   // stale state. The store only guards against re-popping: Home remounts on
   // every popTo("home"), and a calendar that reopens after each match nags.
   useEffect(() => {
-    if (!bonusClaimable) return;
+    // Never on top of the spin sheet or the intro; this runs again when they close.
+    if (!bonusClaimable || spinSheet || intro.show) return;
     const today = utcDay();
     if (!shouldAutoShow(useDailyBonus.getState(), true, today, playedBefore)) return;
     useDailyBonus.getState().noteAutoShown(today);
     setBonusSheet(true);
-  }, [bonusClaimable, playedBefore]);
+  }, [bonusClaimable, playedBefore, spinSheet, intro.show]);
 
   // Warm the presence map so the friends-online line is real, not stale.
   useEffect(() => pollPresence(), []);
@@ -223,13 +246,29 @@ export function HomeScreen() {
           budget leaves (or any point it misjudges) lands on the felt around the
           still-life rather than pushing the dock off the bottom. */}
       <View style={{ flex: 1, minHeight: 0, paddingHorizontal: space.lg, paddingTop: metrics.gap, gap: metrics.gap }}>
-        <DailyChestTile
-          onPress={() => setBonusSheet(true)}
-          claimable={bonusClaimable}
-          streakDay={streakDay}
-          nextBonus={nextDailyBonus(streakDay, economy)}
-          height={metrics.chest}
-        />
+        {/* The spin tile shares the chest's row and height, so the hub's budget
+            is the same with it or without it. */}
+        {spinShown ? (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
+            <DailyChestTile
+              onPress={() => setBonusSheet(true)}
+              claimable={bonusClaimable}
+              streakDay={streakDay}
+              nextBonus={nextDailyBonus(streakDay, economy)}
+              height={metrics.chest}
+              fill
+            />
+            <SpinTile state={spinState} onPress={() => setSpinSheet(true)} height={metrics.chest} />
+          </View>
+        ) : (
+          <DailyChestTile
+            onPress={() => setBonusSheet(true)}
+            claimable={bonusClaimable}
+            streakDay={streakDay}
+            nextBonus={nextDailyBonus(streakDay, economy)}
+            height={metrics.chest}
+          />
+        )}
 
         <View
           style={{ flex: 1, minHeight: 0, alignSelf: "stretch", justifyContent: "center" }}
@@ -241,7 +280,7 @@ export function HomeScreen() {
           <HeroDiorama theme={boardTheme} diceSkin={diceSkin} width={dioramaBox.w} height={dioramaBox.h} scale={scale} />
         </View>
 
-        <PlayCta stake={firstTapStake ?? stake} busy={connecting} onPress={onPlay} height={metrics.cta} />
+        <PlayCta stake={stake} busy={connecting} onPress={() => openQuick(2)} height={metrics.cta} />
 
         {/* Real presence only — invisible (not collapsed) at zero so the layout
             never reflows and the number is never faked. The budget drops the
@@ -329,7 +368,7 @@ export function HomeScreen() {
         />
       )}
 
-      {savePrompt.reason && (
+      {savePrompt.reason && !intro.show && (
         <AccountSheet
           initialMode="save"
           heading={savePromptCopy(savePrompt.reason)}
@@ -338,14 +377,24 @@ export function HomeScreen() {
       )}
       {coinsSheet && <GetCoinsSheet onClose={() => setCoinsSheet(false)} onDailyBonus={() => { setCoinsSheet(false); setBonusSheet(true); }} />}
       {bonusSheet && <DailyBonusSheet onClose={() => setBonusSheet(false)} />}
+      {spinSheet && (
+        <SpinSheet
+          onClose={() => {
+            setSpinSheet(false);
+            void useSpin.getState().refresh();
+          }}
+        />
+      )}
       {roomSheet && <RoomSheet onClose={() => setRoomSheet(false)} />}
       {referralNotice &&
         referralData &&
         !bonusSheet &&
+        !spinSheet &&
         !coinsSheet &&
         !roomSheet &&
         !quickSheet &&
         !sheetMode &&
+        !intro.show &&
         !savePrompt.reason && (
           <ReferralNotice
             item={referralNotice}
@@ -358,12 +407,18 @@ export function HomeScreen() {
         )}
       {quickSheet && (
         <QuickSetupSheet
+          initialSize={quickSize}
           onClose={() => setQuickSheet(false)}
           onNeedCoins={() => {
             setQuickSheet(false);
             setCoinsSheet(true);
           }}
         />
+      )}
+      {/* Last, so it covers Home and every sheet: it is the first thing a new
+          player sees, and Skip is the way out of it. */}
+      {intro.show && (
+        <WelcomeIntro entry={economy.stakeTiers[0] ?? 100} onPick={onIntroPick} onSkip={intro.done} />
       )}
     </SafeAreaView>
   );

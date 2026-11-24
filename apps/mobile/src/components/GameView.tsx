@@ -10,6 +10,7 @@ import { trackProductEvent } from "../lib/analytics";
  * Android back pauses/resumes instead of leaving.
  */
 
+import { shareChallenge } from "../lib/invite";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Text, View, useWindowDimensions } from "react-native";
 import Animated, { Easing, FadeOut, ZoomIn } from "react-native-reanimated";
@@ -33,6 +34,7 @@ import { CoinGlyph } from "./CoinsPill";
 import { ContentColumn } from "./ContentColumn";
 import { useLayout } from "../lib/useLayout";
 import { PushPromptOffer } from "../lib/pushPromptOffer";
+import { ReviewOffer } from "../lib/reviewOffer";
 import {
   CHIP_COLUMN,
   GAME_RAIL_MIN,
@@ -371,9 +373,17 @@ export function GameView({
     if (state.finishedOrder.length === 0) sawCelebration.current = false;
     if (celebrating) sawCelebration.current = true;
   }, [state.finishedOrder.length, celebrating]);
+  // Then, after a win and only if the notification sheet didn't just show, the
+  // store rating ask (lib/review). Pass & play has no seat of its own, so it
+  // never counts as a win here.
+  const iWonRef = useRef(false);
+  iWonRef.current = !!mySeat && !!championId && championId === mySeat.id;
   useEffect(() => {
     if (!finished || celebrating || !sawCelebration.current) return;
-    void PushPromptOffer.presentPendingWin();
+    const won = iWonRef.current;
+    void PushPromptOffer.presentPendingWin().then((shown) => {
+      if (!shown && won) void ReviewOffer.afterWin();
+    });
   }, [finished, celebrating]);
 
   // Is the standings overlay open ahead of the final whistle? (See below — the
@@ -892,6 +902,7 @@ export function GameView({
           live={!finished}
           onBackToGame={() => setStandingsOpen(false)}
           enterDelayMs={fromCelebration.current || liveStandings ? 100 : 900}
+          onChallenge={finished && !!mySeat && championId === mySeat.id ? () => void shareChallenge() : undefined}
           onHome={leaveAfterAd}
         />
       )}

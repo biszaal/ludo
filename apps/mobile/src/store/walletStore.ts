@@ -68,6 +68,9 @@ interface WalletStore {
    * gone for the day when it was still sitting there waiting.
    */
   claimDailyBonus: () => Promise<number>;
+  /** A balance the server just returned for a credit made elsewhere (a reward
+   *  spin): authoritative, so a read already in flight can't undo it. */
+  applyBalances: (balance: number, gems: number) => void;
   /** Last-resort grant when broke. Returns coins credited, 0 if not eligible. */
   claimPity: () => Promise<number>;
   /** Buy a gem pack (server-gated stub until real billing). Returns gems
@@ -149,6 +152,11 @@ export const useWallet = create<WalletStore>((set, get) => ({
     })();
     await inFlight;
     if (generation === accountGeneration) await get().reconcilePurchases();
+  },
+
+  applyBalances: (balance, gems) => {
+    writeGen++;
+    set({ balance, gems });
   },
 
   claimDailyBonus: async () => {

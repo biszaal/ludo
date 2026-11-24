@@ -21,6 +21,10 @@ export interface DailyBonusState {
   /** UTC day (YYYY-MM-DD) the sheet last auto-opened on; null = never. */
   lastAutoShownDay: string | null;
   noteAutoShown: (day: string) => void;
+  /** When the player last claimed a chest or won a game (ms); null = never.
+   *  The chest reminder is aimed a day after it. */
+  lastPlayAt: number | null;
+  notePlayed: (at: number) => void;
 }
 
 export const useDailyBonus = create<DailyBonusState>()(
@@ -28,6 +32,8 @@ export const useDailyBonus = create<DailyBonusState>()(
     (set) => ({
       lastAutoShownDay: null,
       noteAutoShown: (day) => set({ lastAutoShownDay: day }),
+      lastPlayAt: null,
+      notePlayed: (at) => set({ lastPlayAt: at }),
     }),
     {
       name: "ludo-daily-bonus",

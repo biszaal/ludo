@@ -41,12 +41,15 @@ before(async () => {
     create table bot_identities(user_id uuid primary key);
     create table app_config(key text primary key, value jsonb not null);
     create table profiles(user_id uuid primary key, display_name text, avatar_id text);
+    create table friend_codes(user_id uuid primary key, code text unique);
   `);
   await db.exec(await migration('0082_referrals.sql'));
+  // 0084 replaces referral_settle (device rule); every test here runs against it.
+  await db.exec(await migration('0084_install_and_device.sql'));
 });
 after(async () => { await db?.close(); });
 beforeEach(async () => {
-  await db.exec('truncate referrals, wallets, wallet_txns, player_stats, bot_identities, app_config, profiles, auth.users cascade;');
+  await db.exec('truncate user_devices, install_sources, friend_codes, referrals, wallets, wallet_txns, player_stats, bot_identities, app_config, profiles, auth.users cascade;');
   await user(A, "now() - interval '30 days'");
 });
 

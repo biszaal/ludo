@@ -15,6 +15,7 @@ import { getIdentity } from "../lib/identityClient";
 import { APP_VERSION } from "../lib/appVersion";
 import { GameReleasedError, OnlineAccount } from "../lib/onlineAccount";
 import type { ReferralsResponse } from "../lib/referrals";
+import type { Segment, SpinSource, SpinState } from "../lib/spin";
 
 export interface GameRow {
   id: string;
@@ -571,6 +572,32 @@ export async function claimDailyBonus(): Promise<DailyBonusResult> {
   return await callGame<DailyBonusResult>("dailyBonus");
 }
 
+/** Reward spin (0086): what this player is owed, and the wheel the next spin uses. */
+export async function getSpinState(): Promise<SpinState> {
+  await ensureSignedIn();
+  return await callGame<SpinState>("spinState");
+}
+
+export type SpinClaim =
+  | {
+      ok: true;
+      /** The wheel the server actually drew from: animate on these, not the pre-tap wheel. */
+      wheel: string;
+      segments: Segment[];
+      segment: number;
+      prize: { coins?: number; gems?: number };
+      balance: number;
+      gems: number;
+      status: SpinState;
+    }
+  | { ok: false; reason: "disabled" | "not_owed" | "bad_source" };
+
+/** Take a spin. The server picks and pays; a retry with the same id never pays twice. */
+export async function claimSpin(source: SpinSource, requestId: string): Promise<SpinClaim> {
+  await ensureSignedIn();
+  return await callGame<SpinClaim>("spinClaim", { source, requestId });
+}
+
 /** Last-resort grant for a player sitting at zero, once a day. */
 export async function topupWallet(): Promise<number> {
   await ensureSignedIn();
@@ -1100,6 +1127,22 @@ export async function getReferrals(): Promise<ReferralsResponse> {
   return await callGame<ReferralsResponse>("referrals");
 }
 
+/** The Play install referrer, sent once per install (lib/installSource). A friend
+ *  code in it records a referral server-side; `referral.attached` says so. */
+export async function reportInstallSource(
+  platform: string,
+  referrer: string,
+): Promise<{ recorded: boolean; referral?: { attached: boolean } }> {
+  await ensureSignedIn();
+  return await callGame("installSource", { platform, referrer });
+}
+
+/** This phone's ID, sent once per account (lib/deviceId). Hashed server-side. */
+export async function reportDevice(deviceId: string): Promise<void> {
+  await ensureSignedIn();
+  await callGame("deviceSeen", { deviceId });
+}
+
 /** Resolve an EXACT username (case-insensitive) to a player card. Shares the
  *  code-lookup throttle server-side, and returns the same opaque "not found"
  *  for an absent, blocked, bot or self match. */
@@ -1164,6 +1207,20 @@ export async function getPlayerStats(userIds: string[]): Promise<Record<string, 
     out[r.user_id as string] = { games_played: r.games_played as number, games_won: r.games_won as number };
   }
   return out;
+}
+
+/** How many online games this account has finished: 0 when it has no row yet,
+ *  null when the read failed. Unlike getPlayerStats, a failure is not read as
+ *  "never played" — the welcome intro must not open over a regular's Home
+ *  because the network blinked. */
+export async function getOnlineGamesPlayed(userId: string): Promise<number | null> {
+  const { data, error } = await getSupabase()
+    .from("player_stats")
+    .select("games_played")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) return null;
+  return (data?.games_played as number | undefined) ?? 0;
 }
 
 /**

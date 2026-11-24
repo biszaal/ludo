@@ -111,10 +111,23 @@ function recordingSink(): { sink: ReminderSink; calls: string[] } {
 describe("ChestReminder", () => {
   const now = new Date(Date.UTC(2026, 7, 20, 15, 0, 0));
 
-  it("aims a fresh claim at the next real reset, not a fixed 24h", () => {
-    const plan = ChestReminder.plan({ remindersOn: true, granted: true, claimable: false, now });
+  it("with no recorded play, aims a fresh claim at the next reset", () => {
+    const plan = ChestReminder.plan({ remindersOn: true, granted: true, claimable: false, now, lastPlayAt: null });
     expect(plan.schedule?.at.getTime()).toBe(reminderTime(now, nextResetAfter(now)).getTime());
     expect(plan.schedule?.id).toBe(plan.cancelId);
+  });
+
+  it("aims at 24 hours after the last claim or win, the time of day they play", () => {
+    const playedAt = new Date(now.getTime() - 2 * 3_600_000);
+    const plan = ChestReminder.plan({ remindersOn: true, granted: true, claimable: false, now, lastPlayAt: playedAt });
+    const dayLater = new Date(playedAt.getTime() + 24 * 3_600_000);
+    expect(plan.schedule?.at.getTime()).toBe(reminderTime(now, dayLater).getTime());
+  });
+
+  it("never aims before the chest unlocks: an old last play falls back to the next reset", () => {
+    const playedAt = new Date(now.getTime() - 30 * 3_600_000);
+    const plan = ChestReminder.plan({ remindersOn: true, granted: true, claimable: false, now, lastPlayAt: playedAt });
+    expect(plan.schedule?.at.getTime()).toBe(reminderTime(now, nextResetAfter(now)).getTime());
   });
 
   it("aims an unclaimed chest at today, still through the same clock", () => {

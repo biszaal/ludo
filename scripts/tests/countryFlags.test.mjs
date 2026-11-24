@@ -32,11 +32,38 @@ before(async () => {
     create table profiles(user_id uuid primary key, display_name text, avatar_id text);
   `);
   await db.exec(await migration('0083_country_flags.sql'));
+  await db.exec(await migration('0085_country_from_profile_write.sql'));
+  // Supabase's own auth.uid(), so a request's JWT names the caller.
+  await db.exec(`create or replace function auth.uid() returns uuid language sql stable as $$
+    select coalesce(nullif(current_setting('request.jwt.claim.sub', true), ''),
+                    (nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub'))::uuid $$;`);
 });
 after(async () => { await db?.close(); });
 beforeEach(async () => {
   await db.exec('truncate profiles, bot_identities, auth.users cascade;');
+  await asServer();
 });
+
+// What PostgREST sets for each request: the caller's JWT claims and its headers.
+const request = async (claims, headers) => {
+  await query("select set_config('request.jwt.claims', $1, false), set_config('request.headers', $2, false)", [
+    claims,
+    headers,
+  ]);
+};
+const asPlayer = (id, cfCountry) =>
+  request(JSON.stringify({ sub: id, role: 'authenticated' }),
+    JSON.stringify(cfCountry === undefined ? {} : { 'cf-ipcountry': cfCountry }));
+const asServer = (cfCountry) =>
+  request(JSON.stringify({ role: 'service_role' }),
+    JSON.stringify(cfCountry === undefined ? {} : { 'cf-ipcountry': cfCountry }));
+// The app's profile write (api.upsertMyProfile), sent on every online create/join.
+const upsertOwn = (id, name = 'Asha') =>
+  query(
+    `insert into profiles(user_id, display_name, avatar_id) values ($1, $2, 'cap')
+     on conflict (user_id) do update set display_name = excluded.display_name, avatar_id = excluded.avatar_id`,
+    [id, name],
+  );
 
 test('set_country stores a valid code once', async () => {
   await person(A);
@@ -96,4 +123,60 @@ test('bot_assign_country fills only an empty country', async () => {
   await query("update profiles set country = 'GB' where user_id = $1", [BOT]);
   assert.equal((await one('select bot_assign_country($1) r', [BOT])).r, 'GB');
   assert.equal(await countryOf(BOT), 'GB');
+});
+
+// 0085: the edge runtime never sees cf-ipcountry, but PostgREST does, and the
+// app writes its own profile row through PostgREST on every online game.
+test("a player's own profile write fills their country from the request", async () => {
+  await query('insert into auth.users(id) values ($1)', [A]);
+  await asPlayer(A, 'np');
+  await upsertOwn(A);
+  assert.equal(await countryOf(A), 'NP');
+});
+
+test('a later write fills a profile that already existed without a country', async () => {
+  await person(A);
+  await asPlayer(A, 'IN');
+  await upsertOwn(A, 'Asha2');
+  assert.equal(await countryOf(A), 'IN');
+});
+
+test('a country already set is never replaced by the request', async () => {
+  await person(A);
+  assert.equal(await setCountry(A, 'NP'), true);
+  await asPlayer(A, 'US');
+  await upsertOwn(A);
+  assert.equal(await countryOf(A), 'NP');
+});
+
+test("the server's writes never take the server's own location", async () => {
+  await person(A);
+  await asServer('BA');
+  await upsertOwn(A);
+  await asPlayer(BOT, 'BA'); // another account writing this row (RLS forbids it; the trigger must not care)
+  await query("update profiles set display_name = 'x' where user_id = $1", [A]);
+  assert.equal(await countryOf(A), null);
+});
+
+test('a hidden flag stays empty, and showing it again refills it', async () => {
+  await person(A);
+  await asPlayer(A, 'NP');
+  await query('update profiles set country_hidden = true, country = null where user_id = $1', [A]);
+  await upsertOwn(A);
+  assert.equal(await countryOf(A), null);
+  await query('update profiles set country_hidden = false where user_id = $1', [A]);
+  assert.equal(await countryOf(A), 'NP');
+});
+
+test('unknown, Tor, missing or malformed headers leave the country empty and the write intact', async () => {
+  await query('insert into auth.users(id) values ($1)', [A]);
+  for (const code of ['XX', 'T1', '', 'USA', '1A', undefined]) {
+    await asPlayer(A, code);
+    await upsertOwn(A, `n${String(code)}`);
+    assert.equal(await countryOf(A), null, String(code));
+  }
+  await query("select set_config('request.headers', 'not json', false)");
+  await upsertOwn(A, 'final');
+  assert.equal((await one('select display_name from profiles where user_id = $1', [A])).display_name, 'final');
+  assert.equal(await countryOf(A), null);
 });

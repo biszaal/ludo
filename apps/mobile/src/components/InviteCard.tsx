@@ -16,7 +16,7 @@ import { useReferrals } from "../store/referralStore";
 import { useFriends } from "../store/friendsStore";
 import { useProfile } from "../store/profileStore";
 import { cardRows, friendShareMessage } from "../lib/referrals";
-import { INVITE_BASE } from "../lib/inviteLinks";
+import { friendInviteUrl } from "../lib/inviteLinks";
 import { tapLight } from "../lib/haptics";
 import { font, palette, space } from "../theme";
 import { useT } from "../i18n";
@@ -39,7 +39,7 @@ export function InviteCard() {
     if (!myCode) return;
     tapLight();
     try {
-      await Share.share({ message: friendShareMessage(t, displayName, myCode, INVITE_BASE, true) });
+      await Share.share({ message: friendShareMessage(t, displayName, myCode, friendInviteUrl(myCode), true) });
     } catch {
       // dismissed, or nothing to share to
     }
